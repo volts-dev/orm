@@ -360,7 +360,8 @@ func (self *TMany2OneField) OnConvertToRead(ctx *TFieldEventContext) interface{}
 			logger.LogErr(err)
 		} else {
 			//logger.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), lModel, ctx.Value, lId)
-			return lModel.NameGet([]string{utils.IntToStr(lId)})[0]
+			ds := lModel.NameGet([]string{utils.IntToStr(lId)})
+			return []string{ds.FieldByName("id").AsString(), ds.FieldByName("name").AsString()}
 		}
 	}
 

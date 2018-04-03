@@ -158,7 +158,7 @@ func (self *TFieldSet) AsInteger(src ...int64) (result int64) {
 	if self == nil {
 		return 0
 	} else {
-		return utils.Itf2Int(self.RecSet._getByName(self.Name, false))
+		return utils.Itf2Int64(self.RecSet._getByName(self.Name, false))
 	}
 	logger.Logger.Err("Can not covert value into int64 since FieldSet is nil!")
 	return 0
@@ -410,9 +410,9 @@ func (self *TRecordSet) AsStruct(target interface{}, classic ...bool) {
 			case reflect.String:
 				lItfVal = utils.Itf2Str(lItfVal)
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				lItfVal = utils.Itf2Int(lItfVal)
+				lItfVal = utils.Itf2Int64(lItfVal)
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				lItfVal = utils.Itf2Int(lItfVal)
+				lItfVal = utils.Itf2Int64(lItfVal)
 			case reflect.Float32:
 				lItfVal = utils.Itf2Float32(lItfVal)
 			case reflect.Float64:

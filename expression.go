@@ -876,7 +876,7 @@ func (self *TExpression) _push_result(leaf *TExtendedLeaf) {
 //   perform a name_search on comodel for each name
 //       return the list of related ids
 // 获得Ids
-func (self *TExpression) to_ids(value *utils.TStringList, comodel *TModel, context map[string]interface{}, limit int64) (result *utils.TStringList) {
+func (self *TExpression) to_ids(value *utils.TStringList, comodel *TModel, context map[string]interface{}, limit int) (result *utils.TStringList) {
 	var names *utils.TStringList
 
 	// 如果是数字

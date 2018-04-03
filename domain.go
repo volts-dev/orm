@@ -10,6 +10,7 @@ import (
 	"vectors/utils"
 )
 
+//TODO: domain 解析速度必须比Json序列化快
 //TODO: support other encodings besides utf-8 (conversion before the lexer?)
 
 const (
@@ -51,6 +52,7 @@ var (
 		AND_OPERATOR: OR_OPERATOR,
 		OR_OPERATOR:  AND_OPERATOR,
 	}
+	
 	/*# List of available term operators. It is also possible to use the '<>'
 	# operator, which is strictly the same as '!='; the later should be prefered
 	# for consistency. This list doesn't contain '<>' as it is simpified to '!='
@@ -83,6 +85,8 @@ var (
 		"NOT LIKE":  "LIKE",
 		"NOT ILIKE": "ILIKE",
 	}
+	
+	NEGATIVE_TERM_OPERATORS = []string{"!=", "not like", "not ilike", "not in"}
 )
 
 // ItemType identifies the type of lex Items.
@@ -738,6 +742,11 @@ func Query2StringList(sql string) (res_domain *utils.TStringList) {
 	}*/
 
 	return res_domain.Item(0)
+}
+
+//TODO 描述例句
+func Domain2StringList(domain string) *utils.TStringList {
+	return Query2StringList(domain)
 }
 
 func StringList2Domain(lst *utils.TStringList) string {

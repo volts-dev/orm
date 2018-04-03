@@ -54,10 +54,11 @@ type (
 		//Unlink(ids ...string) bool
 		Osv() *TOsv
 		Orm() *TOrm
-		NameGet(ids []string) [][]string
+		//NameGet(ids []string) [][]string
+		NameGet(ids []string) *TDataSet
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *TDataSet
-		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) *TDataSet
+		SearchName(name string, domain string, operator string, limit int, name_get_uid string, context map[string]interface{}) *TDataSet
 		//SearchCount(domain string, context map[string]interface{}) int
 	}
 
@@ -427,9 +428,11 @@ func (self *TModel) convert_to_read(field IField, value interface{}, use_name_ge
 				lId := utils.Itf2Str(value)
 				//logger.Dbg("CTR:", field.RelateModelName(), lModel, value, lId)
 				// 验证返回Id,Name 或者 空
-				id_name := lModel.NameGet([]string{lId})
-				if len(id_name) > 0 {
-					return id_name[0]
+				//id_name := lModel.NameGet([]string{lId})
+				ds := lModel.NameGet([]string{lId})
+				if ds.Count() > 0 {
+					//return id_name[0]
+					return []string{ds.FieldByName("id").AsString(), ds.FieldByName("name").AsString()}
 				} else {
 					return nil
 				}
@@ -502,32 +505,39 @@ func (self *TModel) _name_get(ids, fields []string) (result *TDataSet) {
 	return
 }
 
-func (self *TModel) NameGet(ids []string) (result [][]string) {
+func (self *TModel) NameGet(ids []string) (result *TDataSet) {
+	//func (self *TModel) NameGet(ids []string) (result [][]string) {
 	name := self._rec_name
-	result = make([][]string, 0)
+	//result = make([][]string, 0)
 
 	if f := self.FieldByName(name); f != nil {
 		// error
 
 		//lDs := self.Read(ids, []string{"id", name})
 		lDs, _ := self.Records().Select("id", name).Ids(ids...).Read()
-		lDs.First()
+		/*lDs.First()
 		for !lDs.Eof() {
 			val := []string{lDs.FieldByName("id").AsString(), lDs.FieldByName(name).AsString()}
 			result = append(result, val)
 			lDs.Next()
-		}
+		}*/
+		return lDs
 	} else {
+		ds := NewDataSet()
 		for _, id := range ids {
-			val := []string{id, fmt.Sprintf("%s,%s", self.GetModelName(), id)}
-			result = append(result, val)
+			//val := []string{id, fmt.Sprintf("%s,%s", self.GetModelName(), id)}
+			//result = append(result, val)
+
+			ds.NewRecord(map[string]interface{}{"id": id, name: self.GetModelName()})
 		}
+
+		return ds
 	}
 
-	return
+	return nil
 }
 
-func (self *TModel) SearchName(name string, domain string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *TDataSet) {
+func (self *TModel) SearchName(name string, domain string, operator string, limit int, access_rights_uid string, context map[string]interface{}) (result *TDataSet) {
 	if operator == "" {
 		operator = "ilike"
 	}
