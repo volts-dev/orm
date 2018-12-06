@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"vectors/logger"
-	"vectors/utils"
-	"vectors/web"
 
+	"github.com/VectorsOrigin/logger"
+	"github.com/VectorsOrigin/utils"
+	"github.com/VectorsOrigin/web"
 	"github.com/go-xorm/core"
 )
 
