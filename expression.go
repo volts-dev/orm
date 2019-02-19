@@ -481,7 +481,7 @@ func normalize_domain(domain *utils.TStringList) (result *utils.TStringList) {
 		return Query2StringList(TRUE_DOMAIN)
 	}
 
-	// 必须是多个Term
+	// must be including Terms
 	if !domain.IsList() {
 		logger.Logger.Err("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
 		//return // TODO 考虑是否直接返回？？？
@@ -515,7 +515,7 @@ func normalize_domain(domain *utils.TStringList) (result *utils.TStringList) {
 
 	// 错误提示
 	if expected != 0 {
-		logger.Logger.Err("This domain is syntactically not correct: %s", StringList2Domain(domain))
+		logger.Logger.Errf("This domain is syntactically not correct: %s", StringList2Domain(domain))
 	}
 
 	// 格式化List 生成Text
@@ -771,7 +771,7 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 	}
 
 	if len(alias) > 64 {
-		logger.Logger.Warn("Table alias name %s is longer than the 64 characters size accepted by default in postgresql.", alias)
+		logger.Logger.Warnf("Table alias name %s is longer than the 64 characters size accepted by default in postgresql.", alias)
 	}
 
 	return alias, fmt.Sprintf("%s as %s", _quote(joined_tables[0][0]), _quote(alias))
@@ -797,7 +797,7 @@ func (self *TExpression) _recursive_children(ids *utils.TStringList, model *TMod
 	}
 	//lRec := model.Search(fmt.Sprintf("[('%s', 'in', '%s')]", parent_field, ids), 0, 0, "", false, context)
 	//lRec := model.SearchRead(fmt.Sprintf("[('%s', 'in', '%s')]", parent_field, ids), nil, 0, 0, "", context)
-	lRec, _ := model.Records().Domain(fmt.Sprintf("[('%s', 'in', '%s')]", parent_field, ids)).Read()
+	lRec, _ := model.Records().Domain(fmt.Sprintf("[('%s', 'in', '%s')]", parent_field, ids.Flatten())).Read()
 	ids2 := utils.NewStringList()
 	for _, key := range lRec.Keys() {
 		ids2.PushString(key)
@@ -1003,7 +1003,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			self._push_result(lExLeaf)
 		} else if field == nil && !IsInheritField {
 			//panic(logger.Logger.Err("Invalid field %r in leaf %r", left.String(), lExLeaf.leaf.String()))
-			logger.Logger.Err("Invalid field %s in leaf %s", left.String(), lExLeaf.leaf.String())
+			logger.Logger.Errf("Invalid field %s in leaf %s", left.String(), lExLeaf.leaf.String())
 
 			//} else if (field == nil || (field != nil && field.IsForeignField())) && IsInheritField {
 		} else if IsInheritField {
@@ -1032,7 +1032,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 				logger.LogErr(err)
 			}
 			//logger.Dbg("IsForeignField>>", lFieldName, next_model.GetModelName())
-			lExLeaf.add_join_context(next_model.GetBaseModel(), model._relations[next_model.GetModelName()], "id", model._relations[next_model.GetModelName()])
+			lExLeaf.add_join_context(next_model.GetBase(), model._relations[next_model.GetModelName()], "id", model._relations[next_model.GetModelName()])
 			self._push(lExLeaf)
 
 		} else if left.String() == "id" && utils.InStrings(operator.String(), "child_of", "parent_of") != -1 {
@@ -1071,26 +1071,26 @@ func (self *TExpression) parse(context map[string]interface{}) {
 
 			//logger.Dbg(`if len(lPath) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			// # res_partner.state_id = res_partner__state_id.id
-			lExLeaf.add_join_context(comodel.GetBaseModel(), lFieldName, "id", lFieldName)
-			self._push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBaseModel(), false))
+			lExLeaf.add_join_context(comodel.GetBase(), lFieldName, "id", lFieldName)
+			self._push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.Type() == "one2many" && field.IsAutoJoin() {
 			//logger.Dbg(`if len(lPath) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			//  # res_partner.id = res_partner__bank_ids.partner_id
-			lExLeaf.add_join_context(comodel.GetBaseModel(), "id", field.FieldsId(), lFieldName)
+			lExLeaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), lFieldName)
 			domain := Query2StringList(field.Domain()) //column._domain(model) if callable(column._domain) else column._domain
-			self._push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBaseModel(), false))
+			self._push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
 			if domain != nil {
 				domain = normalize_domain(domain)
 				domain = domain.Reversed()
 				for _, elem := range domain.Items() {
-					self._push(create_substitution_leaf(lExLeaf, elem, comodel.GetBaseModel(), false))
+					self._push(create_substitution_leaf(lExLeaf, elem, comodel.GetBase(), false))
 				}
-				self._push(create_substitution_leaf(lExLeaf, Query2StringList(AND_OPERATOR), comodel.GetBaseModel(), false))
+				self._push(create_substitution_leaf(lExLeaf, Query2StringList(AND_OPERATOR), comodel.GetBase(), false))
 			}
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.IsAutoJoin() {
-			logger.Logger.Err("_auto_join attribute not supported on many2many column %s", left.String())
+			logger.Logger.Errf("_auto_join attribute not supported on many2many column %s", left.String())
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.Type() == "many2one" {
 			//logger.Dbg(`if len(path) > 1 && field.Type == 'many2one'`)
@@ -1121,7 +1121,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			var domain *utils.TStringList
 			if !field.Search() {
 				//# field does not support search!
-				logger.Logger.Err("Non-stored field %s cannot be searched.", field.Name)
+				logger.Logger.Errf("Non-stored field %s cannot be searched.", field.Name)
 				// if _logger.isEnabledFor(logging.DEBUG):
 				//     _logger.debug(''.join(traceback.format_stack()))
 				//# Ignore it: generate a dummy leaf.
@@ -1231,11 +1231,11 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 
 	// 重新检查合法性 不行final sanity checks - should never fail
 	if utils.InStrings(operator.String(), append(TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
-		logger.Logger.WarnLn(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
+		logger.Logger.Warnf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
 	}
 
 	if !(left.In(TRUE_LEAF, FALSE_LEAF) || model.FieldByName(left.String()) != nil || left.In(MAGIC_COLUMNS)) { //
-		logger.Logger.WarnLn(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
+		logger.Logger.Warnf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 	}
 	//        assert not isinstance(right, BaseModel), \
 	//            "Invalid value %r in domain term %r" % (right, leaf)
@@ -1346,7 +1346,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 			}
 			if is_bool_value {
 				r := ""
-				logger.Logger.Warn(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
+				logger.Logger.Warnf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
 				if operator.String() == "in" {
 					if utils.StrToBool(right.String()) {
 						r = "NOT NULL"
@@ -1360,7 +1360,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 						r = "NOT NULL"
 					}
 				}
-				res_query = fmt.Sprintf(`(%s."%s" IS %s)`, table_alias, left, r)
+				res_query = fmt.Sprintf(`(%s."%s" IS %s)`, table_alias, left.String(), r)
 				res_params = nil
 			}
 			//  raise ValueError("Invalid domain term %r" % (leaf,))
@@ -1446,7 +1446,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 			}
 		} else {
 			//# Must not happen
-			logger.Logger.Err(`Invalid field %s in domain term %s`, left.String(), leaf.String())
+			logger.Logger.Errf(`Invalid field %s in domain term %s`, left.String(), leaf.String())
 		}
 
 		add_null := false
@@ -1528,7 +1528,7 @@ func (self *TExpression) to_sql(params ...interface{}) (res_query []string, res_
 	// #上面Pop取出合并后应该为1
 	if stack.Count() != 1 {
 		res_params = nil
-		logger.Logger.Err("domain to sql error: stack.Len() %d", stack.Count())
+		logger.Logger.Errf("domain to sql error: stack.Len() %d", stack.Count())
 	}
 
 	query = stack.String(0)

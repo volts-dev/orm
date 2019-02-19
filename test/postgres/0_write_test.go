@@ -5,6 +5,6 @@ import (
 	"vectors/orm/test"
 )
 
-func TestOr(t *testing.T) {
+func TestWrite(t *testing.T) {
 	test.Write(test.TestOrm, t)
 }

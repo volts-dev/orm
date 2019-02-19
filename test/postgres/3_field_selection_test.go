@@ -8,6 +8,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func Test1(t *testing.T) {
+func TestFieldSelection(t *testing.T) {
 	test.FieldSelection(test.TestOrm, t)
 }

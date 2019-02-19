@@ -407,11 +407,11 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 					// currently only support mysql & postgres
 					if lOrm.dialect.DBType() == core.MYSQL ||
 						lOrm.dialect.DBType() == core.POSTGRES {
-						logger.Logger.Info("Table %s column %s change type from %s to %s\n",
+						logger.Logger.Infof("Table %s column %s change type from %s to %s\n",
 							lTableName, col.Name, curType, expectedType)
 						_, err = lOrm.Exec(lOrm.dialect.ModifyColumnSql(new_tb.Name, col))
 					} else {
-						logger.Logger.Warn("Table %s column %s db type is %s, struct type is %s\n",
+						logger.Logger.Warnf("Table %s column %s db type is %s, struct type is %s\n",
 							lTableName, col.Name, curType, expectedType)
 					}
 
@@ -419,7 +419,7 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 				} else if strings.HasPrefix(curType, core.Varchar) && strings.HasPrefix(expectedType, core.Varchar) {
 					if lOrm.dialect.DBType() == core.MYSQL {
 						if cur_col.Length < col.Length {
-							logger.Logger.Info("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
+							logger.Logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
 								lTableName, col.Name, cur_col.Length, col.Length)
 							_, err = lOrm.Exec(lOrm.dialect.ModifyColumnSql(lTableName, col))
 						}
@@ -427,7 +427,7 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 					//其他
 				} else {
 					if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
-						logger.Logger.Warn("Table %s column %s db type is %s, struct type is %s",
+						logger.Logger.Warnf("Table %s column %s db type is %s, struct type is %s",
 							lTableName, col.Name, curType, expectedType)
 					}
 				}
@@ -435,7 +435,7 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 			} else if expectedType == core.Varchar {
 				if lOrm.dialect.DBType() == core.MYSQL {
 					if cur_col.Length < col.Length {
-						logger.Logger.Info("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
+						logger.Logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
 							lTableName, col.Name, cur_col.Length, col.Length)
 						_, err = lOrm.Exec(lOrm.dialect.ModifyColumnSql(lTableName, col))
 					}
@@ -444,11 +444,11 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 
 			//
 			if col.Default != cur_col.Default {
-				logger.Logger.Warn("Table %s Column %s db default is %s, struct default is %s",
+				logger.Logger.Warnf("Table %s Column %s db default is %s, struct default is %s",
 					lTableName, col.Name, cur_col.Default, col.Default)
 			}
 			if col.Nullable != cur_col.Nullable {
-				logger.Logger.Warn("Table %s Column %s db nullable is %v, struct nullable is %v",
+				logger.Logger.Warnf("Table %s Column %s db nullable is %v, struct nullable is %v",
 					lTableName, col.Name, cur_col.Nullable, col.Nullable)
 			}
 
@@ -589,13 +589,13 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	} else {
 		md, err = self.orm.GetModel(model, region...)
 		if err != nil {
-			logger.Panic(err.Error())
+			logger.Panicf(err.Error())
 		}
 	}
 
 	if md != nil {
 		self.IsClassic = true
-		self.model = md.GetBaseModel()
+		self.model = md.GetBase()
 		self.Statement.Table = self.model.table
 		self.Statement.TableNameClause = md.GetTableName()
 
@@ -612,7 +612,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 		//logger.Logger.Err("Model %s is not a standard model type of this system", lTableName)
 		self.Statement.Table = self.orm.tables[lTableName]
 		if self.Statement.Table == nil {
-			logger.Logger.ErrLn("the table is not in database.")
+			logger.Logger.Errf("the table is not in database.")
 			return nil
 		}
 		self.Statement.AltTableNameClause = lTableName
@@ -1478,7 +1478,9 @@ func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id in
 }
 
 // TODO 接受多值
+// start to write data from the data model
 func (self *TSession) Write(src interface{}, classic_write ...bool) (res_effect int64, res_err error) {
+	// reset after complete
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -1490,7 +1492,9 @@ func (self *TSession) Write(src interface{}, classic_write ...bool) (res_effect 
 	return self._write(src, nil)
 }
 
+// start to read data from the data model
 func (self *TSession) Read(classic_read ...bool) (res_dataset *TDataSet, res_err error) {
+	// reset after complete
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -1523,7 +1527,7 @@ func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err e
 	computed := make([]string, 0) // 数据库没有的字段
 	var lIds []string
 
-	// 获取Ids
+	// get data ids with query
 	if len(self.Statement.IdParam) > 0 {
 		lIds = self.Statement.IdParam
 	} else {
@@ -1557,7 +1561,7 @@ func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err e
 				}
 			} else {
 				//_logger.warning("%s.read() with unknown field '%s'", self._name, name)
-				logger.Logger.Warn(`%s.read() with unknown field '%s'`, self.model.GetModelName(), name)
+				logger.Logger.Warnf(`%s.read() with unknown field '%s'`, self.model.GetModelName(), name)
 			}
 
 		}
@@ -2166,7 +2170,7 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 		// # 报告错误记录
 		if res_ds.Count() != len(less_ids) {
 			//# if not you need
-			logger.Logger.Err(`query result including %v records are not what you expectd! %v`, res_ds.Count(), len(less_ids))
+			logger.Logger.Errf(`query result including %v records are not what you expectd! %v`, res_ds.Count(), len(less_ids))
 
 		}
 
@@ -2390,7 +2394,7 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 					if lCol.SQLType.IsText() {
 						bytes, err := json.Marshal(lFieldValue.Interface())
 						if err != nil {
-							logger.Logger.ErrLn("IsJson", err)
+							logger.Logger.Errf("IsJson", err)
 							continue
 						}
 						lValue = string(bytes)
@@ -2399,7 +2403,7 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 						var err error
 						bytes, err = json.Marshal(lFieldValue.Interface())
 						if err != nil {
-							logger.Logger.ErrLn("IsBlob", err)
+							logger.Logger.Errf("IsBlob", err)
 							continue
 						}
 						lValue = bytes

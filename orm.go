@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
 	//	"sync"
 	"time"
 	"unicode/utf8"
@@ -44,10 +45,10 @@ var (
 
 type (
 	TOrm struct {
-		db      *core.DB
-		osv     *TOsv // 对象管理
-		dialect core.Dialect
-
+		db              *core.DB
+		osv             *TOsv // 对象管理
+		dialect         core.Dialect
+		dataSource      *DataSource
 		FieldIdentifier string // 字段 tag 标记
 		TableIdentifier string // 表 tag 标记
 		TimeZone        *time.Location
@@ -66,7 +67,7 @@ type (
 		cacher *TCacher // TODO 大写
 
 		// #logger
-		logger         *logger.TLogger
+		logger         *logger.TLogger //TODO 接口
 		_show_sql      bool
 		_show_sql_time bool
 	}
@@ -75,8 +76,11 @@ type (
 /*
 db_driver database type
 */
-func NewOrm(db_driver string, db_src string) (res_orm *TOrm, err error) {
+func NewOrm(dataSource *DataSource) (res_orm *TOrm, err error) {
+	//func NewOrm(db_driver string, db_src string) (res_orm *TOrm, err error) {
 	reg_drvs_dialects()
+	db_driver := dataSource.DbType
+	db_src := dataSource.toString()
 	lDriver := core.QueryDriver(db_driver)
 	if lDriver == nil {
 		return nil, fmt.Errorf("Unsupported driver name: %v", db_driver)
@@ -105,6 +109,7 @@ func NewOrm(db_driver string, db_src string) (res_orm *TOrm, err error) {
 	res_orm = &TOrm{
 		db:              lDb,
 		dialect:         lDialect,
+		dataSource:      dataSource,
 		FieldIdentifier: "field",
 		TableIdentifier: "table",
 		//models:          make(map[reflect.Type]*TModel),
@@ -194,11 +199,11 @@ func (self *TOrm) DriverName() string {
 func (self *TOrm) Ping() error {
 	session := self.NewSession()
 	defer session.Close()
-	self.logger.Info("PING DATABASE %v", self.DriverName())
+	self.logger.Infof("PING DATABASE %v", self.DriverName())
 	return session.Ping()
 }
 
-// Close the engine
+// close the entire orm engine
 func (self *TOrm) Close() error {
 	return self.db.Close()
 }
@@ -269,9 +274,9 @@ func (self *TOrm) log_exec_sql(sql string, args []interface{}, executionBlock fu
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			self.logger.Info("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			self.logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
 		} else {
-			self.logger.Info("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			self.logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -321,9 +326,9 @@ func (self *TOrm) log_query_sql(sql string, args []interface{}, executionBlock f
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			self.logger.Info("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			self.logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
 		} else {
-			self.logger.Info("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			self.logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -455,7 +460,7 @@ func lookup(tag string, key ...string) (value string) {
 		if utils.InStrings(name, key...) != -1 {
 			value, err := unquote(qvalue)
 			if err != nil {
-				logger.Logger.ErrLn("Tag error:", qvalue, value, err.Error())
+				logger.Logger.Errf("Tag error:", qvalue, value, err.Error())
 				break
 			}
 			return value
@@ -771,7 +776,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			// 识别分割Tag各属性
 			//logger.Dbg("tags1", lookup(string(lFieldTag), self.FieldIdentifier))
 			lTags := splitTag(lStr)
-			logger.Dbg("tags", lTags)
+			//logger.Dbg("tags", lTags)
 
 			// 排序Tag并_确保优先执行字段类型属性
 			tagMap := make(map[string][]string) // 记录Tag的
@@ -793,7 +798,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					if strings.Index(lStr, " ") != -1 {
 						if !strings.HasPrefix(lStr, "'") &&
 							!strings.HasSuffix(lStr, "'") {
-							logger.Panic("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", lTableName, strings.ToUpper(lFieldName))
+							logger.Panicf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", lTableName, strings.ToUpper(lFieldName))
 						}
 					}
 				}
@@ -817,7 +822,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				//logger.Dbg("lField", lField.Name(), lField.ColumnType(), lField.IsForeignField())
 				// 必须确保上面的代码能获取到定义的字段类型
 				if lField == nil {
-					logger.Panic("must difine the field type for the model field :" + lModelName + "." + lFieldName)
+					logger.Panicf("must difine the field type for the model field :" + lModelName + "." + lFieldName)
 				}
 			}
 			lField.Base().model_name = alt_model_name
@@ -910,7 +915,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 						FieldContext.Params = vals
 						tag_ctrl(FieldContext)
 					} else {
-						logger.Logger.Warn("Unknown tag %s from %s:%s", lStr, lModelName, lFieldName)
+						logger.Logger.Warnf("Unknown tag %s from %s:%s", lStr, lModelName, lFieldName)
 
 						//# 其他数据库类型
 						if _, ok := core.SqlTypes[strings.ToUpper(attr)]; ok {
@@ -1077,6 +1082,7 @@ func (self *TOrm) GetModel(model string, module ...string) (res_model IModel, er
 	return self.osv.GetModel(model, module...)
 }
 
+// return the table object
 func (self *TOrm) GetTable(table string) (res_table *core.Table) {
 	var has bool
 	if res_table, has = self.tables[table]; has {
@@ -1110,7 +1116,7 @@ func (self *TOrm) SetCacher(table string, open bool) {
 	self.cacher.SetStatus(open, table)
 }
 
-//
+// turn on the cacher for query
 func (self *TOrm) ActiveCacher(sw bool) {
 	self.cacher.Active(sw)
 }
@@ -1193,13 +1199,29 @@ func (self *TOrm) IsTableExist(model string) (bool, error) {
 
 // If a table is exist
 func (self *TOrm) IsExist(db string) bool {
-	ds, err := self.Query("SELECT datname FROM pg_database WHERE datname = '" + db + "'")
-	if err != nil {
-		logger.Err("IsExsit() raise an error:%s", db, err)
-		return false
+	ds := &DataSource{}
+	*ds = *self.dataSource
+	switch ds.DbType {
+	case "postgres":
+		ds.DbName = "postgres"
+		o, e := NewOrm(ds)
+		if e != nil {
+			logger.Errf("IsExsit() raise an error:%s", db, e)
+			return false
+		}
+
+		ds, e := o.Query("SELECT datname FROM pg_database WHERE datname = '" + db + "'")
+		if e != nil {
+			logger.Errf("IsExsit() raise an error:%s", db, e)
+			return false
+		}
+
+		return ds.Count() > 0
+
+	case "mysql":
 	}
 
-	return ds.Count() > 0
+	return false
 }
 
 // 删除表
@@ -1248,22 +1270,37 @@ func (self *TOrm) CreateTables(models ...string) error {
 	return session.Commit()
 }
 
+// TODO consider to implement truely create db
 func (self *TOrm) CreateDatabase(name string) error {
-	session := self.NewSession()
-	defer session.Close()
+	ds := &DataSource{}
+	*ds = *self.dataSource
+	switch ds.DbType {
+	case "postgres":
+		ds.DbName = "postgres"
+		o, e := NewOrm(ds)
+		if e != nil {
+			return e
+		}
 
-	_, err := session.exec("CREATE DATABASE " + name)
-	return err
+		session := o.NewSession()
+		defer session.Close()
+
+		_, e = session.exec("CREATE DATABASE " + name)
+		return e
+	case "mysql":
+	}
+
+	return nil
 }
 
-// create indexes
+// build the indexes for model
 func (self *TOrm) CreateIndexes(model string) error {
 	session := self.NewSession()
 	defer session.Close()
 	return session.CreateIndexes(model)
 }
 
-// create uniques
+// build the uniques for model
 func (self *TOrm) CreateUniques(model string) error {
 	session := self.NewSession()
 	defer session.Close()
@@ -1323,7 +1360,7 @@ func (self *TOrm) Query(sql string, params ...interface{}) (ds *TDataSet, err er
 	return session.Query(sql, params...)
 }
 
-// Exec raw sql
+// exec raw sql directly
 func (self *TOrm) Exec(sql string, params ...interface{}) (sql.Result, error) {
 	session := self.NewSession()
 	defer session.Close()

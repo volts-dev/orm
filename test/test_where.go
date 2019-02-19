@@ -4,19 +4,20 @@ import (
 	//"fmt"
 	"testing"
 	"vectors/orm"
+	"vectors/utils"
 )
 
 func Where(orm *orm.TOrm, t *testing.T) {
 	// 注册Model
 	orm.SyncModel("test", new(Model1))
 
-	model, _ := orm.GetModel("model1")
+	model, _ := orm.GetModel("sys.action")
 	session := model.Records()
 
 	ids := make([]interface{}, 0)
 	var i int64
 	for i = 0; i < 10; i++ {
-		data := &Model1{Type: "create", Lang: "CN", CreateId: i, WriteId: 99}
+		data := &Model1{Type: "create", Lang: "CN" + utils.IntToStr(i), CreateId: i, WriteId: 99}
 
 		id, err := session.Create(data)
 		if err != nil {

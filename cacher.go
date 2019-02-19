@@ -35,12 +35,12 @@ func NewCacher() *TCacher {
 		table_sql_key_index: make(map[string]map[string]bool),
 	}
 	var err error
-	cacher.id_caches, err = cache.NewCacher("memory", fmt.Sprintf(`{"interval":%v,"expired":%v}`))
+	cacher.id_caches, err = cache.NewCacher("memory", fmt.Sprintf(`{"interval":%v,"expired":%v}`, cache.INTERVAL_TIME, cache.EXPIRED_TIME))
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	cacher.sql_caches, err = cache.NewCacher("memory", fmt.Sprintf(`{"interval":%v,"expired":%v}`))
+	cacher.sql_caches, err = cache.NewCacher("memory", fmt.Sprintf(`{"interval":%v,"expired":%v}`, cache.INTERVAL_TIME, cache.EXPIRED_TIME))
 	if err != nil {
 		fmt.Println(err)
 	}

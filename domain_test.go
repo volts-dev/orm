@@ -1,7 +1,7 @@
 package orm
 
 import (
-	"fmt"
+	//	"fmt"
 	"testing"
 	"vectors/utils"
 )
@@ -25,6 +25,7 @@ var (
 	}
 )
 
+/*
 func TestDomain2StringList(t *testing.T) {
 	for idx, domain := range domains {
 		fmt.Println()
@@ -33,6 +34,12 @@ func TestDomain2StringList(t *testing.T) {
 		list := Query2StringList(domain)
 		utils.PrintStringList(list)
 	}
+}
+*/
+func TestQuery2StringList(t *testing.T) {
+	lst := Query2StringList("name ilike ?")
+	utils.PrintStringList(lst)
+
 }
 
 /*

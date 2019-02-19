@@ -7,20 +7,26 @@ import (
 	"vectors/orm"
 )
 
+const DB_NAME = "test_orm"
+
 var (
 	TestOrm *orm.TOrm
 )
 
-func InitOrm(db_type, conn_str string, show_sql bool) error {
+func InitOrm(ds *orm.DataSource, show_sql bool) error {
 	if TestOrm == nil {
 		var err error
-		TestOrm, err = orm.NewOrm(db_type, conn_str)
+		TestOrm, err = orm.NewOrm(ds)
 		if err != nil {
 			return err
 		}
 
 		TestOrm.ShowSql(show_sql)
 		//TestOrm.logger.SetLevel()
+	}
+
+	if !TestOrm.IsExist(ds.DbName) {
+		TestOrm.CreateDatabase(ds.DbName)
 	}
 
 	var table_Names []string
@@ -42,59 +48,64 @@ func directCreateTable(orm *orm.TOrm, t *testing.T) {
 	}
 
 	err = orm.SyncModel("test",
-		new(Model1),
-		new(Model2),
-		new(ResPartner),
-		new(ResUser))
+		new(BaseModel),
+		new(RelateModel),
+		new(BaseRelateRef),
+		/*
+			new(Model1),
+			new(Model2),
+			new(ResPartner),
+			new(ResUser)*/
+	)
 	if err != nil {
 		panic(err)
 	}
 
-	isEmpty, err := orm.IsTableEmpty("res.user")
-	if err != nil {
-		panic(err)
-	}
-	if !isEmpty {
-		err = errors.New("res.user should empty")
-		panic(err)
-	}
-
-	isEmpty, err = orm.IsTableEmpty("res.partner")
+	isEmpty, err := orm.IsTableEmpty("base.model")
 	if err != nil {
 		panic(err)
 	}
 	if !isEmpty {
-		err = errors.New("res.partner should empty")
+		err = errors.New("base.model should empty")
 		panic(err)
 	}
 
-	err = orm.DropTables("res.user", "res.partner")
+	isEmpty, err = orm.IsTableEmpty("relate.model")
+	if err != nil {
+		panic(err)
+	}
+	if !isEmpty {
+		err = errors.New("relate.model should empty")
+		panic(err)
+	}
+
+	err = orm.DropTables("base.model", "relate.model")
 	if err != nil {
 		panic(err)
 	}
 
-	err = orm.CreateTables("res.partner")
-	err = orm.CreateTables("res.partner", "res.user")
+	err = orm.CreateTables("base.model")
+	err = orm.CreateTables("relate.modle", "base.relate.ref")
 	if err != nil {
 		panic(err)
 	}
 
-	err = orm.CreateIndexes("res.user")
+	err = orm.CreateIndexes("base.model")
 	if err != nil {
 		panic(err)
 	}
 
-	err = orm.CreateIndexes("res.partner")
+	err = orm.CreateIndexes("base.model")
 	if err != nil {
 		panic(err)
 	}
 
-	err = orm.CreateUniques("res.user")
+	err = orm.CreateUniques("base.model")
 	if err != nil {
 		panic(err)
 	}
 
-	err = orm.CreateUniques("res.partner")
+	err = orm.CreateUniques("base.model")
 	if err != nil {
 		panic(err)
 	}

@@ -52,7 +52,7 @@ var (
 		AND_OPERATOR: OR_OPERATOR,
 		OR_OPERATOR:  AND_OPERATOR,
 	}
-	
+
 	/*# List of available term operators. It is also possible to use the '<>'
 	# operator, which is strictly the same as '!='; the later should be prefered
 	# for consistency. This list doesn't contain '<>' as it is simpified to '!='
@@ -85,7 +85,7 @@ var (
 		"NOT LIKE":  "LIKE",
 		"NOT ILIKE": "ILIKE",
 	}
-	
+
 	NEGATIVE_TERM_OPERATORS = []string{"!=", "not like", "not ilike", "not in"}
 )
 
@@ -635,7 +635,7 @@ func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) 
 	list := utils.NewStringList() // 存储临时叶 提供给所有
 	for !parser.IsEnd() {
 		item := parser.Item()
-		//fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[item.Type], item.Val))
+		fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[item.Type], item.Val))
 		switch item.Type {
 		case ItemLeftParen:
 			// 检测是否到尾部
@@ -700,6 +700,7 @@ func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) 
 
 exit:
 	if temp.Count() == 0 { // 当temp为0 时证明不是带Or And 的条件 直接返回List
+		fmt.Println("auuuu", list.Flatten())
 		return list, nil
 	} else {
 		// # 以下处理SQL语句
@@ -725,11 +726,11 @@ func _trim_quotes(s string) string {
 
 func Query2StringList(sql string) (res_domain *utils.TStringList) {
 	parser := NewDomainParser(sql)
-
 	res_domain, err := _parse_query(parser, 0)
 	if err != nil {
 
 	}
+	fmt.Println("asdfa", res_domain.Flatten())
 
 	// 确保Domain为List形态
 	/*for {
@@ -741,12 +742,17 @@ func Query2StringList(sql string) (res_domain *utils.TStringList) {
 		break
 	}*/
 
-	return res_domain.Item(0)
+	return res_domain
 }
 
 //TODO 描述例句
 func Domain2StringList(domain string) *utils.TStringList {
-	return Query2StringList(domain)
+	parser := NewDomainParser(domain)
+	res_domain, err := _parse_query(parser, 0)
+	if err != nil {
+
+	}
+	return res_domain.Item(0)
 }
 
 func StringList2Domain(lst *utils.TStringList) string {

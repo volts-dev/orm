@@ -5,6 +5,6 @@ import (
 	"vectors/orm/test"
 )
 
-func Test1(t *testing.T) {
+func TestFieldMany2Many(t *testing.T) {
 	test.FieldMany2Many(test.TestOrm, t)
 }

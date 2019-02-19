@@ -366,6 +366,7 @@ func (self *TRecordSet) AsCsv() (res string) {
 	return
 }
 
+// terget must be a pointer value
 func (self *TRecordSet) AsStruct(target interface{}, classic ...bool) {
 	// 使用经典数据模式
 	lClassic := false
@@ -425,7 +426,7 @@ func (self *TRecordSet) AsStruct(target interface{}, classic ...bool) {
 					lItfVal = utils.Itf2Time(lItfVal)
 				}
 			default:
-				logger.Logger.ErrLn("Unsupported struct type %v", lFieldValue.Type().Kind())
+				logger.Logger.Errf("Unsupported struct type %v", lFieldValue.Type().Kind())
 				continue
 			}
 		}
@@ -559,7 +560,7 @@ func (self *TDataSet) AppendRecord(Record ...*TRecordSet) error {
 		}
 
 		if err := self.check_fields(rec); err != nil {
-			logger.Logger.Err(`TDataSet.AppendRecord():%v`, err.Error())
+			logger.Logger.Errf(`TDataSet.AppendRecord():%v`, err.Error())
 
 		} else { //#TODO 考虑是否为复制
 			rec.DataSet = self //# 将其归为
@@ -677,12 +678,12 @@ func (self *TDataSet) RecordByKey(Key string, key_field ...string) (rec *TRecord
 				logger.Logger.Err(`You should point out the key_field name!`) //#重要提示
 			} else {
 				if !self.SetKeyField(key_field[0]) {
-					logger.Logger.Err(`Set key_field fail when call RecordByKey(key_field:%v)!`, key_field[0])
+					logger.Logger.Errf(`Set key_field fail when call RecordByKey(key_field:%v)!`, key_field[0])
 				}
 			}
 		} else {
 			if !self.SetKeyField(self.KeyField) {
-				logger.Logger.Err(`Set key_field fail when call RecordByKey(self.KeyField:%v)!`, self.KeyField)
+				logger.Logger.Errf(`Set key_field fail when call RecordByKey(self.KeyField:%v)!`, self.KeyField)
 			}
 		}
 	}

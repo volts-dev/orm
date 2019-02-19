@@ -82,7 +82,7 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 		fld.Base()._attr_relation = fld.Base().comodel_name
 		fld.Base()._attr_type = "many2many"
 	} else {
-		logger.Panic("Many2Many(%s) of model %s must including at least 4 args!", fld.Name(), self.model_name)
+		logger.Panicf("Many2Many(%s) of model %s must including at least 4 args!", fld.Name(), self.model_name)
 	}
 	logger.Dbg("M2M", fld.Base())
 }
@@ -102,19 +102,19 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 		id1 := fld.RelateModelName()
 		id2 := fld.MiddleFieldName()
 		query := fmt.Sprintf(`
-	           CREATE TABLE "{rel}" ("{id1}" INTEGER NOT NULL,
-	                                 "{id2}" INTEGER NOT NULL,
-	                                 UNIQUE("{id1}","{id2}"));
-	           COMMENT ON TABLE "{rel}" IS %s;
-	           CREATE INDEX ON "{rel}" ("{id1}");
-	           CREATE INDEX ON "{rel}" ("{id2}")`,
+	           CREATE TABLE "%s" ("%s" INTEGER NOT NULL,
+	                                 "%s" INTEGER NOT NULL,
+	                                 UNIQUE("%s","%s"));
+	           COMMENT ON TABLE "%s" IS %%s;
+	           CREATE INDEX ON "%s" ("%s");
+	           CREATE INDEX ON "%s" ("%s")`,
 			rel, id1,
 			id2,
 			id1, id2,
 			rel,
 			rel, id1,
 			rel, id2)
-		_, err := orm.Exec(query)
+		_, err := orm.Exec(query, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.ModelName(), rel))
 		if err != nil {
 			logger.Errf("m2m create table %s failed:%s", ctx.Field.RelateModelName(), err.Error())
 		}
@@ -230,7 +230,7 @@ func (self *TMany2ManyField) OnConvertToRead(ctx *TFieldEventContext) interface{
 	if ids == nil || len(less_ids) > 0 {
 		ds, err := sess.Query(query, where_params...)
 		if err != nil {
-			logger.Logger.ErrLn(err.Error())
+			logger.Logger.Errf(err.Error())
 			return nil
 		}
 
@@ -374,7 +374,7 @@ func (self *TMany2OneField) OnConvertToWrite(ctx *TFieldEventContext) interface{
 			return lst[0]
 		}
 	default:
-		logger.Logger.Warn("%s convert_to_write many2one fail", ctx.Field.Name())
+		logger.Logger.Warnf("%s convert_to_write many2one fail", ctx.Field.Name())
 	}
 
 	return ctx.Value

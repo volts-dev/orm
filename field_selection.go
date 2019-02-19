@@ -3,6 +3,7 @@ package orm
 import (
 	"encoding/json"
 	"reflect"
+
 	//"reflect"
 	"strings"
 	"vectors/logger"
@@ -69,7 +70,7 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 		m := make(map[string]string)
 		err := json.Unmarshal([]byte(lStr), &m)
 		if err != nil {
-			logger.Logger.Err("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
+			logger.Logger.Errf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
 		}
 
 		for k, v := range m {

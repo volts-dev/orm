@@ -210,7 +210,7 @@ func tag_compute(ctx *TFieldContext) {
 			fld.Base()._compute = lStr
 		}
 	} else {
-		logger.Logger.ErrLn("Compute tag ", fld.Name(), "'s Args can no be blank!")
+		logger.Logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
 }
 
@@ -264,7 +264,7 @@ func tag_extends_relate(ctx *TFieldContext) {
 
 	switch fld_val.Kind() {
 	case reflect.Ptr:
-		logger.Logger.Err("field:%s as pointer is not supported!", fld_val.Type().Name())
+		logger.Logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
 		break
 	case reflect.Struct:
 		var (

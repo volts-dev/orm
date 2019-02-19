@@ -4,19 +4,24 @@ import (
 	//"fmt"
 	"testing"
 	"vectors/orm"
+	"vectors/utils"
 )
 
 func And(orm *orm.TOrm, t *testing.T) {
 	// 注册Model
-	orm.SyncModel("test", new(Model1))
+	orm.SyncModel("test",
+		new(BaseModel),
+		new(RelateModel),
+		new(BaseRelateRef),
+	)
 
-	model, _ := orm.GetModel("model1")
+	model, _ := orm.GetModel("base.model")
 	session := model.Records()
 
 	ids := make([]interface{}, 0)
 	var i int64
-	for i = 0; i < 10; i++ {
-		data := &Model1{Type: "create", Lang: "CN", CreateId: i, WriteId: 99}
+	for i = 0; i < 50; i++ {
+		data := &BaseModel{Name: "Orm" + utils.IntToStr(i), Title: "小明" + utils.IntToStr(i+5), Help: utils.Md5(utils.IntToStr(i))}
 
 		id, err := session.Create(data)
 		if err != nil {
@@ -28,7 +33,7 @@ func And(orm *orm.TOrm, t *testing.T) {
 	}
 	session.Commit()
 
-	dataset, err := model.Records().Where("create_id=?", 1).And("write_id=?", 99).And("lang ilike '?'", "cn").Read()
+	dataset, err := model.Records().Where("name=?", "Orm1").And("title=?", "小明6").And("help ilike ?", "%a%").Read()
 	if err != nil {
 		panic(err.Error())
 	}

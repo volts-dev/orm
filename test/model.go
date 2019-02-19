@@ -7,6 +7,45 @@ import (
 )
 
 type (
+	BaseModel struct {
+		orm.TModel `table:"name('base.model')"`
+		Id         int64     `field:"pk autoincr title('ID') index"`
+		CreateTime time.Time `field:"datetime() created"`
+		WriteTime  time.Time `field:"datetime() updated"`
+
+		Name  string `field:"char() unique index required"`
+		Title string `field:"title('Test Title.')"`
+		Help  string `field:"help('Technical field, used only to display a help string using multi-rows. 
+				 test help 1\"
+                 test help 2\'
+                 test help 3''
+                 test help 4
+                 test help 5.')"`
+		Bool       bool           `field:"bool"`                // --
+		Text       string         `field:"text"`                //
+		Float      float32        `field:"float"`               //
+		Bin        []byte         `field:"binary() attachment"` //
+		Selection  string         `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
+		Func       string         `field:"selection(TestSelection)"`
+		OneToMany  []*interface{} `field:"one2many(relate.model,parent_id) title('Test Title') domain([('active','=',True)])"`
+		ManyToOne  int64          `field:"many2one(relate.model)"` //-- Company
+		ManyToMany []int64        `field:"many2many(relate.model,base.relate.ref,base_id,relate_id)"`
+	}
+
+	RelateModel struct {
+		orm.TModel `table:"name('relate.model')"`
+		Id         int64  `field:"pk autoincr title('ID') index"`
+		Name       string `field:"char() unique index required"`
+		ParentId   int64
+	}
+
+	// a relate reference table
+	BaseRelateRef struct {
+		orm.TModel `table:"name('base.relate.ref')"`
+		BaseId     int64
+		RelateId   int64
+	}
+
 	Model1 struct {
 		orm.TModel `table:"name('sys.action')"`
 		Id         int64     `field:"pk autoincr title('ID') index"`
@@ -14,8 +53,9 @@ type (
 		CreateTime time.Time `field:"datetime() created"`
 		WriteId    int64     `field:"int"`
 		WriteTime  time.Time `field:"datetime() updated"`
-		Type       string    `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
-		Lang       string    `field:"selection(GetLang)"`
+
+		Type string `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
+		Lang string `field:"selection(GetLang)"`
 	}
 
 	Model2 struct {
@@ -121,15 +161,15 @@ type (
 		ParentId    int64          `field:"many2one(res.partner) title('Related Company')"` // -- Related Company
 		ChildIds    []*interface{} `field:"one2many(res.partner,parent_id) title('Contacts') domain([('active','=',True)])"`
 		CategoryId  []*interface{} `field:"many2many(res.partner.category,res.partner.category.rel,partner_id,category_id) title('Tags')"`
-		Ref         string         `field:"char() title('Contact Referenc')"`                                                                                                                                                                                                                                                                                                                                    // -- Contact Reference
-		Email       string         `field:"char() title('Email')"`                                                                                                                                                                                                                                                                                                                                               //-- Email
-		IsCompany   bool           `field:"char() title('Is a Company') help('Check if the contact is a company, otherwise it is a person')"`                                                                                                                                                                                                                                                                    // -- Is a Company
-		Website     string         `field:"char() title('Website') help('Website of Partner or Company')"`                                                                                                                                                                                                                                                                                                       // -- Website
-		Customer    bool           `field:"char() title('Customer') help('Check this box if this contact is a customer.')"`                                                                                                                                                                                                                                                                                      //-- Customer
-		Supplier    bool           `field:"char() title('Supplier') help('Check this box if this contact is a vendor. If it''s not checked, purchase people will not see it when encoding a purchase order.')"`                                                                                                                                                                                                  // -- Supplier
-		Employee    string         `field:"char() title('Employee') help('Check this box if this contact is an Employee.')"`                                                                                                                                                                                                                                                                                     //-- Employee
-		CreditLimit float32        `field:"float title('Credit Limit')"`                                                                                                                                                                                                                                                                                                                                         // -- Credit Limit
-		Active      bool           `field:"bool title('Active')"`                                                                                                                                                                                                                                                                                                                                                // -- Active
+		Ref         string         `field:"char() title('Contact Referenc')"`                                                                                                                                   // -- Contact Reference
+		Email       string         `field:"char() title('Email')"`                                                                                                                                              //-- Email
+		IsCompany   bool           `field:"char() title('Is a Company') help('Check if the contact is a company, otherwise it is a person')"`                                                                   // -- Is a Company
+		Website     string         `field:"char() title('Website') help('Website of Partner or Company')"`                                                                                                      // -- Website
+		Customer    bool           `field:"char() title('Customer') help('Check this box if this contact is a customer.')"`                                                                                     //-- Customer
+		Supplier    bool           `field:"char() title('Supplier') help('Check this box if this contact is a vendor. If it''s not checked, purchase people will not see it when encoding a purchase order.')"` // -- Supplier
+		Employee    string         `field:"char() title('Employee') help('Check this box if this contact is an Employee.')"`                                                                                    //-- Employee
+		CreditLimit float32        `field:"float title('Credit Limit')"`                                                                                                                                        // -- Credit Limit
+		Active      bool           `field:"bool title('Active')"`                                                                                                                                               // -- Active
 		Tz          string         `field:"selection(GetTz) title('Timezone') help('The partner''s timezone, used to output proper date and time values inside printed reports.
 								                 It is important to set a value for this field. You should use the same timezone
 								                 that is otherwise used to pick and render date and time values: your computer''s timezone.')"` // -- Timezone
@@ -162,13 +202,13 @@ type (
 	}
 )
 
+func (BaseModel) TestSelection(str string) {
+	fmt.Println("Arg is ", str)
+}
+
 func (self Model1) etLang() [][]string {
 	result := make([][]string, 0)
 	result = append(result, []string{"name", "Vectors"})
-	result = append(result, []string{"Mode", self.ModelName()})
+	result = append(result, []string{"Mode", self.GetModelName()})
 	return result
-}
-
-func (ResUser) CallTest(str string) {
-	fmt.Println("Arg is ", str)
 }

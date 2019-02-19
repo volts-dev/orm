@@ -7,7 +7,8 @@ import (
 
 	"github.com/VectorsOrigin/logger"
 	"github.com/VectorsOrigin/utils"
-	"github.com/VectorsOrigin/web"
+	"github.com/VectorsOrigin/volts/server"
+
 	"github.com/go-xorm/core"
 )
 
@@ -25,7 +26,7 @@ const (
 
 var (
 // 提供类对比
-//handlerType = reflect.TypeOf(web.THandler{})
+//handlerType = reflect.TypeOf(server.THandler{})
 )
 
 type (
@@ -442,7 +443,7 @@ func (self *TOsv) ContainsModel(m string) (has bool) {
 
 // 废弃 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
-func (self *TOsv) CallModelHandler(handler *web.THandler, model, method string) bool {
+func (self *TOsv) CallModelHandler(handler *server.TWebHandler, model, method string) bool {
 	lM := self._getModelByMethod(model, method)
 
 	if lM.IsValid() { //|| !lM.IsNil()

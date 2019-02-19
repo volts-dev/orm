@@ -22,14 +22,19 @@ type (
 		//check_access_rights(operation string) bool
 
 		// public
+
+		// get the base model object
 		GetBase() *TModel
-		GetBaseModel() *TModel
 
 		// 对象被创建时
 		Default(field string, val ...interface{}) (res interface{}) // 默认值修改获取
 		One2many(ids, model string, fieldKey string) *TDataSet
 		Many2many(detail_model, ref_model string, key_id, ref_id string) *TDataSet
+
+		// return the list of inherits model name
 		Inherits() []string
+
+		// return the model name
 		GetModelName() string
 		GetTableName() string
 		GetTableDescription() string
@@ -46,6 +51,7 @@ type (
 		RelateFields() map[string]*TRelateField
 		Relations() map[string]string
 
+		// new a orm records session for query
 		Records() *TSession
 		//Create(values map[string]interface{}) (id int64)
 		//Read(ids []string, fields []string) *TDataSet
@@ -53,6 +59,7 @@ type (
 		//update(vals map[string]interface{}, where string, args ...interface{}) (id int64)
 		//Unlink(ids ...string) bool
 		Osv() *TOsv
+
 		Orm() *TOrm
 		//NameGet(ids []string) [][]string
 		NameGet(ids []string) *TDataSet
@@ -216,16 +223,11 @@ func (self *TModel) GetBase() *TModel {
 	return self
 }
 
-// 废弃
-func (self *TModel) GetBaseModel() *TModel {
-	return self
-}
-
 func (self *TModel) Module() string {
 	return self._module
 }
 
-// 获取Model方法
+// return the method object of model by name
 func (self *TModel) MethodByName(method string) (res_method *TMethod) {
 	res_method = self.osv.GetMethod(self.GetModelName(), method)
 	return
@@ -560,7 +562,7 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 	}
 	// 检测name 字段
 	if self._rec_name == "" {
-		logger.Logger.Err("Cannot execute name_search, no _rec_name defined on %s", self._name)
+		logger.Logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self._name)
 		//logger.Dbg("SearchName:", name, domain, lDomain.String())
 		return nil
 	}
@@ -802,7 +804,7 @@ func (self *TModel) relations_reload() {
 		//logger.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
 		rel_model, err := self.osv.GetModel(tbl) // #i //TableByName(tbl)
 		if err != nil {
-			logger.Logger.Err("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetTableName())
+			logger.Logger.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetTableName())
 		}
 
 		rel_model.relations_reload()

@@ -133,19 +133,20 @@ func (self *TStatement) Domains(domain interface{}) *TStatement {
 }
 
 func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
-	//if self.Domain == nil {
-	//	self.Domain = utils.NewStringList()
-	//}
 
 	switch query.(type) {
 	case string:
 		// 添加信的条件
 		new_cond := Query2StringList(query.(string))
 
-		//logger.Dbg("op", new_cond.String(0), StringList2Domain(new_cond), StringList2Domain(new_cond.Item(0)))
+		logger.Dbg("op", query, new_cond.String(0), StringList2Domain(new_cond), StringList2Domain(new_cond.Item(0)))
 		if self.Domain == nil || self.Domain.Count() == 0 {
-			self.Domain = new_cond
-			self.Params = append(self.Params, args...)
+			if self.Domain == nil {
+				// build a [] list for contain condition leaf
+				self.Domain = utils.NewStringList()
+			}
+			self.Domain.Push(new_cond)                 // push new condition leaf in list
+			self.Params = append(self.Params, args...) //push argument
 		} else {
 			//if self.Domain.Count() == 1 {
 			//	self.Domain = self.Domain.Item(0)
@@ -468,7 +469,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 					if col.SQLType.IsText() {
 						bytes, err := json.Marshal(val)
 						if err != nil {
-							logger.Logger.ErrLn("adas", err)
+							logger.Logger.Err("adas", err)
 							continue
 						}
 						val = string(bytes)
@@ -477,7 +478,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 						var err error
 						bytes, err = json.Marshal(val)
 						if err != nil {
-							logger.Logger.ErrLn("asdf", err)
+							logger.Logger.Errf("asdf", err)
 							continue
 						}
 						val = bytes
@@ -497,7 +498,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 			if col.SQLType.IsText() {
 				bytes, err := json.Marshal(lFieldVal.Interface())
 				if err != nil {
-					logger.Logger.ErrLn("_generate_query:", err)
+					logger.Logger.Errf("_generate_query:", err)
 					continue
 				}
 				val = string(bytes)
@@ -514,7 +515,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 				} else {
 					bytes, err = json.Marshal(lFieldVal.Interface())
 					if err != nil {
-						logger.Logger.ErrLn("1", err)
+						logger.Logger.Err("1", err)
 						continue
 					}
 					val = bytes
@@ -654,7 +655,7 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 	tables := make([]string, 0)
 	var where_clause []string
 	var where_params []interface{}
-	if domain != nil {
+	if domain != nil && domain.Count() > 0 {
 		lExp := NewExpression(self.Session.model, domain, context)
 		tables = lExp.get_tables().Strings()
 		where_clause, where_params = lExp.to_sql(self.Params...)
@@ -664,6 +665,7 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 	} else {
 		where_clause, where_params, tables = nil, nil, append(tables, self.Session.Statement.TableName())
 	}
+
 	return NewQuery(tables, where_clause, where_params, nil, nil) //self.Registry.r Query(tables, where_clause, where_params)
 }
 
@@ -718,7 +720,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 			field := self.Session.model.FieldByName(order_field)
 			if field == nil {
 				//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-				logger.Logger.Warn("Sorting field %s not found on model %s", order_field, self.Table.Name)
+				logger.Logger.Warnf("Sorting field %s not found on model %s", order_field, self.Table.Name)
 				continue
 			}
 
