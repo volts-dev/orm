@@ -12,19 +12,13 @@ type (
 		interval int
 		expired  int
 		status   map[string]bool
-
 		//TODO 将表名和缓存Key 组合为table_key
-		// #cache
-		//id_caches       map[string]cache.ICache // 缓存Id 对应记录 map[model]record
-		//sql_caches      map[string]cache.ICache // 缓存Sql  map[model]ids
 		id_caches                cache.ICacher // 缓存Id 对应记录 map[model]record
 		sql_caches               cache.ICacher // 缓存Sq
 		table_id_key_index       map[string]map[string]bool
 		table_sql_key_index      map[string]map[string]bool
 		table_id_key_index_lock  sync.RWMutex
 		table_sql_key_index_lock sync.RWMutex
-		//id_caches_lock  sync.RWMutex
-		//sql_caches_lock sync.RWMutex
 	}
 )
 

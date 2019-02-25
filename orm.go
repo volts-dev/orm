@@ -1112,6 +1112,7 @@ func (self *TOrm) SetLogger(writer logger.IWriter) {
 }
 
 // # 设置某表为不缓存
+// cacher switch of model
 func (self *TOrm) SetCacher(table string, open bool) {
 	self.cacher.SetStatus(open, table)
 }
@@ -1165,8 +1166,9 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 	return results, lastError
 }
 
+// TODO remove
 // Import SQL DDL file
-func (self *TOrm) ImportFile(ddlPath string) ([]sql.Result, error) {
+func (self *TOrm) __ImportFile(ddlPath string) ([]sql.Result, error) {
 	file, err := os.Open(ddlPath)
 	if err != nil {
 		return nil, err

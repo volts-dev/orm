@@ -1250,7 +1250,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 			first_right_value = utils.Itf2Str(params[0])
 			len := utils.MaxInt(1, right.Count()-1)
 
-			logger.Dbg("getttttttt", len, params, params[0:len], params[len:], right.Count(), right.String())
+			//logger.Dbg("getttttttt", len, params, params[0:len], params[len:], right.Count(), right.String())
 			vals = params[0:len]
 			res_arg = params[len:] // 修改params值留到下个Term 返回
 		}

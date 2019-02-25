@@ -472,33 +472,36 @@ func (self *TDataSet) IsEmpty() bool {
 	return len(self.Data) == 0
 }
 
-//
+// return the number of data
 func (self *TDataSet) Count() int {
 	return len(self.Data)
 }
 
+// set the Pos on first
 func (self *TDataSet) First() {
 	self._pos_lock.Lock()
 	defer self._pos_lock.Unlock()
 	self.Position = 0
 }
 
+// goto next record
 func (self *TDataSet) Next() {
 	self._pos_lock.Lock()
 	defer self._pos_lock.Unlock()
 	self.Position++
 }
 
-//废弃 TODO last
+// is the end of the data list
 func (self *TDataSet) Eof() bool {
 	return self.Position == len(self.Data)
 }
 
+//废弃 TODO last
 func (self *TDataSet) EOF() bool {
 	return self.Position == len(self.Data)
 }
 
-// Get current record
+// return the current record
 func (self *TDataSet) Record() *TRecordSet {
 	if len(self.Data) == 0 {
 		return NewRecordSet()
@@ -547,7 +550,7 @@ func (self *TDataSet) check_fields(record *TRecordSet) error {
 	return nil
 }
 
-//#添加新纪录 当Dataset 记录为空时,第一条记录的字段将成为其他记录的标准
+// appending a record.Its fields will be come the standard format when it is the first record of this set
 func (self *TDataSet) AppendRecord(Record ...*TRecordSet) error {
 	var fields map[string]int
 	for _, rec := range Record {
@@ -647,15 +650,17 @@ func (self *TDataSet) Delete(idx ...int) bool {
 	return true
 }
 
+// TODO implement
 func (self *TDataSet) DeleteRecord(Key string) bool {
 	return true
 }
 
-//考虑
+// TODO implement
 func (self *TDataSet) EditRecord(Key string, Record map[string]interface{}) bool {
 	return true
 }
 
+// get the record by field
 func (self *TDataSet) RecordByField(field string, val interface{}) (rec *TRecordSet) {
 	if field == "" || val == nil {
 		return nil
@@ -692,6 +697,7 @@ func (self *TDataSet) RecordByKey(Key string, key_field ...string) (rec *TRecord
 	return self.RecordsIndex[Key]
 }
 
+// set the field as key
 func (self *TDataSet) SetKeyField(key_field string) bool {
 	// # 非空或非Count查询时提供多行索引
 	if self.Count() == 0 || (self.FieldByName(key_field) == nil && len(self.Record().Fields) == 1 && self.Record().GetByName("count") != nil) {
@@ -716,10 +722,12 @@ func (self *TDataSet) SetKeyField(key_field string) bool {
 	return true
 }
 
+// classic mode is
 func (self *TDataSet) IsClassic() bool {
 	return self.classic
 }
 
+// return all the keys value
 // 返回所有记录的主键值
 func (self *TDataSet) Keys(field ...string) (res []string) {
 	// #默认
