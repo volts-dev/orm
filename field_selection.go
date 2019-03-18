@@ -6,7 +6,8 @@ import (
 
 	//"reflect"
 	"strings"
-	"vectors/logger"
+
+	"github.com/volts-dev/logger"
 
 	"github.com/go-xorm/core"
 )

@@ -3,8 +3,8 @@ package orm
 import (
 	"fmt"
 	"strings"
-	//"vectors/utils"
-	"vectors/utils"
+
+	"github.com/volts-dev/utils"
 )
 
 type (

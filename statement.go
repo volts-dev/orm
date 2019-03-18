@@ -8,8 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"vectors/logger"
-	"vectors/utils"
+
+	"github.com/volts-dev/logger"
+	"github.com/volts-dev/utils"
 
 	"github.com/go-xorm/core"
 )

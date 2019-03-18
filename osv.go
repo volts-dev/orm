@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/VectorsOrigin/logger"
-	"github.com/VectorsOrigin/utils"
-	"github.com/VectorsOrigin/volts/server"
-
 	"github.com/go-xorm/core"
+	"github.com/volts-dev/logger"
+	"github.com/volts-dev/utils"
+	"github.com/volts-dev/volts/server"
 )
 
 type flag uintptr
@@ -428,7 +427,7 @@ func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error)
 			return m, nil
 		}
 
-		logger.Panic(`Model %s@%s is not a standard orm.IModel type,
+		logger.Panicf(`Model %s@%s is not a standard orm.IModel type,
 		please check the name of Fields and Methods,make sure they are correct and not same each other`, model, region)
 	}
 

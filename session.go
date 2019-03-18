@@ -8,10 +8,10 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"vectors/logger"
-	"vectors/utils"
 
 	"github.com/go-xorm/core"
+	"github.com/volts-dev/logger"
+	"github.com/volts-dev/utils"
 )
 
 type (

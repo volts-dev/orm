@@ -3,7 +3,8 @@ package orm
 import (
 	"fmt"
 	"sync"
-	"vectors/cacher"
+
+	"github.com/volts-dev/cacher"
 )
 
 type (

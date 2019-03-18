@@ -7,7 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-	"vectors/utils"
+
+	"github.com/volts-dev/utils"
 )
 
 //TODO: domain 解析速度必须比Json序列化快

@@ -20,8 +20,9 @@ import (
 	//	"sync"
 	"time"
 	"unicode/utf8"
-	"vectors/logger"
-	"vectors/utils"
+
+	"github.com/volts-dev/logger"
+	"github.com/volts-dev/utils"
 
 	core "github.com/go-xorm/core"
 )

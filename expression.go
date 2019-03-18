@@ -7,8 +7,8 @@ import (
 	"strings"
 	//	"unicode"
 	//"vectors/utils"
-	"vectors/logger"
-	"vectors/utils"
+	"github.com/volts-dev/logger"
+	"github.com/volts-dev/utils"
 )
 
 /*

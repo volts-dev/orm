@@ -3,7 +3,8 @@ package orm
 import (
 	//	"fmt"
 	"testing"
-	"vectors/utils"
+
+	"github.com/volts-dev/utils"
 )
 
 var (

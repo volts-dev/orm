@@ -4,7 +4,8 @@ import (
 	//"fmt"
 	"testing"
 	"vectors/orm"
-	"vectors/utils"
+
+	"github.com/volts-dev/utils"
 )
 
 func Where(orm *orm.TOrm, t *testing.T) {

@@ -10,8 +10,9 @@ import (
 	"strconv"
 	"sync"
 	"time"
-	"vectors/logger"
-	"vectors/utils"
+
+	"github.com/volts-dev/logger"
+	"github.com/volts-dev/utils"
 )
 
 type (
@@ -329,6 +330,7 @@ func (self *TRecordSet) GetByName(name string) (field *TFieldSet) {
 	return
 }
 
+// convert to a string map
 func (self *TRecordSet) AsStrMap() (res map[string]string) {
 	res = make(map[string]string)
 	for idx, field := range self.Fields {
@@ -338,6 +340,7 @@ func (self *TRecordSet) AsStrMap() (res map[string]string) {
 	return
 }
 
+// convert to an interface{} map
 func (self *TRecordSet) AsItfMap() (res map[string]interface{}) {
 	res = make(map[string]interface{})
 
@@ -350,23 +353,25 @@ func (self *TRecordSet) AsItfMap() (res map[string]interface{}) {
 	return
 }
 
+// convert to a json string
 func (self *TRecordSet) AsJson() (res string) {
 	js, err := json.Marshal(self.AsItfMap())
 	logger.LogErr(err)
 	return string(js)
 }
 
+// TODO AsXml
 func (self *TRecordSet) AsXml() (res string) {
-
 	return
 }
 
+// TODO AsCsv
 func (self *TRecordSet) AsCsv() (res string) {
-
 	return
 }
 
-// terget must be a pointer value
+// mapping to a struct
+// the terget must be a pointer value
 func (self *TRecordSet) AsStruct(target interface{}, classic ...bool) {
 	// 使用经典数据模式
 	lClassic := false
