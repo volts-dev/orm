@@ -2,7 +2,7 @@ package test
 
 import (
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
 func method(orm *orm.TOrm, t *testing.T) {

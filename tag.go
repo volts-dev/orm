@@ -5,10 +5,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/volts-dev/logger"
-	"github.com/volts-dev/utils"
-
 	"github.com/go-xorm/core"
+	"github.com/volts-dev/utils"
 )
 
 type (
@@ -211,7 +209,7 @@ func tag_compute(ctx *TFieldContext) {
 			fld.Base()._compute = lStr
 		}
 	} else {
-		logger.Logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
+		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
 }
 
@@ -265,7 +263,7 @@ func tag_extends_relate(ctx *TFieldContext) {
 
 	switch fld_val.Kind() {
 	case reflect.Ptr:
-		logger.Logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
+		logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
 		break
 	case reflect.Struct:
 		var (

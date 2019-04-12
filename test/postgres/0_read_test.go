@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"testing"
-	"vectors/orm/test"
+	"volts-dev/orm/test"
 )
 
 func TestRead(t *testing.T) {
-	test.Read(test.TestOrm, t)
+	test.Create("", t)
+	test.Read("", t)
+	test.Write("", t)
 }

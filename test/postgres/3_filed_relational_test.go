@@ -2,7 +2,7 @@ package postgres
 
 import (
 	"testing"
-	"vectors/orm/test"
+	"volts-dev/orm/test"
 )
 
 func TestFieldMany2Many(t *testing.T) {

@@ -9,22 +9,18 @@ import (
 	"bufio"
 	"bytes"
 	"database/sql"
-
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
-
-	//	"sync"
 	"time"
 	"unicode/utf8"
 
-	"github.com/volts-dev/logger"
-	"github.com/volts-dev/utils"
-
 	core "github.com/go-xorm/core"
+	"github.com/volts-dev/utils"
 )
 
 var (
@@ -68,14 +64,14 @@ type (
 		cacher *TCacher // TODO 大写
 
 		// #logger
-		logger         *logger.TLogger //TODO 接口
+		//logger         *logger.TLogger //TODO 接口
 		_show_sql      bool
 		_show_sql_time bool
 	}
 )
 
 /*
-db_driver database type
+ create a new ORM instance
 */
 func NewOrm(dataSource *DataSource) (res_orm *TOrm, err error) {
 	//func NewOrm(db_driver string, db_src string) (res_orm *TOrm, err error) {
@@ -113,19 +109,19 @@ func NewOrm(dataSource *DataSource) (res_orm *TOrm, err error) {
 		dataSource:      dataSource,
 		FieldIdentifier: "field",
 		TableIdentifier: "table",
-		//models:          make(map[reflect.Type]*TModel),
-		models:    make(map[string]*TModel),
-		tables:    make(map[string]*core.Table),
-		nameIndex: make(map[string]*TModel),
+		models:          make(map[string]*TModel),
+		tables:          make(map[string]*core.Table),
+		nameIndex:       make(map[string]*TModel),
 		//field_ctrl:      make(map[string]IFieldCtrl),
 		//tag_ctrl:        make(map[string]func(model *TModel, fld_val reflect.Value, fld *TField, col *core.Column, arg ...string)),
-		//id_caches:       make(map[string]cache.ICache), // 缓存Id 对应记录 map[model]record
-		//sql_caches:      make(map[string]cache.ICache), // 缓存Sql
 		TimeZone: time.Local,
 	}
+
+	// Cacher
 	res_orm.cacher = NewCacher()
+
+	// OSV
 	res_orm.osv = NewOsv(res_orm)
-	res_orm.logger = logger.NewLogger("")
 
 	res_orm.reverse()
 	return
@@ -141,17 +137,21 @@ func (self *TOrm) reverse() error {
 	}
 
 	for _, tb := range lTables {
+		logger.Infof("%s found!", tb.Name)
+
 		if _, has := self.tables[tb.Name]; !has {
 			self.tables[tb.Name] = tb
-
 			model_name := strings.Replace(tb.Name, "_", ".", -1)
 			model_val := reflect.Indirect(reflect.ValueOf(new(TModel)))
 			model_type := model_val.Type()
+
+			// new a base model instance
 			model := NewModel(model_name, model_val, model_type)
-			model.table = tb
+			model.table = tb // piont to the table
 			model.is_base = true
 			self.models[model_name] = model
 
+			// init all columns to the model
 			FieldContext := new(TFieldContext)
 			for _, col := range tb.Columns() {
 				field := self._newFieldFromSqlType(col.Name, col)
@@ -181,11 +181,9 @@ func (self *TOrm) reverse() error {
 
 				// 为字段添加数据库字段属性
 				field.Base().column = col
-
 				model._fields[col.Name] = field
 			}
 		}
-
 	}
 
 	return nil
@@ -200,7 +198,7 @@ func (self *TOrm) DriverName() string {
 func (self *TOrm) Ping() error {
 	session := self.NewSession()
 	defer session.Close()
-	self.logger.Infof("PING DATABASE %v", self.DriverName())
+	logger.Infof("PING DATABASE %v", self.DriverName())
 	return session.Ping()
 }
 
@@ -275,9 +273,9 @@ func (self *TOrm) log_exec_sql(sql string, args []interface{}, executionBlock fu
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			self.logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
 		} else {
-			self.logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -327,9 +325,9 @@ func (self *TOrm) log_query_sql(sql string, args []interface{}, executionBlock f
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			self.logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
 		} else {
-			self.logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -356,22 +354,23 @@ func contains(s string, c byte) bool {
 func unquote(s string) (string, error) {
 	n := len(s)
 	if n < 2 {
-		return "", strconv.ErrSyntax
+		return "", errors.New("invalid quoted string")
 	}
 	quote := s[0]
 	if quote != s[n-1] {
-		return "", strconv.ErrSyntax
+		return "", errors.New("lost the quote symbol on the end")
 	}
 	s = s[1 : n-1]
 
 	if quote == '`' {
 		if contains(s, '`') {
-			return "", strconv.ErrSyntax
+			return "", errors.New("the '`' symbol is found on the content")
 		}
 		return s, nil
 	}
+
 	if quote != '"' && quote != '\'' {
-		return "", strconv.ErrSyntax
+		return "", errors.New("lost the quote symbol on the begin")
 	}
 
 	//if contains(s, '\n') {
@@ -461,7 +460,7 @@ func lookup(tag string, key ...string) (value string) {
 		if utils.InStrings(name, key...) != -1 {
 			value, err := unquote(qvalue)
 			if err != nil {
-				logger.Logger.Errf("Tag error:", qvalue, value, err.Error())
+				logger.Errf("parse Tag error: %s, %s : %s", qvalue, value, err.Error())
 				break
 			}
 			return value
@@ -916,7 +915,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 						FieldContext.Params = vals
 						tag_ctrl(FieldContext)
 					} else {
-						logger.Logger.Warnf("Unknown tag %s from %s:%s", lStr, lModelName, lFieldName)
+						logger.Warnf("Unknown tag %s from %s:%s", lStr, lModelName, lFieldName)
 
 						//# 其他数据库类型
 						if _, ok := core.SqlTypes[strings.ToUpper(attr)]; ok {
@@ -1108,11 +1107,6 @@ func (self *TOrm) SetSlave(db_src string) {
 
 }
 
-func (self *TOrm) SetLogger(writer logger.IWriter) {
-	//self.logger.setWriter(writer)
-}
-
-// # 设置某表为不缓存
 // cacher switch of model
 func (self *TOrm) SetCacher(table string, open bool) {
 	self.cacher.SetStatus(open, table)
@@ -1154,7 +1148,7 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 	for scanner.Scan() {
 		query := strings.Trim(scanner.Text(), " \t\n\r")
 		if len(query) > 0 {
-			self.logger.Info(query)
+			logger.Info(query)
 			result, err := self.Exec(query)
 			results = append(results, result)
 			if err != nil {
@@ -1255,7 +1249,7 @@ func (self *TOrm) __DB() IRawSession {
 
 // TODO 根据表依赖关系顺序创建表
 // CreateTables create tabls according bean
-func (self *TOrm) CreateTables(models ...string) error {
+func (self *TOrm) CreateTables(name ...string) error {
 	session := self.NewSession()
 	err := session.Begin()
 	defer session.Close()
@@ -1263,7 +1257,7 @@ func (self *TOrm) CreateTables(models ...string) error {
 		return err
 	}
 
-	for _, model := range models {
+	for _, model := range name {
 		err = session.CreateTable(model)
 		if err != nil {
 			session.Rollback()
@@ -1291,6 +1285,7 @@ func (self *TOrm) CreateDatabase(name string) error {
 		_, e = session.exec("CREATE DATABASE " + name)
 		return e
 	case "mysql":
+
 	}
 
 	return nil

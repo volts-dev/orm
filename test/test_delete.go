@@ -2,9 +2,14 @@ package test
 
 import (
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
-func del(orm *orm.TOrm, t *testing.T) {
+func Delete(title string, t *testing.T) {
+	PrintSubject(title, "Delete()")
+	delete(test_orm, t)
+}
+
+func delete(o *orm.TOrm, t *testing.T) {
 
 }

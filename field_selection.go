@@ -3,11 +3,7 @@ package orm
 import (
 	"encoding/json"
 	"reflect"
-
-	//"reflect"
 	"strings"
-
-	"github.com/volts-dev/logger"
 
 	"github.com/go-xorm/core"
 )
@@ -71,7 +67,7 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 		m := make(map[string]string)
 		err := json.Unmarshal([]byte(lStr), &m)
 		if err != nil {
-			logger.Logger.Errf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
+			logger.Errf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
 		}
 
 		for k, v := range m {

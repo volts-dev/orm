@@ -191,13 +191,19 @@ func splitTag2(tag string) (tags []string) {
 	}
 	return
 }
+
 func TestTagsParser(t *testing.T) {
 	//tag := `help('If you uncheck the active field, it''s will disable the ACL without deleting it (if you delete a native ACL, it will be re-created when you reload the module.)')`
 	//tag = `selection('{\"contact\":\"Contact\"}')`
-	str := lookup(`field:"selection('{\"url\":\"URL\",\"binary\":\"File\"}') help('You can either upload a file from your computer or copy/paste an internet link to your file') required change_default(True)"`, "field", "table")
+	str := lookup(`field:"help('Technical field, used only to display a help string using multi-rows. 
+				 test help 1\"
+                 test help 2''
+                 test help 3''''
+                 test help 4
+                 test help 5.')"`, "field", "table")
 
 	t.Log(str)
-	tags := splitTag2(str)
+	tags := splitTag(str)
 	t.Log("tags", len(tags), tags)
 	for _, tag := range tags {
 		p := parseTag(tag)

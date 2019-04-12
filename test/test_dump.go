@@ -2,9 +2,9 @@ package test
 
 import (
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
-func dump(orm *orm.TOrm, t *testing.T) {
+func dump(title string, orm *orm.TOrm, t *testing.T) {
 
 }

@@ -6,7 +6,6 @@ import (
 	"reflect"
 
 	"github.com/go-xorm/core"
-	"github.com/volts-dev/logger"
 	"github.com/volts-dev/utils"
 	"github.com/volts-dev/volts/server"
 )
@@ -124,18 +123,18 @@ func (self *TOsv) SetupModels() {
 	//	}
 }
 
-// 注册新的Model
+// register new model to the object service
 func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 	var lObj *TObj
 	var lMethod reflect.Method
 
-	logger.Dbg("RegisterModel:", region, aModel._name, aModel._cls_type, aModel._cls_type.PkgPath())
+	//logger.Dbg("RegisterModel:", region, aModel._name, aModel._cls_type, aModel._cls_type.PkgPath())
 	//获得Object 检查是否存在，不存在则创建
 	if obj, has := self.models[aModel._name]; !has {
 		lObj = self.new_obj(aModel._name)
 		lObj.name = aModel._name // Model 名称
 		self.models[aModel._name] = lObj
-		logger.Dbg("!has", region, aModel._name)
+		//logger.Dbg("!has", region, aModel._name)
 	} else {
 		lObj = obj
 	}
@@ -214,13 +213,13 @@ func (self *TOsv) GetMethod(model, name string) (res_md *TMethod) {
 	//web.Debug("CallModelHandler", utils.TitleCasedName(name))
 	//web.Debug("CallModelHandler", lM.IsNil())
 	//web.Debug("CallModelHandler", lM == reflect.Zero(lM.Type()))
-	logger.Dbg("GetMethod", lModel)
+	//logger.Dbg("GetMethod", lModel)
 	if lModel.IsValid() { //|| !lM.IsNil()
 		// 转换method
 		// #必须使用Type才能获取到方法原型已经参数
 		method, ok := lModel.Type().MethodByName(utils.TitleCasedName(name))
 		if ok && method.Func.IsValid() {
-			logger.Dbg("GetMethod", name, lModel.MethodByName(utils.TitleCasedName(name)), method.Func, method)
+			//logger.Dbg("GetMethod", name, lModel.MethodByName(utils.TitleCasedName(name)), method.Func, method)
 
 			res_md = NewMethod(name, method.Func)
 			return
@@ -357,7 +356,7 @@ func (self *TOsv) _getModelByModule(region, model string) (val reflect.Value) {
 
 	//获取Model的Object对象
 	if obj, has = self.models[model]; has {
-		logger.Dbg("_getModelByModule1", obj, len(self.models), region, model)
+		//logger.Dbg("_getModelByModule1", obj, len(self.models), region, model)
 
 		// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
 		for module_name, module_map = range obj.object_types {
@@ -365,12 +364,12 @@ func (self *TOsv) _getModelByModule(region, model string) (val reflect.Value) {
 				break
 			}
 		}
-		logger.Dbg("_getModelByModule2", module_name, module_map)
+		//logger.Dbg("_getModelByModule2", module_name, module_map)
 
 		if model_type, has = module_map[model]; has {
 			// 创建对象
 			val = reflect.New(model_type)
-			logger.Dbg("_getModelByModule3", val, model_type)
+			//logger.Dbg("_getModelByModule3", val, model_type)
 			//web.Warn("使用接口对TModel进行赋值", module, model, val)
 			self._initObject(val, model_type, obj, model)
 			/*

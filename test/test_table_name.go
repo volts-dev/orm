@@ -2,9 +2,9 @@ package test
 
 import (
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
-func custom_table_name(orm *orm.TOrm, t *testing.T) {
+func custom_table_name(title string, orm *orm.TOrm, t *testing.T) {
 	//	lUserMdl := orm.GetModel("res.user")
 }

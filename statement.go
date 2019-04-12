@@ -9,10 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/volts-dev/logger"
-	"github.com/volts-dev/utils"
-
 	"github.com/go-xorm/core"
+	"github.com/volts-dev/utils"
 )
 
 type (
@@ -82,12 +80,14 @@ func (self *TStatement) TableName() string {
 func (self *TStatement) Ids(ids ...string) *TStatement {
 	for _, id := range ids {
 		self.IdParam = append(self.IdParam, id)
-		/*switch id.(type) {
-		case string:
-			self.IdParam = append(self.IdParam, id)
-		case int, int8, int16, int32, int64:
-			self.IdParam = append(self.IdParam, fmt.Sprintf("%d", i))
-		}*/
+		// TODO support interface IDS
+		/*
+			switch id.(type) {
+			case string:
+				self.IdParam = append(self.IdParam, id.(string))
+			case int, int8, int16, int32, int64:
+				self.IdParam = append(self.IdParam, fmt.Sprintf("%d", i))
+			}*/
 	}
 
 	return self
@@ -140,7 +140,7 @@ func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
 		// 添加信的条件
 		new_cond := Query2StringList(query.(string))
 
-		logger.Dbg("op", query, new_cond.String(0), StringList2Domain(new_cond), StringList2Domain(new_cond.Item(0)))
+		//logger.Dbg("op", query, new_cond.String(0), StringList2Domain(new_cond), StringList2Domain(new_cond.Item(0)))
 		if self.Domain == nil || self.Domain.Count() == 0 {
 			if self.Domain == nil {
 				// build a [] list for contain condition leaf
@@ -470,7 +470,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 					if col.SQLType.IsText() {
 						bytes, err := json.Marshal(val)
 						if err != nil {
-							logger.Logger.Err("adas", err)
+							logger.Err("adas", err)
 							continue
 						}
 						val = string(bytes)
@@ -479,7 +479,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 						var err error
 						bytes, err = json.Marshal(val)
 						if err != nil {
-							logger.Logger.Errf("asdf", err)
+							logger.Errf("asdf", err)
 							continue
 						}
 						val = bytes
@@ -499,7 +499,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 			if col.SQLType.IsText() {
 				bytes, err := json.Marshal(lFieldVal.Interface())
 				if err != nil {
-					logger.Logger.Errf("_generate_query:", err)
+					logger.Errf("_generate_query:", err)
 					continue
 				}
 				val = string(bytes)
@@ -516,7 +516,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 				} else {
 					bytes, err = json.Marshal(lFieldVal.Interface())
 					if err != nil {
-						logger.Logger.Err("1", err)
+						logger.Err("1", err)
 						continue
 					}
 					val = bytes
@@ -599,7 +599,7 @@ func (self *TStatement) _inherits_join_calc(alias string, field string, query *T
 				model, alias = parent_model, parent_alias
 
 			} else {
-				logger.LogErr(err, "@_inherits_join_calc")
+				logger.Err(err, "@_inherits_join_calc")
 				//Dbg("_inherits_join_calc:", field, alias, parent_model_name)
 			}
 
@@ -672,12 +672,12 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 
 func (self *TStatement) _check_qorder(word string) (result bool) {
 	re, err := regexp.Compile(`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+$`) //`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+(?<!,)$`
-	logger.LogErr(err)
+	logger.Err(err)
 	//logger.Dbg("_check_qorder", word, re)
 	//matches := re.FindAllStringSubmatch(word, -1)
 	if re.Match([]byte(word)) {
 		//  raise UserError(_('Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)'))
-		logger.Logger.Err(`Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)`)
+		logger.Err(`Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)`)
 	}
 	return true
 }
@@ -721,7 +721,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 			field := self.Session.model.FieldByName(order_field)
 			if field == nil {
 				//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-				logger.Logger.Warnf("Sorting field %s not found on model %s", order_field, self.Table.Name)
+				logger.Warnf("Sorting field %s not found on model %s", order_field, self.Table.Name)
 				continue
 			}
 

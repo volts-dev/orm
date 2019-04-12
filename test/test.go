@@ -1,157 +1,102 @@
 package test
 
 import (
-	"errors"
 	"fmt"
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
 const DB_NAME = "test_orm"
 
 var (
-	TestOrm *orm.TOrm
+	test_orm *orm.TOrm
 )
 
-func InitOrm(ds *orm.DataSource, show_sql bool) error {
-	if TestOrm == nil {
-		var err error
-		TestOrm, err = orm.NewOrm(ds)
+// get the test ORM object
+func Orm() *orm.TOrm {
+	return test_orm
+}
+
+// init the test ORM object by the driver data source
+func Init(dataSource *orm.DataSource, show_sql bool) error {
+	var err error
+
+	if test_orm == nil {
+		test_orm, err = orm.NewOrm(dataSource)
 		if err != nil {
 			return err
 		}
 
-		TestOrm.ShowSql(show_sql)
-		//TestOrm.logger.SetLevel()
+		test_orm.ShowSql(show_sql)
+		//test_orm.logger.SetLevel()
 	}
 
-	if !TestOrm.IsExist(ds.DbName) {
-		TestOrm.CreateDatabase(ds.DbName)
+	if !test_orm.IsExist(dataSource.DbName) {
+		test_orm.CreateDatabase(dataSource.DbName)
 	}
 
+	// drop all table
 	var table_Names []string
-	for _, table := range TestOrm.Tables() {
+	for _, table := range test_orm.Tables() {
 		table_Names = append(table_Names, table.Name)
 	}
 
-	if err := TestOrm.DropTables(table_Names...); err != nil {
+	if err = test_orm.DropTables(table_Names...); err != nil {
+		return err
+	}
+
+	err = test_orm.SyncModel("test",
+		new(PartnerModel),
+		new(CompanyModel),
+		new(UserModel),
+		new(CompanyUserRef),
+	)
+	if err != nil {
+		//t.Fatalf("test SyncModel() failure: %v", err)
 		return err
 	}
 
 	return nil
 }
 
-func directCreateTable(orm *orm.TOrm, t *testing.T) {
-	err := orm.DropTables("sys.action,res.company,res.user", "res.partner")
-	if err != nil {
-		t.Error(err)
-	}
-
-	err = orm.SyncModel("test",
-		new(BaseModel),
-		new(RelateModel),
-		new(BaseRelateRef),
-		/*
-			new(Model1),
-			new(Model2),
-			new(ResPartner),
-			new(ResUser)*/
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	isEmpty, err := orm.IsTableEmpty("base.model")
-	if err != nil {
-		panic(err)
-	}
-	if !isEmpty {
-		err = errors.New("base.model should empty")
-		panic(err)
-	}
-
-	isEmpty, err = orm.IsTableEmpty("relate.model")
-	if err != nil {
-		panic(err)
-	}
-	if !isEmpty {
-		err = errors.New("relate.model should empty")
-		panic(err)
-	}
-
-	err = orm.DropTables("base.model", "relate.model")
-	if err != nil {
-		panic(err)
-	}
-
-	err = orm.CreateTables("base.model")
-	err = orm.CreateTables("relate.modle", "base.relate.ref")
-	if err != nil {
-		panic(err)
-	}
-
-	err = orm.CreateIndexes("base.model")
-	if err != nil {
-		panic(err)
-	}
-
-	err = orm.CreateIndexes("base.model")
-	if err != nil {
-		panic(err)
-	}
-
-	err = orm.CreateUniques("base.model")
-	if err != nil {
-		panic(err)
-	}
-
-	err = orm.CreateUniques("base.model")
-	if err != nil {
-		panic(err)
-	}
+func PrintSubject(subject, option string) {
+	msg := fmt.Sprintf("-------------- %s : %s --------------", subject, option)
+	fmt.Println(msg)
 }
 
 func BaseTest(orm *orm.TOrm, t *testing.T) {
-	fmt.Println("-------------- Direct Create Table --------------")
-	directCreateTable(orm, t)
 	fmt.Println("-------------- tag --------------")
-	tag(orm, t)
+	Tag("Tag", t)
 
 	fmt.Println("-------------- Create --------------")
-	create(orm, t)
-	create_by_relate(orm, t)
-
-	fmt.Println("-------------- Write --------------")
-	Write(orm, t)
-	write_by_id(orm, t)
-	write_by_where(orm, t)
+	Create("Create", t)
 
 	fmt.Println("-------------- Read --------------")
-	read(orm, t)
-	read_by_where(orm, t)
-	read_by_domain(orm, t)
-	read_to_struct(orm, t)
+	Read("Read", t)
+
+	fmt.Println("-------------- Write --------------")
+	Write("Write", t)
 
 	fmt.Println("-------------- Search --------------")
-	search(orm, t)
+	Search("Search", t)
 
 	fmt.Println("-------------- Delete --------------")
-	del(orm, t)
+	Delete("Delete", t)
 
 	fmt.Println("-------------- Count --------------")
-	count(orm, t)
+	count("Count", orm, t)
 
 	fmt.Println("-------------- Limit --------------")
-	limit(orm, t)
+	limit("Limit", orm, t)
 
 	fmt.Println("-------------- Sum --------------")
-	sum(orm, t)
+	sum("Limit", orm, t)
 
 	fmt.Println("-------------- Custom Table Name --------------")
-	custom_table_name(orm, t)
+	custom_table_name("Table", orm, t)
 
 	fmt.Println("-------------- Dump --------------")
-	dump(orm, t)
+	dump("Dump", orm, t)
 	/*	fmt.Println("-------------- insertAutoIncr --------------")
 		insertAutoIncr(orm, t)
 		fmt.Println("-------------- insertMulti --------------")

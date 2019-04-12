@@ -1,13 +1,9 @@
 package orm
 
 import (
-	//	"errors"
 	"fmt"
-	//	"strconv"
 	"strings"
-	//	"unicode"
-	//"vectors/utils"
-	"github.com/volts-dev/logger"
+
 	"github.com/volts-dev/utils"
 )
 
@@ -108,7 +104,7 @@ func NewExpression(model *TModel, domain *utils.TStringList, context map[string]
 		joins: make([]string, 0), //utils.NewStringList(),
 	}
 	utils.PrintStringList(domain)
-	logger.Dbg("NewExpression", domain.Count())
+	//logger.Dbg("NewExpression", domain.Count())
 	exp.Expression = distribute_not(normalize_domain(domain))
 	exp.parse(context)
 	return
@@ -477,13 +473,13 @@ func is_leaf(element *utils.TStringList, internal ...bool) bool {
 func normalize_domain(domain *utils.TStringList) (result *utils.TStringList) {
 	//lLst := utils.Domain2StringList(domain)
 	if domain == nil {
-		logger.Logger.Err("Invaild domain")
+		logger.Err("Invaild domain")
 		return Query2StringList(TRUE_DOMAIN)
 	}
 
 	// must be including Terms
 	if !domain.IsList() {
-		logger.Logger.Err("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
+		logger.Err("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
 		//return // TODO 考虑是否直接返回？？？
 		return Query2StringList(TRUE_DOMAIN)
 	}
@@ -515,12 +511,12 @@ func normalize_domain(domain *utils.TStringList) (result *utils.TStringList) {
 
 	// 错误提示
 	if expected != 0 {
-		logger.Logger.Errf("This domain is syntactically not correct: %s", StringList2Domain(domain))
+		logger.Errf("This domain is syntactically not correct: %s", StringList2Domain(domain))
 	}
 
 	// 格式化List 生成Text
 	//result.Update()
-	//logger.Logger.Err("normalize_domain", StringList2Domain(result))
+	//logger.Err("normalize_domain", StringList2Domain(result))
 	return result
 }
 
@@ -771,7 +767,7 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 	}
 
 	if len(alias) > 64 {
-		logger.Logger.Warnf("Table alias name %s is longer than the 64 characters size accepted by default in postgresql.", alias)
+		logger.Warnf("Table alias name %s is longer than the 64 characters size accepted by default in postgresql.", alias)
 	}
 
 	return alias, fmt.Sprintf("%s as %s", _quote(joined_tables[0][0]), _quote(alias))
@@ -951,7 +947,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 	for len(self.stack) > 0 {
 		//  # Get the next leaf to process
 		lExLeaf = self._pop() // 取最后一个
-		logger.Dbg("_pop", lExLeaf.leaf.String())
+		//logger.Dbg("_pop", lExLeaf.leaf.String())
 
 		// 获取各参数 # Get working variables
 		if lExLeaf.is_operator() {
@@ -982,7 +978,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 		if field != nil {
 			comodel, err = model.Orm().GetModel(field.ModelName()) //#获取字段所属的Model
 			if err != nil {
-				logger.LogErr(err)
+				logger.Err(err)
 			}
 		}
 
@@ -1002,8 +998,8 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			//logger.Dbg("is_operator")
 			self._push_result(lExLeaf)
 		} else if field == nil && !IsInheritField {
-			//panic(logger.Logger.Err("Invalid field %r in leaf %r", left.String(), lExLeaf.leaf.String()))
-			logger.Logger.Errf("Invalid field %s in leaf %s", left.String(), lExLeaf.leaf.String())
+			//panic(logger.Err("Invalid field %r in leaf %r", left.String(), lExLeaf.leaf.String()))
+			logger.Errf("Invalid field %s in leaf %s", left.String(), lExLeaf.leaf.String())
 
 			//} else if (field == nil || (field != nil && field.IsForeignField())) && IsInheritField {
 		} else if IsInheritField {
@@ -1029,7 +1025,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			lRefFld := model.RelateFieldByName(lFieldName)
 			next_model, err := model.orm.GetModel(lRefFld.RelateTableName)
 			if err != nil {
-				logger.LogErr(err)
+				logger.Err(err)
 			}
 			//logger.Dbg("IsForeignField>>", lFieldName, next_model.GetModelName())
 			lExLeaf.add_join_context(next_model.GetBase(), model._relations[next_model.GetModelName()], "id", model._relations[next_model.GetModelName()])
@@ -1090,7 +1086,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			}
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.IsAutoJoin() {
-			logger.Logger.Errf("_auto_join attribute not supported on many2many column %s", left.String())
+			logger.Errf("_auto_join attribute not supported on many2many column %s", left.String())
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.Type() == "many2one" {
 			//logger.Dbg(`if len(path) > 1 && field.Type == 'many2one'`)
@@ -1121,7 +1117,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			var domain *utils.TStringList
 			if !field.Search() {
 				//# field does not support search!
-				logger.Logger.Errf("Non-stored field %s cannot be searched.", field.Name)
+				logger.Errf("Non-stored field %s cannot be searched.", field.Name)
 				// if _logger.isEnabledFor(logging.DEBUG):
 				//     _logger.debug(''.join(traceback.format_stack()))
 				//# Ignore it: generate a dummy leaf.
@@ -1227,15 +1223,15 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 	lField := model.FieldByName(left.String())
 	lIsField := lField != nil
 
-	logger.Dbg("_leaf_to_sql", lIsField, left.String(), operator.String(), right.String(), right.IsList())
+	//logger.Dbg("_leaf_to_sql", lIsField, left.String(), operator.String(), right.String(), right.IsList())
 
 	// 重新检查合法性 不行final sanity checks - should never fail
 	if utils.InStrings(operator.String(), append(TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
-		logger.Logger.Warnf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
+		logger.Warnf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
 	}
 
 	if !(left.In(TRUE_LEAF, FALSE_LEAF) || model.FieldByName(left.String()) != nil || left.In(MAGIC_COLUMNS)) { //
-		logger.Logger.Warnf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
+		logger.Warnf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 	}
 	//        assert not isinstance(right, BaseModel), \
 	//            "Invalid value %r in domain term %r" % (right, leaf)
@@ -1290,7 +1286,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 			}
 
 			check_nulls := false
-			logger.Dbg("right.IsList ", lIsHolder, res_params)
+			//logger.Dbg("right.IsList ", lIsHolder, res_params)
 			for idx, item := range res_params {
 				//if utils.IsBool(item) && utils.Itf2Bool(item) == false {
 				if utils.IsBoolItf(item) && utils.Itf2Bool(item) == false {
@@ -1300,7 +1296,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 					res_params = utils.SlicRemove(res_params, idx)
 				}
 			}
-			logger.Dbg("res_params", res_params)
+			//logger.Dbg("res_params", res_params)
 			// In 值操作
 			if res_params != nil {
 				instr := ""
@@ -1346,7 +1342,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 			}
 			if is_bool_value {
 				r := ""
-				logger.Logger.Warnf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
+				logger.Warnf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
 				if operator.String() == "in" {
 					if utils.StrToBool(right.String()) {
 						r = "NOT NULL"
@@ -1446,7 +1442,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 			}
 		} else {
 			//# Must not happen
-			logger.Logger.Errf(`Invalid field %s in domain term %s`, left.String(), leaf.String())
+			logger.Errf(`Invalid field %s in domain term %s`, left.String(), leaf.String())
 		}
 
 		add_null := false
@@ -1528,7 +1524,7 @@ func (self *TExpression) to_sql(params ...interface{}) (res_query []string, res_
 	// #上面Pop取出合并后应该为1
 	if stack.Count() != 1 {
 		res_params = nil
-		logger.Logger.Errf("domain to sql error: stack.Len() %d", stack.Count())
+		logger.Errf("domain to sql error: stack.Len() %d", stack.Count())
 	}
 
 	query = stack.String(0)
@@ -1545,9 +1541,9 @@ func (self *TExpression) get_tables() (tables *utils.TStringList) {
 	tables = utils.NewStringList()
 	for _, leaf := range self.result {
 		for _, table := range leaf.get_tables().Items() {
-			//logger.Logger.ErrLn("get_tables", table.String())
+			//logger.ErrLn("get_tables", table.String())
 			if !tables.Has(table.String()) {
-				//logger.Logger.ErrLn("get_tables2", table.String())
+				//logger.ErrLn("get_tables2", table.String())
 				tables.PushString(table.String())
 			}
 		}

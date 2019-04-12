@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/go-xorm/core"
-	"github.com/volts-dev/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -44,6 +43,7 @@ func NewMany2OneField() IField {
 	return new(TMany2OneField)
 }
 
+// difine many2many(relate.model,ref.model,base_id,relate_id)
 func NewMany2ManyField() IField {
 	return new(TMany2ManyField)
 }
@@ -84,39 +84,39 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 	} else {
 		logger.Panicf("Many2Many(%s) of model %s must including at least 4 args!", fld.Name(), self.model_name)
 	}
-	logger.Dbg("M2M", fld.Base())
+	//logger.Dbg("M2M", fld.Base())
 }
 
 //model, columns
 func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 	orm := ctx.Orm
+	fld := ctx.Field
+	rel := strings.Replace(fld.MiddleModelName(), ".", "_", -1)
 
-	has, err := orm.IsTableExist(ctx.Field.RelateModelName())
+	has, err := orm.IsTableExist(rel)
 	if err != nil {
 		logger.Errf("m2m check table %s failed:%s", ctx.Field.RelateModelName(), err.Error())
 	}
 
 	if !has {
-		fld := ctx.Field
-		rel := fld.RelateModelName()
-		id1 := fld.RelateModelName()
+		id1 := fld.RelateFieldName()
 		id2 := fld.MiddleFieldName()
 		query := fmt.Sprintf(`
 	           CREATE TABLE "%s" ("%s" INTEGER NOT NULL,
 	                                 "%s" INTEGER NOT NULL,
 	                                 UNIQUE("%s","%s"));
-	           COMMENT ON TABLE "%s" IS %%s;
+	           COMMENT ON TABLE "%s" IS '%s';
 	           CREATE INDEX ON "%s" ("%s");
 	           CREATE INDEX ON "%s" ("%s")`,
 			rel, id1,
 			id2,
 			id1, id2,
-			rel,
+			rel, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.ModelName(), rel),
 			rel, id1,
 			rel, id2)
-		_, err := orm.Exec(query, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.ModelName(), rel))
+		_, err := orm.Exec(query)
 		if err != nil {
-			logger.Errf("m2m create table %s failed:%s", ctx.Field.RelateModelName(), err.Error())
+			logger.Errf("m2m create table '%s' failure : SQL:%s,Error:%s", ctx.Field.RelateModelName(), query, err.Error())
 		}
 
 		self.update_db_foreign_keys(ctx)
@@ -169,12 +169,13 @@ func (self *TMany2ManyField) OnConvertToRead(ctx *TFieldEventContext) interface{
 	field := ctx.Field.Base()
 	id := ctx.Id
 
+	// TODO 检测字段应该在注册MODEL时完成
 	// 检测关联Model合法性
 	if !ctx.Session.Orm().HasModel(field.comodel_name) || !ctx.Session.Orm().HasModel(field.comodel_name) {
 		return ctx.Value
 	}
 
-	//
+	// TODO　model 规范命名方式
 	cotable_name := strings.Replace(field.comodel_name, ".", "_", -1)   //# 字段关联表名
 	reltable_name := strings.Replace(field.relmodel_name, ".", "_", -1) //# 字段M2m关系表名
 
@@ -230,7 +231,7 @@ func (self *TMany2ManyField) OnConvertToRead(ctx *TFieldEventContext) interface{
 	if ids == nil || len(less_ids) > 0 {
 		ds, err := sess.Query(query, where_params...)
 		if err != nil {
-			logger.Logger.Errf(err.Error())
+			logger.Errf(err.Error())
 			return nil
 		}
 
@@ -267,7 +268,7 @@ func (self *TMany2ManyField) OnConvertToRead(ctx *TFieldEventContext) interface{
 }
 
 // # beware of duplicates when inserting
-func (self *TMany2ManyField) _link(ids []string, ctx *TFieldEventContext) {
+func (self *TMany2ManyField) link(ids []string, ctx *TFieldEventContext) {
 	orm := ctx.Session.Orm()
 	field := ctx.Field
 	rec_id := ctx.Id // 字段所在记录的ID
@@ -275,31 +276,40 @@ func (self *TMany2ManyField) _link(ids []string, ctx *TFieldEventContext) {
 	session.Begin()
 
 	middle_table_name := strings.Replace(field.MiddleModelName(), ".", "_", -1)
+	for _, relate_id := range ids {
+		query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
+                VALUES (%s,%s)
+                ON CONFLICT DO NOTHING`,
+			middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
+			relate_id, rec_id,
+		)
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
-                        (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
-                        EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
-		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
-		rec_id, strings.Join(ids, ","),
-		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
-	)
-
-	_, err := session.Exec(query)
-	if err != nil {
-		session.Rollback()
-		logger.LogErr(err)
+		/*
+		   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
+		                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
+		                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
+		   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
+		   		rec_id, strings.Join(ids, ","),
+		   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
+		   	)
+		*/
+		_, err := session.Exec(query)
+		if err != nil {
+			session.Rollback()
+			logger.Err(err)
+		}
 	}
 
-	err = session.Commit()
+	err := session.Commit()
 	if err != nil {
 		session.Rollback()
-		logger.LogErr(err)
+		logger.Err(err)
 	}
 	session.Close()
 }
 
 //# remove all records for which user has access rights
-func (self *TMany2ManyField) _unlink_all(ids []string, ctx *TFieldEventContext) {
+func (self *TMany2ManyField) unlink_all(ids []string, ctx *TFieldEventContext) {
 	orm := ctx.Session.Orm()
 	field := ctx.Field
 	model_name := strings.Replace(field.ModelName(), ".", "_", -1)
@@ -315,15 +325,20 @@ func (self *TMany2ManyField) _unlink_all(ids []string, ctx *TFieldEventContext) 
 	orm.Exec(query, strings.Join(ids, ","))
 }
 
-// 设置字段值
+// write relate data to the reference table
 func (self *TMany2ManyField) OnConvertToWrite(ctx *TFieldEventContext) interface{} {
-	logger.Dbg("OnConvertToWrite", ctx.Field.Name(), ctx.Value)
 	if values, ok := ctx.Value.([]int64); ok {
-		ids := utils.IntsToStrs(values)
-		self._unlink_all(ids, ctx)
-		self._link(ids, ctx)
+		if len(values) > 0 {
+			ids := utils.IntsToStrs(values)
+
+			// TODO 读比写快 不删除原有数据 直接读取并对比再添加
+			// unlink all the relate record on the ref. table
+			self.unlink_all(ids, ctx)
+
+			// relink record from new data
+			self.link(ids, ctx)
+		}
 	}
-	// TODO
 	return nil
 }
 func (self *TMany2OneField) Init(ctx *TFieldContext) {
@@ -357,7 +372,7 @@ func (self *TMany2OneField) OnConvertToRead(ctx *TFieldEventContext) interface{}
 		lModel, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
 		if err != nil {
 			// # Should not happen, unless the foreign key is missing.
-			logger.LogErr(err)
+			logger.Err(err)
 		} else {
 			//logger.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), lModel, ctx.Value, lId)
 			ds := lModel.NameGet([]string{utils.IntToStr(lId)})
@@ -374,7 +389,7 @@ func (self *TMany2OneField) OnConvertToWrite(ctx *TFieldEventContext) interface{
 			return lst[0]
 		}
 	default:
-		logger.Logger.Warnf("%s convert_to_write many2one fail", ctx.Field.Name())
+		logger.Warnf("%s convert_to_write many2one fail", ctx.Field.Name())
 	}
 
 	return ctx.Value

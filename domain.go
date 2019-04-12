@@ -636,7 +636,7 @@ func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) 
 	list := utils.NewStringList() // 存储临时叶 提供给所有
 	for !parser.IsEnd() {
 		item := parser.Item()
-		fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[item.Type], item.Val))
+		//fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[item.Type], item.Val))
 		switch item.Type {
 		case ItemLeftParen:
 			// 检测是否到尾部
@@ -701,7 +701,7 @@ func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) 
 
 exit:
 	if temp.Count() == 0 { // 当temp为0 时证明不是带Or And 的条件 直接返回List
-		fmt.Println("auuuu", list.Flatten())
+		//fmt.Println("auuuu", list.Flatten())
 		return list, nil
 	} else {
 		// # 以下处理SQL语句
@@ -731,7 +731,7 @@ func Query2StringList(sql string) (res_domain *utils.TStringList) {
 	if err != nil {
 
 	}
-	fmt.Println("asdfa", res_domain.Flatten())
+	//fmt.Println("asdfa", res_domain.Flatten())
 
 	// 确保Domain为List形态
 	/*for {

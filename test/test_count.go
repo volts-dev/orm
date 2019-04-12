@@ -3,10 +3,10 @@ package test
 import (
 	"fmt"
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
-func count(orm *orm.TOrm, t *testing.T) {
+func count(title string, orm *orm.TOrm, t *testing.T) {
 	lUserMdl, _ := orm.GetModel("res.user")
 	lCount, err := lUserMdl.Records().Count()
 	fmt.Printf("Total %d records!!!\n", lCount, err)

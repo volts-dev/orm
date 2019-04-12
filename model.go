@@ -6,10 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/volts-dev/logger"
-	"github.com/volts-dev/utils"
-
 	core "github.com/go-xorm/core"
+	"github.com/volts-dev/utils"
 )
 
 type (
@@ -263,18 +261,18 @@ func _generate_order_by(order_spec, query *TQuery) {
 // 底层数据查询接口
 func (self *TModel) _query(sql string, params ...interface{}) (res []map[string]interface{}, err error) {
 	lRows, err := self.orm.DB().Query(sql, params)
-	logger.LogErr(err)
+	logger.Err(err)
 
 	defer lRows.Close()
 	for lRows.Next() {
 		tempMap := make(map[string]interface{})
 		err = lRows.ScanMap(tempMap)
-		if !logger.LogErr(err) {
+		if !logger.Err(err) {
 			res = append(res, tempMap)
 		}
 	}
 	err = lRows.Err()
-	logger.LogErr(err)
+	logger.Err(err)
 
 	return res, err
 }
@@ -320,7 +318,7 @@ func (self *TModel) _search(args *utils.TStringList, fields []string, offset int
 		// hurt performance
 		query_str = `SELECT count(1) FROM ` + from_clause + where_str
 		lRes, err := self.orm.SqlQuery(query_str, where_clause_params...)
-		logger.LogErr(err)
+		logger.Err(err)
 		return []string{lRes.FieldByName("count").AsString()}
 	}
 
@@ -334,7 +332,7 @@ func (self *TModel) _search(args *utils.TStringList, fields []string, offset int
 	query_str = fmt.Sprintf(`SELECT "%s".id FROM `, self._table) + from_clause + where_str + order_by + limit_str + offset_str
 	web.Debug("_search", query_str, where_clause_params)
 	res, err := self.orm.SqlQuery(query_str, where_clause_params...)
-	if logger.LogErr(err) {
+	if logger.Err(err) {
 		return nil
 	}
 	return res.Keys()
@@ -424,7 +422,7 @@ func (self *TModel) convert_to_read(field IField, value interface{}, use_name_ge
 			// value_sudo.env.prefetch[value._name].update(value.env.prefetch[value._name])
 			lModel, err := self.osv.GetModel(field.Base().RelateModelName()) // #i
 			if err != nil {
-				logger.LogErr(err, "@convert_to_read")
+				logger.Err(err, "@convert_to_read")
 			}
 
 			if lModel != nil {
@@ -469,7 +467,7 @@ func (self *TModel) __field_value_get(ids []string, fields []*TField, values *TD
 		//# retrieve the records in the comodel
 		comodel, err := self.osv.GetModel(lField.RelateModelName()) //obj.pool[self._obj].browse(cr, user, [], context)
 		if err != nil {
-			logger.LogErr(err)
+			logger.Err(err)
 		}
 		inverse := lField.RelateFieldName()
 		//domain = self._domain(obj) if callable(self._domain) else self._domain
@@ -563,7 +561,7 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 	}
 	// 检测name 字段
 	if self._rec_name == "" {
-		logger.Logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self._name)
+		logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self._name)
 		//logger.Dbg("SearchName:", name, domain, lDomain.String())
 		return nil
 	}
@@ -805,7 +803,7 @@ func (self *TModel) relations_reload() {
 		//logger.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
 		rel_model, err := self.osv.GetModel(tbl) // #i //TableByName(tbl)
 		if err != nil {
-			logger.Logger.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetTableName())
+			logger.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetTableName())
 		}
 
 		rel_model.relations_reload()
@@ -851,7 +849,7 @@ func (self *TModel) _add_inherited_fields() {
 	for parent_model, _ := range self._relations {
 		parent, err := self.osv.GetModel(parent_model) // #i
 		if err != nil {
-			logger.LogErr(err, "@_add_inherited_fields")
+			logger.Err(err, "@_add_inherited_fields")
 		}
 
 		for refname, ref := range parent.GetFields() {
@@ -940,7 +938,7 @@ func (self *TModel) _select_column_data() *TDataSet {
            WHERE c.relname=%s 
            AND c.oid=a.attrelid
            AND a.atttypid=t.oid`, self.GetTableName())
-	logger.LogErr(err)
+	logger.Err(err)
 
 	return lDs
 
@@ -948,7 +946,7 @@ func (self *TModel) _select_column_data() *TDataSet {
 
 func (self *TModel) _table_exist() bool {
 	lDs, err := self.orm.Query(`SELECT relname FROM pg_class WHERE relkind IN ('r','v') AND relname=%s`, self.GetTableName())
-	logger.LogErr(err)
+	logger.Err(err)
 	return lDs.Count() > 0
 }
 

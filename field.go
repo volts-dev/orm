@@ -13,7 +13,8 @@ const (
 )
 
 var (
-	field_creators = make(map[string]func() IField) // 注册的Writer类型函数接口
+	// 注册的Writer类型函数接口
+	field_creators = make(map[string]func() IField)
 
 	FieldTypes = map[string]string{
 		// 布尔
@@ -232,13 +233,14 @@ type (
 	}
 
 	TFieldEventContext struct {
-		//Orm     *TOrm
 		Session *TSession
 		Model   IModel
 		//FieldTypeValue reflect.Value
 		//Column         *core.Column
-		Field   IField
-		Id      string // records id
+		Field IField
+		// the current id of current record
+		Id string
+		// the current value of the field
 		Value   interface{}
 		Dataset *TDataSet
 		Context map[string]interface{}
@@ -275,7 +277,7 @@ type (
 		RelateModelName() string
 		RelateFieldName() string
 		MiddleFieldName() string
-		MiddleModelName() string
+		MiddleModelName() string // 多对多关系中 记录2表记录关联关系的表
 		FieldsId() string
 		IsIndex() bool
 		IsRelated() bool
@@ -287,13 +289,17 @@ type (
 
 		UseAttachment() bool
 
+		// raw I/O event of field when it be read/write.
 		// [原始数据] 处理读取数据库的原始数据
 		OnRead(ctx *TFieldEventContext) interface{} // (res map[string]map[string]interface{})         // 字段数据获取
 		// [原始数据] 处理写入数据库原始数据
 		OnWrite(ctx *TFieldEventContext) interface{} //(res map[string]map[string]interface{}) // 字段数据保存
-		// [经典数据] 从原始数据转换提供Classical数据读法,数据修剪,Many2One显示Names表等
-		OnConvertToRead(ctx *TFieldEventContext) interface{} // TODO compute
-		OnConvertToWrite(ctx *TFieldEventContext) interface{}
+
+		// classic I/O event of the field. It will be call when using classic query. READ/WRITE the relate data FROM/TO its relation table
+		// the RETURN value is the value of field.
+		//[经典数据] 从原始数据转换提供Classical数据读法,数据修剪,Many2One显示Names表等
+		OnConvertToRead(ctx *TFieldEventContext) interface{}  // TODO compute
+		OnConvertToWrite(ctx *TFieldEventContext) interface{} // TODO 不返回或者返回错误
 	}
 
 	TField struct {
@@ -479,6 +485,7 @@ func (self *TField) ModelName() string {
 func (self *TField) RelateFieldName() string {
 	return self.cokey_field_name
 }
+
 func (self *TField) MiddleFieldName() string {
 	return self.relkey_field_name
 }
@@ -705,7 +712,7 @@ func (self *TField) OnWrite(ctx *TFieldEventContext) interface{} {
 // TODO:session *TSession, 某些地方无法提供session或者没有必要用到
 // """ Read the value of ``self`` on ``records``, and store it in cache. """
 func (self *TField) OnRead(ctx *TFieldEventContext) interface{} {
-	//logger.Logger.Warn("undefined filed Read method !")
+	//logger.Warn("undefined filed Read method !")
 	//ctx.Dataset.FieldByName(ctx.Field.Name()).AsInterface()
 	return nil
 }

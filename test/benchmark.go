@@ -3,7 +3,7 @@ package test
 import (
 	//	"database/sql"
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
 type BigStruct struct {
@@ -81,23 +81,23 @@ func DoBenchDriver(newdriver func() (*sql.DB, error), createTableSql,
 
 func DoBenchInsert(orm *orm.TOrm, b *testing.B) {
 	b.StopTimer()
-	lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
-	//err := orm.CreateTables(bs)
-	//if err != nil {
-	//	b.Error(err)
-	//	return
-	//}
+	/*	lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
+		//err := orm.CreateTables(bs)
+		//if err != nil {
+		//	b.Error(err)
+		//	return
+		//}
 
-	b.StartTimer()
-	model, _ := orm.GetModel("res.user")
-	for i := 0; i < b.N; i++ {
-		lUserData.Id = 0
-		_, err := model.Records().Create(lUserData)
-		if err != nil {
-			b.Error(err)
-			return
-		}
-	}
+		b.StartTimer()
+		model, _ := orm.GetModel("res.user")
+		for i := 0; i < b.N; i++ {
+			lUserData.Id = 0
+			_, err := model.Records().Create(lUserData)
+			if err != nil {
+				b.Error(err)
+				return
+			}
+		}*/
 	b.StopTimer()
 	/*	err = engine.DropTables(bs)
 		if err != nil {
@@ -108,14 +108,14 @@ func DoBenchInsert(orm *orm.TOrm, b *testing.B) {
 
 func DoBenchFind(orm *orm.TOrm, b *testing.B) {
 	b.StopTimer()
-	lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
+	/*lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
 	/*	err := engine.CreateTables(bs)
 		if err != nil {
 			b.Error(err)
 			return
 		}
 	*/
-	model, _ := orm.GetModel("res.user")
+	/*model, _ := orm.GetModel("res.user")
 	for i := 0; i < 100; i++ {
 		lUserData.Id = 0
 		_, err := model.Records().Create(lUserData)
@@ -132,7 +132,7 @@ func DoBenchFind(orm *orm.TOrm, b *testing.B) {
 			b.Error(err)
 			return
 		}
-	}
+	}*/
 	b.StopTimer()
 	/*	err = engine.DropTables(bs)
 		if err != nil {

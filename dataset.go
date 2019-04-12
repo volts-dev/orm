@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/volts-dev/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -116,7 +115,7 @@ func (self *TFieldSet) AsInterface(src ...interface{}) (result interface{}) {
 		return self.RecSet._getByName(self.Name, false)
 	}
 
-	logger.Logger.Err("Can not covert value into interface{} since FieldSet is nil!")
+	logger.Err("Can not covert value into interface{} since FieldSet is nil!")
 	return
 }
 
@@ -130,7 +129,7 @@ func (self *TFieldSet) AsClassic(src ...interface{}) (result interface{}) {
 		return self.RecSet._getByName(self.Name, true)
 	}
 
-	logger.Logger.Err("Can not covert value into interface{} since FieldSet is nil!")
+	logger.Err("Can not covert value into interface{} since FieldSet is nil!")
 	return
 }
 
@@ -145,7 +144,7 @@ func (self *TFieldSet) AsString(src ...string) (result string) {
 		return utils.Itf2Str(self.RecSet._getByName(self.Name, false))
 	}
 
-	logger.Logger.Err("Can not covert value into string since FieldSet is nil!")
+	logger.Err("Can not covert value into string since FieldSet is nil!")
 	panic("")
 	return ""
 }
@@ -161,7 +160,7 @@ func (self *TFieldSet) AsInteger(src ...int64) (result int64) {
 	} else {
 		return utils.Itf2Int64(self.RecSet._getByName(self.Name, false))
 	}
-	logger.Logger.Err("Can not covert value into int64 since FieldSet is nil!")
+	logger.Err("Can not covert value into int64 since FieldSet is nil!")
 	return 0
 }
 
@@ -177,7 +176,7 @@ func (self *TFieldSet) AsBoolean(src ...bool) (result bool) {
 		return utils.Itf2Bool(self.RecSet._getByName(self.Name, false))
 	}
 
-	logger.Logger.Err("Can not covert value into bool since FieldSet is nil!")
+	logger.Err("Can not covert value into bool since FieldSet is nil!")
 	return false
 }
 
@@ -192,7 +191,7 @@ func (self *TFieldSet) AsDateTime(src ...time.Time) (result time.Time) {
 	} else {
 		return utils.Itf2Time(self.RecSet._getByName(self.Name, false))
 	}
-	logger.Logger.Err("Can not covert value into time.Time since FieldSet is nil!")
+	logger.Err("Can not covert value into time.Time since FieldSet is nil!")
 	return
 }
 
@@ -207,7 +206,7 @@ func (self *TFieldSet) AsFloat(src ...float64) (result float64) {
 	} else {
 		return utils.Itf2Float(self.RecSet._getByName(self.Name, false))
 	}
-	logger.Logger.Err("Can not covert value into float64 since FieldSet is nil!")
+	logger.Err("Can not covert value into float64 since FieldSet is nil!")
 	return
 }
 
@@ -356,7 +355,7 @@ func (self *TRecordSet) AsItfMap() (res map[string]interface{}) {
 // convert to a json string
 func (self *TRecordSet) AsJson() (res string) {
 	js, err := json.Marshal(self.AsItfMap())
-	logger.LogErr(err)
+	logger.Err(err)
 	return string(js)
 }
 
@@ -387,7 +386,7 @@ func (self *TRecordSet) AsStruct(target interface{}, classic ...bool) {
 	for idx, name := range self.Fields {
 		lFieldValue := lStruct.FieldByName(utils.TitleCasedName(name))
 		if !lFieldValue.IsValid() || !lFieldValue.CanSet() {
-			//logger.Logger.Err("table %v's column %v is not valid or cannot set", self.DataSet.Name, name)
+			//logger.Err("table %v's column %v is not valid or cannot set", self.DataSet.Name, name)
 			continue
 		}
 
@@ -431,7 +430,7 @@ func (self *TRecordSet) AsStruct(target interface{}, classic ...bool) {
 					lItfVal = utils.Itf2Time(lItfVal)
 				}
 			default:
-				logger.Logger.Errf("Unsupported struct type %v", lFieldValue.Type().Kind())
+				logger.Errf("Unsupported struct type %v", lFieldValue.Type().Kind())
 				continue
 			}
 		}
@@ -568,7 +567,7 @@ func (self *TDataSet) AppendRecord(Record ...*TRecordSet) error {
 		}
 
 		if err := self.check_fields(rec); err != nil {
-			logger.Logger.Errf(`TDataSet.AppendRecord():%v`, err.Error())
+			logger.Errf(`TDataSet.AppendRecord():%v`, err.Error())
 
 		} else { //#TODO 考虑是否为复制
 			rec.DataSet = self //# 将其归为
@@ -587,7 +586,7 @@ func (self *TDataSet) NewRecord(Record map[string]interface{}) bool {
 	lRec := NewRecordSet(Record)
 
 	//if err := self.check_fields(lRec); err != nil {
-	//	logger.Logger.ErrLn(err.Error())
+	//	logger.ErrLn(err.Error())
 	//}
 
 	self.AppendRecord(lRec)
@@ -604,7 +603,7 @@ func (self *TDataSet) NewRecord(Record map[string]interface{}) bool {
 				}
 
 				lValue, err = val2Str(&rawValue)
-				if logger.LogErr(err) {
+				if logger.Err(err) {
 					return false
 				}
 
@@ -685,15 +684,15 @@ func (self *TDataSet) RecordByKey(Key string, key_field ...string) (rec *TRecord
 	if len(self.RecordsIndex) == 0 {
 		if self.KeyField == "" {
 			if len(key_field) == 0 {
-				logger.Logger.Err(`You should point out the key_field name!`) //#重要提示
+				logger.Err(`You should point out the key_field name!`) //#重要提示
 			} else {
 				if !self.SetKeyField(key_field[0]) {
-					logger.Logger.Errf(`Set key_field fail when call RecordByKey(key_field:%v)!`, key_field[0])
+					logger.Errf(`Set key_field fail when call RecordByKey(key_field:%v)!`, key_field[0])
 				}
 			}
 		} else {
 			if !self.SetKeyField(self.KeyField) {
-				logger.Logger.Errf(`Set key_field fail when call RecordByKey(self.KeyField:%v)!`, self.KeyField)
+				logger.Errf(`Set key_field fail when call RecordByKey(self.KeyField:%v)!`, self.KeyField)
 			}
 		}
 	}

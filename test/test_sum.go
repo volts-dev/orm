@@ -2,9 +2,9 @@ package test
 
 import (
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
-func sum(orm *orm.TOrm, t *testing.T) {
+func sum(title string, orm *orm.TOrm, t *testing.T) {
 
 }

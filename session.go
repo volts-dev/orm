@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-xorm/core"
-	"github.com/volts-dev/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -23,7 +22,7 @@ type (
 		CreateUniques(model string) error
 		DropTable(model string) (err error)
 		Exec(sql_str string, args ...interface{}) (sql.Result, error)
-		Query(sqlStr string, paramStr ...interface{}) (res_dataset *TDataSet, err error)
+		Query(sql string, paramStr ...interface{}) (res_dataset *TDataSet, err error)
 		Ping() error
 		IsEmpty(model string) (bool, error)
 		IsExist(model ...string) (bool, error)
@@ -74,10 +73,6 @@ func (self *TSession) init() error {
 *******************************************************************/
 // Close release the connection from pool
 func (self *TSession) Close() {
-	//for _, v := range self.stmtCache {
-	//	v.Close()
-	//}
-
 	if self.db != nil {
 		// When Close be called, if session is a transaction and do not call
 		// Commit or Rollback, then call Rollback.
@@ -86,9 +81,7 @@ func (self *TSession) Close() {
 		}
 		self.db = nil
 		self.tx = nil
-		//self.stmtCache = nil
 		self.init()
-
 	}
 }
 
@@ -118,17 +111,17 @@ func (self *TSession) Begin() error {
 	return nil
 }
 
-func (self *TSession) Commit() (err error) {
+func (self *TSession) Commit() error {
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
-		if err = self.tx.Commit(); err != nil {
-			return
+		if err := self.tx.Commit(); err != nil {
+			return err
 		}
-
 	}
-	return
+
+	return nil
 }
 
-// Rollback When using transaction, you can rollback if any error
+// Rollback when using transaction, you can rollback if any error
 func (self *TSession) Rollback() error {
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
 		//session.saveLastSQL(session.Engine.dialect.RollBackStr())
@@ -138,34 +131,34 @@ func (self *TSession) Rollback() error {
 	return nil
 }
 
-// Query a raw sql and return records as []map[string][]byte
-func (self *TSession) Query(sqlStr string, paramStr ...interface{}) (res_dataset *TDataSet, err error) {
+// Query a raw sql and return records as dataset
+func (self *TSession) Query(sql string, paramStr ...interface{}) (res_dataset *TDataSet, err error) {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
 
-	return self.query(sqlStr, paramStr...)
+	return self.query(sql, paramStr...)
 }
 
-func (self *TSession) query(sqlStr string, paramStr ...interface{}) (res_dataset *TDataSet, err error) {
+func (self *TSession) query(sql string, paramStr ...interface{}) (res_dataset *TDataSet, err error) {
 
 	for _, filter := range self.orm.dialect.Filters() {
-		sqlStr = filter.Do(sqlStr, self.orm.dialect, self.Statement.Table)
+		sql = filter.Do(sql, self.orm.dialect, self.Statement.Table)
 	}
 
-	return self.orm.log_query_sql(sqlStr, paramStr, func() (*TDataSet, error) {
+	return self.orm.log_query_sql(sql, paramStr, func() (*TDataSet, error) {
 		if self.IsAutoCommit {
-			return self.org_query(sqlStr, paramStr...)
+			return self.org_query(sql, paramStr...)
 		}
-		return self.tx_query(sqlStr, paramStr...)
+		return self.tx_query(sql, paramStr...)
 
 	})
 
 }
 
-func (self *TSession) do_prepare(sqlStr string) (stmt *core.Stmt, err error) {
-	stmt, err = self.db.Prepare(sqlStr)
+func (self *TSession) do_prepare(sql string) (stmt *core.Stmt, err error) {
+	stmt, err = self.db.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
@@ -220,12 +213,12 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 	return
 }
 
-func (self *TSession) tx_query(sqlStr string, params ...interface{}) (res_dataset *TDataSet, res_err error) {
+func (self *TSession) tx_query(sql string, params ...interface{}) (res_dataset *TDataSet, res_err error) {
 	var (
 		lRows *core.Rows
 	)
 
-	lRows, res_err = self.tx.Query(sqlStr, params...)
+	lRows, res_err = self.tx.Query(sql, params...)
 	//logger.Dbg("lRows1", lRows, res_err)
 	if res_err != nil {
 		return
@@ -272,8 +265,10 @@ func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, err
 	// 过滤Pg 的插入语句
 	if self.orm.dialect.DriverName() == "postgres" && strings.Count(strings.ToLower(sql_str), "returning") == 1 {
 		res, err := self.query(sql_str, args...)
-		//utils.Logger.DebugLn("exexex", res, err)
-		if !logger.LogErr(err) && res.Count() > 0 {
+		if err != nil {
+			logger.Err(err)
+		}
+		if res.Count() > 0 {
 			id := res.Record().GetByIndex(0).AsInteger()
 			return TExecResult(id), err
 		}
@@ -297,11 +292,11 @@ func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, err
 }
 
 // Execute sql
-func (self *TSession) org_exec(sqlStr string, args ...interface{}) (res sql.Result, err error) {
+func (self *TSession) org_exec(sql string, args ...interface{}) (res sql.Result, err error) {
 	if self.Prepared {
 		var stmt *core.Stmt
 
-		stmt, err = self.do_prepare(sqlStr)
+		stmt, err = self.do_prepare(sql)
 		if err != nil {
 			return
 		}
@@ -313,21 +308,21 @@ func (self *TSession) org_exec(sqlStr string, args ...interface{}) (res sql.Resu
 		return
 	}
 
-	return self.db.Exec(sqlStr, args...)
+	return self.db.Exec(sql, args...)
 }
 
-func (self *TSession) tx_exec(sqlStr string, args ...interface{}) (sql.Result, error) {
+func (self *TSession) tx_exec(sql string, args ...interface{}) (sql.Result, error) {
 	//for _, filter := range session.Engine.dialect.Filters() {
-	//	sqlStr = filter.Do(sqlStr, session.Engine.dialect, session.Statement.RefTable)
+	//	sql = filter.Do(sql, session.Engine.dialect, session.Statement.RefTable)
 	//}
 
-	//session.saveLastSQL(sqlStr, args...)
+	//session.saveLastSQL(sql, args...)
 
-	return self.tx.Exec(sqlStr, args...)
+	return self.tx.Exec(sql, args...)
 
 }
 
-// Sync2 synchronize structs to database tables
+// synchronize structs to database tables
 func (self *TSession) SyncModel(region string, models ...interface{}) error {
 	// 获取基本数据库信息
 	tables, err := self.orm.DBMetas()
@@ -407,11 +402,11 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 					// currently only support mysql & postgres
 					if lOrm.dialect.DBType() == core.MYSQL ||
 						lOrm.dialect.DBType() == core.POSTGRES {
-						logger.Logger.Infof("Table %s column %s change type from %s to %s\n",
+						logger.Infof("Table %s column %s change type from %s to %s\n",
 							lTableName, col.Name, curType, expectedType)
 						_, err = lOrm.Exec(lOrm.dialect.ModifyColumnSql(new_tb.Name, col))
 					} else {
-						logger.Logger.Warnf("Table %s column %s db type is %s, struct type is %s\n",
+						logger.Warnf("Table %s column %s db type is %s, struct type is %s\n",
 							lTableName, col.Name, curType, expectedType)
 					}
 
@@ -419,7 +414,7 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 				} else if strings.HasPrefix(curType, core.Varchar) && strings.HasPrefix(expectedType, core.Varchar) {
 					if lOrm.dialect.DBType() == core.MYSQL {
 						if cur_col.Length < col.Length {
-							logger.Logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
+							logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
 								lTableName, col.Name, cur_col.Length, col.Length)
 							_, err = lOrm.Exec(lOrm.dialect.ModifyColumnSql(lTableName, col))
 						}
@@ -427,7 +422,7 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 					//其他
 				} else {
 					if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
-						logger.Logger.Warnf("Table %s column %s db type is %s, struct type is %s",
+						logger.Warnf("Table %s column %s db type is %s, struct type is %s",
 							lTableName, col.Name, curType, expectedType)
 					}
 				}
@@ -435,7 +430,7 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 			} else if expectedType == core.Varchar {
 				if lOrm.dialect.DBType() == core.MYSQL {
 					if cur_col.Length < col.Length {
-						logger.Logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
+						logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
 							lTableName, col.Name, cur_col.Length, col.Length)
 						_, err = lOrm.Exec(lOrm.dialect.ModifyColumnSql(lTableName, col))
 					}
@@ -444,11 +439,11 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 
 			//
 			if col.Default != cur_col.Default {
-				logger.Logger.Warnf("Table %s Column %s db default is %s, struct default is %s",
+				logger.Warnf("Table %s Column %s db default is %s, struct default is %s",
 					lTableName, col.Name, cur_col.Default, col.Default)
 			}
 			if col.Nullable != cur_col.Nullable {
-				logger.Logger.Warnf("Table %s Column %s db nullable is %v, struct nullable is %v",
+				logger.Warnf("Table %s Column %s db nullable is %v, struct nullable is %v",
 					lTableName, col.Name, cur_col.Nullable, col.Nullable)
 			}
 
@@ -554,8 +549,8 @@ func (self *TSession) IsExist(model ...string) (bool, error) {
 
 	tableName := strings.Replace(lModelName, ".", "_", -1)
 	tableName = utils.SnakeCasedName(tableName)
-	sqlStr, args := self.orm.dialect.TableCheckSql(tableName)
-	lDs, err := self.query(sqlStr, args...)
+	sql, args := self.orm.dialect.TableCheckSql(tableName)
+	lDs, err := self.query(sql, args...)
 
 	return lDs.Count() > 0, err
 }
@@ -572,9 +567,7 @@ func (self *TSession) IsEmpty(model string) (bool, error) {
 	return lCount == 0, err
 }
 
-/*******************************************************************
-    ORM 实现接口
-*******************************************************************/
+// return the orm instance
 func (self *TSession) Orm() *TOrm {
 	return self.orm
 }
@@ -609,10 +602,10 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	} else {
 		self.IsClassic = false
 		lTableName := utils.SnakeCasedName(strings.Replace(model, ".", "_", -1))
-		//logger.Logger.Err("Model %s is not a standard model type of this system", lTableName)
+		//logger.Err("Model %s is not a standard model type of this system", lTableName)
 		self.Statement.Table = self.orm.tables[lTableName]
 		if self.Statement.Table == nil {
-			logger.Logger.Errf("the table is not in database.")
+			logger.Errf("the table is not in database.")
 			return nil
 		}
 		self.Statement.AltTableNameClause = lTableName
@@ -631,7 +624,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	return self
 }
 
-// 选择字段
+// select filed or select all using * symbol
 func (self *TSession) Select(fields ...string) *TSession {
 	self.Statement.Select(fields...)
 
@@ -655,36 +648,60 @@ func (self *TSession) Desc(fileds ...string) *TSession {
 	return self
 }
 
-// Where 条件
+// Where condition
+// Example: Where("id==?",1)
 // 支持Domain 返回解析为Domain
-func (self *TSession) Where(where_clause string, args ...interface{}) *TSession {
-	self.Statement.Where(where_clause, args...)
+func (self *TSession) Where(clause string, args ...interface{}) *TSession {
+	self.Statement.Where(clause, args...)
 	return self
 }
 
 // And provides custom query condition.
-func (self *TSession) And(query_clause string, args ...interface{}) *TSession {
-	self.Statement.And(query_clause, args...)
+func (self *TSession) And(clause string, args ...interface{}) *TSession {
+	self.Statement.And(clause, args...)
 	return self
 }
 
 // Or provides custom query condition.
-func (self *TSession) Or(query_clause string, args ...interface{}) *TSession {
-	self.Statement.Or(query_clause, args...)
+func (self *TSession) Or(clause string, args ...interface{}) *TSession {
+	self.Statement.Or(clause, args...)
 	return self
 }
 
-func (self *TSession) In(query_clause string, args ...interface{}) *TSession {
-	self.Statement.In(query_clause, args...)
+func (self *TSession) In(clause string, args ...interface{}) *TSession {
+	self.Statement.In(clause, args...)
 	return self
 }
 
-func (self *TSession) NotIn(query_clause string, args ...interface{}) *TSession {
-	self.Statement.NotIn(query_clause, args...)
+func (self *TSession) NotIn(clause string, args ...interface{}) *TSession {
+	self.Statement.NotIn(clause, args...)
 	return self
 }
 
-// 支持Domain 返回解析为Domain
+/* support domain string and list objec
+[('foo', '=', 'bar')]
+foo = 'bar'
+
+[('id', 'in', [1,2,3])]
+id in (1, 2, 3)
+
+[('field', '=', 'value'), ('field', '<>', 42)]
+( field = 'value' AND field <> 42 )
+
+[('&', ('field', '<', 'value'), ('field', '>', 'value'))]
+( field < 'value' AND field > 'value' )
+
+[('|', ('field', '=', 'value'), ('field', '=', 'value'))]
+( field = 'value' OR field = 'value' )
+
+[('&', ('field1', '=', 'value'), ('field2', '=', 'value'), ('|', ('field3', '<>', 'value'), ('field4', '=', 'value')))]
+( field1 = 'value' AND field2 = 'value' AND ( field3 <> 'value' OR field4 = 'value' ) )
+
+[('&', ('|', ('a', '=', 1), ('b', '=', 2)), ('|', ('c', '=', 3), ('d', '=', 4)))]
+( ( a = 1 OR b = 2 ) AND ( c = 3 OR d = 4 ) )
+
+[('|', (('a', '=', 1), ('b', '=', 2)), (('c', '=', 3), ('d', '=', 4)))]
+( ( a = 1 AND b = 2 ) OR ( c = 3 AND d = 4 ) )               */
 func (self *TSession) Domain(domain interface{}) *TSession {
 	self.Statement.Domains(domain)
 	return self
@@ -802,15 +819,15 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 			//logger.Dbg("record_id", record_id)
 			if record_id == "" || record_id == "0" {
 				effect, err := lMdlObj.Records().Create(rel_vals)
-				if logger.LogErr(err) {
-
+				if err != nil {
+					logger.Err(err)
 				}
 				record_id = utils.IntToStr(effect)
 			} else {
 				lMdlObj.Records().Ids(record_id).Write(rel_vals)
 			}
 		} else {
-			logger.LogErr(err)
+			logger.Err(err)
 		}
 
 		lNewVals[self.model._relations[tbl]] = record_id
@@ -917,6 +934,7 @@ func (self *TSession) _generate_caches_key(model, key interface{}) string {
 	return fmt.Sprintf(`%v:%v`, model, key)
 }
 
+// separate data for difference type of update
 //, includeVersion bool, includeUpdated bool, includeNil bool,
 //	includeAutoIncr bool, allUseBool bool, useAllCols bool,
 //	mustColumnMap map[string]bool, nullableMap map[string]bool,
@@ -1089,7 +1107,6 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 		return
 	}
 	lNewVals = vals // #默认
-	orm := self.orm
 
 	// #获取Ids
 	if len(self.Statement.IdParam) > 0 {
@@ -1097,7 +1114,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 	} else if self.Statement.Domain.Count() > 0 {
 		lIds = self._search("", nil)
 	} else {
-		orm.logger.Err("At least have one of where|domain|ids condition to locate for update")
+		logger.Err("At least have one of where|domain|ids condition to locate for update")
 		return
 	}
 
@@ -1121,67 +1138,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 			if fobj == nil {
 				continue
 			}
-
-			/*
-						   groups = fobj.write
-				            if groups:
-				                edit = False
-				                for group in groups:
-				                    module = group.split(".")[0]
-				                    grp = group.split(".")[1]
-				                    cr.execute("select count(*) from res_groups_users_rel where gid IN (select res_id from ir_model_data where name='%s' and module='%s' and model='%s') and uid=%s" % \
-				                               (grp, module, 'res.groups', user))
-				                    readonly = cr.fetchall()
-				                    if readonly[0][0] >= 1:
-				                        edit = True
-				                        break
-				                    elif readonly[0][0] == 0:
-				                        edit = False
-				                    else:
-				                        edit = False
-
-				                if not edit:
-				                    vals.pop(field)*/
 		}
-
-		//》》》》》》》》》》》》》》》》》
-		/*
-		   		result = self._store_get_values(cr, user, ids, vals.keys(), context) or []
-
-		           # for recomputing new-style fields
-		           recs = self.browse(cr, user, ids, context)
-		           modified_fields = list(vals)
-		           if self._log_access:
-		               modified_fields += ['write_date', 'write_uid']
-		           recs.modified(modified_fields)
-
-		           parents_changed = []
-		           parent_order = self._parent_order or self._order
-		           if self._parent_sFieldtore and (self._parent_name in vals) and not context.get('defer_parent_store_computation'):
-		               # The parent_left/right computation may take up to
-		               # 5 seconds. No need to recompute the values if the
-		               # parent is the same.
-		               # Note: to respect parent_order, nodes must be processed in
-		               # order, so ``parents_changed`` must be ordered properly.
-		               parent_val = vals[self._parent_name]
-		               if parent_val:
-		                   query = "SELECT id FROM %s WHERE id IN %%s AND (%s != %%s OR %s IS NULL) ORDER BY %s" % \
-		                                   (self._table, self._parent_name, self._parent_name, parent_order)
-		                   cr.execute(query, (tuple(ids), parent_val))
-		               else:
-		                   query = "SELECT id FROM %s WHERE id IN %%s AND (%s IS NOT NULL) ORDER BY %s" % \
-		                                   (self._table, self._parent_name, parent_order)
-		                   cr.execute(query, (tuple(ids),))
-		               parents_changed = map(operator.itemgetter(0), cr.fetchall())
-		*/
-
-		var (
-		//		updates  = make(map[string]interface{})
-		//	direct   = make([]string, 0)
-		//	upd_todo = make([]string, 0)
-		//	updend   = make([]string, 0)
-		)
-		//totranslate := false //context.get('lang') and context['lang'] != 'en_US'
 
 		lNewVals, lRefVals, lNewTodo = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, false, true)
 
@@ -1329,13 +1286,11 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 				}
 			}
 		*/
-		var (
-			lSql string
-		)
+
 		// sql := `UPDATE ` + self.model._table + ` SET ` + values + ` WHERE id IN (` + sub_ids + `)`
-		lSql = fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s IN (%s)`, self.Statement.TableName(), values, self.Statement.IdKey, strings.Join(lIds, ","))
+		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s IN (%s)`, self.Statement.TableName(), values, self.Statement.IdKey, strings.Join(lIds, ","))
 		//logger.Dbg("create:", lSql)
-		res, err := self.exec(lSql, params...)
+		res, err := self.exec(sql, params...)
 		if err != nil {
 			return 0, err
 		}
@@ -1371,12 +1326,14 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 		//    nids.extend([x[0] for x in cr.fetchall()])
 		lSql := fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, lFldName, self.model.GetTableName(), self.Statement.IdKey, strings.Join(lIds, ","))
 		lDs, err := self.orm.Query(lSql)
-		if !logger.LogErr(err) {
-			lDs.First()
-			for !lDs.Eof() {
-				nids = append(nids, lDs.FieldByName(lFldName).AsString())
-				lDs.Next()
-			}
+		if err != nil {
+			logger.Err(err)
+		}
+
+		lDs.First()
+		for !lDs.Eof() {
+			nids = append(nids, lDs.FieldByName(lFldName).AsString())
+			lDs.Next()
 		}
 
 		if len(ref_vals) > 0 { //# 重新写入关联数据
@@ -1386,7 +1343,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 				lMdlObj.Records().Ids(nids...).Write(ref_vals) //TODO 检查是否真确使用
 				//self.pool[table].write(cr, user, nids, v, context)
 			} else {
-				logger.LogErr(err)
+				logger.Err(err)
 			}
 		}
 	}
@@ -1399,9 +1356,9 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 				&TFieldEventContext{
 					Session: self,
 					Model:   self.model,
-					//Id:     lIds,
-					Field: lField,
-					Value: vals[name], //utils.IntToStr(vals[name]),
+					Id:      lIds[0], // TODO 修改获得更合理
+					Field:   lField,
+					Value:   vals[name], //utils.IntToStr(vals[name]),
 				})
 
 			/*for _, id := range lIds {
@@ -1436,7 +1393,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 			//               'where id IN %s', (sub_ids,))
 			//    nids.extend([x[0] for x in cr.fetchall()])
 			lDs, err := self.orm.Query(`select distinct "%s" from "%s" where id IN(%s)`, fld_name, self.model.TableName(), strings.Join(lIds, ","))
-			if !logger.LogErr(err) {
+			if !logger.Err(err) {
 				lDs.First()
 				for !lDs.Eof() {
 					nids = append(nids, lDs.FieldByName(fld_name).AsString())
@@ -1456,7 +1413,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 		}
 
 		if len(unknown_fields) > 0 {
-			logger.Logger.Err("No such field(s) in model %s: %s.", self.model._name, strings.Join(unknown_fields, ","))
+			logger.Err("No such field(s) in model %s: %s.", self.model._name, strings.Join(unknown_fields, ","))
 		}
 	*/
 
@@ -1477,9 +1434,10 @@ func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id in
 	return self._create(src, classic)
 }
 
-// TODO 接受多值
-// start to write data from the data model
-func (self *TSession) Write(src interface{}, classic_write ...bool) (res_effect int64, res_err error) {
+// TODO 接受多值 dataset
+// TODO 当只有M2M被更新时不更新主数据倒数据库
+// start to write data from the database
+func (self *TSession) Write(data interface{}, classic_write ...bool) (res_effect int64, res_err error) {
 	// reset after complete
 	defer self.Statement.Init()
 	if self.IsAutoClose {
@@ -1489,10 +1447,10 @@ func (self *TSession) Write(src interface{}, classic_write ...bool) (res_effect 
 	if len(classic_write) > 0 {
 		self.IsClassic = classic_write[0]
 	}
-	return self._write(src, nil)
+	return self._write(data, nil)
 }
 
-// start to read data from the data model
+// start to read data from the database
 func (self *TSession) Read(classic_read ...bool) (res_dataset *TDataSet, res_err error) {
 	// reset after complete
 	defer self.Statement.Init()
@@ -1561,7 +1519,7 @@ func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err e
 				}
 			} else {
 				//_logger.warning("%s.read() with unknown field '%s'", self._name, name)
-				logger.Logger.Warnf(`%s.read() with unknown field '%s'`, self.model.GetModelName(), name)
+				logger.Warnf(`%s.read() with unknown field '%s'`, self.model.GetModelName(), name)
 			}
 
 		}
@@ -1648,6 +1606,7 @@ func (self *TSession) Count() (int, error) {
 	return utils.StrToInt(lCount[0]), nil
 }
 
+// TODO sum
 // Sum sum the records by some column. bean's non-empty fields are conditions.
 func (self *TSession) Sum(colName string) (float64, error) {
 	/*	defer self.Statement.Init()
@@ -1661,32 +1620,32 @@ func (self *TSession) Sum(colName string) (float64, error) {
 		}
 
 		var isSlice = v.Elem().Kind() == reflect.Slice
-		var sqlStr string
+		var sql string
 		var args []interface{}
 		var err error
 		if len(self.statement.RawSQL) == 0 {
-			sqlStr, args, err = self.statement._generate_sum(columnNames...)
+			sql, args, err = self.statement._generate_sum(columnNames...)
 			if err != nil {
 				return err
 			}
 		} else {
-			sqlStr = self.statement.RawSQL
+			sql = self.statement.RawSQL
 			args = self.statement.RawParams
 		}
 
-		session.queryPreprocess(&sqlStr, args...)
+		session.queryPreprocess(&sql, args...)
 
 		if isSlice {
 			if session.isAutoCommit {
-				err = session.DB().QueryRow(sqlStr, args...).ScanSlice(res)
+				err = session.DB().QueryRow(sql, args...).ScanSlice(res)
 			} else {
-				err = session.tx.QueryRow(sqlStr, args...).ScanSlice(res)
+				err = session.tx.QueryRow(sql, args...).ScanSlice(res)
 			}
 		} else {
 			if session.isAutoCommit {
-				err = session.DB().QueryRow(sqlStr, args...).Scan(res)
+				err = session.DB().QueryRow(sql, args...).Scan(res)
 			} else {
-				err = session.tx.QueryRow(sqlStr, args...).Scan(res)
+				err = session.tx.QueryRow(sql, args...).Scan(res)
 			}
 		}
 
@@ -1697,26 +1656,24 @@ func (self *TSession) Sum(colName string) (float64, error) {
 	return 0, nil
 }
 
-// 删除
+// delete records
 func (self *TSession) Delete(ids ...string) (res_effect int64, err error) {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
 
+	// TODO 为什么用len
 	if len(self.Statement.TableName()) < 1 {
 		return 0, ErrTableNotFound
 	}
 	//self._check_model()
 
+	// get id list
 	var lIds []string
-
-	// 添加ID
-	self.Statement.IdParam = append(self.Statement.IdParam, ids...)
-
-	// 获取Ids
-	if len(self.Statement.IdParam) > 0 {
-		lIds = self.Statement.IdParam
+	if len(ids) > 0 {
+		lIds = ids
+		self.Statement.IdParam = append(self.Statement.IdParam, ids...)
 	} else {
 		lIds = self._search("", nil)
 	}
@@ -1783,6 +1740,7 @@ func (self *TSession) CreateTable(model string) error {
 	lSql = self.Statement._generate_create_table()
 
 	if self.IsClassic {
+		//TODO 考虑删除 使用更标准的
 		// 实现PG的继承
 		model_name := strings.Replace(model, "_", ".", -1)
 		model_name = utils.DotCasedName(model_name)
@@ -1821,7 +1779,6 @@ func (self *TSession) CreateUniques(model string) error {
 	self.Statement.Table = self.orm.GetTable(tableName)
 
 	lSqls := self.Statement._generate_unique()
-	//logger.Dbg("CreateUniques", lSqls)
 	for _, sql := range lSqls {
 		_, err := self.exec(sql)
 		if err != nil {
@@ -1853,11 +1810,11 @@ func (self *TSession) CreateIndexes(model string) error {
 }
 
 // drop table will drop table if exist, if drop failed, it will return error
-func (self *TSession) DropTable(model string) (err error) {
+func (self *TSession) DropTable(name string) (err error) {
 	var needDrop = true
 	/*if !session.Engine.dialect.SupportDropIfExists() {
-		sqlStr, args := session.Engine.dialect.TableCheckSql(tableName)
-		results, err := session.query(sqlStr, args...)
+		sql, args := session.Engine.dialect.TableCheckSql(tableName)
+		results, err := session.query(sql, args...)
 		if err != nil {
 			return err
 		}
@@ -1865,17 +1822,14 @@ func (self *TSession) DropTable(model string) (err error) {
 	}
 	*/
 	if needDrop {
-		tableName := strings.Replace(model, ".", "_", -1)
-		tableName = utils.SnakeCasedName(tableName)
-		sqlStr := self.orm.dialect.DropTableSql(tableName)
-		//logger.Dbg("DropTable", sqlStr)
-		res, err := self.exec(sqlStr)
+		sql := self.orm.dialect.DropTableSql(name)
+		res, err := self.exec(sql)
 		if err != nil {
 			return err
 		}
 
 		if cnt, err := res.RowsAffected(); err == nil && cnt > 0 {
-			model_name := strings.Replace(model, "_", ".", -1)
+			model_name := strings.Replace(name, "_", ".", -1)
 			model := self.Orm().models[model_name]
 			if model.is_base { // 只移除Table生成的Model
 				delete(self.Orm().models, model_name)
@@ -1906,9 +1860,9 @@ func (self *TSession) add_index(tableName, idxName string) error {
 		defer self.Close()
 	}
 	index := self.Statement.Table.Indexes[idxName]
-	sqlStr := self.orm.dialect.CreateIndexSql(tableName, index)
+	sql := self.orm.dialect.CreateIndexSql(tableName, index)
 
-	_, err := self.exec(sqlStr)
+	_, err := self.exec(sql)
 	return err
 }
 
@@ -1918,8 +1872,8 @@ func (self *TSession) add_unique(tableName, uqeName string) error {
 		defer self.Close()
 	}
 	index := self.Statement.Table.Indexes[uqeName]
-	sqlStr := self.orm.dialect.CreateIndexSql(tableName, index)
-	_, err := self.exec(sqlStr)
+	sql := self.orm.dialect.CreateIndexSql(tableName, index)
+	_, err := self.exec(sql)
 	return err
 }
 
@@ -1944,7 +1898,7 @@ func (self *TSession) _check_model() bool {
 	return true
 }
 
-// #search and return ids only
+// search and return the id list only
 func (self *TSession) Search() (res_ids []string) {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
@@ -1992,13 +1946,13 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 				lDomain = Sql2Domain(self.Statement.WhereClause)
 			}
 	*/
-	logger.Dbg("_search", self.Statement.Domain, StringList2Domain(self.Statement.Domain))
+	//logger.Dbg("_search", self.Statement.Domain, StringList2Domain(self.Statement.Domain))
 	query = self.Statement._where_calc(self.Statement.Domain, false, context)
 	order_by = self.Statement._generate_order_by(query, context) // TODO 未完成
 	from_clause, where_clause, where_clause_params = query.get_sql()
-	logger.Dbg("from_clause", from_clause)
-	logger.Dbg("where_clause", where_clause)
-	logger.Dbg("where_clause_params", where_clause_params)
+	//logger.Dbg("from_clause", from_clause)
+	//logger.Dbg("where_clause", where_clause)
+	//logger.Dbg("where_clause_params", where_clause_params)
 	//} else {
 	//	from_clause = self.Statement.TableName()
 	//	//where_clause, where_clause_params = self.Statement.WhereClause, self.Statement.Params //self.Statement._generate_query(context, true, true, false, true, true, true, true, nil)
@@ -2018,9 +1972,11 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		res_ids := self.orm.cacher.GetBySql(table_name, query_str, where_clause_params)
 		if len(res_ids) < 1 {
 			lRes, err := self.query(query_str, where_clause_params...)
-			if logger.LogErr(err) {
+			if err != nil {
+				logger.Err(err)
 				return []string{"0"}
 			}
+
 			res_ids = []string{lRes.FieldByName("count").AsString()}
 
 			// #存入缓存
@@ -2050,7 +2006,8 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 	res_ids = self.orm.cacher.GetBySql(table_name, query_str, where_clause_params)
 	if len(res_ids) < 1 {
 		res, err := self.query(query_str, where_clause_params...)
-		if logger.LogErr(err) {
+		if err != nil {
+			logger.Err(err)
 			return nil
 		}
 		res_ids = res.Keys(self.Statement.IdKey)
@@ -2164,19 +2121,19 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 		// tuple(sub_ids)
 		res_ds, err = self.Query(res_sql, params...) //cr.execute(res_sql, params)
 		if err != nil {
-			logger.Logger.Err(err.Error())
+			logger.Err(err.Error())
 		}
 
 		// # 报告错误记录
 		if res_ds.Count() != len(less_ids) {
 			//# if not you need
-			logger.Logger.Errf(`query result including %v records are not what you expectd! %v`, res_ds.Count(), len(less_ids))
+			logger.Errf(`query result including %v records are not what you expectd! %v`, res_ds.Count(), len(less_ids))
 
 		}
 
 		// TODO 带优化或者简去
 		//if !dataset.SetKeyField(self.Statement.IdKey) {
-		//	logger.Logger.Err(`set key_field fail when call RecordByKey(key_field:%v)!`, res_ds.KeyField)
+		//	logger.Err(`set key_field fail when call RecordByKey(key_field:%v)!`, res_ds.KeyField)
 		//}
 
 		for !res_ds.Eof() {
@@ -2197,13 +2154,13 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 
 				// # 报告缺失记录
 				if rec == nil {
-					logger.Logger.Err(`query result didn't including record (%v)!`, id)
+					logger.Err(`query result didn't including record (%v)!`, id)
 				}
 
 				// #添加进入数据集
 				err = res_ds.AppendRecord(rec)
 				if err != nil {
-					logger.Logger.Err(err.Error())
+					logger.Err(err.Error())
 				}
 
 				// # 添加进入缓存
@@ -2394,7 +2351,7 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 					if lCol.SQLType.IsText() {
 						bytes, err := json.Marshal(lFieldValue.Interface())
 						if err != nil {
-							logger.Logger.Errf("IsJson", err)
+							logger.Errf("IsJson", err)
 							continue
 						}
 						lValue = string(bytes)
@@ -2403,14 +2360,14 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 						var err error
 						bytes, err = json.Marshal(lFieldValue.Interface())
 						if err != nil {
-							logger.Logger.Errf("IsBlob", err)
+							logger.Errf("IsBlob", err)
 							continue
 						}
 						lValue = bytes
 					}
 				} else {
 					// any other
-					logger.Logger.Err("other field type ", lName)
+					logger.Err("other field type ", lName)
 				}
 			}
 		}
@@ -2509,10 +2466,10 @@ func (self *TSession) qualify(field IField, query *TQuery) string {
 	return fmt.Sprintf(`%s as "%s"`, res, field.Name())
 }
 
+// TODO 缓存
 // NoCache ask this session do not retrieve data from cache system and
 // get data from database directly.
 func (self *TSession) Direct() *TSession {
-
 	return self
 }
 

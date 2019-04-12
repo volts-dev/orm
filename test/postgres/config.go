@@ -1,8 +1,8 @@
 package postgres
 
 import (
-	"vectors/orm"
-	"vectors/orm/test"
+	"volts-dev/orm"
+	"volts-dev/orm/test"
 
 	_ "github.com/lib/pq"
 )
@@ -16,7 +16,7 @@ func init() {
 		SSLMode:  "disable",
 	}
 
-	err := test.InitOrm(src, true)
+	err := test.Init(src, true)
 	if err != nil {
 		panic(err.Error())
 	}

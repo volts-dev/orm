@@ -3,9 +3,9 @@ package test
 import (
 	//"fmt"
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
-func limit(orm *orm.TOrm, t *testing.T) {
+func limit(title string, orm *orm.TOrm, t *testing.T) {
 
 }

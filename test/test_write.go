@@ -1,108 +1,77 @@
 package test
 
 import (
-	"errors"
-	"time"
-	//	"errors"
-	//	"fmt"
 	"testing"
-	//	"time"
-
-	"vectors/orm"
+	"volts-dev/orm"
+	"volts-dev/utils"
 )
 
 //TODO 无ID
 //TODO 带条件和字段
 
-func Write(orm *orm.TOrm, t *testing.T) {
-	// 注册Model
-	orm.SyncModel("test", new(ResUser), new(ResPartner))
-
-	lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
-	lUserData.Name = "create_with_relate"
-	lUserData.Active = true
-
-	lUserMdl, _ := orm.GetModel("res.user")
-	id, err := lUserMdl.Records().Create(lUserData)
-	if err != nil {
-		t.Error(err)
-		panic(err)
+func Write(title string, t *testing.T) {
+	data := new(UserModel)
+	*data = *user
+	model, _ := test_orm.GetModel("user.model")
+	for i := 0; i < 10; i++ {
+		data.Name = "write" + utils.IntToStr(i)
+		data.Title = "write"
+		id, err = model.Records().Create(data)
+		if err != nil {
+			t.Fatalf("create data failue %d %s", id, err.Error())
+		}
 	}
 
-	if id < 0 {
-		err = errors.New("create_with_relate not returned id")
-		t.Error(err)
-		panic(err)
-		return
-	}
+	PrintSubject(title, "Write()")
+	write(test_orm, t)
 
-	lUserData = &ResUser{Passport: "create", Password: "create_write", CompanyId: 1}
-	lUserData.Name = "Test Name"
+	PrintSubject(title, "write by id")
+	write_by_id(test_orm, t)
+}
 
-	lUserMdl, _ = orm.GetModel("res.user")
-	lWhere := `passport='create' and password='create'`
-	effect, err := lUserMdl.Records().Select("password").Where(lWhere).Write(lUserData)
+func write(o *orm.TOrm, t *testing.T) {
+	// query data
+	model, _ := o.GetModel("user.model")
+	ds, err := model.Records().Where("name=?", "Admin0").Read()
+
+	// change data
+	ds.FieldByName("title").AsString("Write Tested")
+
+	// write data
+	effect, err := model.Records().Write(ds.Record().AsItfMap())
 	if err != nil {
-		t.Error(err)
-		panic(err)
+		t.Fatal(err.Error())
 	}
 
 	if effect != 1 {
-		err = errors.New("insert not returned 1")
-		t.Error(err)
-		panic(err)
-		return
+		t.Fatalf("write effected %i", effect)
 	}
 
-	t.Log("write_select_where return effect", effect)
+	ds, err = model.Records().Ids(ds.FieldByName("id").AsString()).Read()
+	if ds.FieldByName("title").AsString() != "write tested" {
+		t.Fatalf("write data didn't effected!")
+	}
+
 }
 
-func write(orm *orm.TOrm, t *testing.T) {
-	lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
-	lUserData.Name = "Test Name"
-
-	lUserMdl, _ := orm.GetModel("res.user")
-	effect, err := lUserMdl.Records().Write(lUserData)
+func write_by_id(o *orm.TOrm, t *testing.T) {
+	model, _ := o.GetModel("user.model")
+	data := new(UserModel)
+	*data = *user
+	data.Title = "write by id"
+	effect, err := model.Records().Ids("1").Write(data)
 	if err != nil {
-		t.Error(err)
-		panic(err)
+		t.Fatal(err.Error())
 	}
 
 	if effect != 1 {
-		err = errors.New("insert not returned 1")
-		t.Error(err)
-		//panic(err)
-		//return
+		t.Fatalf("write effected %i", effect)
 	}
 
-	t.Log("WriteRecord return effect", effect)
-}
-
-func write_by_id(orm *orm.TOrm, t *testing.T) {
+	ds, err := model.Records().Ids(utils.IntToStr(data.Id)).Read()
+	if ds.FieldByName("title").AsString() != "write by id" {
+		t.Fatalf("write data didn't effected!")
+	}
 }
 
 //
-func write_by_where(orm *orm.TOrm, t *testing.T) {
-	// 延时测试 时间Create|update更新
-	time.Sleep(1 * time.Second)
-
-	lUserData := &ResUser{Passport: "create", Password: "create_write", CompanyId: 1}
-	lUserData.Name = "Test Name"
-
-	lUserMdl, _ := orm.GetModel("res.user")
-	lWhere := `passport='create' and password='create'`
-	effect, err := lUserMdl.Records().Select("password").Where(lWhere).Write(lUserData)
-	if err != nil {
-		t.Error(err)
-		panic(err)
-	}
-
-	if effect != 1 {
-		err = errors.New("insert not returned 1")
-		t.Error(err)
-		panic(err)
-		return
-	}
-
-	t.Log("write_select_where return effect", effect)
-}

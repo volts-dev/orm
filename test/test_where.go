@@ -3,37 +3,39 @@ package test
 import (
 	//"fmt"
 	"testing"
-	"vectors/orm"
-
-	"github.com/volts-dev/utils"
+	"volts-dev/orm"
 )
 
-func Where(orm *orm.TOrm, t *testing.T) {
-	// 注册Model
-	orm.SyncModel("test", new(Model1))
+func Where(title string, o *orm.TOrm, t *testing.T) {
+	PrintSubject(title, "read by where")
+	read_by_where(o, t)
 
-	model, _ := orm.GetModel("sys.action")
-	session := model.Records()
+	PrintSubject(title, "write by where")
+	write_by_where(o, t)
+}
 
-	ids := make([]interface{}, 0)
-	var i int64
-	for i = 0; i < 10; i++ {
-		data := &Model1{Type: "create", Lang: "CN" + utils.IntToStr(i), CreateId: i, WriteId: 99}
-
-		id, err := session.Create(data)
-		if err != nil {
-			t.Error(err)
-			panic(err)
-		}
-		t.Log(id)
-		ids = append(ids, i)
+func read_by_where(o *orm.TOrm, t *testing.T) {
+	model, _ := o.GetModel("user.model")
+	ds, err := model.Records().Where("id=?", 1).Read()
+	if err != nil || ds.Count() < 0 {
+		t.Fatal(err)
 	}
-	session.Commit()
+}
 
-	dataset, err := model.Records().Where("create_id=?", 1).And("write_id=?", 99).And("lang ilike '?'", "cn").Read()
+func write_by_where(orm *orm.TOrm, t *testing.T) {
+	model, _ := orm.GetModel("user.model")
+	var data *UserModel
+	*data = *user
+	data.Title = "write_by_where"
+	effect, err := model.Records().Where("name=?", "Admin1").Write(data)
 	if err != nil {
-		panic(err.Error())
+		t.Error(err)
+		return
 	}
 
-	t.Log(dataset.Keys())
+	if effect != 1 {
+		t.Error("insert not returned 1")
+		return
+	}
+
 }

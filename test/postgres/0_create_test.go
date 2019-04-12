@@ -5,6 +5,6 @@ import (
 	"volts-dev/orm/test"
 )
 
-func TestConn(t *testing.T) {
-	test.Conn(t)
+func TestRead(t *testing.T) {
+	test.Create("", t)
 }

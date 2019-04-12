@@ -3,11 +3,11 @@ package test
 import (
 	//"fmt"
 	"testing"
-	"vectors/orm"
+	"volts-dev/orm"
 )
 
-func In(orm *orm.TOrm, t *testing.T) {
-	// 注册Model
+func In(title string, orm *orm.TOrm, t *testing.T) {
+	/*// 注册Model
 	orm.SyncModel("test", new(Model1))
 
 	model, _ := orm.GetModel("model1")
@@ -34,5 +34,5 @@ func In(orm *orm.TOrm, t *testing.T) {
 	}
 
 	t.Log(dataset.Keys())
-
+	*/
 }
