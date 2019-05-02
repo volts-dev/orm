@@ -840,7 +840,6 @@ func is_leaf(element *utils.TStringList, internal ...bool) bool {
 		INTERNAL_OPS = append(INTERNAL_OPS, "inselect")
 		INTERNAL_OPS = append(INTERNAL_OPS, "not inselect")
 	}
-	//fmt.Println("is_leaf", element.Count(), strings.ToLower(element.String(1)), utils.InStrings(strings.ToLower(element.String(1)), INTERNAL_OPS...) != -1)
 	//??? 出现过==Nil还是继续执行之下的代码
 	return (element != nil && element.Count() == 3) &&
 		utils.InStrings(strings.ToLower(element.String(1)), INTERNAL_OPS...) != -1 || // 注意操作符确保伟小写

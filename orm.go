@@ -23,6 +23,10 @@ import (
 	"github.com/volts-dev/utils"
 )
 
+const (
+	NAMEDATALEN = 63
+)
+
 var (
 	BlankStrItf interface{} = ""
 	BlankNumItf interface{} = 0

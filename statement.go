@@ -657,14 +657,13 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 	var where_clause []string
 	var where_params []interface{}
 	if domain != nil && domain.Count() > 0 {
-		lExp := NewExpression(self.Session.model, domain, context)
-		tables = lExp.get_tables().Strings()
-		where_clause, where_params = lExp.to_sql(self.Params...)
-		// where_clause = where_clause and [where_clause] or [
-		//logger.Dbg("tables", tables)
-		//logger.Dbg("where_clause", where_clause, where_params)
+		exp := NewExpression(self.Session.model, domain, context)
+		tables = exp.get_tables().Strings()
+		where_clause, where_params = exp.to_sql(self.Params...)
+
 	} else {
 		where_clause, where_params, tables = nil, nil, append(tables, self.Session.Statement.TableName())
+
 	}
 
 	return NewQuery(tables, where_clause, where_params, nil, nil) //self.Registry.r Query(tables, where_clause, where_params)

@@ -22,7 +22,7 @@ type (
 		CreateUniques(model string) error
 		DropTable(model string) (err error)
 		Exec(sql_str string, args ...interface{}) (sql.Result, error)
-		Query(sql string, paramStr ...interface{}) (res_dataset *TDataSet, err error)
+		Query(sql string, paramStr ...interface{}) (*TDataSet, error)
 		Ping() error
 		IsEmpty(model string) (bool, error)
 		IsExist(model ...string) (bool, error)
@@ -132,7 +132,7 @@ func (self *TSession) Rollback() error {
 }
 
 // Query a raw sql and return records as dataset
-func (self *TSession) Query(sql string, paramStr ...interface{}) (res_dataset *TDataSet, err error) {
+func (self *TSession) Query(sql string, paramStr ...interface{}) (*TDataSet, error) {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -141,8 +141,7 @@ func (self *TSession) Query(sql string, paramStr ...interface{}) (res_dataset *T
 	return self.query(sql, paramStr...)
 }
 
-func (self *TSession) query(sql string, paramStr ...interface{}) (res_dataset *TDataSet, err error) {
-
+func (self *TSession) query(sql string, paramStr ...interface{}) (*TDataSet, error) {
 	for _, filter := range self.orm.dialect.Filters() {
 		sql = filter.Do(sql, self.orm.dialect, self.Statement.Table)
 	}
@@ -154,16 +153,15 @@ func (self *TSession) query(sql string, paramStr ...interface{}) (res_dataset *T
 		return self.tx_query(sql, paramStr...)
 
 	})
-
 }
 
-func (self *TSession) do_prepare(sql string) (stmt *core.Stmt, err error) {
-	stmt, err = self.db.Prepare(sql)
+func (self *TSession) do_prepare(sql string) (*core.Stmt, error) {
+	stmt, err := self.db.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
 
-	return
+	return stmt, err
 }
 
 func (self *TSession) org_query(sql_str string, args ...interface{}) (res_dataset *TDataSet, res_err error) {
@@ -243,6 +241,7 @@ func (self *TSession) tx_query(sql string, params ...interface{}) (res_dataset *
 			res_dataset.NewRecord(tempMap)
 		}
 	}
+
 	return
 }
 
@@ -266,13 +265,11 @@ func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, err
 	if self.orm.dialect.DriverName() == "postgres" && strings.Count(strings.ToLower(sql_str), "returning") == 1 {
 		res, err := self.query(sql_str, args...)
 		if err != nil {
-			logger.Err(err)
+			return nil, err
 		}
-		if res.Count() > 0 {
-			id := res.Record().GetByIndex(0).AsInteger()
-			return TExecResult(id), err
-		}
-		return nil, err
+
+		id := res.Record().GetByIndex(0).AsInteger()
+		return TExecResult(id), nil
 	}
 
 	return self.orm.log_exec_sql(sql_str, args, func() (sql.Result, error) {
@@ -1437,7 +1434,7 @@ func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id in
 // TODO 接受多值 dataset
 // TODO 当只有M2M被更新时不更新主数据倒数据库
 // start to write data from the database
-func (self *TSession) Write(data interface{}, classic_write ...bool) (res_effect int64, res_err error) {
+func (self *TSession) Write(data interface{}, classic_write ...bool) (int64, error) {
 	// reset after complete
 	defer self.Statement.Init()
 	if self.IsAutoClose {
@@ -1451,7 +1448,7 @@ func (self *TSession) Write(data interface{}, classic_write ...bool) (res_effect
 }
 
 // start to read data from the database
-func (self *TSession) Read(classic_read ...bool) (res_dataset *TDataSet, res_err error) {
+func (self *TSession) Read(classic_read ...bool) (*TDataSet, error) {
 	// reset after complete
 	defer self.Statement.Init()
 	if self.IsAutoClose {
@@ -1466,7 +1463,7 @@ func (self *TSession) Read(classic_read ...bool) (res_dataset *TDataSet, res_err
 	return self._read(classic)
 }
 
-func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err error) {
+func (self *TSession) _read(classic_read bool) (*TDataSet, error) {
 	if len(self.Statement.TableName()) < 1 {
 		return nil, ErrTableNotFound
 	}
@@ -1491,8 +1488,7 @@ func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err e
 	} else {
 		lIds = self._search("", nil)
 		if len(lIds) == 0 {
-			res_dataset = NewDataSet()
-			return
+			return NewDataSet(), nil
 		}
 	}
 
@@ -1537,7 +1533,7 @@ func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err e
 	//}
 
 	//# fetch stored fields from the database to the cache
-	res_dataset, _ = self._read_from_database(lIds, stored, inherited)
+	dataset, _ := self._read_from_database(lIds, stored, inherited)
 
 	// 处理那些数据库不存在的字段：company_ids...
 	//# retrieve results from records; this takes values from the cache and
@@ -1559,9 +1555,9 @@ func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err e
 	// 获取ManytoOne的Name
 	//use_name_get := classic_read
 
-	res_dataset.First()
-	for !res_dataset.Eof() {
-		rec_id := res_dataset.FieldByName("id").AsString()
+	dataset.First()
+	for !dataset.Eof() {
+		rec_id := dataset.FieldByName("id").AsString()
 		for name, field := range name_fields {
 			/*			//if field.IsClassicWrite() {
 						//if ctrl, has := self.orm.field_ctrl[field.Type]; has {
@@ -1578,20 +1574,20 @@ func (self *TSession) _read(classic_read bool) (res_dataset *TDataSet, res_err e
 				Model:   self.model,
 				Field:   field,
 				Id:      rec_id,
-				Value:   res_dataset.FieldByName(name).AsInterface(),
-				Dataset: res_dataset,
+				Value:   dataset.FieldByName(name).AsInterface(),
+				Dataset: dataset,
 			})
-			//logger.Dbg("convert_to_read:", name, val, res_dataset.Count(), rec_id, res_dataset.FieldByName("id").AsString(), res_dataset.Position, res_dataset.Eof(), res_dataset.FieldByName(name).AsString(), res_dataset.FieldByName(name).AsInterface(), field)
+			//logger.Dbg("convert_to_read:", name, val, dataset.Count(), rec_id, dataset.FieldByName("id").AsString(), dataset.Position, dataset.Eof(), res_dataset.FieldByName(name).AsString(), dataset.FieldByName(name).AsInterface(), field)
 
-			res_dataset.FieldByName(name).AsInterface(val)
+			dataset.FieldByName(name).AsInterface(val)
 		}
 
-		res_dataset.Next()
+		dataset.Next()
 	}
+	dataset.First() // 返回游标0
+	dataset.classic = classic_read
 
-	res_dataset.First() // 返回游标0
-	res_dataset.classic = classic_read
-	return
+	return dataset, nil
 }
 
 func (self *TSession) Count() (int, error) {
@@ -1899,7 +1895,7 @@ func (self *TSession) _check_model() bool {
 }
 
 // search and return the id list only
-func (self *TSession) Search() (res_ids []string) {
+func (self *TSession) Search() []string {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()

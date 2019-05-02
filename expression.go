@@ -85,7 +85,6 @@ type (
 	    For more info: http://christophe-simonis-at-tiny.blogspot.com/2008/08/new-new-domain-notation.html
 	"""*/
 	TExpression struct {
-		//Reg        *TRegistry
 		root_model *TModel // 本次解析的主要
 		Table      string
 		Expression *utils.TStringList
@@ -95,19 +94,17 @@ type (
 	}
 )
 
-func NewExpression(model *TModel, domain *utils.TStringList, context map[string]interface{}) (exp *TExpression) {
-	exp = &TExpression{
-
+func NewExpression(model *TModel, domain *utils.TStringList, context map[string]interface{}) *TExpression {
+	exp := &TExpression{
 		//Table: table,
 		root_model: model,
-		//Expression: utils.NewStringList(),
-		joins: make([]string, 0), //utils.NewStringList(),
+		joins:      make([]string, 0),
 	}
-	utils.PrintStringList(domain)
-	//logger.Dbg("NewExpression", domain.Count())
+
+	//utils.PrintStringList(domain)
 	exp.Expression = distribute_not(normalize_domain(domain))
 	exp.parse(context)
-	return
+	return exp
 }
 
 /* Initialize the ExtendedLeaf
@@ -136,19 +133,19 @@ func NewExpression(model *TModel, domain *utils.TStringList, context map[string]
            in the condition (i.e. in many2one); this link is used to
            compute aliases
 */
-func NewExtendedLeaf(leaf *utils.TStringList, model *TModel, context []TJoinContext, internal bool) (exLeaf *TExtendedLeaf) {
-	exLeaf = &TExtendedLeaf{
+func NewExtendedLeaf(leaf *utils.TStringList, model *TModel, context []TJoinContext, internal bool) *TExtendedLeaf {
+	ex_leaf := &TExtendedLeaf{
 		leaf:         leaf,
 		model:        model,
 		join_context: context,
 	}
 
-	exLeaf.normalize_leaf()
+	ex_leaf.normalize_leaf()
 
-	exLeaf._models = append(exLeaf._models, model)
+	ex_leaf._models = append(ex_leaf._models, model)
 	//# check validity
-	exLeaf.check_leaf(internal)
-	return
+	ex_leaf.check_leaf(internal)
+	return ex_leaf
 }
 
 /*" Leaf validity rules:
@@ -537,12 +534,7 @@ func normalize_domain(domain *utils.TStringList) (result *utils.TStringList) {
          ['|',('user_id','!=',4),('partner_id','not in',[1,2])]
 
 """*/
-func _negate(leaf *utils.TStringList) (node *utils.TStringList) {
-	var (
-		//left     string
-		operator string
-		//right    string
-	)
+func negate(leaf *utils.TStringList) (node *utils.TStringList) {
 	mapping := map[string]string{
 		"<":  ">=",
 		">":  "<=",
@@ -552,13 +544,11 @@ func _negate(leaf *utils.TStringList) (node *utils.TStringList) {
 		"!=": "=",
 	}
 
+	var operator string
 	if leaf.Count() == 3 && leaf.IsList() {
-		//left = leaf.Elements[0].Text
 		operator = leaf.String(1)
-		//right = leaf.Elements[2].Text
 	}
-	// 复制
-	//*node = *leaf
+
 	// change to "not in"
 	if utils.InStrings(operator, "in", "like", "ilike") != -1 {
 		leaf.SetText("not "+operator, 1)
@@ -604,7 +594,7 @@ func distribute_negate(domain *utils.TStringList) (*utils.TStringList, *utils.TS
 	// STEP: 当Domain 第一个是Term时-->
 	if is_leaf(domain.Item(0)) {
 		//logger.Dbg("distribute_negate is_leaf", domain.Clone(1, -1))
-		return _negate(domain.Item(0)),
+		return negate(domain.Item(0)),
 			domain.Clone(1, -1)
 	}
 
@@ -638,8 +628,8 @@ func distribute_negate(domain *utils.TStringList) (*utils.TStringList, *utils.TS
 }
 
 // From a leaf, create a new leaf (based on the new_elements tuple
-//  and new_model), that will have the same join context. Used to
-//  insert equivalent leafs in the processing stack. """
+// and new_model), that will have the same join context. Used to
+// insert equivalent leafs in the processing stack. """
 func create_substitution_leaf(leaf *TExtendedLeaf, new_elements *utils.TStringList, new_model *TModel, internal bool) *TExtendedLeaf {
 	if new_model == nil {
 		new_model = leaf.model
@@ -786,7 +776,7 @@ func get_alias_from_query(from_query string) (string, string) {
 	}
 }
 
-func (self *TExpression) _recursive_children(ids *utils.TStringList, model *TModel, parent_field string, context map[string]interface{}) (result *utils.TStringList) {
+func (self *TExpression) recursive_children(ids *utils.TStringList, model *TModel, parent_field string, context map[string]interface{}) (result *utils.TStringList) {
 	result = utils.NewStringList()
 	if ids == nil {
 		return result
@@ -799,7 +789,7 @@ func (self *TExpression) _recursive_children(ids *utils.TStringList, model *TMod
 		ids2.PushString(key)
 	}
 	result.Push(ids.Items()...)
-	result.Push(self._recursive_children(ids2, model, parent_field, context).Items()...)
+	result.Push(self.recursive_children(ids2, model, parent_field, context).Items()...)
 	return // ids + recursive_children(ids2, model, parent_field)
 }
 
@@ -825,7 +815,7 @@ func (self *TExpression) child_of_domain(left *utils.TStringList, ids *utils.TSt
 	} else {
 		result.Push(left)
 		result.PushString("in")
-		result.Push(self._recursive_children(ids, left_model, parent, context))
+		result.Push(self.recursive_children(ids, left_model, parent, context))
 		return
 	}
 
@@ -833,8 +823,8 @@ func (self *TExpression) child_of_domain(left *utils.TStringList, ids *utils.TSt
 
 }
 
-//""" Pop a leaf to process. """
-func (self *TExpression) _pop() (eleaf *TExtendedLeaf) {
+// Pop a leaf to process.
+func (self *TExpression) pop() (eleaf *TExtendedLeaf) {
 	cnt := len(self.stack)
 	if cnt == 0 {
 		return
@@ -844,8 +834,8 @@ func (self *TExpression) _pop() (eleaf *TExtendedLeaf) {
 	return
 }
 
-//""" Push a leaf to be processed right after. """
-func (self *TExpression) _push(eleaf *TExtendedLeaf) {
+// Push a leaf to be processed right after.
+func (self *TExpression) push(eleaf *TExtendedLeaf) {
 	self.stack = append(self.stack, eleaf)
 }
 
@@ -859,8 +849,8 @@ func (self *TExpression) reverse(lst []*TExtendedLeaf) {
 	copy(lst, lTmp)
 }
 
-//""" Push a leaf to the results. This leaf has been fully processed and validated. """
-func (self *TExpression) _push_result(leaf *TExtendedLeaf) {
+// Push a leaf to the results. This leaf has been fully processed and validated.
+func (self *TExpression) push_result(leaf *TExtendedLeaf) {
 	self.result = append(self.result, leaf)
 }
 
@@ -872,7 +862,7 @@ func (self *TExpression) _push_result(leaf *TExtendedLeaf) {
 //   perform a name_search on comodel for each name
 //       return the list of related ids
 // 获得Ids
-func (self *TExpression) to_ids(value *utils.TStringList, comodel *TModel, context map[string]interface{}, limit int) (result *utils.TStringList) {
+func (self *TExpression) to_ids(value *utils.TStringList, comodel *TModel, context map[string]interface{}, limit int) *utils.TStringList {
 	var names *utils.TStringList
 
 	// 如果是数字
@@ -892,11 +882,11 @@ func (self *TExpression) to_ids(value *utils.TStringList, comodel *TModel, conte
 			name_get_list = append(name_get_list, rec.GetByName("id").AsString()) //ODO: id 可能是Rec_id
 		}
 		//}
-		if result == nil {
-			result = utils.NewStringList()
-		}
+
+		result := utils.NewStringList()
+
 		result.PushString(name_get_list...)
-		return //strings.Join(name_get_list, ",") // 合并为  1,2,3
+		return result //strings.Join(name_get_list, ",") // 合并为  1,2,3
 	}
 
 	return value
@@ -926,7 +916,6 @@ func (self *TExpression) to_ids(value *utils.TStringList, comodel *TModel, conte
 // @转换提取Model和Filed ("foo.bar" -> ["foo", "bar"])
 func (self *TExpression) parse(context map[string]interface{}) {
 	var (
-		//		lStack                []*TExtendedLeaf
 		lExLeaf               *TExtendedLeaf
 		left, operator, right *utils.TStringList
 		lPath                 []string
@@ -934,20 +923,14 @@ func (self *TExpression) parse(context map[string]interface{}) {
 		err                   error
 	)
 
-	//
-	logger.Dbg("parse Expression.items:", self.Expression.Count(), StringList2Domain(self.Expression))
 	for _, leaf := range self.Expression.Items() {
 		self.stack = append(self.stack, NewExtendedLeaf(leaf, self.root_model, nil, false))
 	}
 
-	//# process from right to left; expression is from left to right
-	// 反转顺序
+	// process from right to left; expression is from left to right
 	self.reverse(self.stack)
-
 	for len(self.stack) > 0 {
-		//  # Get the next leaf to process
-		lExLeaf = self._pop() // 取最后一个
-		//logger.Dbg("_pop", lExLeaf.leaf.String())
+		lExLeaf = self.pop() // Get the next leaf to process
 
 		// 获取各参数 # Get working variables
 		if lExLeaf.is_operator() {
@@ -965,24 +948,24 @@ func (self *TExpression) parse(context map[string]interface{}) {
 		}
 
 		// :var list path: left operand seen as a sequence of field names
-		// ("foo.bar" -> ["foo", "bar"])
-		lPath = strings.SplitN(left.String(), ".", 2) //分成2段 取
-		model := lExLeaf.model
-		lFieldName := lPath[0]
-		field := model.FieldByName(lFieldName) // 获得字段对象结构
+		lPath = strings.SplitN(left.String(), ".", 2) // "foo.bar" -> ["foo", "bar"]
+		model := lExLeaf.model                        // get the model instance
+		lFieldName := lPath[0]                        // get the   first part
 		IsInheritField := model.RelateFieldByName(lFieldName) != nil
 		//_, IsInheritField := model._relate_fields[lFieldName] // 是否是继承字段
 		//column := model._Columns[lPath[0]]
 		//   comodel = model.pool.get(getattr(field, 'comodel_name', None))
-		//logger.Dbg("field", lPath[0], field)
+
+		// get the model
+		field := model.FieldByName(lFieldName) // get the field instance which has full details
 		if field != nil {
-			comodel, err = model.Orm().GetModel(field.ModelName()) //#获取字段所属的Model
+			comodel, err = model.Orm().GetModel(field.ModelName()) // get the model of the field owner
 			if err != nil {
 				logger.Err(err)
 			}
 		}
 
-		logger.Dbg("Leaf>", lPath, model, field, IsInheritField)
+		//logger.Dbg("Leaf>", lPath, model, field, IsInheritField)
 		// ########################################
 		// 			解析修改leaf 兼容字段
 		// ########################################
@@ -995,9 +978,22 @@ func (self *TExpression) parse(context map[string]interface{}) {
 		// ----------------------------------------
 		// 对操[作符/True/False]的条件直接添加，无需转换
 		if lExLeaf.is_operator() || lExLeaf.is_true_leaf() || lExLeaf.is_false_leaf() {
-			//logger.Dbg("is_operator")
-			self._push_result(lExLeaf)
+			self.push_result(lExLeaf)
+
+			/*
+			   # ----------------------------------------
+			   # FIELD NOT FOUND
+			   # -> from inherits'd fields -> work on the related model, and add
+			   #    a join condition
+			   # -> ('id', 'child_of', '..') -> use a 'to_ids'
+			   # -> but is one on the _log_access special fields, add directly to
+			   #    result
+			   #    TODO: make these fields explicitly available in self.columns instead!
+			   # -> else: crash
+			   # ----------------------------------------
+			*/
 		} else if field == nil && !IsInheritField {
+			// FIELD NOT FOUND
 			//panic(logger.Err("Invalid field %r in leaf %r", left.String(), lExLeaf.leaf.String()))
 			logger.Errf("Invalid field %s in leaf %s", left.String(), lExLeaf.leaf.String())
 
@@ -1029,7 +1025,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			}
 			//logger.Dbg("IsForeignField>>", lFieldName, next_model.GetModelName())
 			lExLeaf.add_join_context(next_model.GetBase(), model._relations[next_model.GetModelName()], "id", model._relations[next_model.GetModelName()])
-			self._push(lExLeaf)
+			self.push(lExLeaf)
 
 		} else if left.String() == "id" && utils.InStrings(operator.String(), "child_of", "parent_of") != -1 {
 			//--------------------------
@@ -1045,11 +1041,11 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			dom = dom.Reversed()
 			for _, dom_leaf := range dom.Items() {
 				new_leaf := create_substitution_leaf(lExLeaf, dom_leaf, model, false)
-				self._push(new_leaf)
+				self.push(new_leaf)
 			}
 
 		} else if field != nil && utils.InStrings(lPath[0], MAGIC_COLUMNS...) != -1 {
-			self._push_result(lExLeaf)
+			self.push_result(lExLeaf)
 
 		} else if len(lPath) > 1 && !field.IsForeignField() && field.Type() == "many2one" && field.IsAutoJoin() {
 			/* # ----------------------------------------
@@ -1068,21 +1064,21 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			//logger.Dbg(`if len(lPath) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			// # res_partner.state_id = res_partner__state_id.id
 			lExLeaf.add_join_context(comodel.GetBase(), lFieldName, "id", lFieldName)
-			self._push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
+			self.push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.Type() == "one2many" && field.IsAutoJoin() {
 			//logger.Dbg(`if len(lPath) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			//  # res_partner.id = res_partner__bank_ids.partner_id
 			lExLeaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), lFieldName)
 			domain := Query2StringList(field.Domain()) //column._domain(model) if callable(column._domain) else column._domain
-			self._push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
+			self.push(create_substitution_leaf(lExLeaf, utils.NewStringList(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
 			if domain != nil {
 				domain = normalize_domain(domain)
 				domain = domain.Reversed()
 				for _, elem := range domain.Items() {
-					self._push(create_substitution_leaf(lExLeaf, elem, comodel.GetBase(), false))
+					self.push(create_substitution_leaf(lExLeaf, elem, comodel.GetBase(), false))
 				}
-				self._push(create_substitution_leaf(lExLeaf, Query2StringList(AND_OPERATOR), comodel.GetBase(), false))
+				self.push(create_substitution_leaf(lExLeaf, Query2StringList(AND_OPERATOR), comodel.GetBase(), false))
 			}
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.IsAutoJoin() {
@@ -1096,7 +1092,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			lExLeaf.leaf = utils.NewStringList()
 			lExLeaf.leaf.PushString(lPath[0], "in")
 			lExLeaf.leaf.PushString(right_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
-			self._push(lExLeaf)
+			self.push(lExLeaf)
 
 		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && utils.InStrings(field.Type(), "many2many", "one2many") != -1 {
 			// Making search easier when there is a left operand as column.o2m or column.m2m
@@ -1110,7 +1106,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 			lExLeaf.leaf = utils.NewStringList()
 			lExLeaf.leaf.PushString("id", "in")
 			lExLeaf.leaf.PushString(table_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
-			self._push(lExLeaf)
+			self.push(lExLeaf)
 
 		} else if !field.Store() && field == nil || field.IsForeignField() {
 			//# Non-stored field should provide an implementation of search.
@@ -1139,11 +1135,11 @@ func (self *TExpression) parse(context map[string]interface{}) {
 
 			if domain == nil {
 				lExLeaf.leaf = Query2StringList(TRUE_LEAF)
-				self._push(lExLeaf)
+				self.push(lExLeaf)
 			} else {
 				domain = domain.Reversed()
 				for _, elem := range domain.Items() {
-					self._push(create_substitution_leaf(lExLeaf, elem, model, true))
+					self.push(create_substitution_leaf(lExLeaf, elem, model, true))
 				}
 			}
 			//} else if field.IsFuncField() && !field.Store { // isinstance(column, fields.function) and not column.store
@@ -1175,17 +1171,17 @@ func (self *TExpression) parse(context map[string]interface{}) {
 				}
 				ltemp := utils.NewStringList()
 				ltemp.Push(left, operator, right)
-				self._push(create_substitution_leaf(lExLeaf, ltemp, model, false))
+				self.push(create_substitution_leaf(lExLeaf, ltemp, model, false))
 
 			} else if field.Translatable() && right != nil { //column.translate and not callable(column.translate) and right:
 
 			} else {
 				//logger.Dbg(`_push_result`)
-				self._push_result(lExLeaf)
+				self.push_result(lExLeaf)
 			}
 		}
 
-	}
+	} // end of for
 	// ----------------------------------------
 	// END OF PARSING FULL DOMAIN
 	// -> generate joins
@@ -1205,7 +1201,7 @@ func (self *TExpression) parse(context map[string]interface{}) {
 
 // 用leaf生成SQL
 // 将值用占位符? 区分出来
-func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}) (res_query string, res_params []interface{}, res_arg []interface{}) {
+func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}) (res_query string, res_params []interface{}, res_arg []interface{}) {
 	var (
 		vals              []interface{} // 该Term 的值 每个Or,And等条件都有自己相当数量的值
 		lIsHolder         bool          = false
@@ -1388,7 +1384,7 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 		} else {
 			// '=?' behaves like '=' in other cases
 			lDomain := Query2StringList(fmt.Sprintf(`[('%s','=','%s')]`, left.String(), right.String()))
-			res_query, res_params, res_arg = self._leaf_to_sql(create_substitution_leaf(eleaf, lDomain, model, false), nil)
+			res_query, res_params, res_arg = self.leaf_to_sql(create_substitution_leaf(eleaf, lDomain, model, false), nil)
 		}
 
 	} else if left.String() == "id" { // TODO id字段必须和Orm 其他地方一致
@@ -1473,12 +1469,12 @@ func (self *TExpression) _leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}
 	return
 }
 
-func (self *TExpression) ToSql(params ...interface{}) (res_query []string, res_params []interface{}) {
+// to generate the SQL expression and params
+func (self *TExpression) ToSql(params ...interface{}) ([]string, []interface{}) {
 	return self.to_sql(params...)
 }
 
-// 生成SQL,参数
-func (self *TExpression) to_sql(params ...interface{}) (res_query []string, res_params []interface{}) {
+func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{}) {
 	var (
 		stack = utils.NewStringList()
 		//		lParams = utils.NewStringList()
@@ -1486,19 +1482,18 @@ func (self *TExpression) to_sql(params ...interface{}) (res_query []string, res_
 		q1, q2 *utils.TStringList
 		query  string
 	)
-	res_params = make([]interface{}, 0)
+	res_params := make([]interface{}, 0)
 
 	// 翻转顺序以便递归生成
 	// Process the domain from right to left, using a stack, to generate a SQL expression.
 	self.reverse(self.result)
 	params = utils.ReverseItfs(params...)
-	logger.Dbg("self.result all", self.result, len(self.result))
 
 	// 遍历并生成
 	for _, eleaf := range self.result {
 		//logger.Dbg("self.result", eleaf.leaf.String(), eleaf.join_context, params)
 		if eleaf.is_leaf(true) {
-			q, p, en_p := self._leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.
+			q, p, en_p := self.leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.
 			params = en_p
 			res_params = utils.SlicInsert(res_params, 0, p...)
 			stack.PushString(q)
@@ -1541,9 +1536,7 @@ func (self *TExpression) get_tables() (tables *utils.TStringList) {
 	tables = utils.NewStringList()
 	for _, leaf := range self.result {
 		for _, table := range leaf.get_tables().Items() {
-			//logger.ErrLn("get_tables", table.String())
 			if !tables.Has(table.String()) {
-				//logger.ErrLn("get_tables2", table.String())
 				tables.PushString(table.String())
 			}
 		}
@@ -1553,5 +1546,6 @@ func (self *TExpression) get_tables() (tables *utils.TStringList) {
 	if !tables.Has(table_name) {
 		tables.PushString(table_name)
 	}
+
 	return tables
 }
