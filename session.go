@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"volts-dev/dataset"
+
 	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
@@ -22,7 +24,7 @@ type (
 		CreateUniques(model string) error
 		DropTable(model string) (err error)
 		Exec(sql_str string, args ...interface{}) (sql.Result, error)
-		Query(sql string, paramStr ...interface{}) (*TDataSet, error)
+		Query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error)
 		Ping() error
 		IsEmpty(model string) (bool, error)
 		IsExist(model ...string) (bool, error)
@@ -132,7 +134,7 @@ func (self *TSession) Rollback() error {
 }
 
 // Query a raw sql and return records as dataset
-func (self *TSession) Query(sql string, paramStr ...interface{}) (*TDataSet, error) {
+func (self *TSession) Query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error) {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -141,12 +143,12 @@ func (self *TSession) Query(sql string, paramStr ...interface{}) (*TDataSet, err
 	return self.query(sql, paramStr...)
 }
 
-func (self *TSession) query(sql string, paramStr ...interface{}) (*TDataSet, error) {
+func (self *TSession) query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error) {
 	for _, filter := range self.orm.dialect.Filters() {
 		sql = filter.Do(sql, self.orm.dialect, self.Statement.Table)
 	}
 
-	return self.orm.log_query_sql(sql, paramStr, func() (*TDataSet, error) {
+	return self.orm.log_query_sql(sql, paramStr, func() (*dataset.TDataSet, error) {
 		if self.IsAutoCommit {
 			return self.org_query(sql, paramStr...)
 		}
@@ -164,7 +166,7 @@ func (self *TSession) do_prepare(sql string) (*core.Stmt, error) {
 	return stmt, err
 }
 
-func (self *TSession) org_query(sql_str string, args ...interface{}) (res_dataset *TDataSet, res_err error) {
+func (self *TSession) org_query(sql_str string, args ...interface{}) (res_dataset *dataset.TDataSet, res_err error) {
 	var (
 		lRows *core.Rows
 		stmt  *core.Stmt
@@ -187,7 +189,7 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 	}
 
 	// #无论如何都会返回一个Dataset
-	res_dataset = NewDataSet()
+	res_dataset = dataset.NewDataSet()
 	// #提供必要的IdKey
 	if self.Statement.IdKey != "" {
 		res_dataset.KeyField = self.Statement.IdKey //"id" //设置主键 TODO:可以做到动态
@@ -211,7 +213,7 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 	return
 }
 
-func (self *TSession) tx_query(sql string, params ...interface{}) (res_dataset *TDataSet, res_err error) {
+func (self *TSession) tx_query(sql string, params ...interface{}) (res_dataset *dataset.TDataSet, res_err error) {
 	var (
 		lRows *core.Rows
 	)
@@ -222,7 +224,7 @@ func (self *TSession) tx_query(sql string, params ...interface{}) (res_dataset *
 		return
 	}
 	// 无论如何都会返回一个Dataset
-	res_dataset = NewDataSet()
+	res_dataset = dataset.NewDataSet()
 	if self.Statement.IdKey != "" {
 		res_dataset.KeyField = self.Statement.IdKey //"id" //设置主键 TODO:可以做到动态
 	}
@@ -268,7 +270,7 @@ func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, err
 			return nil, err
 		}
 
-		id := res.Record().GetByIndex(0).AsInteger()
+		id := res.Record().FieldByIndex(0).AsInteger()
 		return TExecResult(id), nil
 	}
 
@@ -918,7 +920,7 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 	if res_id != 0 {
 		//更新缓存
 		table_name := self.Statement.TableName()
-		lRec := NewRecordSet(nil, lNewVals)
+		lRec := dataset.NewRecordSet(nil, lNewVals)
 		self.orm.cacher.PutById(table_name, utils.IntToStr(res_id), lRec) //for create
 		// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
 		self.orm.cacher.ClearByTable(table_name) //for create
@@ -1448,7 +1450,7 @@ func (self *TSession) Write(data interface{}, classic_write ...bool) (int64, err
 }
 
 // start to read data from the database
-func (self *TSession) Read(classic_read ...bool) (*TDataSet, error) {
+func (self *TSession) Read(classic_read ...bool) (*dataset.TDataSet, error) {
 	// reset after complete
 	defer self.Statement.Init()
 	if self.IsAutoClose {
@@ -1463,7 +1465,7 @@ func (self *TSession) Read(classic_read ...bool) (*TDataSet, error) {
 	return self._read(classic)
 }
 
-func (self *TSession) _read(classic_read bool) (*TDataSet, error) {
+func (self *TSession) _read(classic_read bool) (*dataset.TDataSet, error) {
 	if len(self.Statement.TableName()) < 1 {
 		return nil, ErrTableNotFound
 	}
@@ -1488,7 +1490,7 @@ func (self *TSession) _read(classic_read bool) (*TDataSet, error) {
 	} else {
 		lIds = self._search("", nil)
 		if len(lIds) == 0 {
-			return NewDataSet(), nil
+			return dataset.NewDataSet(), nil
 		}
 	}
 
@@ -1585,7 +1587,7 @@ func (self *TSession) _read(classic_read bool) (*TDataSet, error) {
 		dataset.Next()
 	}
 	dataset.First() // 返回游标0
-	dataset.classic = classic_read
+	dataset.Classic(classic_read)
 
 	return dataset, nil
 }
@@ -2016,7 +2018,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 }
 
 //# ids_less 缺少的ID
-func (self *TSession) _read_from_cache(ids []string) (res []*TRecordSet, ids_less []string) {
+func (self *TSession) _read_from_cache(ids []string) (res []*dataset.TRecordSet, ids_less []string) {
 	res, ids_less = self.orm.cacher.GetByIds(self.Statement.TableName(), ids...)
 	return
 }
@@ -2034,7 +2036,7 @@ func (self *TSession) _read_from_cache(ids []string) (res []*TRecordSet, ids_les
 // 从数据库读取记录并保存到缓存中
 // :param field_names: Model的所有字段
 // :param inherited_field_names:关联父表的所有字段
-func (self *TSession) _read_from_database(ids []string, field_names, inherited_field_names []string) (res_ds *TDataSet, res_sql string) {
+func (self *TSession) _read_from_database(ids []string, field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string) {
 	// # 从缓存里获得数据
 	records, less_ids := self._read_from_cache(ids)
 
@@ -2135,7 +2137,7 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 		for !res_ds.Eof() {
 			rec := res_ds.Record()
 			// # 添加进入缓存
-			self.orm.cacher.PutById(table_name, rec.GetByName(self.Statement.IdKey).AsString(), rec)
+			self.orm.cacher.PutById(table_name, rec.FieldByName(self.Statement.IdKey).AsString(), rec)
 			res_ds.Next()
 		}
 
@@ -2164,7 +2166,7 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 			}
 		*/
 	} else { // # init dataset
-		res_ds = NewDataSet()
+		res_ds = dataset.NewDataSet()
 		//res_ds.KeyField = self.Statement.IdKey //#重要配Key置
 		//res_ds.SetKeyField(self.Statement.IdKey)//# 废除因为无效果
 		res_ds.AppendRecord(records...)
@@ -2413,7 +2415,7 @@ func (self *TSession) itf_to_itfmap(src interface{}) (res_map map[string]interfa
 
 // 获取字段值 for m2m,selection,
 // return :map[string]interface{} 可以是map[id]map[field]vals,map[string]map[xxx][]string,
-func (self *TSession) __field_value_get(ids []string, fields []*TField, values *TDataSet, context map[string]interface{}) (result map[string]map[string]interface{}) {
+func (self *TSession) __field_value_get(ids []string, fields []*TField, values *dataset.TDataSet, context map[string]interface{}) (result map[string]map[string]interface{}) {
 	lField := fields[0]
 	switch lField.Type() {
 	case "one2many":

@@ -3,6 +3,7 @@ package orm
 import (
 	"fmt"
 	"sync"
+	"volts-dev/dataset"
 
 	"github.com/volts-dev/cacher"
 )
@@ -141,7 +142,7 @@ func (self *TCacher) GetBySql(table string, sql string, arg interface{}) (res_id
 }
 
 // #缓存记录及ID
-func (self *TCacher) PutById(table string, id string, record *TRecordSet) {
+func (self *TCacher) PutById(table string, id string, record *dataset.TRecordSet) {
 	if open, has := self.status[table]; !has || (has && open) {
 		//ck := self.RecCacher(table)
 		key := self.genIdKey(table, id, false)
@@ -150,7 +151,7 @@ func (self *TCacher) PutById(table string, id string, record *TRecordSet) {
 }
 
 //#通过ID获取记录
-func (self *TCacher) GetByIds(table string, ids ...string) (records []*TRecordSet, ids_less []string) {
+func (self *TCacher) GetByIds(table string, ids ...string) (records []*dataset.TRecordSet, ids_less []string) {
 	if !self.active {
 		return nil, ids
 	}
@@ -158,7 +159,7 @@ func (self *TCacher) GetByIds(table string, ids ...string) (records []*TRecordSe
 	if open, has := self.status[table]; !has || (has && open) {
 		for _, id := range ids {
 			key := self.genIdKey(table, id, false)
-			if rec, ok := self.id_caches.Get(key).(*TRecordSet); ok {
+			if rec, ok := self.id_caches.Get(key).(*dataset.TRecordSet); ok {
 				records = append(records, rec)
 			} else {
 				ids_less = append(ids_less, id)

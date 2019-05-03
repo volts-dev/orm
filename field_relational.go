@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"volts-dev/dataset"
+
 	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
@@ -210,7 +212,7 @@ func (self *TMany2ManyField) OnConvertToRead(ctx *TFieldEventContext) interface{
 	// # 添加 IDs 作为参数
 	where_params = append(where_params, id)
 
-	var res_ds *TDataSet
+	var res_ds *dataset.TDataSet
 	var less_ids []string
 	cacher_table_name := field.Relation() + "_" + from_c
 
@@ -220,7 +222,7 @@ func (self *TMany2ManyField) OnConvertToRead(ctx *TFieldEventContext) interface{
 		// # 查询 field.Relation 表数据
 		records, less := session.Orm().cacher.GetByIds(cacher_table_name, ids...)
 		if len(less) == 0 {
-			res_ds = NewDataSet()
+			res_ds = dataset.NewDataSet()
 			res_ds.AppendRecord(records...)
 		} else {
 			less_ids = less

@@ -879,7 +879,7 @@ func (self *TExpression) to_ids(value *utils.TStringList, comodel *TModel, conte
 		//for _, name := range names.Items() {
 		lRecords := comodel.SearchName(strings.Join(value.Strings(), ","), "", "ilike", limit, "", context)
 		for _, rec := range lRecords.Data {
-			name_get_list = append(name_get_list, rec.GetByName("id").AsString()) //ODO: id 可能是Rec_id
+			name_get_list = append(name_get_list, rec.FieldByName("id").AsString()) //ODO: id 可能是Rec_id
 		}
 		//}
 

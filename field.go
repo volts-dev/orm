@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	"volts-dev/dataset"
+
 	"github.com/go-xorm/core"
 )
 
@@ -219,7 +221,7 @@ type (
 		// 废弃
 		IFieldCtrl interface {
 			Write(session *TSession, id string, fields *TField, value string, rel_context map[string]interface{}) interface{} //(res map[string]map[string]interface{}) // 字段数据保存
-			Read(session *TSession, field *TField, dataset *TDataSet, rel_context map[string]interface{}) interface{}         // (res map[string]map[string]interface{})         // 字段数据获取
+			Read(session *TSession, field *TField, dataset *dataset.TDataSet, rel_context map[string]interface{}) interface{}         // (res map[string]map[string]interface{})         // 字段数据获取
 		}
 	*/
 
@@ -242,7 +244,7 @@ type (
 		Id string
 		// the current value of the field
 		Value   interface{}
-		Dataset *TDataSet
+		Dataset *dataset.TDataSet
 		Context map[string]interface{}
 	}
 

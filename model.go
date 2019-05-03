@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 
+	"volts-dev/dataset"
+
 	core "github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
@@ -27,8 +29,8 @@ type (
 
 		// 对象被创建时
 		Default(field string, val ...interface{}) (res interface{}) // 默认值修改获取
-		One2many(ids, model string, fieldKey string) *TDataSet
-		Many2many(detail_model, ref_model string, key_id, ref_id string) *TDataSet
+		One2many(ids, model string, fieldKey string) *dataset.TDataSet
+		Many2many(detail_model, ref_model string, key_id, ref_id string) *dataset.TDataSet
 
 		// return the list of inherits model name
 		Inherits() []string
@@ -53,7 +55,7 @@ type (
 		// new a orm records session for query
 		Records() *TSession
 		//Create(values map[string]interface{}) (id int64)
-		//Read(ids []string, fields []string) *TDataSet
+		//Read(ids []string, fields []string) *dataset.TDataSet
 		//Write(ids []string, values interface{}) (err error)
 		//update(vals map[string]interface{}, where string, args ...interface{}) (id int64)
 		//Unlink(ids ...string) bool
@@ -61,10 +63,10 @@ type (
 
 		Orm() *TOrm
 		//NameGet(ids []string) [][]string
-		NameGet(ids []string) *TDataSet
+		NameGet(ids []string) *dataset.TDataSet
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
-		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *TDataSet
-		SearchName(name string, domain string, operator string, limit int, name_get_uid string, context map[string]interface{}) *TDataSet
+		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
+		SearchName(name string, domain string, operator string, limit int, name_get_uid string, context map[string]interface{}) *dataset.TDataSet
 		//SearchCount(domain string, context map[string]interface{}) int
 	}
 
@@ -338,7 +340,7 @@ func (self *TModel) _search(args *utils.TStringList, fields []string, offset int
 	return res.Keys()
 }
 */
-func (self *TModel) _search_name(name string, args *utils.TStringList, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (ds *TDataSet) {
+func (self *TModel) _search_name(name string, args *utils.TStringList, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (ds *dataset.TDataSet) {
 	/*	// private implementation of name_search, allows passing a dedicated user
 		// for the name_get part to solve some access rights issues
 		if args == nil {
@@ -456,7 +458,7 @@ func (self *TModel) convert_to_read(field IField, value interface{}, use_name_ge
 
 // 获取字段值 for m2m,selection,
 // return :map[string]interface{} 可以是map[id]map[field]vals,map[string]map[xxx][]string,
-func (self *TModel) __field_value_get(ids []string, fields []*TField, values *TDataSet, context map[string]interface{}) (result map[string]map[string]interface{}) {
+func (self *TModel) __field_value_get(ids []string, fields []*TField, values *dataset.TDataSet, context map[string]interface{}) (result map[string]map[string]interface{}) {
 	lField := fields[0]
 	switch lField.Type() {
 	case "one2many":
@@ -500,13 +502,13 @@ func (self *TModel) name_create() {
 }
 
 // 获得id和名称
-func (self *TModel) _name_get(ids, fields []string) (result *TDataSet) {
+func (self *TModel) _name_get(ids, fields []string) (result *dataset.TDataSet) {
 	//result = self.Read(ids, fields)
 	result, _ = self.Records().Select(fields...).Ids(ids...).Read()
 	return
 }
 
-func (self *TModel) NameGet(ids []string) (result *TDataSet) {
+func (self *TModel) NameGet(ids []string) (result *dataset.TDataSet) {
 	//func (self *TModel) NameGet(ids []string) (result [][]string) {
 	name := self._rec_name
 	//result = make([][]string, 0)
@@ -524,7 +526,7 @@ func (self *TModel) NameGet(ids []string) (result *TDataSet) {
 		}*/
 		return lDs
 	} else {
-		ds := NewDataSet()
+		ds := dataset.NewDataSet()
 		for _, id := range ids {
 			//val := []string{id, fmt.Sprintf("%s,%s", self.GetModelName(), id)}
 			//result = append(result, val)
@@ -538,7 +540,7 @@ func (self *TModel) NameGet(ids []string) (result *TDataSet) {
 	return nil
 }
 
-func (self *TModel) SearchName(name string, domain string, operator string, limit int, access_rights_uid string, context map[string]interface{}) (result *TDataSet) {
+func (self *TModel) SearchName(name string, domain string, operator string, limit int, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet) {
 	if operator == "" {
 		operator = "ilike"
 	}
@@ -887,7 +889,7 @@ func (self *TModel) _add_inherited_fields() {
 
 // 获取外键所有Child关联2222222记录
 //TODO ids []string
-func (self *TModel) One2many(ids, model string, fieldKey string) (ds *TDataSet) {
+func (self *TModel) One2many(ids, model string, fieldKey string) (ds *dataset.TDataSet) {
 	if model != "" && fieldKey != "" {
 		lMOdelObj, err := self.osv.GetModel(model) // #i
 		if err != nil {
@@ -902,7 +904,7 @@ func (self *TModel) One2many(ids, model string, fieldKey string) (ds *TDataSet) 
 	return
 }
 
-func (self *TModel) Many2many(detail_model, ref_model string, key_id, ref_id string) *TDataSet {
+func (self *TModel) Many2many(detail_model, ref_model string, key_id, ref_id string) *dataset.TDataSet {
 	return nil
 }
 
@@ -922,7 +924,7 @@ func (self *TModel) Many2many(detail_model, ref_model string, key_id, ref_id str
 	  _auto_end).
 
 */
-func (self *TModel) _select_column_data() *TDataSet {
+func (self *TModel) _select_column_data() *dataset.TDataSet {
 	//# attlen is the number of bytes necessary to represent the type when
 	// # the type has a fixed size. If the type has a varying size attlen is
 	//# -1 and atttypmod is the size limit + 4, or -1 if there is no limit.

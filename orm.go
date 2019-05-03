@@ -19,6 +19,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"volts-dev/dataset"
+
 	core "github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
@@ -323,7 +325,7 @@ func (self *TOrm) _newFieldFromSqlType(name string, col *core.Column) IField {
 	return nil
 }
 
-func (self *TOrm) log_query_sql(sql string, args []interface{}, executionBlock func() (*TDataSet, error)) (*TDataSet, error) {
+func (self *TOrm) log_query_sql(sql string, args []interface{}, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
 	if self._show_sql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
@@ -1356,7 +1358,7 @@ func (self *TOrm) SyncModel(region string, models ...interface{}) (err error) {
 	return session.SyncModel(region, models...)
 }
 
-func (self *TOrm) Query(sql string, params ...interface{}) (ds *TDataSet, err error) {
+func (self *TOrm) Query(sql string, params ...interface{}) (ds *dataset.TDataSet, err error) {
 	session := self.NewSession()
 	defer session.Close()
 	return session.Query(sql, params...)
