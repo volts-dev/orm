@@ -729,7 +729,7 @@ func Query2StringList(sql string) (res_domain *utils.TStringList) {
 	parser := NewDomainParser(sql)
 	res_domain, err := _parse_query(parser, 0)
 	if err != nil {
-
+		logger.Err(err)
 	}
 	//fmt.Println("asdfa", res_domain.Flatten())
 
@@ -751,7 +751,7 @@ func Domain2StringList(domain string) *utils.TStringList {
 	parser := NewDomainParser(domain)
 	res_domain, err := _parse_query(parser, 0)
 	if err != nil {
-
+		logger.Err(err)
 	}
 	return res_domain.Item(0)
 }

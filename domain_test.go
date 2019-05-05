@@ -38,8 +38,16 @@ func TestDomain2StringList(t *testing.T) {
 }
 */
 func TestQuery2StringList(t *testing.T) {
-	lst := Query2StringList("name ilike ?")
-	utils.PrintStringList(lst)
+	lst := Domain2StringList("[(module,=,test),(name,=,action_win_test_1)]")
+	t.Log(lst.Count(), lst.Text)
+
+	qry := utils.NewStringList()
+	qry.Insert(0, "&&") // 添加操作符
+	//qry.Push(self.Domain.Items()...) // 第一条件
+	qry.Push(lst) // 第二条件
+	utils.PrintStringList(qry)
+
+	t.Log(qry.String())
 
 }
 

@@ -471,14 +471,16 @@ func normalize_domain(domain *utils.TStringList) (result *utils.TStringList) {
 	//lLst := utils.Domain2StringList(domain)
 	if domain == nil {
 		logger.Err("Invaild domain")
-		return Query2StringList(TRUE_DOMAIN)
+		//return Query2StringList(TRUE_DOMAIN)
+		return Domain2StringList(TRUE_DOMAIN)
 	}
 
 	// must be including Terms
 	if !domain.IsList() {
 		logger.Err("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
 		//return // TODO 考虑是否直接返回？？？
-		return Query2StringList(TRUE_DOMAIN)
+		//return Query2StringList(TRUE_DOMAIN)
+		return Domain2StringList(TRUE_DOMAIN)
 	}
 
 	op_arity := map[string]int{
@@ -513,7 +515,7 @@ func normalize_domain(domain *utils.TStringList) (result *utils.TStringList) {
 
 	// 格式化List 生成Text
 	//result.Update()
-	//logger.Err("normalize_domain", StringList2Domain(result))
+	//logger.Dbg("normalize_domain", StringList2Domain(result))
 	return result
 }
 

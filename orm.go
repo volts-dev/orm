@@ -711,7 +711,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				true)
 
 			//# 获取Core对应Core的字段类型
-			if lFieldValue.CanAddr() {
+			if lFieldValue.CanAddr() && lFieldValue.Addr().CanInterface() {
 				if _, ok := lFieldValue.Addr().Interface().(core.Conversion); ok {
 					lCol.SQLType = core.SQLType{core.Text, 0, 0}
 				}

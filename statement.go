@@ -126,7 +126,9 @@ func (self *TStatement) Where(querystring string, args ...interface{}) *TStateme
 func (self *TStatement) Domains(domain interface{}) *TStatement {
 	switch domain.(type) {
 	case string:
-		self.Op(self.Session.orm.dialect.AndStr(), Query2StringList(domain.(string)))
+		//self.Op(self.Session.orm.dialect.AndStr(), Query2StringList(domain.(string)))
+		self.Op(self.Session.orm.dialect.AndStr(), Domain2StringList(domain.(string)))
+
 	case *utils.TStringList:
 		self.Op(self.Session.orm.dialect.AndStr(), domain.(*utils.TStringList))
 	}
@@ -646,10 +648,13 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 				}
 			}
 			if !hasfield {
-				domain.Insert(0, Query2StringList(`('active', '=', 1)`))
+				//domain.Insert(0, Query2StringList(`('active', '=', 1)`))
+				domain.Insert(0, Domain2StringList(`[('active', '=', 1)]`))
 			}
 		} else {
-			domain = Query2StringList(`[('active', '=', 1)]`)
+			//domain = Query2StringList(`[('active', '=', 1)]`)
+			domain = Domain2StringList(`[('active', '=', 1)]`)
+
 		}
 	}
 
