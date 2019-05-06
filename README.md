@@ -1,7 +1,12 @@
-# orm
-Webgo 内置的ORM 由Xorm扩展 添加自定义Tags,postgres 继承及关联表数据
+# ORM
+The Volts ORM library for Golang, aims to be developer friendly.
 
-#TODO 
+# Overview
+* Domain Parser (String type filter)
+* Dataset (Full data type covert interface)
+* Developer Friendly
+
+# TODO 
 #---字段创建后只读readonly
 #---字段默认值为另一个字段
 #---提供无Model时纯Sql查询

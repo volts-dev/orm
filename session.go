@@ -793,7 +793,7 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 		lNewTodo []string
 	)
 
-	lNewVals, lRefVals, lNewTodo = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, false)
+	lNewVals, lRefVals, lNewTodo = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, true)
 
 	//
 	for tbl, rel_vals := range lRefVals {
@@ -958,18 +958,13 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 
 	// 保存关联表用于更新创建关联表数据
 	for tbl, _ := range self.model._relations {
-		//logger.Dbg("_relations", tbl)
 		rel_vals[tbl] = make(map[string]interface{}) // 新建空Map以防Nil导致内存出错
-
 		if val, has := vals[self.model._relations[tbl]]; has && val != nil {
 			//新建新的并存入已经知道的ID
 			rel_id := utils.Itf2Str(val)
-			//logger.Dbg("has record_id", vals[self.model._relations[tbl]])
-
 			if rel_id != "0" && rel_id != "" { //TODO 强制ORM使用Id作为主键
 				rel_vals[tbl]["id"] = rel_id //utils.Itf2Str(vals[self.model._relations[tbl]])
 			}
-
 		}
 	}
 
@@ -980,11 +975,26 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 		}
 
 		lCol := field.Base().column
-		if lCol != nil && !include_pkey && (lCol.IsAutoIncrement || lCol.IsPrimaryKey) {
+
+		// TODO 保留审视
+		//	if lCol != nil && !include_pkey && (lCol.IsAutoIncrement || lCol.IsPrimaryKey) {
+		if lCol != nil && !include_pkey && lCol.IsAutoIncrement {
 			continue // no use
 		}
 		//logger.Dbg("_separate_values XXX:", name, field)
 		// 格式化数据
+		// new a uid
+		if include_pkey {
+			if f, ok := field.(*TIdField); ok {
+				vals[name] = f.OnCreate(&TFieldEventContext{
+					Session: self,
+					Model:   self.model,
+					Id:      utils.IntToStr(0),
+					Field:   field,
+					Value:   vals[name]})
+			}
+		}
+
 		// update time zone to create and update tags' fields
 		if !include_pkey && field.Base()._is_created {
 			lTimeItfVal, _ := self.orm._now_time(field.Type())
@@ -1050,7 +1060,6 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 			if rel_fld := self.model.RelateFieldByName(name); rel_fld != nil && field.IsForeignField() {
 				// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
 				lTableName := rel_fld.RelateTableName
-				//logger.Dbg("lTableName", lTableName)
 				rel_vals[lTableName][name] = val
 
 				//updend = append(updend, name)
@@ -1296,7 +1305,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 
 		res_effect, res_err = res.RowsAffected()
 		if res_err != nil {
-			return
+			return 0, res_err
 		}
 
 		/*table_name := self.Statement.TableName()

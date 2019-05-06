@@ -28,6 +28,7 @@ const (
 	//TAG_READ_ONLY     = "<-"
 	TAG_WRITE_ONLY = "->"
 
+	TAG_ID            = "id"
 	TAG_PK            = "pk"
 	TAG_AUTO          = "autoincr"
 	TAG_TYPE          = "type"
@@ -100,6 +101,7 @@ func init() {
 		//tag_ctrl[TAG_WRITE_ONLY] = "->"
 		TAG_NAME:     tag_name,
 		TAG_OLD_NANE: tag_old_name,
+		//TAG_ID:       tag_id,
 		TAG_PK:       tag_pk,
 		TAG_AUTO:     tag_auto,
 		TAG_TYPE:     tag_type,
@@ -225,6 +227,12 @@ func tag_type(ctx *TFieldContext) {
 		//CCC ctrl(model, fld_val, fld, col)
 		//}
 	}
+}
+
+// reserver
+func tag_id(ctx *TFieldContext) {
+	// do nothing here
+	// already implement on field_id.go
 }
 
 func tag_pk(ctx *TFieldContext) {

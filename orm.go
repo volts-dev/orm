@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"go/ast"
 	"io"
 	"os"
 	"reflect"
@@ -160,7 +161,7 @@ func (self *TOrm) reverse() error {
 			// init all columns to the model
 			FieldContext := new(TFieldContext)
 			for _, col := range tb.Columns() {
-				field := self._newFieldFromSqlType(col.Name, col)
+				field := self.newFieldFromSqlType(col.Name, col)
 				//logger.Dbg("cccccccccc", field, col.Name, *col)
 				field.Base().model_name = model_name
 
@@ -290,7 +291,7 @@ func (self *TOrm) log_exec_sql(sql string, args []interface{}, executionBlock fu
 }
 
 // # 将Core自动转换的数据库类型转换成ORM数据类型
-func (self *TOrm) _newFieldFromSqlType(name string, col *core.Column) IField {
+func (self *TOrm) newFieldFromSqlType(name string, col *core.Column) IField {
 	switch col.SQLType.Name {
 	case core.Bit, core.TinyInt, core.SmallInt, core.MediumInt, core.Int, core.Integer, core.Serial:
 		return NewField(name, "int")
@@ -322,6 +323,7 @@ func (self *TOrm) _newFieldFromSqlType(name string, col *core.Column) IField {
 	case core.TinyBlob, core.Blob, core.LongBlob, core.Bytea, core.Binary, core.MediumBlob, core.VarBinary:
 		return NewField(name, "binary")
 	}
+
 	return nil
 }
 
@@ -657,12 +659,10 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 	} else {
 		res_model._inherits = make([]string, 0) // Append前先清空
 	}*/
-	// # 不检测是否已经存在于ORM中 直接替换旧
-	res_model = NewModel(lModelName, v, lType)
 
-	// # 创建一个原始ORM表
-	lTable := core.NewTable(lTableName, lType)
-	res_model.table = lTable // # 提前关联为后续Tag函数使用
+	res_model = NewModel(lModelName, v, lType) // 不检测是否已经存在于ORM中 直接替换旧
+	lTable := core.NewTable(lTableName, lType) // 创建一个原始ORM表
+	res_model.table = lTable                   // 提前关联为后续Tag函数使用
 	res_model.is_base = false
 
 	var (
@@ -684,16 +684,22 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 	lRelateFields := make([]string, 0)
 	for i := 0; i < lType.NumField(); i++ {
-		is_table_tag = false
-		lIgonre = false
 		//is_exit_col = false
 		lMemberName = lType.Field(i).Name
+
+		// filter out the unexport field
+		if !ast.IsExported(lMemberName) {
+			continue
+		}
+
+		is_table_tag = false
+		lIgonre = false
 		lFieldName = utils.SnakeCasedName(lMemberName)
 		lColName = lFieldName
 		lFieldValue = v.Field(i)
 		lFieldType = lType.Field(i).Type
 		lFieldTag := lType.Field(i).Tag
-
+		//logger.Dbg("%s:%s %s", lModelName, lMemberName, lColName)
 		// # 忽略TModel类字段
 		if strings.Index(strings.ToLower(lMemberName), strings.ToLower("TModel")) != -1 {
 			lIgonre = true
@@ -719,8 +725,10 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 			if _, ok := lFieldValue.Interface().(core.Conversion); ok {
 				lCol.SQLType = core.SQLType{core.Text, 0, 0}
+
 			} else {
 				lCol.SQLType = core.Type2SQLType(lFieldType)
+
 			}
 
 			//# 初始调整不同数据库间的属性 size,type...
@@ -731,6 +739,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 		// 如果 Field 不存在于ORM中
 		if lField = res_model.FieldByName(lFieldName); lField == nil {
+			// do nothing here
 			//lField = self.NewFieldFromSqlType(lFieldName, lCol)
 			//base_field = NewBaseField(lFieldName, lModelName)
 			//logger.Dbg("lField", &lField, lFieldName)
@@ -762,10 +771,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 		if lFieldTag != "" {
 			// TODO 实现继承表 Inherite
-			// TODO 自己映射脱离第三方ORM
-
 			// 解析并变更默认值
-			//logger.Dbg("ccc", lFieldName, lCol, lFieldTag)
 			var (
 				lTag []string
 				lStr string
@@ -782,7 +788,6 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			// 识别分割Tag各属性
 			//logger.Dbg("tags1", lookup(string(lFieldTag), self.FieldIdentifier))
 			lTags := splitTag(lStr)
-			//logger.Dbg("tags", lTags)
 
 			// 排序Tag并_确保优先执行字段类型属性
 			tagMap := make(map[string][]string) // 记录Tag的
@@ -816,16 +821,14 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				// 尝试获取新的Field以替换
 				if !lIgonre && !is_table_tag && IsFieldType(field_type_name) { // # 当属性非忽略或者BaseModel
 					if lField == nil || (lField.Type() != field_type_name) { // #字段实例为空 [或者] 字段类型和当前类型不一致时重建字段实例
-						//logger.Dbg("NewField ", lFieldName, field_type_name)
 						lField = NewField(lFieldName, field_type_name) // 根据Tag里的 属性类型创建Field实例
 					}
 				}
 			}
 
-			// # 根据Tyep创建字段
+			// # check again 根据Tyep创建字段
 			if lField == nil {
-				lField = self._newFieldFromSqlType(lFieldName, lCol)
-				//logger.Dbg("lField", lField.Name(), lField.ColumnType(), lField.IsForeignField())
+				lField = self.newFieldFromSqlType(lFieldName, lCol)
 				// 必须确保上面的代码能获取到定义的字段类型
 				if lField == nil {
 					logger.Panicf("must difine the field type for the model field :" + lModelName + "." + lFieldName)
@@ -913,19 +916,21 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					// 执行自定义Tag初始化
 					tag_ctrl := SelectTagController(lStr)
 					if tag_ctrl != nil {
-						//if tag, has := self.tag_ctrl[lStr]; has {
-						//	tag(res_model, lFieldValue, lField, lCol, vals...)
-						//}
 						FieldContext.FieldTypeValue = lFieldValue
 						FieldContext.Field = lField
 						FieldContext.Params = vals
 						tag_ctrl(FieldContext)
 					} else {
-						logger.Warnf("Unknown tag %s from %s:%s", lStr, lModelName, lFieldName)
+						// check not field type also
+						if _, has := field_creators[lStr]; has {
+							logger.Warnf("Unknown tag %s from %s:%s", lStr, lModelName, lFieldName)
+						}
 
 						//# 其他数据库类型
 						if _, ok := core.SqlTypes[strings.ToUpper(attr)]; ok {
 							lCol.SQLType = core.SQLType{strings.ToUpper(attr), 0, 0}
+							logger.Dbgf("Unknown %s", lCol.SQLType, attr)
+
 						}
 					}
 				}
@@ -956,7 +961,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			}
 
 			if lField == nil {
-				lField = self._newFieldFromSqlType(lFieldName, lCol)
+				lField = self.newFieldFromSqlType(lFieldName, lCol)
 				lField.Base().model_name = alt_model_name
 
 				FieldContext.Column = lCol

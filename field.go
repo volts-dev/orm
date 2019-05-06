@@ -249,8 +249,12 @@ type (
 	}
 
 	IField interface {
-		Name() string
-		Type() string
+		Init(ctx *TFieldContext) // call when parse the field tag
+		Base() *TField           // return itself
+
+		// attributes func
+		Name() string // name of field in database
+		Type() string //
 		Groups() string
 		Readonly(val ...bool) bool
 		Required(val ...bool) bool
@@ -261,8 +265,6 @@ type (
 		Translatable() bool
 		Search() bool
 		Title() string
-		Init(ctx *TFieldContext)
-		Base() *TField
 
 		// 获取Field所有属性值
 		UpdateDb(ctx *TFieldContext)
