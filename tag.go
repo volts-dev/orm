@@ -101,7 +101,7 @@ func init() {
 		//tag_ctrl[TAG_WRITE_ONLY] = "->"
 		TAG_NAME:     tag_name,
 		TAG_OLD_NANE: tag_old_name,
-		//TAG_ID:       tag_id,
+		TAG_ID:       tag_id,
 		TAG_PK:       tag_pk,
 		TAG_AUTO:     tag_auto,
 		TAG_TYPE:     tag_type,
@@ -229,10 +229,13 @@ func tag_type(ctx *TFieldContext) {
 	}
 }
 
-// reserver
+//
 func tag_id(ctx *TFieldContext) {
 	// do nothing here
 	// already implement on field_id.go
+
+	// set the id field to model
+	ctx.Model.IdField(ctx.Field.Name())
 }
 
 func tag_pk(ctx *TFieldContext) {
@@ -327,7 +330,7 @@ func tag_extends_relate(ctx *TFieldContext) {
 				//# 以下因为使用postgres 的继承方法时Model部分字段是由Parent继承来的
 				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
 				if lNewFld.Base().primary_key && lNewFld.Base().auto_increment {
-					model.GetBase().RecordField = lNewFld
+					model.GetBase().idField = lNewFld.Name()
 					//logger.Dbg("RecordField", fld.Name())
 				}
 

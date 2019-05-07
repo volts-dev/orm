@@ -593,8 +593,8 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 
 		// # 主键
 		self.Statement.IdKey = "id"
-		if self.model.RecordField != nil {
-			self.Statement.IdKey = self.model.RecordField.Name()
+		if self.model.idField != "" {
+			self.Statement.IdKey = self.model.idField
 		}
 
 		return self
@@ -793,7 +793,7 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 		lNewTodo []string
 	)
 
-	lNewVals, lRefVals, lNewTodo = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, true)
+	lNewVals, lRefVals, lNewTodo = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, false)
 
 	//
 	for tbl, rel_vals := range lRefVals {
@@ -850,11 +850,15 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 	// #验证数据类型
 	//TODO 需要更准确安全
 	self.model._validate(lNewVals)
-
+	id_field := self.model.idField
 	// 字段,值
 	for k, v := range lNewVals {
 		if v == nil { // 过滤nil 的值
 			continue
+		}
+
+		if k == id_field {
+			res_id = v.(int64)
 		}
 
 		if fields != "" {
@@ -867,25 +871,40 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 		params = append(params, v)
 	}
 
+	// generate returning field
 	lReturnKey := ""
+	if res_id < 1 { // the model not using IdField
+		auto_field := self.orm.GetTable(self.Statement.TableName()).AutoIncrement
+		id_field = auto_field
+
+		id_field := self.orm.Quote(id_field)
+		if id_field != "" {
+			lReturnKey = ` RETURNING ` + id_field
+		}
+	}
+
+	//1 lReturnKey := ""
 	//logger.Dbg("TableByType", self.model._cls_type, self.orm.TableByType(self.model._cls_type))
 	//lRecField := self.orm.TableByType(self.model._cls_type).RecordField
-	lRecField := self.orm.Quote(self.orm.GetTable(self.Statement.TableName()).AutoIncrement)
+	//2 lRecField := self.orm.Quote(self.orm.GetTable(self.Statement.TableName()).AutoIncrement)
 	//lRecField := self.orm.Quote(self.model.RecordField.Name)
-	if lRecField != "" {
-		lReturnKey = ` RETURNING ` + lRecField
-	}
+	//3 if lRecField != "" {
+	//4	lReturnKey = ` RETURNING ` + lRecField
+	//5}
 
-	sql := `INSERT INTO ` + self.Statement.TableName() + ` (` + fields + `) VALUES (` + values + `) ` + lReturnKey
+	sql := `INSERT INTO ` + self.Statement.TableName() + ` (` + fields + `) VALUES (` + values + `)` + lReturnKey
 	//sql = fmt.Sprintf(sql, params...)
+
 	res, err := self.Exec(sql, params...)
 	if err != nil {
-		return res_id, err
+		return 0, err
 	}
 
-	res_id, res_err = res.LastInsertId()
-	if res_err != nil {
-		return
+	if lReturnKey != "" {
+		res_id, res_err = res.LastInsertId()
+		if res_err != nil {
+			return
+		}
 	}
 
 	if self.IsClassic || classic_create {
@@ -926,7 +945,7 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 		self.orm.cacher.ClearByTable(table_name) //for create
 	}
 
-	return
+	return res_id, nil
 }
 
 func (self *TSession) _generate_caches_key(model, key interface{}) string {
@@ -979,20 +998,18 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 		// TODO 保留审视
 		//	if lCol != nil && !include_pkey && (lCol.IsAutoIncrement || lCol.IsPrimaryKey) {
 		if lCol != nil && !include_pkey && lCol.IsAutoIncrement {
-			continue // no use
+			continue // no use any AutoIncrement field's value
 		}
-		//logger.Dbg("_separate_values XXX:", name, field)
+
 		// 格式化数据
 		// new a uid
-		if include_pkey {
-			if f, ok := field.(*TIdField); ok {
-				vals[name] = f.OnCreate(&TFieldEventContext{
-					Session: self,
-					Model:   self.model,
-					Id:      utils.IntToStr(0),
-					Field:   field,
-					Value:   vals[name]})
-			}
+		if f, ok := field.(*TIdField); ok {
+			vals[name] = f.OnCreate(&TFieldEventContext{
+				Session: self,
+				Model:   self.model,
+				Id:      utils.IntToStr(0),
+				Field:   field,
+				Value:   vals[name]})
 		}
 
 		// update time zone to create and update tags' fields
@@ -1065,7 +1082,9 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 				//updend = append(updend, name)
 			} else {
 				if field.Store() && field.ColumnType() != "" {
-					new_vals[name] = field.SymbolFunc()(utils.Itf2Str(val))
+					Logger().Dbg(name, val)
+					// TODO 格式化值
+					new_vals[name] = val // field.SymbolFunc()(utils.Itf2Str(val))
 				} else {
 					upd_todo = append(upd_todo, name)
 				}

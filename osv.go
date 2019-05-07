@@ -33,7 +33,8 @@ type (
 	// TObj 是一个多个同名不同体Model集合，这些不同体(结构体/继承结构)的MOdel最终只是同一个数据表的表现
 	// fields：存储所有结构体的字段，即这个对象表的所有字段
 	TObj struct {
-		name          string                       // model 名称
+		name          string // model 名称
+		uidFieldName  string
 		fields        map[string]IField            // map[field]
 		relations     map[string]string            // many2many many2one... 等关联表
 		relate_fields map[string]*TRelateField     // 关联字段如 UserId CompanyID
@@ -133,6 +134,7 @@ func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 	if obj, has := self.models[aModel._name]; !has {
 		lObj = self.new_obj(aModel._name)
 		lObj.name = aModel._name // Model 名称
+		lObj.uidFieldName = aModel.idField
 		self.models[aModel._name] = lObj
 		//logger.Dbg("!has", region, aModel._name)
 	} else {
@@ -292,6 +294,8 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TObj, 
 	if m, ok := val.Interface().(IModel); ok {
 		// <以下代码严格遵守执行顺序>
 		lModel := NewModel(model, val, atype) //self.newModel(sess, model)
+		lModel.idField = obj.uidFieldName
+
 		lModel.osv = self
 		lModel.orm = self.orm
 		//logger.Dbg("_initObject", len(obj.object_table), obj.object_table[atype])

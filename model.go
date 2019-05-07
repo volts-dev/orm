@@ -51,7 +51,7 @@ type (
 		RelateFieldByName(field string, val ...*TRelateField) (res *TRelateField)
 		RelateFields() map[string]*TRelateField
 		Relations() map[string]string
-
+		IdField(field ...string) string
 		// new a orm records session for query
 		Records() *TSession
 		//Create(values map[string]interface{}) (id int64)
@@ -109,12 +109,14 @@ type (
 		_description   string                       // # 描述
 		is_base        bool                         // #该Model是否是基Model,并非扩展Model
 		// # 核心对象
-		orm         *TOrm
-		osv         *TOsv
-		statement   *TStatement
-		session     *TSession
-		table       *core.Table // TODO 大写 传送给Core包使用
-		RecordField IField      //TODO 改名称RecordIdKeyField 表的唯一主键字段 自增/主键/唯一 如：Id
+		orm           *TOrm
+		osv           *TOsv
+		statement     *TStatement
+		session       *TSession
+		table         *core.Table // TODO 大写 传送给Core包使用
+		__RecordField IField      //TODO 废弃 改名称RecordIdKeyField 表的唯一主键字段 自增/主键/唯一 如：Id
+
+		idField string // the field name of UID
 
 		// # 锁
 		_fields_lock        sync.RWMutex
@@ -738,6 +740,14 @@ func (self *TModel) RelateFields() map[string]*TRelateField {
 
 func (self *TModel) Relations() map[string]string {
 	return self._relations
+}
+
+func (self *TModel) IdField(field ...string) string {
+	if len(field) > 0 {
+		self.idField = field[0]
+		Logger().Dbg("test", field[0])
+	}
+	return self.idField
 }
 
 // Fields returns the fields collection of this model

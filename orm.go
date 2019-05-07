@@ -174,7 +174,7 @@ func (self *TOrm) reverse() error {
 				field.Init(FieldContext)
 
 				if col.IsAutoIncrement && col.IsPrimaryKey {
-					model.RecordField = field
+					model.idField = field.Name()
 				}
 
 				// # 设置Help
@@ -972,7 +972,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		}
 
 		if lCol.IsAutoIncrement && lCol.IsPrimaryKey {
-			res_model.RecordField = lField
+			res_model.idField = lField.Name()
 		}
 
 		if lCol.Length == 0 {
