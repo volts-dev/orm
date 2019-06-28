@@ -1,4 +1,4 @@
-package test
+package orm
 
 import (
 	"testing"
@@ -6,14 +6,13 @@ import (
 
 // test
 // #1 sync model
-func sync(t *testing.T) {
+func test_sync(t *testing.T) {
 	title := "Sync"
 	PrintSubject(title, "SyncModel()")
 	err := test_orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),
 		new(UserModel),
-		new(CompanyUserRef),
 	)
 	if err != nil {
 		t.Fatalf("test SyncModel() failure: %v", err)

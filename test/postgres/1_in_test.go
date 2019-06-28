@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"testing"
-	"volts-dev/orm/test"
+	"volts-dev/orm"
 )
 
 func TestIn(t *testing.T) {
-	test.In(test.TestOrm, t)
+	orm.TestIn(test.TestOrm, t)
 }

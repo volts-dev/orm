@@ -32,9 +32,15 @@ func NewIdField() IField {
 func (self *TIdField) Init(ctx *TFieldContext) {
 	col := ctx.Column
 	fld := ctx.Field
+	model := ctx.Model
+
+	// set type for field
 	col.SQLType = core.SQLType{core.BigInt, 0, 0}
 	fld.Base()._column_type = core.BigInt
 	fld.Base()._attr_type = "int"
+
+	// set the id field for model
+	model.IdField(fld.Name())
 }
 
 func (self *TIdField) OnCreate(ctx *TFieldEventContext) interface{} {

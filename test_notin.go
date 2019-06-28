@@ -1,12 +1,11 @@
-package test
+package orm
 
 import (
 	//"fmt"
 	"testing"
-	"volts-dev/orm"
 )
 
-func NotIn(title string, orm *orm.TOrm, t *testing.T) {
+func TestNotIn(title string, orm *TOrm, t *testing.T) {
 	// 注册Model
 	/*	orm.SyncModel("test", new(Model1))
 

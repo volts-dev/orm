@@ -1,28 +1,27 @@
-package test
+package orm
 
 import (
 	"fmt"
 	"testing"
-	"volts-dev/orm"
 )
 
-const DB_NAME = "test_orm"
+const TEST_DB_NAME = "test_orm"
 
 var (
-	test_orm *orm.TOrm
+	test_orm *TOrm
 )
 
 // get the test ORM object
-func Orm() *orm.TOrm {
+func Orm() *TOrm {
 	return test_orm
 }
 
 // init the test ORM object by the driver data source
-func Init(dataSource *orm.DataSource, show_sql bool) error {
+func TestInit(dataSource *DataSource, show_sql bool) error {
 	var err error
 
 	if test_orm == nil {
-		test_orm, err = orm.NewOrm(dataSource)
+		test_orm, err = NewOrm(dataSource)
 		if err != nil {
 			return err
 		}
@@ -49,8 +48,8 @@ func Init(dataSource *orm.DataSource, show_sql bool) error {
 		new(PartnerModel),
 		new(CompanyModel),
 		new(UserModel),
-		new(CompanyUserRef),
 	)
+
 	if err != nil {
 		//t.Fatalf("test SyncModel() failure: %v", err)
 		return err
@@ -64,39 +63,39 @@ func PrintSubject(subject, option string) {
 	fmt.Println(msg)
 }
 
-func BaseTest(orm *orm.TOrm, t *testing.T) {
+func BaseTest(orm *TOrm, t *testing.T) {
 	fmt.Println("-------------- tag --------------")
-	Tag("Tag", t)
+	TestTag("Tag", t)
 
 	fmt.Println("-------------- Create --------------")
-	Create("Create", t)
+	TestCreate("Create", t)
 
 	fmt.Println("-------------- Read --------------")
-	Read("Read", t)
+	TestRead("Read", t)
 
 	fmt.Println("-------------- Write --------------")
-	Write("Write", t)
+	TestWrite("Write", t)
 
 	fmt.Println("-------------- Search --------------")
-	Search("Search", t)
+	TestSearch("Search", t)
 
 	fmt.Println("-------------- Delete --------------")
-	Delete("Delete", t)
+	TestDelete("Delete", t)
 
 	fmt.Println("-------------- Count --------------")
-	count("Count", orm, t)
+	TestCount("Count", t)
 
 	fmt.Println("-------------- Limit --------------")
-	limit("Limit", orm, t)
+	TestLimit("Limit", orm, t)
 
 	fmt.Println("-------------- Sum --------------")
-	sum("Limit", orm, t)
+	TestSum("Limit", orm, t)
 
 	fmt.Println("-------------- Custom Table Name --------------")
 	custom_table_name("Table", orm, t)
 
 	fmt.Println("-------------- Dump --------------")
-	dump("Dump", orm, t)
+	TestDump("Dump", orm, t)
 	/*	fmt.Println("-------------- insertAutoIncr --------------")
 		insertAutoIncr(orm, t)
 		fmt.Println("-------------- insertMulti --------------")
@@ -136,8 +135,7 @@ func BaseTest(orm *orm.TOrm, t *testing.T) {
 	*/
 }
 
-func ClassicTest(orm *orm.TOrm, t *testing.T) {
-
+func ClassicTest(orm *TOrm, t *testing.T) {
 	fmt.Println("-------------- Method --------------")
-	method(orm, t)
+	TestMethod(orm, t)
 }

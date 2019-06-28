@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"testing"
-	"volts-dev/orm/test"
+	"volts-dev/orm"
 )
 
 func TestAnd(t *testing.T) {
-	test.And(test.TestOrm, t)
+	orm.TestAnd(test.TestOrm, t)
 }

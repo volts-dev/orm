@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"testing"
-	"volts-dev/orm/test"
+	"volts-dev/orm"
 )
 
 func TestRead(t *testing.T) {
-	test.Create("", t)
+	orm.TestCreate("", t)
 }

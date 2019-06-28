@@ -1,20 +1,19 @@
-package test
+package orm
 
 import (
 	//"fmt"
 	"testing"
-	"volts-dev/orm"
 )
 
-func Where(title string, o *orm.TOrm, t *testing.T) {
+func TestWhere(title string, o TOrm, t *testing.T) {
 	PrintSubject(title, "read by where")
-	read_by_where(o, t)
+	test_read_by_where(o, t)
 
 	PrintSubject(title, "write by where")
-	write_by_where(o, t)
+	test_write_by_where(o, t)
 }
 
-func read_by_where(o *orm.TOrm, t *testing.T) {
+func test_read_by_where(o TOrm, t *testing.T) {
 	model, _ := o.GetModel("user.model")
 	ds, err := model.Records().Where("id=?", 1).Read()
 	if err != nil || ds.Count() < 0 {
@@ -22,7 +21,7 @@ func read_by_where(o *orm.TOrm, t *testing.T) {
 	}
 }
 
-func write_by_where(orm *orm.TOrm, t *testing.T) {
+func test_write_by_where(orm TOrm, t *testing.T) {
 	model, _ := orm.GetModel("user.model")
 	var data *UserModel
 	*data = *user

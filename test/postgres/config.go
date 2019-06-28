@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"volts-dev/orm"
-	"volts-dev/orm/test"
 
 	_ "github.com/lib/pq"
 )
@@ -10,13 +9,13 @@ import (
 func init() {
 	src := &orm.DataSource{
 		DbType:   "postgres",
-		DbName:   test.DB_NAME,
+		DbName:   orm.TEST_DB_NAME,
 		UserName: "postgres",
 		Password: "postgres",
 		SSLMode:  "disable",
 	}
 
-	err := test.Init(src, true)
+	err := orm.TestInit(src, true)
 	if err != nil {
 		panic(err.Error())
 	}

@@ -1,12 +1,11 @@
-package test
+package orm
 
 import (
 	//	"fmt"
 	"testing"
-	"volts-dev/orm"
 )
 
-func FieldSelection(o *orm.TOrm, t *testing.T) {
+func TestFieldSelection(o *TOrm, t *testing.T) {
 	/*	err := o.SyncModel("test", new(Model1))
 		if err != nil {
 			panic(err.Error())

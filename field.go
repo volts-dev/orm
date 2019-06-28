@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	//	"time"
+
 	"volts-dev/dataset"
 
 	"github.com/go-xorm/core"
@@ -12,6 +14,25 @@ import (
 
 const (
 	FIELD_TYPE_BOOL = "bool"
+
+	// Types for model fields
+	NoType    Type = ""
+	Binary    Type = "binary"
+	Boolean   Type = "boolean"
+	Char      Type = "char"
+	Date      Type = "date"
+	DateTime  Type = "datetime"
+	Float     Type = "float"
+	HTML      Type = "html"
+	Integer   Type = "integer"
+	Many2Many Type = "many2many"
+	Many2One  Type = "many2one"
+	One2Many  Type = "one2many"
+	One2One   Type = "one2one"
+	Rev2One   Type = "rev2one"
+	Reference Type = "reference"
+	Selection Type = "selection"
+	Text      Type = "text"
 )
 
 var (
@@ -57,6 +78,9 @@ var (
 )
 
 type (
+	// A Type defines a type of a model's field
+	Type string
+
 	/* The field descriptor contains the field definition, and manages accesses
 	   and assignments of the corresponding field on records. The following
 	   attributes may be provided when instanciating a field:
@@ -225,6 +249,7 @@ type (
 		}
 	*/
 
+	// The context for Tag
 	TFieldContext struct {
 		Orm            *TOrm
 		Model          IModel // required
@@ -241,10 +266,10 @@ type (
 		//Column         *core.Column
 		Field IField
 		// the current id of current record
-		Id string
+		Id interface{}
 		// the current value of the field
 		Value   interface{}
-		Dataset *dataset.TDataSet
+		Dataset *dataset.TDataSet // 数据集将被修改
 		Context map[string]interface{}
 	}
 
@@ -273,7 +298,7 @@ type (
 		SetModel(name string)
 		SetBase(field *TField)
 		Column() *core.Column
-		ColumnType() string
+		ColumnType() string // the sql type
 		Compute() string
 		SymbolChar() string
 		SymbolFunc() func(string) string
@@ -295,60 +320,60 @@ type (
 
 		// raw I/O event of field when it be read/write.
 		// [原始数据] 处理读取数据库的原始数据
-		OnRead(ctx *TFieldEventContext) interface{} // (res map[string]map[string]interface{})         // 字段数据获取
+		OnRead(ctx *TFieldEventContext) error // (res map[string]map[string]interface{})         // 字段数据获取
 		// [原始数据] 处理写入数据库原始数据
-		OnWrite(ctx *TFieldEventContext) interface{} //(res map[string]map[string]interface{}) // 字段数据保存
+		OnWrite(ctx *TFieldEventContext) error //(res map[string]map[string]interface{}) // 字段数据保存
 
 		// classic I/O event of the field. It will be call when using classic query. READ/WRITE the relate data FROM/TO its relation table
 		// the RETURN value is the value of field.
 		//[经典数据] 从原始数据转换提供Classical数据读法,数据修剪,Many2One显示Names表等
-		OnConvertToRead(ctx *TFieldEventContext) interface{}  // TODO compute
-		OnConvertToWrite(ctx *TFieldEventContext) interface{} // TODO 不返回或者返回错误
+		//OnConvertToRead(ctx *TFieldEventContext) interface{}  // TODO compute
+		OnConvertToWrite(ctx *TFieldEventContext) (interface{}, error) // TODO 不返回或者返回错误
 	}
 
 	TField struct {
 		_symbol_c         string              // Format 符号 "%s,%d..."
 		_symbol_f         func(string) string // Format 自定义函数
-		_auto_join        bool
-		_inherit          bool              // 是否继承该字段指向的Model的多有字段
-		_args             map[string]string // [Tag]val 里的参数
-		_setup_done       string            // 字段安装完成步骤 Base,full
-		foreign_field     bool              // 该字段是关联表的字段
-		common_field      bool              //废弃 所有表共有的字段
-		related           bool
-		inherited         bool   //# 是否是继承的字段 (_inherits)
-		automatic         bool   // # 是否是自动创建的字段 ("magic" field)
-		model_name        string // # 字段所在的模型名称
-		comodel_name      string // # 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
-		relmodel_name     string // # 关系表数据模型 字段关联的Model和字段的many2many关系表Model
-		cokey_field_name  string // # 关联字段所在的表的主键
-		relkey_field_name string // # M2M 表示被关联表的主键字段
-		primary_key       bool
-		auto_increment    bool
-		index             bool // # whether the field is indexed in database
-		search            bool // # allow searching on self only if the related field is searchable
+		_auto_join        bool                //
+		_inherit          bool                // 是否继承该字段指向的Model的多有字段
+		_args             map[string]string   // [Tag]val 里的参数
+		_setup_done       string              // 字段安装完成步骤 Base,full
+		foreign_field     bool                // 该字段是关联表的字段
+		common_field      bool                // 废弃 所有表共有的字段
+		related           bool                //
+		inherited         bool                // 是否是继承的字段 (_inherits)
+		automatic         bool                // 是否是自动创建的字段 ("magic" field)
+		model_name        string              // 字段所在的模型名称
+		comodel_name      string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
+		relmodel_name     string              // 关系表数据模型 字段关联的Model和字段的many2many关系表Model
+		cokey_field_name  string              // 关联字段所在的表的主键
+		relkey_field_name string              // M2M 表示被关联表的主键字段
+		primary_key       bool                //
+		auto_increment    bool                //
+		index             bool                // whether the field is indexed in database
+		search            bool                // allow searching on self only if the related field is searchable
+		translate         bool                //???
 
-		translate bool //???
 		// published exportable
-		_attr_name              string // # name of the field
-		_attr_store             bool   //# 字段值是否保存到数据库
-		_attr_manual            bool
-		_attr_depends           []string
-		_attr_readonly          bool // 只读
-		_attr_required          bool // 字段不为空
-		_attr_help              string
-		_attr_title             string // 字段的Title
-		_attr_size              int64  // 长度大小
-		_attr_sortable          bool   // 可排序
-		_attr_searchable        bool
+		_attr_name              string                 // name of the field
+		_attr_store             bool                   // 字段值是否保存到数据库
+		_attr_manual            bool                   //
+		_attr_depends           []string               //
+		_attr_readonly          bool                   // 只读
+		_attr_required          bool                   // 字段不为空
+		_attr_help              string                 //
+		_attr_title             string                 // 字段的Title
+		_attr_size              int64                  // 长度大小
+		_attr_sortable          bool                   // 可排序
+		_attr_searchable        bool                   //
 		_attr_type              string                 // view 字段类型
-		_attr_default           interface{}            //# default(recs) returns the default value
-		_attr_related           string                 //???
-		_attr_relation          string                 // #关系表
-		_attr_states            map[string]interface{} // #传递 UI 属性
-		_attr_selection         [][]string
-		_attr_company_dependent bool // ???
-		_attr_change_default    bool // ???
+		_attr_default           interface{}            // default(recs) returns the default value
+		_attr_related           string                 // ???
+		_attr_relation          string                 // 关系表
+		_attr_states            map[string]interface{} // 传递 UI 属性
+		_attr_selection         [][]string             //
+		_attr_company_dependent bool                   // ???
+		_attr_change_default    bool                   // ???
 		_attr_domain            string
 		// private membership
 		_attr_groups string //???
@@ -413,6 +438,64 @@ type (
 		bootstrapped         bool
 	}
 )
+
+// IsRelationType returns true if this type is a relation.
+func (t Type) IsRelationType() bool {
+	return t == Many2Many || t == Many2One || t == One2Many || t == One2One || t == Rev2One
+}
+
+// IsFKRelationType returns true for relation types
+// that are stored in the model's table (i.e. M2O and O2O)
+func (t Type) IsFKRelationType() bool {
+	return t == Many2One || t == One2One
+}
+
+// IsNonStoredRelationType returns true for relation types
+// that are not stored in the model's table (i.e. M2M, O2M and R2O)
+func (t Type) IsNonStoredRelationType() bool {
+	return t == Many2Many || t == One2Many || t == Rev2One
+}
+
+// IsReverseRelationType returns true for relation types
+// that are stored in the comodel's table (i.e. O2M and R2O)
+func (t Type) IsReverseRelationType() bool {
+	return t == One2Many || t == Rev2One
+}
+
+// Is2OneRelationType returns true for relation types
+// that point to a single comodel record (i.e. M2O, O2O and R2O)
+func (t Type) Is2OneRelationType() bool {
+	return t == Many2One || t == One2One || t == Rev2One
+}
+
+// Is2ManyRelationType returns true for relation types
+// that point to multiple comodel records (i.e. M2M and O2M)
+func (t Type) Is2ManyRelationType() bool {
+	return t == Many2Many || t == One2Many
+}
+
+// DefaultGoType returns this Type's default Go type
+func (t Type) DefaultGoType() reflect.Type {
+	switch t {
+	case NoType:
+		return reflect.TypeOf(nil)
+	case Binary, Char, Text, HTML, Selection:
+		return reflect.TypeOf(*new(string))
+	case Boolean:
+		return reflect.TypeOf(true)
+	case Date:
+	//	return reflect.TypeOf(*new(time.Date))
+	case DateTime:
+	//	return reflect.TypeOf(*new(time.DateTime))
+	case Float:
+		return reflect.TypeOf(*new(float64))
+	case Integer, Many2One, One2One, Rev2One:
+		return reflect.TypeOf(*new(int64))
+	case One2Many, Many2Many:
+		return reflect.TypeOf(*new([]int64))
+	}
+	return reflect.TypeOf(nil)
+}
 
 // Register makes a log provide available by the provided name.
 // If Register is called twice with the same name or if driver is nil,
@@ -707,7 +790,7 @@ func (self *TField) SetAttributes(name string) {
 }
 
 // 设置字段值
-func (self *TField) OnWrite(ctx *TFieldEventContext) interface{} {
+func (self *TField) __OnWrite(ctx *TFieldEventContext) interface{} {
 	//ctx.Session.orm.Exec(fmt.Sprintf("UPDATE "+ctx.Session.model.TableName()+" SET "+ctx.Field.Name()+"="+ctx.Field.SymbolChar()+" WHERE id=%v", ctx.Field.SymbolFunc()(utils.Itf2Str(ctx.Value)), ctx.Id))
 	return nil
 }
@@ -715,7 +798,7 @@ func (self *TField) OnWrite(ctx *TFieldEventContext) interface{} {
 // 设置字段获得的值
 // TODO:session *TSession, 某些地方无法提供session或者没有必要用到
 // """ Read the value of ``self`` on ``records``, and store it in cache. """
-func (self *TField) OnRead(ctx *TFieldEventContext) interface{} {
+func (self *TField) __OnRead(ctx *TFieldEventContext) interface{} {
 	//logger.Warn("undefined filed Read method !")
 	//ctx.Dataset.FieldByName(ctx.Field.Name()).AsInterface()
 	return nil
@@ -729,9 +812,9 @@ func (self *TField) OnRead(ctx *TFieldEventContext) interface{} {
        computed using :meth:`BaseModel.name_get`, if relevant for the field
    """
 */
-func (self *TField) OnConvertToRead(ctx *TFieldEventContext) (result interface{}) {
-	if ctx.Value != nil {
-		return ctx.Value
+func (self *TField) OnRead(ctx *TFieldEventContext) error {
+	if ctx.Dataset != nil {
+		return nil
 	}
 
 	return nil
@@ -742,6 +825,10 @@ func (self *TField) OnConvertToRead(ctx *TFieldEventContext) (result interface{}
    :meth:`BaseModel.write`.
    """
 */
-func (self *TField) OnConvertToWrite(ctx *TFieldEventContext) (result interface{}) {
+func (self *TField) OnWrite(ctx *TFieldEventContext) error {
 	return nil
+}
+
+func (self *TField) OnConvertToWrite(ctx *TFieldEventContext) (interface{}, error) {
+	return ctx.Value, nil
 }

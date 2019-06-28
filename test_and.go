@@ -1,13 +1,11 @@
-package test
+package orm
 
 import (
-	//"fmt"
 	"testing"
-	"volts-dev/orm"
 	//	"github.com/volts-dev/utils"
 )
 
-func And(orm *orm.TOrm, t *testing.T) {
+func TestAnd(orm *TOrm, t *testing.T) {
 	// 注册Model
 	/*	orm.SyncModel("test",
 			new(BaseModel),

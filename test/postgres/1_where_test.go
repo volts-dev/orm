@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"testing"
-	"volts-dev/orm/test"
+	"volts-dev/orm"
 )
 
 func TestWhere(t *testing.T) {
-	test.Where(test.TestOrm, t)
+	orm.TestWhere(test.TestOrm, t)
 }

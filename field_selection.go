@@ -147,7 +147,7 @@ func (self *TSelectionField) GetAttributes(ctx *TFieldContext) map[string]interf
 	return attrs
 }
 
-func (self *TSelectionField) OnConvertToRead(ctx *TFieldEventContext) interface{} {
+func (self *TSelectionField) OnRead(ctx *TFieldEventContext) error {
 	/*	model := ctx.Model
 		field := self
 
@@ -166,5 +166,5 @@ func (self *TSelectionField) OnConvertToRead(ctx *TFieldEventContext) interface{
 			}
 		}
 	*/
-	return ctx.Value
+	return nil
 }

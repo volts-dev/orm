@@ -63,7 +63,7 @@ type (
 
 		Orm() *TOrm
 		//NameGet(ids []string) [][]string
-		NameGet(ids []string) *dataset.TDataSet
+		NameGet(ids []interface{}) (*dataset.TDataSet, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
 		SearchName(name string, domain string, operator string, limit int, name_get_uid string, context map[string]interface{}) *dataset.TDataSet
@@ -99,7 +99,7 @@ type (
 		_common_fields map[string]map[string]IField // # [fld][tbl]
 		_parent_name   string                       // #! 父表中的字段名称
 		_parent_store  bool                         // #! 是否有父系关联 比如类目，菜单
-		_default       map[string]interface{}       // # Model 字段默认值
+		__default      map[string]interface{}       //废弃 # Model 字段默认值
 		_sequence      string                       //
 		_order         string                       //
 		_module        string                       // # 属于哪个模块所有
@@ -111,6 +111,7 @@ type (
 		// # 核心对象
 		orm           *TOrm
 		osv           *TOsv
+		obj           *TObj
 		statement     *TStatement
 		session       *TSession
 		table         *core.Table // TODO 大写 传送给Core包使用
@@ -160,7 +161,7 @@ func NewModel(name string, model_value reflect.Value, model_type reflect.Type) (
 		_relations:     make(map[string]string),
 		_inherits:      make([]string, 0),
 		_order:         "id",
-		_default:       make(map[string]interface{}),
+		__default:      make(map[string]interface{}),
 		_auto:          true,
 
 		//registry:        session.Registry,
@@ -197,7 +198,8 @@ func (self *TModel) GetRecordName() string {
 	if self._rec_name != "" {
 		return self._rec_name
 	}
-	return "id"
+
+	return self.idField
 }
 
 // pravite
@@ -387,7 +389,7 @@ func (self *TModel) _search_name(name string, args *utils.TStringList, operator 
        be computed using :meth:`BaseModel.name_get`, if relevant
        for the field
 */
-func (self *TModel) convert_to_read(field IField, value interface{}, use_name_get bool) (result interface{}) {
+func (self *TModel) __convert_to_read(field IField, value interface{}, use_name_get bool) (result interface{}) {
 	switch field.Type() {
 	case "selection":
 		lMehodName := field.Compute()
@@ -430,11 +432,15 @@ func (self *TModel) convert_to_read(field IField, value interface{}, use_name_ge
 			}
 
 			if lModel != nil {
-				lId := utils.Itf2Str(value)
 				//logger.Dbg("CTR:", field.RelateModelName(), lModel, value, lId)
 				// 验证返回Id,Name 或者 空
 				//id_name := lModel.NameGet([]string{lId})
-				ds := lModel.NameGet([]string{lId})
+				ds, err := lModel.NameGet([]interface{}{value})
+				if err != nil {
+					return nil
+
+				}
+
 				if ds.Count() > 0 {
 					//return id_name[0]
 					return []string{ds.FieldByName("id").AsString(), ds.FieldByName("name").AsString()}
@@ -487,7 +493,7 @@ func (self *TModel) __field_value_get(ids []string, fields []*TField, values *da
 		for _, id := range ids {
 			for _, f := range fields {
 				result[id] = make(map[string]interface{})
-				result[id][f.Name()] = map[string][]string{id: records_ids}
+				result[id][f.Name()] = map[string][]interface{}{id: records_ids}
 			}
 		}
 
@@ -504,42 +510,33 @@ func (self *TModel) name_create() {
 }
 
 // 获得id和名称
-func (self *TModel) _name_get(ids, fields []string) (result *dataset.TDataSet) {
+func (self *TModel) _name_get(ids []interface{}, fields []string) (result *dataset.TDataSet) {
 	//result = self.Read(ids, fields)
 	result, _ = self.Records().Select(fields...).Ids(ids...).Read()
 	return
 }
 
-func (self *TModel) NameGet(ids []string) (result *dataset.TDataSet) {
-	//func (self *TModel) NameGet(ids []string) (result [][]string) {
+func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 	name := self._rec_name
-	//result = make([][]string, 0)
-
+	id_field := self.idField
 	if f := self.FieldByName(name); f != nil {
-		// error
+		ds, err := self.Records().Select(id_field, name).Ids(ids...).Read()
+		if err != nil {
+			return nil, err
+		}
 
-		//lDs := self.Read(ids, []string{"id", name})
-		lDs, _ := self.Records().Select("id", name).Ids(ids...).Read()
-		/*lDs.First()
-		for !lDs.Eof() {
-			val := []string{lDs.FieldByName("id").AsString(), lDs.FieldByName(name).AsString()}
-			result = append(result, val)
-			lDs.Next()
-		}*/
-		return lDs
+		return ds, nil
+
 	} else {
 		ds := dataset.NewDataSet()
 		for _, id := range ids {
-			//val := []string{id, fmt.Sprintf("%s,%s", self.GetModelName(), id)}
-			//result = append(result, val)
-
-			ds.NewRecord(map[string]interface{}{"id": id, name: self.GetModelName()})
+			ds.NewRecord(map[string]interface{}{id_field: id, name: self.GetModelName()})
 		}
 
-		return ds
+		return ds, nil
 	}
 
-	return nil
+	return nil, fmt.Errorf("%s Call NameGet() failure! Arg: %v", self.GetModelName(), ids)
 }
 
 func (self *TModel) SearchName(name string, domain string, operator string, limit int, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet) {
@@ -555,7 +552,10 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 		//	access_rights_uid = self.session.AuthInfo("id")
 	}
 
-	lDomain := Query2StringList(domain)
+	lDomain, err := Query2Domain(domain)
+	if err != nil {
+		logger.Err(err)
+	}
 
 	// 使用默认 name 字段
 	if self._rec_name == "" {
@@ -589,8 +589,7 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 	//lIds := self._search(lDomain, nil, 0, limit, "", false, access_rights_uid, context)
 	lDs, _ := self.Records().Domain(lDomain.String()).Limit(int(limit)).Read()
 	lIds := lDs.Keys()
-	//result = self.Read(lIds, []string{"id", lNameField})
-	result, _ = self.Records().Select("id", lNameField).Ids(lIds...).Read()
+	result, _ = self.Records().Select(self.idField, lNameField).Ids(lIds...).Read()
 	return result //self.name_get(lIds, []string{"id", lNameField}) //self.SearchRead(lDomain.String(), []string{"id", lNameField}, 0, limit, "", context)
 }
 
@@ -667,10 +666,10 @@ func (self *TModel) import_data() {
 
 func (self *TModel) Default(field string, val ...interface{}) (res interface{}) {
 	if len(val) > 0 {
-		self._default[field] = val[0]
+		self.obj.default_values[field] = val[0]
 		return val[0]
 	} else {
-		return self._default[field]
+		return self.obj.default_values[field]
 	}
 	return
 }
@@ -745,7 +744,6 @@ func (self *TModel) Relations() map[string]string {
 func (self *TModel) IdField(field ...string) string {
 	if len(field) > 0 {
 		self.idField = field[0]
-		Logger().Dbg("test", field[0])
 	}
 	return self.idField
 }

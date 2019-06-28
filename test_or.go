@@ -1,12 +1,11 @@
-package test
+package orm
 
 import (
 	//"fmt"
 	"testing"
-	"volts-dev/orm"
 )
 
-func Or(title string, orm *orm.TOrm, t *testing.T) {
+func TestOr(title string, orm *TOrm, t *testing.T) {
 	/*	// 注册Model
 		orm.SyncModel("test", new(Model1))
 

@@ -46,6 +46,7 @@ type (
 		object_table map[reflect.Type]*core.Table
 		//id_caches    cache.ICacher //废弃 缓存Id 对应记录
 		//sql_caches   cache.ICacher //废弃 缓存Sql
+		default_values map[string]interface{} // store the default values of model
 
 	}
 
@@ -60,6 +61,11 @@ type (
 		//Writer *TOrm
 	}
 )
+
+func (self *TObj) GetDefault(key string) (interface{}, bool) {
+	val, has := self.default_values[key]
+	return val, has
+}
 
 // 创建一个Objects Services
 func NewOsv(orm *TOrm) (res *TOsv) {
@@ -188,6 +194,34 @@ func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 	}
 }
 
+// New an object for restore
+func (self *TOsv) newObj(name string) (obj *TObj) {
+	//获得Object 检查是否存在，不存在则创建
+	obj, has := self.models[name]
+	if !has {
+		obj = &TObj{
+			name:          name,                    // model 名称
+			fields:        make(map[string]IField), // map[field]
+			relations:     make(map[string]string),
+			relate_fields: make(map[string]*TRelateField),
+			common_fields: make(map[string]map[string]IField),
+			//common_fields :make(map[string]*TRelateField)
+			methods:        make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
+			object_val:     make(map[reflect.Type]*TModel),           // map[Model] 备份对象
+			object_types:   make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
+			object_table:   make(map[reflect.Type]*core.Table),
+			default_values: make(map[string]interface{}),
+			//id_caches:  cache.NewMemoryCache(),
+			//sql_caches: cache.NewMemoryCache(),
+		}
+
+		self.models[name] = obj
+		//logger.Dbg("!has", region, aModel._name)
+	}
+
+	return obj
+}
+
 func (self *TOsv) new_obj(name string) (obj *TObj) {
 	obj = &TObj{
 		name:          name,                    // model 名称
@@ -196,11 +230,11 @@ func (self *TOsv) new_obj(name string) (obj *TObj) {
 		relate_fields: make(map[string]*TRelateField),
 		common_fields: make(map[string]map[string]IField),
 		//common_fields :make(map[string]*TRelateField)
-		methods:      make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
-		object_val:   make(map[reflect.Type]*TModel),           // map[Model] 备份对象
-		object_types: make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
-		object_table: make(map[reflect.Type]*core.Table),
-
+		methods:        make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
+		object_val:     make(map[reflect.Type]*TModel),           // map[Model] 备份对象
+		object_types:   make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
+		object_table:   make(map[reflect.Type]*core.Table),
+		default_values: make(map[string]interface{}),
 		//id_caches:  cache.NewMemoryCache(),
 		//sql_caches: cache.NewMemoryCache(),
 	}
@@ -295,7 +329,7 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TObj, 
 		// <以下代码严格遵守执行顺序>
 		lModel := NewModel(model, val, atype) //self.newModel(sess, model)
 		lModel.idField = obj.uidFieldName
-
+		lModel.obj = obj
 		lModel.osv = self
 		lModel.orm = self.orm
 		//logger.Dbg("_initObject", len(obj.object_table), obj.object_table[atype])

@@ -255,14 +255,22 @@ func tag_auto(ctx *TFieldContext) {
 	fld.Base().auto_increment = true
 }
 
+// TODO 实现默认 传入Model >obj >Tmodel
 func tag_default(ctx *TFieldContext) {
 	col := ctx.Column
-	fld := ctx.Field
+	//	fld := ctx.Field
 	params := ctx.Params
+	//	model := ctx.Model
 
 	if len(params) > 1 {
 		col.Default = params[1]
-		fld.Base()._attr_default = params[1]
+		//fld.Base()._attr_default = params[1]
+		// save to model object
+		//Logger().Dbg(model)
+		//Logger().Dbg(model.GetBase().obj)
+		//Logger().Dbg(model.GetBase().obj.default_values)
+		// TODO 实现默认 传入Model >obj >Tmodel
+		//model.GetBase().obj.default_values[fld.Name()] = params[1]
 	}
 }
 
@@ -546,8 +554,8 @@ func tag_table_name(ctx *TFieldContext) {
 		name = strings.Trim(name, "'")
 
 		if name != "" { // 检测合法不为空
-			model.GetBase()._name = name
-			model.GetBase().table.Name = strings.Replace(name, ".", "_", -1)
+			model.GetBase()._name = fmtModelName(name)
+			model.GetBase().table.Name = fmtModelName(name) //strings.Replace(name, ".", "_", -1)
 			//logger.Dbg("tag_table_name", params, name, model.GetBase()._name, model.GetBase().table.Name)
 		}
 	}

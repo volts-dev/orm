@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"testing"
-	"volts-dev/orm/test"
+	"volts-dev/orm"
 )
 
 func TestFieldMany2Many(t *testing.T) {
-	test.FieldMany2Many(test.TestOrm, t)
+	orm.TestFieldMany2Many(test.TestOrm, t)
 }

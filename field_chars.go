@@ -27,6 +27,7 @@ func NewTextField() IField {
 	return new(TTextField)
 }
 
+// TODO 限制长度
 func (self *TCharField) Init(ctx *TFieldContext) {
 	col := ctx.Column
 	fld := ctx.Field

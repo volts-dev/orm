@@ -1,9 +1,8 @@
-package test
+package orm
 
 import (
 	//	"database/sql"
 	"testing"
-	"volts-dev/orm"
 )
 
 type BigStruct struct {
@@ -79,7 +78,7 @@ func DoBenchDriver(newdriver func() (*sql.DB, error), createTableSql,
 	}
 }*/
 
-func DoBenchInsert(orm *orm.TOrm, b *testing.B) {
+func DoBenchInsert(orm *TOrm, b *testing.B) {
 	b.StopTimer()
 	/*	lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
 		//err := orm.CreateTables(bs)
@@ -106,7 +105,7 @@ func DoBenchInsert(orm *orm.TOrm, b *testing.B) {
 		}*/
 }
 
-func DoBenchFind(orm *orm.TOrm, b *testing.B) {
+func DoBenchFind(orm *TOrm, b *testing.B) {
 	b.StopTimer()
 	/*lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
 	/*	err := engine.CreateTables(bs)

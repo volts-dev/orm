@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"testing"
-	"volts-dev/orm/test"
+	"volts-dev/orm"
 )
 
 func TestOr(t *testing.T) {
-	test.Or(test.TestOrm, t)
+	orm.TestOr(test.TestOrm, t)
 }

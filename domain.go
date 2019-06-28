@@ -1,13 +1,11 @@
 package orm
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
+	"github.com/volts-dev/lexer"
 	"github.com/volts-dev/utils"
 )
 
@@ -25,25 +23,6 @@ const (
 
 	TRUE_DOMAIN  = "[" + TRUE_LEAF + "]"
 	FALSE_DOMAIN = "[" + FALSE_LEAF + "]"
-
-	ItemError             ItemType = iota // error occurred; value is text of error
-	ItemEOF                               // end of the file
-	ItemWhitespace                        // a run of spaces, tabs and newlines
-	ItemSingleLineComment                 // A comment like --
-	ItemMultiLineComment                  // A multiline comment like /* ... */
-	ItemKeyword                           // SQL language keyword like SELECT, INSERT, etc.
-	ItemIdentifier                        // alphanumeric identifier or complex identifier like `a.b` and `c`.*
-	ItemOperator                          // operators like '=', '<>', etc.
-	ItemLeftParen                         // '('
-	ItemRightParen                        // ')'
-	ItemComma                             // ','
-	ItemDot                               // '.'
-	ItemStetementEnd                      // ';'
-	ItemNumber                            // simple number, including imaginary
-	ItemString                            // quoted string (includes quotes)
-	ItemValueHolder                       // ?
-
-	EOF = -1
 )
 
 var (
@@ -92,44 +71,368 @@ var (
 
 // ItemType identifies the type of lex Items.
 type (
-	ItemType int
-
-	// Item represents a token or text string returned from the scanner.
-	Item struct {
-		Type ItemType // The type of this Item.
-		Pos  int      // The starting position, in bytes, of this item in the input string.
-		Val  string   // The value of this Item.
-	}
-
-	// StateFn represents the state of the scanner as a function that returns the next state.
-	StateFn func(*TLexer) StateFn
 
 	// ValidatorFn represents a function that is used to check whether a specific rune matches certain rules.
 	ValidatorFn func(rune) bool
 
-	// Lexer holds the state of the scanner.
-	TLexer struct {
-		state             StateFn       // the next lexing function to enter
-		input             io.RuneReader // the input source
-		inputCurrentStart int           // start position of this item
-		buffer            []rune        // a slice of runes that contains the currently lexed item
-		bufferPos         int           // the current position in the buffer
-		Items             chan Item     // channel of scanned Items
-	}
-
 	TDomainParser struct {
-		items []Item
+		items []lexer.TToken
 		Pos   int
 		Count int
-
 		isEnd bool
 	}
+
+	TDomainNode struct {
+		Value    interface{}
+		children []*TDomainNode
+	}
 )
+
+func NewDomainNode(value ...interface{}) *TDomainNode {
+	node := &TDomainNode{}
+
+	cnt := len(value)
+	if cnt > 0 {
+		if cnt == 1 {
+			node.Value = value[0] // 创建空白
+		} else {
+			node.Push(value...)
+		}
+	}
+
+	return node
+}
+
+// parse node or subnode to string. it will panice when the data is not available
+// return 'xx','xx'
+// 当self 时列表时idx有效,反则返回Text
+func (self *TDomainNode) String(idx ...int) string {
+	if len(idx) > 0 {
+		cnt := len(self.children)
+		i := idx[0]
+		if cnt > 0 {
+			if i > -1 && i < cnt {
+				return parseDomain(self.children[i])
+			} else {
+				panic("bounding idx")
+			}
+		}
+	}
+
+	//self.Update()
+	return utils.Itf2Str(self.Value)
+}
+func (self *TDomainNode) Clear() {
+	self.Value = nil
+	self.children = nil
+}
+
+// 返回所有Items字符
+func (self *TDomainNode) Strings(idx ...int) (result []string) {
+	cnt := len(idx)
+
+	if cnt == 0 { // 返回所有
+		if len(self.children) == 0 {
+			result = append(result, self.Value.(string))
+		} else {
+			for _, node := range self.children {
+				result = append(result, node.Value.(string))
+			}
+		}
+
+	} else if cnt == 1 {
+		result = append(result, self.children[idx[0]].Value.(string))
+
+	} else if cnt > 1 {
+		for _, node := range self.children[idx[0]:idx[1]] {
+			result = append(result, node.Value.(string))
+		}
+	}
+
+	return
+}
+
+//栈方法Pop :取栈方式出栈<最后一个>元素 即最后一个添加进列的元素
+func (self *TDomainNode) Shift() *TDomainNode {
+	var lst *TDomainNode
+	if len(self.children) > 0 {
+		lst = self.children[0]
+		self.children = self.children[1:]
+	}
+
+	// # 正式清空所有字符
+	if len(self.children) == 0 {
+		self.Value = nil
+	}
+
+	return lst
+}
+
+//""" Pop a leaf to process. """
+//栈方法Pop :取栈方式出栈<最后一个>元素 即最后一个添加进列的元素
+func (self *TDomainNode) Pop() *TDomainNode {
+	cnt := len(self.children)
+	if cnt == 0 {
+		return nil
+	}
+
+	lst := self.children[cnt-1]
+	self.children = self.children[:cnt-1]
+
+	//# 正式清空所有字符 避免Push时添加Text为新item
+	if len(self.children) == 0 {
+		self.Value = nil
+	}
+
+	return lst
+}
+
+//栈方法Push：叠加元素
+func (self *TDomainNode) Push(item ...interface{}) *TDomainNode {
+	// 当Self是一个值时必须添加自己到items里成为列表的一部分
+	if self.Value != nil && len(self.children) == 0 {
+		self.children = append(self.children, NewDomainNode(self.Value))
+		self.Value = nil
+	}
+
+	for _, node := range item {
+		switch node.(type) {
+		case *TDomainNode:
+			self.children = append(self.children, node.(*TDomainNode))
+		default:
+			self.children = append(self.children, NewDomainNode(node))
+
+		}
+	}
+
+	return self
+}
+
+// #添加字符串到该 List
+func (self *TDomainNode) PushNode(nodes ...*TDomainNode) *TDomainNode {
+	// 当Self是一个值时必须添加自己到items里成为列表的一部分
+	if self.Value != nil && len(self.children) == 0 {
+		self.children = append(self.children, NewDomainNode(self.Value))
+	}
+
+	for _, n := range nodes {
+		//logger.Dbg("PushString", str, self)
+		self.children = append(self.children, n)
+	}
+
+	return self
+}
+
+// len(idx)==0:返回所有
+// len(idx)==1:返回Idx 指定item
+// len(idx)>1:返回Slice 范围的items
+func (self *TDomainNode) Nodes(idx ...int) []*TDomainNode {
+	//self.Update()
+
+	/*  ??? 待考究
+	if !self.IsList() {
+		// 如果是空白的对象 返回Nil
+		if self.Text == "" {
+			return nil
+		}
+
+		return []*TStringList{self}
+	}
+	*/
+	cnt := len(idx)
+	if cnt == 0 {
+		return self.children // 返回所有
+	} else if cnt == 1 && idx[0] < self.Count() { // idex 必须小于Self长度
+		result := make([]*TDomainNode, 0)
+		result = append(result, self.children[idx[0]])
+
+		return result
+	} else if cnt > 1 && idx[0] < self.Count() && idx[1] < self.Count() {
+		result := make([]*TDomainNode, 0)
+		for _, node := range self.children[idx[0]:idx[1]] {
+			result = append(result, node)
+		}
+
+		return result
+	}
+
+	return nil
+}
+
+//-----------list
+func (self *TDomainNode) Item(idx int) *TDomainNode {
+	if self.IsList() {
+		if idx < len(self.children) {
+			return self.children[idx]
+		}
+	}
+
+	panic("bound idx")
+	return nil
+}
+
+// TODO: 为避免错乱,移除后复制一个新的返回结果
+func (self *TDomainNode) Remove(idx int) *TDomainNode {
+	self.children = append(self.children[:idx], self.children[idx+1:]...)
+
+	return self
+}
+
+// 复制一个反转版
+func (self *TDomainNode) Reversed() *TDomainNode {
+	result := NewDomainNode()
+	cnt := self.Count()
+	for i := cnt - 1; i >= 0; i-- {
+		result.Push(self.children[i]) //TODO: 复制
+	}
+
+	return result
+}
+
+// return the list length
+func (self *TDomainNode) Count() int {
+	return len(self.children)
+}
+
+func (self *TDomainNode) IsList() bool {
+	return len(self.children) > 0
+}
+
+// 所有Item 都是String
+func (self *TDomainNode) IsSimpleLeaf() bool {
+	for _, node := range self.children {
+		if node.IsList() {
+			return false
+		}
+	}
+
+	return true
+}
+func (self *TDomainNode) IsString() bool {
+	_, ok := self.Value.(string)
+	return ok
+}
+
+// 所有Item 都是String
+func (self *TDomainNode) IsStringLeaf() bool {
+	for _, node := range self.children {
+		if !node.IsString() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// 是否是最简单 3项列表 {xx,xx,xx}
+func (self *TDomainNode) IsIntLeaf() bool {
+	for _, node := range self.children {
+		if node.IsList() || !node.IsInt() {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (self *TDomainNode) In(strs ...interface{}) bool {
+	for _, itr := range strs {
+		switch itr.(type) {
+		case string: // 处理字符串
+			if self.String() == itr.(string) {
+				return true
+			}
+		case *TDomainNode: // 处理*TStringList 类型
+			if self.Value == itr.(*TDomainNode).Value {
+				return true
+			}
+
+		}
+	}
+
+	return false
+}
+
+func (self *TDomainNode) IsInt() bool {
+	_, ok := self.Value.(int)
+	return ok
+}
+
+/*"Flatten a list of elements into a uniqu list
+Author: Christophe Simonis (christophe@tinyerp.com)
+
+Examples::
+>>> flatten(['a'])
+['a']
+>>> flatten('b')
+['b']
+>>> flatten( [] )
+[]
+>>> flatten( [[], [[]]] )
+[]
+>>> flatten( [[['a','b'], 'c'], 'd', ['e', [], 'f']] )
+['a', 'b', 'c', 'd', 'e', 'f']
+>>> t = (1,2,(3,), [4, 5, [6, [7], (8, 9), ([10, 11, (12, 13)]), [14, [], (15,)], []]])
+>>> flatten(t)
+[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+"*/
+// 返回列表中的所有值
+func (self *TDomainNode) Flatten() []interface{} {
+	var lst []interface{}
+
+	// # 当StringList作为一个单字符串
+	if self.Value != nil && len(self.children) == 0 {
+		lst = append(lst, self.Value)
+		return lst
+	}
+
+	// # 当StringList作为字符串组
+	for _, node := range self.children {
+		if len(node.children) > 0 {
+			for _, n := range node.children {
+				lst = append(lst, n.Value)
+			}
+		} else {
+			lst = append(lst, node.Value)
+		}
+	}
+
+	return lst
+}
+
+func (self *TDomainNode) Insert(idx int, value interface{}) {
+	var must_move bool = false
+	var node *TDomainNode
+
+	switch value.(type) {
+	case *TDomainNode:
+		node = value.(*TDomainNode)
+		// Grow the slice by one element.
+		// make([]Token, len(self.Child)+1)
+		// self.Child[0 : len(self.Child)+1]
+		self.children = append(self.children, node)
+		// Use copy to move the upper part of the slice out of the way and open a hole.
+		must_move = true
+	default:
+		node = NewDomainNode(value)
+		self.children = append(self.children, node)
+		must_move = true
+	}
+
+	if must_move {
+		copy(self.children[idx+1:], self.children[idx:])
+		// Store the new value.
+		self.children[idx] = node
+		// Return the result.
+	}
+
+	return
+}
 
 //主要-略过特殊字符移动
 // 并返回不符合条件的Item
 // 回退Pos 到空白Item处,保持下一个有效字符
-func (self *TDomainParser) ConsumeWhitespace() (item Item) {
+func (self *TDomainParser) ConsumeWhitespace() (item lexer.TToken) {
 	for {
 		self.Next()
 		if self.isEnd {
@@ -137,7 +440,7 @@ func (self *TDomainParser) ConsumeWhitespace() (item Item) {
 		}
 		//fmt.Println("consume_whitespace", self.Item().Val)
 		switch self.Item().Type {
-		case ItemWhitespace:
+		case lexer.TokenWhitespace:
 			continue
 		default:
 			item = self.Item()
@@ -175,157 +478,27 @@ func (self *TDomainParser) IsEnd() bool {
 	return self.isEnd
 }
 
-func (self *TDomainParser) Item() Item {
+func (self *TDomainParser) Item() lexer.TToken {
 	return self.items[self.Pos]
 }
 
-func (self *TDomainParser) Find(i Item) int {
+func (self *TDomainParser) Find(i lexer.TToken) int {
 	return 0
-}
-
-// next() returns the next rune in the input.
-func (self *TLexer) next() rune {
-	if self.bufferPos < len(self.buffer) {
-		res := self.buffer[self.bufferPos]
-		self.bufferPos++
-		return res
-	}
-
-	r, _, err := self.input.ReadRune()
-	if err == io.EOF {
-		r = EOF
-	} else if err != nil {
-		panic(err)
-	}
-
-	self.buffer = append(self.buffer, r)
-	self.bufferPos++
-	return r
-}
-
-// peek() returns but does not consume the next rune in the input.
-func (self *TLexer) peek() rune {
-	if self.bufferPos < len(self.buffer) {
-		return self.buffer[self.bufferPos]
-	}
-
-	r, _, err := self.input.ReadRune()
-	if err == io.EOF {
-		r = EOF
-	} else if err != nil {
-		panic(err)
-	}
-
-	self.buffer = append(self.buffer, r)
-	return r
-}
-
-// peek() returns but does not consume the next few runes in the input.
-func (self *TLexer) peekNext(length int) string {
-	lenDiff := self.bufferPos + length - len(self.buffer)
-	if lenDiff > 0 {
-		for i := 0; i < lenDiff; i++ {
-			r, _, err := self.input.ReadRune()
-			if err == io.EOF {
-				r = EOF
-			} else if err != nil {
-				panic(err)
-			}
-
-			self.buffer = append(self.buffer, r)
-		}
-	}
-
-	return string(self.buffer[self.bufferPos : self.bufferPos+length])
-}
-
-// backup steps back one rune
-func (self *TLexer) backup() {
-	self.backupWith(1)
-}
-
-// backup steps back many runes
-func (self *TLexer) backupWith(length int) {
-	if self.bufferPos < length {
-		panic(fmt.Errorf("lexer: trying to backup with %d when the buffer position is %d", length, self.bufferPos))
-	}
-
-	self.bufferPos -= length
-}
-
-// emit passes an Item back to the client.
-func (self *TLexer) emit(t ItemType) {
-	self.Items <- Item{t, self.inputCurrentStart, string(self.buffer[:self.bufferPos])}
-	self.ignore()
-}
-
-// ignore skips over the pending input before this point.
-func (self *TLexer) ignore() {
-	itemByteLen := 0
-	for i := 0; i < self.bufferPos; i++ {
-		itemByteLen += utf8.RuneLen(self.buffer[i])
-	}
-
-	self.inputCurrentStart += itemByteLen
-	self.buffer = self.buffer[self.bufferPos:] //TODO: check for memory leaks, maybe copy remaining items into a new slice?
-	self.bufferPos = 0
-}
-
-// accept consumes the next rune if it's from the valid set.
-func (self *TLexer) accept(valid string) int {
-	r := self.next()
-	if strings.IndexRune(valid, r) >= 0 {
-		return 1
-	}
-	self.backup()
-	return 0
-}
-
-// acceptWhile consumes runes while the specified condition is true
-func (self *TLexer) acceptWhile(fn ValidatorFn) int {
-	r := self.next()
-	count := 0
-	for fn(r) {
-		r = self.next()
-		count++
-	}
-	self.backup()
-	return count
-}
-
-// acceptUntil consumes runes until the specified contidtion is met
-func (self *TLexer) acceptUntil(fn ValidatorFn) int {
-	r := self.next()
-	count := 0
-	for !fn(r) && r != EOF {
-		r = self.next()
-		count++
-	}
-	self.backup()
-	return count
-}
-
-// errorf returns an error token and terminates the scan by passing
-// back a nil pointer that will be the next state, terminating self.nextItem.
-func (self *TLexer) errorf(format string, args ...interface{}) StateFn {
-	self.Items <- Item{ItemError, self.inputCurrentStart, fmt.Sprintf(format, args...)}
-	return nil
-}
-
-// nextItem returns the next Item from the input.
-func (self *TLexer) nextItem() Item {
-	return <-self.Items
 }
 
 func NewDomainParser(sql string) *TDomainParser {
-	lexer := NewLex(strings.NewReader(sql))
+	lex, err := lexer.NewLexer(strings.NewReader(sql))
+	if err != nil {
+		logger.Err(err.Error())
+	}
+
 	parser := &TDomainParser{
-		items: make([]Item, 0),
+		items: make([]lexer.TToken, 0),
 		Pos:   0,
 	}
 
 	for {
-		item, ok := <-lexer.Items
+		item, ok := <-lex.Tokens
 		if !ok {
 			break
 		}
@@ -335,25 +508,6 @@ func NewDomainParser(sql string) *TDomainParser {
 
 	parser.Count = len(parser.items)
 	return parser
-}
-
-// lex creates a new scanner for the input string.
-func NewLex(input io.Reader) *TLexer {
-	lexer := &TLexer{
-		input:  bufio.NewReader(input),
-		buffer: make([]rune, 0, 10),
-		Items:  make(chan Item),
-	}
-	go lexer.run()
-	return lexer
-}
-
-// run runs the state machine for the Lexer.
-func (self *TLexer) run() {
-	for state := lexWhitespace; state != nil; {
-		state = state(self)
-	}
-	close(self.Items)
 }
 
 // isSpace reports whether r is a whitespace character (space or end of line).
@@ -368,7 +522,7 @@ func isSpace(r rune) bool {
 
 // isEndOfLine reports whether r is an end-of-line character.
 func isEndOfLine(r rune) bool {
-	return r == '\r' || r == '\n' || r == EOF
+	return r == '\r' || r == '\n' || r == lexer.EOF
 }
 
 // isOperator reports whether r is an operator.
@@ -381,18 +535,18 @@ func isHolder(r rune) bool {
 	return r == '?' || r == '%' || r == 's'
 }
 
-func lexWhitespace(lexer *TLexer) StateFn {
-	lexer.acceptWhile(isWhitespace)
-	if lexer.bufferPos > 0 {
-		lexer.emit(ItemWhitespace)
+func lexWhitespace(lex *lexer.TLexer) lexer.StateFn {
+	lex.AcceptWhile(isWhitespace)
+	if lex.Pos() > 0 {
+		lex.Emit(lexer.TokenWhitespace)
 	}
 
-	next := lexer.peek()
-	nextTwo := lexer.peekNext(2)
+	next := lex.Peek()
+	nextTwo := lex.PeekNext(2)
 
 	switch {
-	case next == EOF:
-		lexer.emit(ItemEOF)
+	case next == lexer.EOF:
+		lex.Emit(lexer.EOF)
 		return nil
 
 	case nextTwo == "--":
@@ -404,23 +558,23 @@ func lexWhitespace(lexer *TLexer) StateFn {
 	case nextTwo == "%s":
 		return lexHolder
 	case next == '(' || next == '[':
-		lexer.next()
-		lexer.emit(ItemLeftParen)
+		lex.Next()
+		lex.Emit(lexer.LPAREN)
 		return lexWhitespace
 
 	case next == ')' || next == ']':
-		lexer.next()
-		lexer.emit(ItemRightParen)
+		lex.Next()
+		lex.Emit(lexer.RPAREN)
 		return lexWhitespace
 
 	case next == ',':
-		lexer.next()
-		lexer.emit(ItemComma)
+		lex.Next()
+		lex.Emit(lexer.COMMA)
 		return lexWhitespace
 
 	case next == ';':
-		lexer.next()
-		lexer.emit(ItemStetementEnd)
+		lex.Next()
+		lex.Emit(lexer.SEMICOLON)
 		return lexWhitespace
 
 	case isOperator(next):
@@ -439,87 +593,87 @@ func lexWhitespace(lexer *TLexer) StateFn {
 		return lexHolder
 
 	default:
-		lexer.errorf("don't know what to do with '%s'", nextTwo)
+		lex.Errorf("don't know what to do with '%s'", nextTwo)
 		return nil
 	}
 }
 
-func lexSingleLineComment(lexer *TLexer) StateFn {
-	lexer.acceptUntil(isEndOfLine)
-	lexer.emit(ItemSingleLineComment)
+func lexSingleLineComment(lex *lexer.TLexer) lexer.StateFn {
+	lex.AcceptUntil(isEndOfLine)
+	lex.Emit(lexer.TokenSingleLineComment)
 	return lexWhitespace
 }
 
-func lexMultiLineComment(lexer *TLexer) StateFn {
-	lexer.next()
-	lexer.next()
+func lexMultiLineComment(lex *lexer.TLexer) lexer.StateFn {
+	lex.Next()
+	lex.Next()
 	for {
-		lexer.acceptUntil(func(r rune) bool { return r == '*' })
-		if lexer.peekNext(2) == "*/" {
-			lexer.next()
-			lexer.next()
-			lexer.emit(ItemMultiLineComment)
+		lex.AcceptUntil(func(r rune) bool { return r == '*' })
+		if lex.PeekNext(2) == "*/" {
+			lex.Next()
+			lex.Next()
+			lex.Emit(lexer.TokenMultiLineComment)
 			return lexWhitespace
 		}
 
-		if lexer.peek() == EOF {
-			lexer.errorf("reached EOF when looking for comment end")
+		if lex.Peek() == lexer.EOF {
+			lex.Errorf("reached EOF when looking for comment end")
 			return nil
 		}
 
-		lexer.next()
+		lex.Next()
 	}
 }
 
-func lexOperator(lexer *TLexer) StateFn {
-	lexer.acceptWhile(isOperator)
-	lexer.emit(ItemOperator)
+func lexOperator(lex *lexer.TLexer) lexer.StateFn {
+	lex.AcceptWhile(isOperator)
+	lex.Emit(lexer.TokenOperator)
 	return lexWhitespace
 }
 
-func lexNumber(lexer *TLexer) StateFn {
+func lexNumber(lex *lexer.TLexer) lexer.StateFn {
 	count := 0
-	count += lexer.acceptWhile(unicode.IsDigit)
-	if lexer.accept(".") > 0 {
-		count += 1 + lexer.acceptWhile(unicode.IsDigit)
+	count += lex.AcceptWhile(unicode.IsDigit)
+	if lex.Accept(".") > 0 {
+		count += 1 + lex.AcceptWhile(unicode.IsDigit)
 	}
-	if lexer.accept("eE") > 0 {
-		count += 1 + lexer.accept("+-")
-		count += lexer.acceptWhile(unicode.IsDigit)
+	if lex.Accept("eE") > 0 {
+		count += 1 + lex.Accept("+-")
+		count += lex.AcceptWhile(unicode.IsDigit)
 	}
 
-	if utils.IsAlphaNumericRune(lexer.peek()) {
+	if utils.IsAlphaNumericRune(lex.Peek()) {
 		// We were lexing an identifier all along - backup and pass the ball
-		lexer.backupWith(count)
+		lex.BackupWith(count)
 		return lexIdentifierOrKeyword
 	}
 
-	lexer.emit(ItemNumber)
+	lex.Emit(lexer.TokenNumber)
 	return lexWhitespace
 }
 
-func lexString(lexer *TLexer) StateFn {
-	quote := lexer.next()
+func lexString(lex *lexer.TLexer) lexer.StateFn {
+	quote := lex.Next()
 
 	for {
-		n := lexer.next()
+		n := lex.Next()
 
-		if n == EOF {
-			return lexer.errorf("unterminated quoted string")
+		if n == lexer.EOF {
+			return lex.Errorf("unterminated quoted string")
 		}
 		if n == '\\' {
 			//TODO: fix possible problems with NO_BACKSLASH_ESCAPES mode
-			if lexer.peek() == EOF {
-				return lexer.errorf("unterminated quoted string")
+			if lex.Peek() == lexer.EOF {
+				return lex.Errorf("unterminated quoted string")
 			}
-			lexer.next()
+			lex.Next()
 		}
 
 		if n == quote {
-			if lexer.peek() == quote {
-				lexer.next()
+			if lex.Peek() == quote {
+				lex.Next()
 			} else {
-				lexer.emit(ItemString)
+				lex.Emit(lexer.TokenString)
 				return lexWhitespace
 			}
 		}
@@ -527,72 +681,53 @@ func lexString(lexer *TLexer) StateFn {
 
 }
 
-func lexIdentifierOrKeyword(lexer *TLexer) StateFn {
+func lexIdentifierOrKeyword(lex *lexer.TLexer) lexer.StateFn {
 	for {
-		s := lexer.next()
+		s := lex.Next()
 
 		if s == '`' {
 			for {
-				n := lexer.next()
+				n := lex.Next()
 
-				if n == EOF {
-					return lexer.errorf("unterminated quoted string")
+				if n == lexer.EOF {
+					return lex.Errorf("unterminated quoted string")
 				} else if n == '`' {
-					if lexer.peek() == '`' {
-						lexer.next()
+					if lex.Peek() == '`' {
+						lex.Next()
 					} else {
 						break
 					}
 				}
 			}
-			lexer.emit(ItemIdentifier)
+			lex.Emit(lexer.IDENT)
 		} else if utils.IsAlphaNumericRune(s) {
-			lexer.acceptWhile(utils.IsAlphaNumericRune)
+			lex.AcceptWhile(utils.IsAlphaNumericRune)
 
 			//TODO: check whether token is a keyword or an identifier
-			lexer.emit(ItemIdentifier)
+			lex.Emit(lexer.IDENT)
 		}
 
-		lexer.acceptWhile(isWhitespace)
-		if lexer.bufferPos > 0 {
-			lexer.emit(ItemWhitespace)
+		lex.AcceptWhile(isWhitespace)
+		if lex.Pos() > 0 {
+			lex.Emit(lexer.TokenWhitespace)
 		}
 
-		if lexer.peek() != '.' {
+		if lex.Peek() != '.' {
 			break
 		}
 
-		lexer.next()
-		lexer.emit(ItemDot)
+		lex.Next()
+		lex.Emit(lexer.PERIOD)
 	}
 
 	return lexWhitespace
 }
 
-func lexHolder(lexer *TLexer) StateFn {
-	lexer.acceptWhile(isHolder)
-	lexer.emit(ItemValueHolder)
+func lexHolder(lex *lexer.TLexer) lexer.StateFn {
+	lex.AcceptWhile(isHolder)
+	lex.Emit(lexer.TokenValueHolder)
 	return lexWhitespace
 }
-
-var (
-	itemNames = map[ItemType]string{
-		ItemError:      "error",
-		ItemEOF:        "EOF",
-		ItemKeyword:    "keyword",
-		ItemOperator:   "operator",
-		ItemIdentifier: "identifier",
-		ItemLeftParen:  "left_paren",
-		ItemNumber:     "number",
-		ItemRightParen: "right_paren",
-		ItemWhitespace: "space",
-		ItemString:     "string",
-		//ItemComment:        "comment",
-		//ItemStatementStart: "statement_start",
-		ItemStetementEnd: "statement_end",
-		ItemValueHolder:  "ItemValueHolder",
-	}
-)
 
 // s Html文件流
 /*
@@ -628,17 +763,17 @@ id in (1, 2, 3)
 // ['!', ['=', 'company_id.name', ['&', ..., ...]]]
 //	[('picking_id.picking_type_id.code', '=', 'incoming'), ('location_id.usage', '!=', 'internal'), ('location_dest_id.usage', '=', 'internal')]
 
-func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) {
+func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 	var (
 		AndOrCount int = 0
 	)
-	temp := utils.NewStringList() // 存储临时列表 提供给AND
-	list := utils.NewStringList() // 存储临时叶 提供给所有
+	temp := NewDomainNode() // 存储临时列表 提供给AND
+	list := NewDomainNode() // 存储临时叶 提供给所有
 	for !parser.IsEnd() {
 		item := parser.Item()
 		//fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[item.Type], item.Val))
 		switch item.Type {
-		case ItemLeftParen:
+		case lexer.LPAREN:
 			// 检测是否到尾部
 			parser.Next()
 			if parser.IsEnd() {
@@ -646,7 +781,7 @@ func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) 
 			}
 
 			//开始列表采集 { xx,xx } 处理XX,XX进List
-			new_list, err := _parse_query(parser, level+1)
+			new_list, err := parseQuery(parser, level+1)
 			if err != nil {
 
 			}
@@ -670,10 +805,10 @@ func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) 
 
 				}
 			*/
-		case ItemRightParen:
+		case lexer.RPAREN:
 			goto exit
 
-		case ItemIdentifier, ItemString, ItemNumber, ItemValueHolder:
+		case lexer.IDENT, lexer.TokenString, lexer.TokenNumber, lexer.TokenValueHolder:
 			if utils.InStrings(strings.ToLower(item.Val), "and", "or") != -1 {
 				if strings.ToLower(item.Val) == "and" {
 					temp.Insert(AndOrCount, AND_OPERATOR)
@@ -684,15 +819,15 @@ func _parse_query(parser *TDomainParser, level int) (*utils.TStringList, error) 
 				}
 
 				AndOrCount++
-				temp.Push(list)              // 已经完成了一个叶的采集 暂存列表里
-				list = utils.NewStringList() // 新建一个列表继续采集
+				temp.Push(list)        // 已经完成了一个叶的采集 暂存列表里
+				list = NewDomainNode() // 新建一个列表继续采集
 				break
 			}
 
-			list.PushString(_trim_quotes(item.Val))
+			list.Push(_trim_quotes(item.Val))
 
-		case ItemOperator, ItemKeyword:
-			list.PushString(_trim_quotes(item.Val))
+		case lexer.TokenOperator, lexer.TokenKeyword:
+			list.Push(_trim_quotes(item.Val))
 
 		}
 
@@ -710,7 +845,7 @@ exit:
 
 		// 由于SQL where语句一般不包含[] 所以添加一层以抵消
 		if level == 0 {
-			shell := utils.NewStringList()
+			shell := NewDomainNode()
 			shell.Push(temp)
 			return shell, nil
 		}
@@ -725,12 +860,11 @@ func _trim_quotes(s string) string {
 	return s
 }
 
-func Query2StringList(sql string) (res_domain *utils.TStringList) {
-	parser := NewDomainParser(sql)
-	res_domain, err := _parse_query(parser, 0)
-	if err != nil {
-		logger.Err(err)
-	}
+// transfer sql query to a domain node
+func Query2Domain(qry string) (*TDomainNode, error) {
+	parser := NewDomainParser(qry)
+	return parseQuery(parser, 0)
+
 	//fmt.Println("asdfa", res_domain.Flatten())
 
 	// 确保Domain为List形态
@@ -743,30 +877,35 @@ func Query2StringList(sql string) (res_domain *utils.TStringList) {
 		break
 	}*/
 
-	return res_domain
 }
 
 //TODO 描述例句
-func Domain2StringList(domain string) *utils.TStringList {
+// transfer string domain to a domain object
+func String2Domain(domain string) (*TDomainNode, error) {
 	parser := NewDomainParser(domain)
-	res_domain, err := _parse_query(parser, 0)
+	res_domain, err := parseQuery(parser, 0)
 	if err != nil {
-		logger.Err(err)
+		return nil, err
 	}
-	return res_domain.Item(0)
+
+	if res_domain.Count() == 0 {
+		return nil, fmt.Errorf("could not parse the string('%s') to domain", domain)
+	}
+
+	return res_domain.Item(0), nil
 }
 
-func StringList2Domain(lst *utils.TStringList) string {
-	_parse_stringlist(lst)
-	return lst.Text
+// transfer the domain object to string
+func Domain2String(domain *TDomainNode) string {
+	return parseDomain(domain)
 }
 
 // 更新生成所有Text内容
-func _parse_stringlist(node *utils.TStringList) {
+func parseDomain(node *TDomainNode) string {
 	//STEP  如果是Value Object 不处理
 	IsList := false
 	if node.Count() == 0 {
-		return
+		return ""
 	} else {
 		IsList = true
 	}
@@ -775,7 +914,7 @@ func _parse_stringlist(node *utils.TStringList) {
 	lStr := ""
 	lStrLst := make([]string, 0)
 
-	for _, item := range node.Items() {
+	for _, item := range node.children {
 		//fmt.Println("item", item.String())
 		/*if is_leaf(item) {
 			lStr = `(` + node.Quote(item.String(0)) + `, ` + node.Quote(item.String(1)) + `, `
@@ -791,12 +930,12 @@ func _parse_stringlist(node *utils.TStringList) {
 			lStrLst = append(lStrLst, item.Text)
 		} else*/if item.IsList() {
 			//utils.Dbg("IsList", item.text)
-			_parse_stringlist(item)
-			lStrLst = append(lStrLst, item.Text)
+			str := parseDomain(item)
+			lStrLst = append(lStrLst, str)
 		} else {
 			//fmt.Println("_update val", item.Text)
 			//lStrLst = append(lStrLst, node.Quote(item.Text))
-			lStrLst = append(lStrLst, item.Text)
+			lStrLst = append(lStrLst, item.Value.(string))
 		}
 	}
 
@@ -818,8 +957,7 @@ func _parse_stringlist(node *utils.TStringList) {
 		lStr = `[` + lStr + `]`
 	}
 
-	node.Text = lStr
-	//utils.Dbg("_update lst", lStr)
+	return lStr
 }
 
 /*""" Test whether an object is a valid domain term:
@@ -833,7 +971,7 @@ func _parse_stringlist(node *utils.TStringList) {
 
     Note: OLD TODO change the share wizard to use this function.
 """*/
-func is_leaf(element *utils.TStringList, internal ...bool) bool {
+func is_leaf(element *TDomainNode, internal ...bool) bool {
 	INTERNAL_OPS := append(TERM_OPERATORS, "<>")
 
 	if internal != nil && internal[0] {
@@ -842,8 +980,8 @@ func is_leaf(element *utils.TStringList, internal ...bool) bool {
 	}
 	//??? 出现过==Nil还是继续执行之下的代码
 	return (element != nil && element.Count() == 3) &&
-		utils.InStrings(strings.ToLower(element.String(1)), INTERNAL_OPS...) != -1 || // 注意操作符确保伟小写
-		utils.InStrings(element.String(), TRUE_LEAF, FALSE_LEAF) != -1 // BUG
+		utils.InStrings(strings.ToLower(element.String(1)), INTERNAL_OPS...) != -1 // 注意操作符确保伟小写
+	//||utils.InStrings(Domain2String(element), TRUE_LEAF, FALSE_LEAF) != -1 // BUG
 
 	/*
 	   def is_leaf(element, internal=False):

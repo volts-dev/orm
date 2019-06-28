@@ -17,12 +17,13 @@ type (
 	TStatement struct {
 		Session *TSession
 		Table   *core.Table
+		domain  *TDomainNode // 查询条件
 
-		Domain             *utils.TStringList // 查询条件
-		Params             []interface{}      // 储存有序值
-		IdKey              string             // 开发者决定的数据表主键
-		IdParam            []string
-		Fields             map[string]bool
+		//Domain             *utils.TStringList // 查询条件
+		Params             []interface{} // 储存有序值
+		IdKey              string        // 开发者决定的数据表主键
+		IdParam            []interface{}
+		Fields             map[string]bool // show which fields will be list out
 		NullableFields     map[string]bool
 		TableNameClause    string
 		AltTableNameClause string // 当无Objet实例时使用字符串表名称
@@ -50,7 +51,7 @@ type (
 
 // Init reset all the statment's fields
 func (self *TStatement) Init() {
-	self.IdParam = make([]string, 0)
+	self.IdParam = make([]interface{}, 0)
 	self.Fields = make(map[string]bool)
 	self.NullableFields = make(map[string]bool)
 	self.__WhereClause = ""
@@ -60,7 +61,7 @@ func (self *TStatement) Init() {
 	self.OffsetClause = 0
 	self.IsCount = false
 	self.Params = make([]interface{}, 0)
-	self.Domain = utils.NewStringList()
+	self.domain = NewDomainNode()
 }
 
 // TableName return current tableName
@@ -77,37 +78,31 @@ func (self *TStatement) TableName() string {
 }
 
 // Id generate "where id = ? " statment or for composite key "where key1 = ? and key2 = ?"
-func (self *TStatement) Ids(ids ...string) *TStatement {
-	for _, id := range ids {
-		self.IdParam = append(self.IdParam, id)
-		// TODO support interface IDS
-		/*
-			switch id.(type) {
-			case string:
-				self.IdParam = append(self.IdParam, id.(string))
-			case int, int8, int16, int32, int64:
-				self.IdParam = append(self.IdParam, fmt.Sprintf("%d", i))
-			}*/
-	}
+func (self *TStatement) Ids(ids ...interface{}) *TStatement {
+	self.IdParam = append(self.IdParam, ids...)
+	// TODO support interface IDS
+	/*
+		switch id.(type) {
+		case string:
+			self.IdParam = append(self.IdParam, id.(string))
+		case int, int8, int16, int32, int64:
+			self.IdParam = append(self.IdParam, fmt.Sprintf("%d", i))
+		}*/
 
 	return self
 }
 
 func (self *TStatement) Select(fields ...string) *TStatement {
-	if len(fields) > 0 {
-		for idx, name := range fields {
-			name = utils.Trim(name)
-			name = utils.SnakeCasedName(name) //# 支持输入结构字段名称
-			if idx == 0 && (name == "*" || name == "'*'" || name == `"*"`) {
-				self.Fields = nil
-				return self
-			}
+	for idx, name := range fields {
+		name = fmtModelName(name) //# 支持输入结构字段名称
+		if idx == 0 && (name == "*" || name == "'*'" || name == `"*"`) {
+			self.Fields = nil
+			return self
+		}
 
-			/* #安全代码应该由开发者自己检查
-			if f := self.model.FieldByName(name); f != nil {
-				self.Fields[name] = true
-			}
-			*/
+		// 安全代码应该由开发者自己检查
+		if field := self.Session.model.FieldByName(name); field != nil {
+			self.Fields[name] = true
 		}
 	}
 
@@ -115,116 +110,132 @@ func (self *TStatement) Select(fields ...string) *TStatement {
 }
 
 // Where add Where statment
-func (self *TStatement) Where(querystring string, args ...interface{}) *TStatement {
-	if !strings.Contains(querystring, self.Session.orm.dialect.EqStr()) {
-		querystring = strings.Replace(querystring, "=", self.Session.orm.dialect.EqStr(), -1)
+func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
+	if !strings.Contains(query, self.Session.orm.dialect.EqStr()) {
+		query = strings.Replace(query, "=", self.Session.orm.dialect.EqStr(), -1)
 	}
 
-	return self.And(querystring, args...)
+	self.Op(AND_OPERATOR, query, args...)
+
+	return self
 }
 
-func (self *TStatement) Domains(domain interface{}) *TStatement {
+func (self *TStatement) Domain(domain interface{}, args ...interface{}) *TStatement {
 	switch domain.(type) {
 	case string:
 		//self.Op(self.Session.orm.dialect.AndStr(), Query2StringList(domain.(string)))
-		self.Op(self.Session.orm.dialect.AndStr(), Domain2StringList(domain.(string)))
+		node, err := String2Domain(domain.(string))
+		if err != nil {
+			logger.Err(err)
+			return self
+		}
+		self.Op(self.Session.orm.dialect.AndStr(), node, args...)
 
-	case *utils.TStringList:
-		self.Op(self.Session.orm.dialect.AndStr(), domain.(*utils.TStringList))
+	case *TDomainNode:
+		self.Op(self.Session.orm.dialect.AndStr(), domain.(*TDomainNode), args...)
+
+	default:
+		logger.Errf("not support this type of domain %v", domain)
+
 	}
+
 	return self
 }
 
 func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
-
 	switch query.(type) {
 	case string:
 		// 添加信的条件
-		new_cond := Query2StringList(query.(string))
+		new_cond, err := Query2Domain(query.(string))
+		if err != nil {
+			logger.Err(err)
+		}
 
 		//logger.Dbg("op", query, new_cond.String(0), StringList2Domain(new_cond), StringList2Domain(new_cond.Item(0)))
-		if self.Domain == nil || self.Domain.Count() == 0 {
-			if self.Domain == nil {
+		if self.domain == nil || self.domain.Count() == 0 {
+			if self.domain == nil {
 				// build a [] list for contain condition leaf
-				self.Domain = utils.NewStringList()
+				self.domain = NewDomainNode()
 			}
-			self.Domain.Push(new_cond)                 // push new condition leaf in list
+			self.domain.Push(new_cond)                 // push new condition leaf in list
 			self.Params = append(self.Params, args...) //push argument
+
 		} else {
 			//if self.Domain.Count() == 1 {
 			//	self.Domain = self.Domain.Item(0)
 			//}
 			// 合并新条件
-			qry := utils.NewStringList()
-			qry.Insert(0, op)                // 添加操作符
-			qry.Push(self.Domain.Items()...) // 第一条件
-			qry.Push(new_cond)               // 第二条件
-			self.Domain = qry
+			qry := NewDomainNode()
+			qry.Insert(0, op)                    // 添加操作符
+			qry.PushNode(self.domain.Nodes()...) // 第一条件
+			qry.Push(new_cond)                   // 第二条件
+			self.domain = qry
 			self.Params = append(self.Params, args...)
 		}
-	case *utils.TStringList:
-		new_cond := query.(*utils.TStringList)
+	case *TDomainNode:
+		new_cond := query.(*TDomainNode)
 
 		// 添加信的条件
-		if self.Domain == nil || self.Domain.Count() == 0 {
-			self.Domain = new_cond
+		if self.domain == nil || self.domain.Count() == 0 {
+			self.domain = new_cond
 			self.Params = args //append(self.Params, args...)
 		} else {
 			//if self.Domain.Count() == 1 {
 			//	self.Domain = self.Domain.Item(0)
 			//}
 			// 合并新条件
-			qry := utils.NewStringList()
-			qry.Insert(0, op)                // 添加操作符
-			qry.Push(self.Domain.Items()...) // 第一条件
-			qry.Push(new_cond)               // 第二条件
-			self.Domain = qry
+			qry := NewDomainNode()
+			qry.Insert(0, op)                    // 添加操作符
+			qry.PushNode(self.domain.Nodes()...) // 第一条件
+			qry.Push(new_cond)                   // 第二条件
+			self.domain = qry
 			self.Params = append(self.Params, args...)
 		}
 	//self.query =
 	default:
+		logger.Errf("op not support this query %v", query)
 	}
 
 }
 
 // And add Where & and statment
-func (self *TStatement) And(querystring string, args ...interface{}) *TStatement {
-	self.Op(AND_OPERATOR, querystring, args...)
+func (self *TStatement) And(query string, args ...interface{}) *TStatement {
+	self.Op(AND_OPERATOR, query, args...)
 	return self
 }
 
 // Or add Where & Or statment
-func (self *TStatement) Or(querystring string, args ...interface{}) *TStatement {
-	self.Op(OR_OPERATOR, querystring, args...)
+func (self *TStatement) Or(query string, args ...interface{}) *TStatement {
+	self.Op(OR_OPERATOR, query, args...)
 	return self
 }
 
 // In generate "Where column IN (?) " statement
-func (self *TStatement) In(column string, args ...interface{}) *TStatement {
-	keys := make([]string, 0)
+func (self *TStatement) In(field string, args ...interface{}) *TStatement {
+	//keys := strings.Repeat("?,", len(args)-1) + "?"
+	keys := NewDomainNode()
 	for _, _ = range args {
-		keys = append(keys, "?")
+		keys.Push("?")
 	}
 
-	new_cond := utils.NewStringList()
-	new_cond.PushString(column)
-	new_cond.PushString("IN")
-	new_cond.AddSubList(keys...)
+	new_cond := NewDomainNode()
+	new_cond.Push(field)
+	new_cond.Push("IN")
+	new_cond.Push(keys)
 	self.Op(AND_OPERATOR, new_cond, args...)
 	return self
 }
 
-func (self *TStatement) NotIn(column string, args ...interface{}) *TStatement {
-	keys := make([]string, 0)
+func (self *TStatement) NotIn(field string, args ...interface{}) *TStatement {
+	keys := NewDomainNode()
 	for _, _ = range args {
-		keys = append(keys, "?")
+		keys.Push("?")
 	}
-	//	in := builder.In(statement.Engine.Quote(column), args...)
-	//statement.cond = statement.cond.And(in)
-	new_cond := utils.NewStringList()
-	new_cond.PushString(column)
-	new_cond.PushString("NOT IN")
-	new_cond.AddSubList(keys...)
+
+	new_cond := NewDomainNode()
+	new_cond.Push(field)
+	new_cond.Push("NOT IN")
+	new_cond.Push(keys)
 	self.Op(AND_OPERATOR, new_cond, args...)
 	return self
 }
@@ -263,8 +274,8 @@ func (self *TStatement) Desc(fileds ...string) *TStatement {
 
 // Omit do not use the columns
 func (self *TStatement) Omit(fields ...string) {
-	for _, fld := range fields {
-		self.Fields[strings.ToLower(fld)] = false
+	for _, field := range fields {
+		self.Fields[strings.ToLower(field)] = false
 	}
 	self.OmitClause = self.Session.orm.Quote(strings.Join(fields, self.Session.orm.Quote(", ")))
 }
@@ -318,6 +329,7 @@ func (self *TStatement) _generate_unique() []string {
 	}
 	return sqls
 }
+
 func (self *TStatement) _generate_add_column(col *core.Column) (string, []interface{}) {
 	quote := self.Session.orm.Quote
 	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.TableName()), col.String(self.Session.orm.dialect))
@@ -597,7 +609,7 @@ func (self *TStatement) _inherits_join_calc(alias string, field string, query *T
 				parent_field := model.Relations()[parent_model_name]
 				//# JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
 				parent_alias, _ := query.add_join(
-					[]string{alias, parent_model.GetTableName(), parent_field, "id", parent_field}, true, false, nil, nil)
+					[]string{alias, parent_model.GetTableName(), parent_field, self.IdKey, parent_field}, true, false, nil, nil)
 				model, alias = parent_model, parent_alias
 
 			} else {
@@ -630,10 +642,12 @@ func (self *TStatement) _inherits_join_calc(alias string, field string, query *T
   :return: the query expressing the given domain as provided in domain
   :rtype: osv.query.Query
 */
-func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool, context map[string]interface{}) (q *TQuery) {
+func (self *TStatement) _where_calc(domain *TDomainNode, active_test bool, context map[string]interface{}) (*TQuery, error) {
 	if context == nil {
 		context = make(map[string]interface{})
 	}
+	logger.Dbg("_where_calc")
+
 	// domain = domain[:]
 	// if the object has a field named 'active', filter out all inactive
 	// records unless they were explicitely asked for
@@ -642,18 +656,29 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 			// the item[0] trick below works for domain items and '&'/'|'/'!'
 			// operators too
 			var hasfield bool
-			for _, item := range domain.Items() {
-				if item.String(0) == "active" {
+			for _, node := range domain.Nodes() {
+				if node.String(0) == "active" {
 					hasfield = true
 				}
 			}
 			if !hasfield {
 				//domain.Insert(0, Query2StringList(`('active', '=', 1)`))
-				domain.Insert(0, Domain2StringList(`[('active', '=', 1)]`))
+				node, err := String2Domain(`[('active', '=', 1)]`)
+				if err != nil {
+					logger.Err(err)
+				}
+				domain.Insert(0, node)
 			}
 		} else {
+			logger.Dbg("_where_calc1")
+
 			//domain = Query2StringList(`[('active', '=', 1)]`)
-			domain = Domain2StringList(`[('active', '=', 1)]`)
+			var err error
+			domain, err = String2Domain(`[('active', '=', 1)]`)
+			if err != nil {
+				logger.Err(err)
+			}
+			logger.Dbg("_where_calc2")
 
 		}
 	}
@@ -662,7 +687,14 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 	var where_clause []string
 	var where_params []interface{}
 	if domain != nil && domain.Count() > 0 {
-		exp := NewExpression(self.Session.model, domain, context)
+		logger.Dbg("_where_calc3")
+
+		exp, err := NewExpression(self.Session.model, domain, context)
+		if err != nil {
+			return nil, err
+		}
+		logger.Dbg("_where_calc4")
+
 		tables = exp.get_tables().Strings()
 		where_clause, where_params = exp.to_sql(self.Params...)
 
@@ -670,8 +702,9 @@ func (self *TStatement) _where_calc(domain *utils.TStringList, active_test bool,
 		where_clause, where_params, tables = nil, nil, append(tables, self.Session.Statement.TableName())
 
 	}
+	logger.Dbg("_where_calc5")
 
-	return NewQuery(tables, where_clause, where_params, nil, nil) //self.Registry.r Query(tables, where_clause, where_params)
+	return NewQuery(tables, where_clause, where_params, nil, nil), nil //self.Registry.r Query(tables, where_clause, where_params)
 }
 
 func (self *TStatement) _check_qorder(word string) (result bool) {
@@ -697,6 +730,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 
 		//inner_clauses = make([]string, 0)
 	)
+
 	for _, order_part := range strings.Split(order_spec, ",") {
 		order_split := strings.Split(utils.Trim(order_part), " ")
 		order_field := order_split[0]
@@ -717,7 +751,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 		//do_reverse := order_direction == "DESC"
 		//var inner_clauses []string
 		//add_dir := false
-		if order_field == "id" {
+		if order_field == self.IdKey {
 			lStr := fmt.Sprintf(`"%s"."%s" %s`, alias, order_field, order_direction)
 			order_by_elements = append(order_by_elements, lStr)
 

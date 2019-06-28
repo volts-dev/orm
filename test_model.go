@@ -1,32 +1,32 @@
-package test
+package orm
 
 import (
 	"fmt"
 	"time"
-	"volts-dev/orm"
 )
 
 type (
 	// PartnerModel save all the records about a company/person/group
 	PartnerModel struct {
-		orm.TModel `table:"name('partner.model')"`
-		Id         int64  `field:"pk autoincr title('ID') index"`
-		Name       string `field:"char() unique index required"`
-		Homepage   string `field:"char() size(25)"`
+		TModel   `table:"name('partner_model')"`
+		Id       int64  `field:"pk autoincr title('ID') index"`
+		Name     string `field:"char() unique index required"`
+		Homepage string `field:"char() size(25)"`
 	}
 
 	// CompanyModel save all the records about a shop/subcompany,
 	// main details will relate to PartnerModel and mapping all field of PartnerModel
 	CompanyModel struct {
-		orm.TModel   `table:"name('company.model')"`
+		TModel       `table:"name('company_model')"`
 		PartnerModel `field:"relate(PartnerId)"`
-		PartnerId    int64
-		Id           int64  `field:"pk autoincr title('ID') index"`
-		Name         string `field:"char() unique index required"`
+		PartnerId    int64         `field:"one2one(partner_model)"`
+		Id           int64         `field:"pk autoincr title('ID') index"`
+		Name         string        `field:"char() unique index required"`
+		OneToMany    []interface{} `field:"one2many(user_model,many_to_one) title('Test Title') domain([('active','=',True)])"`
 	}
 
 	UserModel struct {
-		orm.TModel `table:"name('user.model')"`
+		TModel     `table:""`
 		Id         int64     `field:"pk autoincr title('ID') index"`
 		CreateTime time.Time `field:"datetime() created"`
 		WriteTime  time.Time `field:"datetime() updated"`
@@ -38,22 +38,14 @@ type (
                  test help 2''
                  test help 3''''
                  test help 4.')"`
-		Bool       bool           `field:"bool default(true)"`  // --
-		Text       string         `field:"text"`                //
-		Float      float32        `field:"float"`               //
-		Bin        []byte         `field:"binary() attachment"` //
-		Selection  string         `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
-		Func       string         `field:"selection(TestSelection)"`
-		OneToMany  []*interface{} `field:"one2many(company.model,parent_id) title('Test Title') domain([('active','=',True)])"`
-		ManyToOne  int64          `field:"many2one(company.model)"` //-- Company
-		ManyToMany []int64        `field:"many2many(company.model,company.user.ref,company_id,user_id)"`
-	}
-
-	// A relate reference table between CompanyModel and UserModel
-	CompanyUserRef struct {
-		orm.TModel `table:"name('company.user.ref')"`
-		CompanyId  int64
-		UserId     int64
+		Bool       bool          `field:"bool default(true)"`  // --
+		Text       string        `field:"text"`                //
+		Float      float32       `field:"float"`               //
+		Bin        []byte        `field:"binary() attachment"` //
+		Selection  string        `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
+		Func       string        `field:"selection(TestSelection)"`
+		ManyToOne  int64         `field:"many2one(company_model)"` //-- Company
+		ManyToMany []interface{} `field:"many2many(company_model,company_id,user_id)"`
 	}
 )
 

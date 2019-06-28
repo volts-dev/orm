@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"volts-dev/dataset"
+	//	"volts-dev/logger"
 
 	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
@@ -31,7 +32,6 @@ type (
 	}
 
 	TSession struct {
-		// TODO 自己实现
 		db *core.DB
 		tx *core.Tx // 由Begin 传递而来
 
@@ -39,6 +39,7 @@ type (
 		model     *TModel
 		Statement TStatement
 
+		IsDeprecated           bool // sometime the session did not reach the request it shoud be deprecated
 		IsAutoCommit           bool // dflt is true
 		IsAutoClose            bool
 		IsCommitedOrRollbacked bool
@@ -81,6 +82,7 @@ func (self *TSession) Close() {
 		if self.tx != nil && !self.IsCommitedOrRollbacked {
 			self.Rollback()
 		}
+
 		self.db = nil
 		self.tx = nil
 		self.init()
@@ -105,6 +107,7 @@ func (self *TSession) Begin() error {
 		if err != nil {
 			return err
 		}
+
 		self.IsAutoCommit = false
 		self.IsCommitedOrRollbacked = false
 		self.tx = tx
@@ -219,7 +222,6 @@ func (self *TSession) tx_query(sql string, params ...interface{}) (res_dataset *
 	)
 
 	lRows, res_err = self.tx.Query(sql, params...)
-	//logger.Dbg("lRows1", lRows, res_err)
 	if res_err != nil {
 		return
 	}
@@ -323,16 +325,15 @@ func (self *TSession) tx_exec(sql string, args ...interface{}) (sql.Result, erro
 
 // synchronize structs to database tables
 func (self *TSession) SyncModel(region string, models ...interface{}) error {
-	// 获取基本数据库信息
-	tables, err := self.orm.DBMetas()
+	tables, err := self.orm.DBMetas() // 获取基本数据库信息
 	if err != nil {
 		return err
 	}
 
 	for _, model := range models {
-		lModel := self.orm.mapping(region, model)
-		lModelName := lModel.GetModelName()
-		lTableName := lModel.GetTableName()
+		model := self.orm.mapping(region, model)
+		lModelName := model.GetModelName()
+		lTableName := model.GetTableName()
 
 		var lTable *core.Table // 数据库存在的
 		for _, tb := range tables {
@@ -343,7 +344,7 @@ func (self *TSession) SyncModel(region string, models ...interface{}) error {
 		}
 
 		// #设置该Session的Model/Table
-		self.Model(lModel.GetModelName(), region)
+		self.Model(model.GetModelName(), region)
 
 		if lTable == nil {
 			// 如果数据库不存在改Model对应的表则创建
@@ -363,7 +364,7 @@ func (self *TSession) SyncModel(region string, models ...interface{}) error {
 				return err
 			}
 		} else {
-			err := self.alter_table(lModel, lModel.table, lTable)
+			err := self.alter_table(model, model.table, lTable)
 			if err != nil {
 				return err
 			}
@@ -582,6 +583,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 		md, err = self.orm.GetModel(model, region...)
 		if err != nil {
 			logger.Panicf(err.Error())
+			self.IsDeprecated = true
 		}
 	}
 
@@ -592,12 +594,8 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 		self.Statement.TableNameClause = md.GetTableName()
 
 		// # 主键
-		self.Statement.IdKey = "id"
-		if self.model.idField != "" {
-			self.Statement.IdKey = self.model.idField
-		}
+		self.Statement.IdKey = self.model.idField
 
-		return self
 	} else {
 		self.IsClassic = false
 		lTableName := utils.SnakeCasedName(strings.Replace(model, ".", "_", -1))
@@ -605,6 +603,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 		self.Statement.Table = self.orm.tables[lTableName]
 		if self.Statement.Table == nil {
 			logger.Errf("the table is not in database.")
+			self.IsDeprecated = true
 			return nil
 		}
 		self.Statement.AltTableNameClause = lTableName
@@ -617,7 +616,12 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 			(!col.Nullable && col.IsAutoIncrement)) {
 			self.Statement.IdKey = self.Statement.Table.AutoIncrement
 		}
+	}
 
+	// ### id key must exist
+	if self.Statement.IdKey == "" {
+		logger.Errf("the statement must have a Id key exist!")
+		self.IsDeprecated = true
 	}
 
 	return self
@@ -637,7 +641,7 @@ func (self *TSession) Omit(fields ...string) *TSession {
 }
 
 // Id provides converting id as a query condition
-func (self *TSession) Ids(ids ...string) *TSession {
+func (self *TSession) Ids(ids ...interface{}) *TSession {
 	self.Statement.Ids(ids...)
 	return self
 }
@@ -701,8 +705,8 @@ id in (1, 2, 3)
 
 [('|', (('a', '=', 1), ('b', '=', 2)), (('c', '=', 3), ('d', '=', 4)))]
 ( ( a = 1 AND b = 2 ) OR ( c = 3 AND d = 4 ) )               */
-func (self *TSession) Domain(domain interface{}) *TSession {
-	self.Statement.Domains(domain)
+func (self *TSession) Domain(domain interface{}, args ...interface{}) *TSession {
+	self.Statement.Domain(domain, args...)
 	return self
 }
 
@@ -750,15 +754,15 @@ func (self *TSession) _validate(vals map[string]interface{}) {
 	}
 }
 
-func (self *TSession) _create(src interface{}, classic_create bool) (res_id int64, res_err error) {
+func (self *TSession) create(src interface{}, classic_create bool) (res_id int64, res_err error) {
 	if len(self.Statement.TableName()) < 1 {
-		return 0, ErrTableNotFound
+		return -1, ErrTableNotFound
 	}
 
 	vals := self.itf_to_itfmap(src)
 	if len(vals) == 0 {
 		res_err = fmt.Errorf("can't support this type of values: %v", src)
-		return 0, res_err
+		return -1, res_err
 	}
 
 	// the list of tuples used in this formatting corresponds to
@@ -793,8 +797,10 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 		lNewTodo []string
 	)
 
-	lNewVals, lRefVals, lNewTodo = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, false)
-
+	lNewVals, lRefVals, lNewTodo, res_err = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, false)
+	if res_err != nil {
+		return -1, res_err
+	}
 	//
 	for tbl, rel_vals := range lRefVals {
 		if len(rel_vals) == 0 {
@@ -809,7 +815,7 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 
 		// 获取管理表ID字段
 		record_id := ""
-		record_id = utils.Itf2Str(rel_vals["id"])
+		record_id = utils.Itf2Str(rel_vals[self.Statement.IdKey])
 		//logger.Dbg("record_id", record_id)
 
 		// 创建或者更新关联表记录
@@ -841,7 +847,7 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 	*/
 
 	// 被设置默认值的字段赋值给Val
-	for k, v := range self.model._default {
+	for k, v := range self.model.obj.default_values {
 		if lNewVals[k] == nil {
 			lNewVals[k] = v //fmt. lFld._symbol_c
 		}
@@ -897,13 +903,13 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 
 	res, err := self.Exec(sql, params...)
 	if err != nil {
-		return 0, err
+		return -1, err
 	}
 
 	if lReturnKey != "" {
 		res_id, res_err = res.LastInsertId()
 		if res_err != nil {
-			return
+			return -1, res_err
 		}
 	}
 
@@ -911,21 +917,20 @@ func (self *TSession) _create(src interface{}, classic_create bool) (res_id int6
 		// 更新关联字段
 		for _, name := range lNewTodo {
 			lField := self.model.FieldByName(name)
-			logger.Dbg("create lNewTodo", name, lField, res_id)
+			//logger.Dbg("create lNewTodo", name, lField, res_id)
 			if lField != nil {
-				lField.OnConvertToWrite(
-					&TFieldEventContext{
-						Session: self,
-						Model:   self.model,
-						Id:      utils.IntToStr(res_id),
-						Field:   lField,
-						Value:   vals[name]})
+				lField.OnWrite(&TFieldEventContext{
+					Session: self,
+					Model:   self.model,
+					Id:      utils.IntToStr(res_id),
+					Field:   lField,
+					Value:   vals[name]})
 				/*
 					// result += self._columns[name].set(cr, self, id_new, name, vals[name], user, rel_context) or []
 					//self._update_field(res_id, lField, utils.IntToStr(vals[name]), nil)
 					//			logger.Dbg("id:", lIds, id)
 
-					lField.OnWrite(&TFieldEventContext{
+					lField.__OnWrite(&TFieldEventContext{
 						Session: self,
 						Model:   self.model,
 						Id:      utils.IntToStr(res_id),
@@ -952,16 +957,18 @@ func (self *TSession) _generate_caches_key(model, key interface{}) string {
 	return fmt.Sprintf(`%v:%v`, model, key)
 }
 
+// TODO FN
+// 分配值并补全ID,Update,Create字段值
 // separate data for difference type of update
 //, includeVersion bool, includeUpdated bool, includeNil bool,
 //	includeAutoIncr bool, allUseBool bool, useAllCols bool,
 //	mustColumnMap map[string]bool, nullableMap map[string]bool,
 //	columnMap map[string]bool, update, unscoped bool
-func (self *TSession) _separate_values(vals map[string]interface{}, must_fields map[string]bool, nullable_fields map[string]bool, include_nil bool, include_pkey bool) (new_vals map[string]interface{}, rel_vals map[string]map[string]interface{}, upd_todo []string) {
-	// #@@ create record not need to including pk
+func (self *TSession) _separate_values(vals map[string]interface{}, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, includePkey bool) (map[string]interface{}, map[string]map[string]interface{}, []string, error) {
+	//!!! create record not need to including pk
 	//var lIncludePK bool = true
-	//if len(include_pkey) > 0 {
-	///	lIncludePK = include_pkey[0]
+	//if len(includePkey) > 0 {
+	///	lIncludePK = includePkey[0]
 	//}
 	// 用于更新本Model的实际数据
 	/*    # list of column assignments defined as tuples like:
@@ -970,19 +977,20 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 	      # Those tuples will be used by the string formatting for the INSERT
 	      # statement below.
 	      ('id', "nextval('%s')" % self._sequence),*/
-	new_vals = make(map[string]interface{})
-	rel_vals = make(map[string]map[string]interface{})
-	upd_todo = make([]string, 0) // function 字段组 采用其他存储方式
+	var err error
+	new_vals := make(map[string]interface{})
+	rel_vals := make(map[string]map[string]interface{})
+	upd_todo := make([]string, 0) // function 字段组 采用其他存储方式
 	//unknown_fields = make([]string, 0)
 
 	// 保存关联表用于更新创建关联表数据
 	for tbl, _ := range self.model._relations {
-		rel_vals[tbl] = make(map[string]interface{}) // 新建空Map以防Nil导致内存出错
+		rel_vals[tbl] = make(map[string]interface{}) //* 新建空Map以防Nil导致内存出错
 		if val, has := vals[self.model._relations[tbl]]; has && val != nil {
 			//新建新的并存入已经知道的ID
-			rel_id := utils.Itf2Str(val)
-			if rel_id != "0" && rel_id != "" { //TODO 强制ORM使用Id作为主键
-				rel_vals[tbl]["id"] = rel_id //utils.Itf2Str(vals[self.model._relations[tbl]])
+			rel_id := val      //utils.Itf2Str(val)
+			if rel_id != nil { //&& rel_id != "" { //TODO 强制ORM使用Id作为主键
+				rel_vals[tbl][self.model.idField] = rel_id //utils.Itf2Str(vals[self.model._relations[tbl]])
 			}
 		}
 	}
@@ -993,54 +1001,52 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 			continue
 		}
 
-		lCol := field.Base().column
+		col := field.Base().column
 
 		// TODO 保留审视
-		//	if lCol != nil && !include_pkey && (lCol.IsAutoIncrement || lCol.IsPrimaryKey) {
-		if lCol != nil && !include_pkey && lCol.IsAutoIncrement {
-			continue // no use any AutoIncrement field's value
+		//	if col != nil && !includePkey && (col.IsAutoIncrement || col.IsPrimaryKey) {
+		if col != nil && !includePkey && col.IsAutoIncrement {
+			continue //!!! no use any AutoIncrement field's value
 		}
 
-		// 格式化数据
-		// new a uid
+		// 格式化IdField数据 生成UID
 		if f, ok := field.(*TIdField); ok {
 			vals[name] = f.OnCreate(&TFieldEventContext{
 				Session: self,
 				Model:   self.model,
-				Id:      utils.IntToStr(0),
 				Field:   field,
-				Value:   vals[name]})
+				Id:      utils.IntToStr(0),
+				Value:   vals[name]},
+			)
 		}
 
 		// update time zone to create and update tags' fields
-		if !include_pkey && field.Base()._is_created {
-			lTimeItfVal, _ := self.orm._now_time(field.Type())
+		if !includePkey && field.Base()._is_created {
+			lTimeItfVal, _ := self.orm._now_time(field.Type()) //TODO 优化预先生成日期
 			vals[name] = lTimeItfVal
 
 		} else if field.Base()._is_created {
+			// 包含主键的数据,说明已经是被创建过了,则不补全该字段
 			continue
 
 		} else if field.Base()._is_updated {
-			lTimeItfVal, _ := self.orm._now_time(field.Type())
+			lTimeItfVal, _ := self.orm._now_time(field.Type()) //TODO 优化预先生成日期
 			vals[name] = lTimeItfVal
 		}
 
-		lMustField := must_fields[name]
-		lNullableField := nullable_fields[name]
+		is_must_field := mustFields[name]
+		lNullableField := nullableFields[name]
 		if val, has := vals[name]; has {
 			// 过滤可以为空的字段空字段
 			//logger.Dbg("## XXX:", name, val, has, val == nil, utils.IsBlank(val))
-			if !lMustField && !lNullableField && !include_nil && (val == nil || utils.IsBlank(val)) {
+			if !is_must_field && !lNullableField && !includeNil && (val == nil || utils.IsBlank(val)) {
 				continue
 			}
 
-			//logger.Dbg("## VV:", name, lCol.SQLType.IsNumeric())
-			if lCol != nil && lCol.SQLType.IsNumeric() {
-				var blank interface{} = "0"
+			//logger.Dbg("## VV:", name, col.SQLType.IsNumeric())
+			if col != nil && col.SQLType.IsNumeric() {
 				//logger.Dbg("## VV:", name, val, blank, reflect.TypeOf(val), val == blank)
-				blank = 0
-				//logger.Dbg("## VV:", name, val, blank, reflect.TypeOf(val), val == blank)
-				if val == blank {
+				if utils.IsBlank(val) {
 					//logger.Dbg("## VV:", name)
 					continue
 				}
@@ -1051,41 +1057,48 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 			comm_tables := self.model.CommonFieldByName(name) // 获得拥有该字段的所有表
 			if comm_tables != nil {
 				// 为各表预存值
-
 				for tbl, _ := range comm_tables {
 					//logger.Dbg("lComm:", comm_tables, tbl, name, self.model._table, self.model.GetModelName())
 					if tbl == self.model.GetModelName() {
-						new_vals[name] = val // 为当前表添加共同字段
+						new_vals[name] = val // 为当前表添加共同字段值
 
 					} else if rel_vals[tbl] != nil {
-						rel_vals[tbl][name] = val // 为关联表添加共同字段
+						rel_vals[tbl][name] = val // 为关联表添加共同字段值
 
 					}
 				}
 
-				continue // 字段分配完毕
+				continue //* 字段分配完毕
 			}
-			//utils.Dbg("write@:", key)
-			//utils.Dbg("write@:", field.foreign_field)
-			//utils.Dbg("write@:", self._relate_fields[key])
-			//  ffield = self._fields.get(field)
-			//  if ffield and ffield.deprecated:
-			//      _logger.warning('Field %s.%s is deprecated: %s', self._name, field, ffield.deprecated)
+
 			//#*** 非Model固有字段归为关联表字段 2个判断缺一不可
 			//#1 判断是否是关联表可能性
 			//#2 判断是否Model和关联Model都有该字段
-			if rel_fld := self.model.RelateFieldByName(name); rel_fld != nil && field.IsForeignField() {
+			rel_fld := self.model.RelateFieldByName(name)
+			if rel_fld != nil && field.IsForeignField() {
 				// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
 				lTableName := rel_fld.RelateTableName
 				rel_vals[lTableName][name] = val
 
-				//updend = append(updend, name)
 			} else {
 				if field.Store() && field.ColumnType() != "" {
-					Logger().Dbg(name, val)
-					// TODO 格式化值
+					// TODO 格式化值 区分Classic
+					val, err = field.OnConvertToWrite(&TFieldEventContext{
+						Session: self,
+						Model:   self.model,
+						//Id:      lIds[0],
+						Field: field,
+						Value: val, //utils.IntToStr(vals[name]),
+					})
+
+					if err != nil {
+						return nil, nil, nil, err
+					}
+
 					new_vals[name] = val // field.SymbolFunc()(utils.Itf2Str(val))
+
 				} else {
+					//# 大型复杂计算字段
 					upd_todo = append(upd_todo, name)
 				}
 				//utils.Dbg("write:", key)
@@ -1108,17 +1121,17 @@ func (self *TSession) _separate_values(vals map[string]interface{}, must_fields 
 		}
 	}
 
-	return
+	return new_vals, rel_vals, upd_todo, nil
 }
 
 // #fix:由于更新可能只对少数字段更新,更新不适合使用缓存
-func (self *TSession) _write(src interface{}, context map[string]interface{}) (res_effect int64, res_err error) {
+func (self *TSession) write(src interface{}, context map[string]interface{}) (res_effect int64, res_err error) {
 	if len(self.Statement.TableName()) < 1 {
-		return 0, ErrTableNotFound
+		return -1, ErrTableNotFound
 	}
 
 	var (
-		lIds     []string
+		lIds     []interface{}
 		lNewVals map[string]interface{}
 		lRefVals map[string]map[string]interface{}
 		lNewTodo []string
@@ -1127,27 +1140,33 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 	//self._check_model()
 
 	vals := self.itf_to_itfmap(src)
-	//logger.Dbg("Write11", self.Statement.Ids, len(self.Statement.Ids), lValues)
-	// 检查合法
-	if len(vals) == 0 {
-		res_err = fmt.Errorf("can't shupport this type of values")
-		return
+	if len(vals) == 0 { // 检查合法
+		return -1, fmt.Errorf("can't shupport this type of values")
 	}
+
 	lNewVals = vals // #默认
 
 	// #获取Ids
 	if len(self.Statement.IdParam) > 0 {
 		lIds = self.Statement.IdParam
-	} else if self.Statement.Domain.Count() > 0 {
-		lIds = self._search("", nil)
+	} else if self.Statement.domain.Count() > 0 {
+		var err error
+		lIds, err = self.search("", nil)
+		if err != nil {
+			return -1, err
+		}
 	} else {
-		logger.Err("At least have one of where|domain|ids condition to locate for update")
-		return
+		idField := self.model.idField
+		if id, has := lNewVals[idField]; has {
+			lIds = []interface{}{id}
+
+		} else {
+			return -1, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
+		}
 	}
 
-	//logger.Dbg("_write ids", lIds)
 	if len(lIds) == 0 {
-		return
+		return -1, fmt.Errorf("must have ids")
 	}
 
 	if self.IsClassic {
@@ -1167,7 +1186,11 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 			}
 		}
 
-		lNewVals, lRefVals, lNewTodo = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, false, true)
+		lNewVals, lRefVals, lNewTodo, res_err = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, false, false)
+		if res_err != nil {
+			return -1, res_err
+
+		}
 
 		/*
 			for name, field := range self.model.GetFields() {
@@ -1294,7 +1317,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 		}
 
 		if values == "" {
-			return
+			return -1, fmt.Errorf("must have values")
 		}
 		/*
 			if len(args) > 0 {
@@ -1313,18 +1336,20 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 				}
 			}
 		*/
+		// add in ids data
+		in_vals := strings.Repeat("?,", len(lIds)-1) + "?"
+		params = append(params, lIds...)
 
-		// sql := `UPDATE ` + self.model._table + ` SET ` + values + ` WHERE id IN (` + sub_ids + `)`
-		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s IN (%s)`, self.Statement.TableName(), values, self.Statement.IdKey, strings.Join(lIds, ","))
-		//logger.Dbg("create:", lSql)
+		// format sql
+		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s IN (%s)`, self.Statement.TableName(), values, self.Statement.IdKey, in_vals)
 		res, err := self.exec(sql, params...)
 		if err != nil {
-			return 0, err
+			return -1, err
 		}
 
 		res_effect, res_err = res.RowsAffected()
 		if res_err != nil {
-			return 0, res_err
+			return -1, res_err
 		}
 
 		/*table_name := self.Statement.TableName()
@@ -1346,47 +1371,50 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 	for tbl, ref_vals := range lRefVals {
 		lFldName := self.model._relations[tbl]
 
-		nids := make([]string, 0)
+		nids := make([]interface{}, 0)
 		// for sub_ids in cr.split_for_in_conditions(ids):
 		//     cr.execute('select distinct "'+col+'" from "'+self._table+'" ' \
 		//               'where id IN %s', (sub_ids,))
 		//    nids.extend([x[0] for x in cr.fetchall()])
-		lSql := fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, lFldName, self.model.GetTableName(), self.Statement.IdKey, strings.Join(lIds, ","))
-		lDs, err := self.orm.Query(lSql)
+
+		// add in ids data
+		in_vals := strings.Repeat("?,", len(lIds)-1) + "?"
+		lSql := fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, lFldName, self.model.GetTableName(), self.Statement.IdKey, in_vals)
+		lDs, err := self.orm.Query(lSql, lIds...)
 		if err != nil {
 			logger.Err(err)
 		}
 
 		lDs.First()
 		for !lDs.Eof() {
-			nids = append(nids, lDs.FieldByName(lFldName).AsString())
+			nids = append(nids, lDs.FieldByName(lFldName).AsInterface())
 			lDs.Next()
 		}
 
 		if len(ref_vals) > 0 { //# 重新写入关联数据
 			lMdlObj, err := self.orm.GetModel(tbl) // #i
-			if err == nil {
-				//lMdlObj.Write(nids, v) //TODO 检查是否真确使用 因为nids为空的话是创建而非更新
-				lMdlObj.Records().Ids(nids...).Write(ref_vals) //TODO 检查是否真确使用
-				//self.pool[table].write(cr, user, nids, v, context)
-			} else {
+			if err != nil {
 				logger.Err(err)
 			}
+
+			//lMdlObj.Write(nids, v) //TODO 检查是否真确使用 因为nids为空的话是创建而非更新
+			lMdlObj.Records().Ids(nids...).Write(ref_vals) //TODO 检查是否真确使用
+			//self.pool[table].write(cr, user, nids, v, context)
 		}
 	}
 
 	// 更新计算字段
 	for _, name := range lNewTodo {
+		logger.Dbg(name)
 		lField := self.model.FieldByName(name)
 		if lField != nil {
-			lField.OnConvertToWrite(
-				&TFieldEventContext{
-					Session: self,
-					Model:   self.model,
-					Id:      lIds[0], // TODO 修改获得更合理
-					Field:   lField,
-					Value:   vals[name], //utils.IntToStr(vals[name]),
-				})
+			lField.OnWrite(&TFieldEventContext{
+				Session: self,
+				Model:   self.model,
+				Id:      lIds[0], // TODO 修改获得更合理
+				Field:   lField,
+				Value:   vals[name], //utils.IntToStr(vals[name]),
+			})
 
 			/*for _, id := range lIds {
 
@@ -1396,8 +1424,7 @@ func (self *TSession) _write(src interface{}, context map[string]interface{}) (r
 					//if ctrl, has := self.orm.field_ctrl[lField.Type]; has {
 					//ctrl.Write(self, id, lField, utils.IntToStr(vals[name]), nil)
 					//} else {
-					lField.OnWrite(
-						&TFieldEventContext{
+					lField.__OnWrite(						&TFieldEventContext{
 							Session: self,
 							Model:   self.model,
 							Id:      utils.IntToStr(id),
@@ -1452,13 +1479,17 @@ func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id in
 		defer self.Close()
 	}
 
+	if self.IsDeprecated {
+		return -1, fmt.Errorf("the session of query is invalid!")
+	}
+
 	var classic bool
 	if len(classic_create) > 0 {
 		classic = classic_create[0]
 		self.IsClassic = classic
 	}
 
-	return self._create(src, classic)
+	return self.create(src, classic)
 }
 
 // TODO 接受多值 dataset
@@ -1471,10 +1502,14 @@ func (self *TSession) Write(data interface{}, classic_write ...bool) (int64, err
 		defer self.Close()
 	}
 
+	if self.IsDeprecated {
+		return -1, ErrInvalidSession
+	}
+
 	if len(classic_write) > 0 {
 		self.IsClassic = classic_write[0]
 	}
-	return self._write(data, nil)
+	return self.write(data, nil)
 }
 
 // start to read data from the database
@@ -1485,15 +1520,19 @@ func (self *TSession) Read(classic_read ...bool) (*dataset.TDataSet, error) {
 		defer self.Close()
 	}
 
+	if self.IsDeprecated {
+		return nil, ErrInvalidSession
+	}
+
 	var classic bool
 	if len(classic_read) > 0 {
 		classic = classic_read[0]
 		self.IsClassic = classic
 	}
-	return self._read(classic)
+	return self.read(classic)
 }
 
-func (self *TSession) _read(classic_read bool) (*dataset.TDataSet, error) {
+func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 	if len(self.Statement.TableName()) < 1 {
 		return nil, ErrTableNotFound
 	}
@@ -1510,15 +1549,16 @@ func (self *TSession) _read(classic_read bool) (*dataset.TDataSet, error) {
 	stored := make([]string, 0) // 可存于数据的字段
 	inherited := make([]string, 0)
 	computed := make([]string, 0) // 数据库没有的字段
-	var lIds []string
 
 	// get data ids with query
+	var lIds []interface{}
 	if len(self.Statement.IdParam) > 0 {
 		lIds = self.Statement.IdParam
 	} else {
-		lIds = self._search("", nil)
-		if len(lIds) == 0 {
-			return dataset.NewDataSet(), nil
+		var err error
+		lIds, err = self.search("", nil)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -1561,9 +1601,14 @@ func (self *TSession) _read(classic_read bool) (*dataset.TDataSet, error) {
 		}
 	}
 	//}
+	logger.Dbg("read")
 
 	//# fetch stored fields from the database to the cache
-	dataset, _ := self._read_from_database(lIds, stored, inherited)
+	dataset, _, err := self._read_from_database(lIds, stored, inherited)
+	if err != nil {
+		return nil, err
+	}
+	logger.Dbg("read1")
 
 	// 处理那些数据库不存在的字段：company_ids...
 	//# retrieve results from records; this takes values from the cache and
@@ -1584,36 +1629,46 @@ func (self *TSession) _read(classic_read bool) (*dataset.TDataSet, error) {
 
 	// 获取ManytoOne的Name
 	//use_name_get := classic_read
+	logger.Dbg("read2")
 
-	dataset.First()
-	for !dataset.Eof() {
-		rec_id := dataset.FieldByName("id").AsString()
-		for name, field := range name_fields {
-			/*			//if field.IsClassicWrite() {
-						//if ctrl, has := self.orm.field_ctrl[field.Type]; has {
-						//	ctrl.Read(self, field, res_ds, nil)
-						//} else {
-						field.Read(self, field, res_ds, nil)
-						//}
-						//}
-			*/
+	//dataset.First()
+	//for !dataset.Eof() {
+	//	rec_id := dataset.FieldByName(self.model.idField).AsInterface()
+	for _, field := range name_fields {
+		//logger.Dbg("aa", rec_id, name)
 
-			// 计算新值
-			val := field.OnConvertToRead(&TFieldEventContext{
-				Session: self,
-				Model:   self.model,
-				Field:   field,
-				Id:      rec_id,
-				Value:   dataset.FieldByName(name).AsInterface(),
-				Dataset: dataset,
-			})
-			//logger.Dbg("convert_to_read:", name, val, dataset.Count(), rec_id, dataset.FieldByName("id").AsString(), dataset.Position, dataset.Eof(), res_dataset.FieldByName(name).AsString(), dataset.FieldByName(name).AsInterface(), field)
+		/*			//if field.IsClassicWrite() {
+					//if ctrl, has := self.orm.field_ctrl[field.Type]; has {
+					//	ctrl.Read(self, field, res_ds, nil)
+					//} else {
+					field.Read(self, field, res_ds, nil)
+					//}
+					//}
+		*/
 
-			dataset.FieldByName(name).AsInterface(val)
-		}
+		// 计算新值
+		//val := dataset.FieldByName(name).AsInterface()
+		//if val == nil { // TODO id!=nil 不能过滤 零值
+		//	continue
+		//}
 
-		dataset.Next()
+		field.OnRead(&TFieldEventContext{
+			Session: self,
+			Model:   self.model,
+			Field:   field,
+			//Id:      rec_id,
+			//Value:   val,
+			Dataset: dataset,
+		})
+		//logger.Dbg("convert_to_read:", name, val, dataset.Count(), rec_id, dataset.FieldByName("id").AsString(), dataset.Position, dataset.Eof(), res_dataset.FieldByName(name).AsString(), dataset.FieldByName(name).AsInterface(), field)
+
+		//dataset.FieldByName(name).AsInterface(val)
 	}
+
+	//	dataset.Next()
+	//}
+	logger.Dbg("read3")
+
 	dataset.First() // 返回游标0
 	dataset.Classic(classic_read)
 
@@ -1626,10 +1681,18 @@ func (self *TSession) Count() (int, error) {
 		defer self.Close()
 	}
 
+	if self.IsDeprecated {
+		return -1, ErrInvalidSession
+	}
+
 	self.Statement.IsCount = true
 
-	lCount := self._search("", nil)
-	return utils.StrToInt(lCount[0]), nil
+	ids, err := self.search("", nil)
+	if err != nil {
+		return 0, err
+	}
+	//return utils.StrToInt(lCount[0]), nil
+	return len(ids), nil
 }
 
 // TODO sum
@@ -1682,11 +1745,16 @@ func (self *TSession) Sum(colName string) (float64, error) {
 	return 0, nil
 }
 
+// TODO 根据条件删除
 // delete records
-func (self *TSession) Delete(ids ...string) (res_effect int64, err error) {
+func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
+	}
+
+	if self.IsDeprecated {
+		return -1, ErrInvalidSession
 	}
 
 	// TODO 为什么用len
@@ -1696,19 +1764,25 @@ func (self *TSession) Delete(ids ...string) (res_effect int64, err error) {
 	//self._check_model()
 
 	// get id list
-	var lIds []string
+	var lIds []interface{}
 	if len(ids) > 0 {
 		lIds = ids
 		self.Statement.IdParam = append(self.Statement.IdParam, ids...)
 	} else {
-		lIds = self._search("", nil)
+		var err error
+		lIds, err = self.search("", nil)
+		if err != nil {
+			return 0, err
+		}
 	}
 
+	// get the model id field name
+	id_field := self.model.idField
+
 	//#1 删除目标Model记录
-	lSql := fmt.Sprintf(`DELETE FROM %s WHERE id in (%s); `, self.Statement.TableName(), strings.Join(lIds, ","))
-	res, err := self.exec(lSql)
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.TableName(), id_field, _ids_to_sql(lIds...))
+	res, err := self.exec(sql, lIds)
 	if err != nil {
-		fmt.Errorf(err.Error())
 		return 0, err
 	}
 
@@ -1769,19 +1843,19 @@ func (self *TSession) CreateTable(model string) error {
 		//TODO 考虑删除 使用更标准的
 		// 实现PG的继承
 		model_name := strings.Replace(model, "_", ".", -1)
-		model_name = utils.DotCasedName(model_name)
-		lModel := self.orm.models[model_name] // TODO 并发
-		if lModel != nil {
+		model_name = fmtModelName(model_name)
+		model := self.orm.models[model_name] // TODO 并发
+		if model != nil {
 			//lInherits := lTable.Inherits
-			if len(lModel._inherits) > 0 && strings.EqualFold(self.orm.dialect.DriverName(), "postgres") {
+			if len(model._inherits) > 0 && strings.EqualFold(self.orm.dialect.DriverName(), "postgres") {
 				lSql += "INHERITS  ( "
-				lSql += strings.Join(lModel._inherits, ",")
+				lSql += strings.Join(model._inherits, ",")
 				lSql += " ) "
 			}
 		}
 	}
 
-	//logger.Dbg("createOneTable", lModel, lSql)
+	//logger.Dbg("createOneTable", model, lSql)
 	res, err := self.exec(lSql)
 	if err != nil {
 		return err
@@ -1925,18 +1999,23 @@ func (self *TSession) _check_model() bool {
 }
 
 // search and return the id list only
-func (self *TSession) Search() []string {
+func (self *TSession) Search() ([]interface{}, error) {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
-	return self._search("", nil)
+
+	if self.IsDeprecated {
+		return nil, ErrInvalidSession
+	}
+
+	return self.search("", nil)
 }
 
 // 查询所有符合条件的主键/索引值
 // :param access_rights_uid: optional user ID to use when checking access rights
 // (not for ir.rules, this is only for ir.model.access)
-func (self *TSession) _search(access_rights_uid string, context map[string]interface{}) (res_ids []string) {
+func (self *TSession) search(access_rights_uid string, context map[string]interface{}) ([]interface{}, error) {
 	var (
 		//fields_str string
 		//where_str    string
@@ -1973,7 +2052,12 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 			}
 	*/
 	//logger.Dbg("_search", self.Statement.Domain, StringList2Domain(self.Statement.Domain))
-	query = self.Statement._where_calc(self.Statement.Domain, false, context)
+	var err error
+	query, err = self.Statement._where_calc(self.Statement.domain, false, context)
+	if err != nil {
+		return nil, err
+	}
+
 	order_by = self.Statement._generate_order_by(query, context) // TODO 未完成
 	from_clause, where_clause, where_clause_params = query.get_sql()
 	//logger.Dbg("from_clause", from_clause)
@@ -1999,17 +2083,16 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		if len(res_ids) < 1 {
 			lRes, err := self.query(query_str, where_clause_params...)
 			if err != nil {
-				logger.Err(err)
-				return []string{"0"}
+				return nil, err
 			}
 
-			res_ids = []string{lRes.FieldByName("count").AsString()}
+			res_ids = []interface{}{lRes.FieldByName("count").AsInterface()}
 
 			// #存入缓存
 			self.orm.cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
 		}
 
-		return res_ids
+		return res_ids, nil
 	}
 
 	if self.Statement.LimitClause > 0 {
@@ -2028,13 +2111,11 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 	//	web.Debug("_search", query_str, where_clause_params)
 
 	// #调用缓存
-
-	res_ids = self.orm.cacher.GetBySql(table_name, query_str, where_clause_params)
+	res_ids := self.orm.cacher.GetBySql(table_name, query_str, where_clause_params)
 	if len(res_ids) < 1 {
 		res, err := self.query(query_str, where_clause_params...)
 		if err != nil {
-			logger.Err(err)
-			return nil
+			return nil, err
 		}
 		res_ids = res.Keys(self.Statement.IdKey)
 		//logger.Dbg("_search", res.KeyField, res.Count(), res.Keys(), res_ids)
@@ -2042,13 +2123,18 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		self.orm.cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
 	}
 
-	return
+	return res_ids, nil
 }
 
 //# ids_less 缺少的ID
-func (self *TSession) _read_from_cache(ids []string) (res []*dataset.TRecordSet, ids_less []string) {
+func (self *TSession) _read_from_cache(ids []interface{}) (res []*dataset.TRecordSet, ids_less []interface{}) {
 	res, ids_less = self.orm.cacher.GetByIds(self.Statement.TableName(), ids...)
 	return
+}
+
+//
+func _ids_to_sql(ids ...interface{}) string {
+	return strings.Repeat("?,", len(ids)-1) + "?"
 }
 
 /*
@@ -2064,10 +2150,10 @@ func (self *TSession) _read_from_cache(ids []string) (res []*dataset.TRecordSet,
 // 从数据库读取记录并保存到缓存中
 // :param field_names: Model的所有字段
 // :param inherited_field_names:关联父表的所有字段
-func (self *TSession) _read_from_database(ids []string, field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string) {
+func (self *TSession) _read_from_database(ids []interface{}, field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string, err error) {
 	// # 从缓存里获得数据
 	records, less_ids := self._read_from_cache(ids)
-
+	logger.Dbg("db")
 	// # 补缺缓存没有的数据
 	if len(less_ids) > 0 {
 		table_name := self.Statement.TableName()
@@ -2078,11 +2164,18 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 		//query := NewQuery([]string{self.model.TableName()},
 		//	[]string{fmt.Sprintf(`"%s".id IN (?)`, self.model.TableName())},
 		//	[]interface{}{param_ids}, nil, nil) //占位符先提供固定预置值，后面根据值获得Idx并修改值到正确实时值                                                                                  // object()
-		query := NewQuery([]string{table_name},
-			[]string{fmt.Sprintf(`%s.%s IN (%s)`,
+		query := NewQuery(
+			[]string{table_name},
+			[]string{fmt.Sprintf(
+				`%s.%s IN (%s)`,
 				self.orm.Quote(table_name),
-				self.orm.Quote(self.Statement.IdKey), strings.Join(ids, `,`))},
-			[]interface{}{}, nil, nil)
+				self.orm.Quote(self.Statement.IdKey),
+				_ids_to_sql(ids...))},
+			ids,
+			nil,
+			nil,
+		)
+
 		//self._apply_ir_rules(query, 'read')
 		order_str := self.Statement._generate_order_by(query, nil)
 
@@ -2139,7 +2232,7 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 		//logger.Dbg("read sql", res_sql)
 
 		//res_ds:=NewDataSet()
-		var err error
+
 		// 获得Id占位符索引
 		///lIdx := utils.IdxOfItfs("idholder", params...)
 		//for _, sub_ids := range ids {
@@ -2147,13 +2240,13 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 		// tuple(sub_ids)
 		res_ds, err = self.Query(res_sql, params...) //cr.execute(res_sql, params)
 		if err != nil {
-			logger.Err(err.Error())
+			return nil, "", err
 		}
 
 		// # 报告错误记录
 		if res_ds.Count() != len(less_ids) {
 			//# if not you need
-			logger.Errf(`query result including %v records are not what you expectd! %v`, res_ds.Count(), len(less_ids))
+			return nil, "", logger.Errf(`query result including %v records are not what you expectd! %v`, res_ds.Count(), len(less_ids))
 
 		}
 
@@ -2219,7 +2312,7 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 		*/
 
 		// 激活[字段原始数据]Ready事件
-		var field IField
+		/*var field IField
 		for _, name := range field_names {
 			field = self.model.FieldByName(name)
 			field.OnRead(&TFieldEventContext{
@@ -2228,43 +2321,10 @@ func (self *TSession) _read_from_database(ids []string, field_names, inherited_f
 				Field:   field,
 				Dataset: res_ds})
 		}
-
+		*/
 	}
-	/*
 
-
-	   # Warn about deprecated fields now that fields_pre and fields_post are computed
-	   for f in field_names:
-	       column = self._columns[f]
-	       if column.deprecated:
-	           _logger.warning('Field %s.%s is deprecated: %s', self._name, f, column.deprecated)
-
-	   # store result in cache
-	   for vals in result:
-	       record = self.browse(vals.pop('id'))
-	       record._cache.update(record._convert_to_cache(vals, validate=False))
-
-	   # store failed values in cache for the records that could not be read
-	   missing = self - fetched
-	   if missing:
-	       extras = fetched - self
-	       if extras:
-	           raise AccessError(
-	               _("Database fetch misses ids ({}) and has extra ids ({}), may be caused by a type incoherence in a previous request").format(
-	                   ', '.join(map(repr, missing._ids)),
-	                   ', '.join(map(repr, extras._ids)),
-	               ))
-	       # mark non-existing records in missing
-	       forbidden = missing.exists()
-	       if forbidden:
-	           # store an access error exception in existing records
-	           exc = AccessError(
-	               _('The requested operation cannot be completed due to security restrictions. Please contact your system administrator.\n\n(Document type: %s, Operation: %s)') % \
-	               (self._name, 'read')
-	           )
-	           forbidden._cache.update(FailedValue(exc))
-	*/
-	return
+	return res_ds, res_sql, nil
 }
 
 func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]interface{}) {
@@ -2407,38 +2467,40 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 
 // # transfer struct to Itf map and record model name if could
 // #1 限制字段使用 2.添加Model
-
-func (self *TSession) itf_to_itfmap(src interface{}) (res_map map[string]interface{}) {
+func (self *TSession) itf_to_itfmap(src interface{}) map[string]interface{} {
 	// 创建 Map
 	lSrcType := reflect.TypeOf(src)
 
 	if lSrcType.Kind() == reflect.Ptr || lSrcType.Kind() == reflect.Struct {
 		//logger.Dbg("itf_to_itfmap", lSrcType.Kind(), self.model.GetModelName())
 		//res_map = utils.Map(src)
-
 		// # change model of the session
 		if self.model == nil {
-			lModelName := utils.DotCasedName(utils.Obj2Name(src))
+			lModelName := fmtModelName(utils.Obj2Name(src))
 			//logger.Dbg("itf_to_itfmap lModelName", lModelName)
 			if lModelName != "" {
 				self.Model(lModelName)
 			}
 		}
 
-		res_map = self.struct_to_itfmap(src)
+		return self.struct_to_itfmap(src)
 
 	} else if lSrcType.Kind() == reflect.Map {
 		if m, ok := src.(map[string]interface{}); ok {
-			res_map = m
+			return m
+
 		} else if m, ok := src.(map[string]string); ok {
-			res_map = make(map[string]interface{})
+			res_map := make(map[string]interface{})
+
 			for key, val := range m {
 				res_map[key] = val // 格式化为字段类型
 			}
+
+			return res_map
 		}
 	}
 
-	return
+	return nil
 }
 
 // 获取字段值 for m2m,selection,
@@ -2469,7 +2531,7 @@ func (self *TSession) __field_value_get(ids []string, fields []*TField, values *
 		for _, id := range ids {
 			for _, f := range fields {
 				result[id] = make(map[string]interface{})
-				result[id][f.Name()] = map[string][]string{id: records_ids}
+				result[id][f.Name()] = map[string][]interface{}{id: records_ids}
 			}
 		}
 

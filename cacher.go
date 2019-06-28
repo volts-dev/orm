@@ -45,17 +45,17 @@ func NewCacher() *TCacher {
 }
 
 //@removed 是否用于移除
-func (self *TCacher) genIdKey(table string, key string, removed bool) string {
+func (self *TCacher) genIdKey(table string, key interface{}, removed bool) string {
 	str := fmt.Sprintf("%v-%v", table, key)
+
+	self.table_id_key_index_lock.Lock()
+	defer self.table_id_key_index_lock.Unlock()
 
 	// # 添加索引
 	var (
 		tb  map[string]bool
 		has bool
 	)
-
-	self.table_id_key_index_lock.Lock()
-	defer self.table_id_key_index_lock.Unlock()
 	if tb, has = self.table_id_key_index[table]; !has {
 		tb = make(map[string]bool)
 		self.table_id_key_index[table] = tb
@@ -118,7 +118,7 @@ func (self *TCacher) SetStatus(sw bool, table_name string) {
 }
 
 //#缓存Sql查询结果ID集
-func (self *TCacher) PutBySql(table string, sql string, arg interface{}, record_ids ...string) {
+func (self *TCacher) PutBySql(table string, sql string, arg interface{}, record_ids ...interface{}) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
 		self.sql_caches.Put(key, record_ids)
@@ -127,11 +127,11 @@ func (self *TCacher) PutBySql(table string, sql string, arg interface{}, record_
 
 //#通过Sql获取查询结果ID集
 // result =nil or 空[]string
-func (self *TCacher) GetBySql(table string, sql string, arg interface{}) (res_ids []string) {
+func (self *TCacher) GetBySql(table string, sql string, arg interface{}) (res_ids []interface{}) {
 	//逻辑可能有问题	if open, has := self.status[table]; !has || (has && open) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
-		if ids, ok := self.sql_caches.Get(key).([]string); ok {
+		if ids, ok := self.sql_caches.Get(key).([]interface{}); ok {
 			return ids
 		} else {
 			return nil
@@ -142,7 +142,7 @@ func (self *TCacher) GetBySql(table string, sql string, arg interface{}) (res_id
 }
 
 // #缓存记录及ID
-func (self *TCacher) PutById(table string, id string, record *dataset.TRecordSet) {
+func (self *TCacher) PutById(table string, id interface{}, record *dataset.TRecordSet) {
 	if open, has := self.status[table]; !has || (has && open) {
 		//ck := self.RecCacher(table)
 		key := self.genIdKey(table, id, false)
@@ -151,7 +151,7 @@ func (self *TCacher) PutById(table string, id string, record *dataset.TRecordSet
 }
 
 //#通过ID获取记录
-func (self *TCacher) GetByIds(table string, ids ...string) (records []*dataset.TRecordSet, ids_less []string) {
+func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*dataset.TRecordSet, ids_less []interface{}) {
 	if !self.active {
 		return nil, ids
 	}
@@ -174,7 +174,7 @@ func (self *TCacher) GetByIds(table string, ids ...string) (records []*dataset.T
 	return nil, nil
 }
 
-func (self *TCacher) RemoveById(table string, ids ...string) {
+func (self *TCacher) RemoveById(table string, ids ...interface{}) {
 	if _, has := self.table_id_key_index[table]; has {
 		for _, id := range ids {
 			key := self.genIdKey(table, id, true)

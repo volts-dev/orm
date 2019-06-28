@@ -23,6 +23,7 @@ type (
 )
 
 func init() {
+	// int(size)
 	RegisterField("int", NewIntField)
 	RegisterField("bigint", NewBigIntField)
 	RegisterField("float", NewFloatField)
@@ -44,13 +45,28 @@ func NewFloatField() IField {
 func NewDoubleField() IField {
 	return new(TDoubleField)
 }
+
 func (self *TIntField) Init(ctx *TFieldContext) {
 	col := ctx.Column
 	fld := ctx.Field
+	vals := ctx.Params
 
-	col.SQLType = core.SQLType{core.Int, 0, 0}
-	fld.Base()._column_type = core.Int
-	fld.Base()._attr_type = "int"
+	if len(vals) > 0 {
+		switch vals[0] {
+		case "32":
+			col.SQLType = core.SQLType{core.Int, 0, 0}
+			fld.Base()._column_type = core.Int
+			fld.Base()._attr_type = "int"
+		case "64":
+			col.SQLType = core.SQLType{core.BigInt, 0, 0}
+			fld.Base()._column_type = core.BigInt
+			fld.Base()._attr_type = "bigint"
+		}
+	} else {
+		col.SQLType = core.SQLType{core.Int, 0, 0}
+		fld.Base()._column_type = core.Int
+		fld.Base()._attr_type = "int"
+	}
 }
 
 func (self *TBigIntField) Init(ctx *TFieldContext) {

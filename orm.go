@@ -80,7 +80,7 @@ type (
 /*
  create a new ORM instance
 */
-func NewOrm(dataSource *DataSource) (res_orm *TOrm, err error) {
+func NewOrm(dataSource *DataSource) (*TOrm, error) {
 	//func NewOrm(db_driver string, db_src string) (res_orm *TOrm, err error) {
 	reg_drvs_dialects()
 	db_driver := dataSource.DbType
@@ -110,7 +110,7 @@ func NewOrm(dataSource *DataSource) (res_orm *TOrm, err error) {
 		return nil, err
 	}
 
-	res_orm = &TOrm{
+	orm := &TOrm{
 		db:              lDb,
 		dialect:         lDialect,
 		dataSource:      dataSource,
@@ -125,13 +125,14 @@ func NewOrm(dataSource *DataSource) (res_orm *TOrm, err error) {
 	}
 
 	// Cacher
-	res_orm.cacher = NewCacher()
+	orm.cacher = NewCacher()
 
 	// OSV
-	res_orm.osv = NewOsv(res_orm)
+	orm.osv = NewOsv(orm)
 
-	res_orm.reverse()
-	return
+	orm.reverse()
+
+	return orm, nil
 }
 
 // TODO 保持表实时更新到ORM - 由于有些表是由SQL后期创建 导致Orm里缓存不存在改表Sycn时任然执行创建而抛出错误
@@ -205,7 +206,7 @@ func (self *TOrm) DriverName() string {
 func (self *TOrm) Ping() error {
 	session := self.NewSession()
 	defer session.Close()
-	logger.Infof("PING DATABASE %v", self.DriverName())
+	logger.Infof("PING DATABASE %s@%s", self.dataSource.DbName, self.DriverName())
 	return session.Ping()
 }
 
@@ -341,6 +342,16 @@ func (self *TOrm) log_query_sql(sql string, args []interface{}, executionBlock f
 	} else {
 		return executionBlock()
 	}
+}
+
+// format the model name to the same
+func fmtModelName(name string) string {
+	return utils.SnakeCasedName(utils.Trim(name))
+}
+
+// format the field name to the same
+func fmtFieldName(name string) string {
+	return utils.SnakeCasedName(utils.Trim(name))
 }
 
 // contains reports whether the string contains the byte c.
@@ -643,26 +654,17 @@ func (self *TOrm) _format_time(tz *time.Location, sqlTypeName string, t time.Tim
 
 // # 映射结构体与表
 func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) {
-	lObjectName := utils.Obj2Name(model)
-	lModelName := utils.DotCasedName(lObjectName)
-	alt_model_name := lModelName // model别名,当Model使用别名Tag时作用
-	lTableName := utils.SnakeCasedName(lObjectName)
-
+	object_name := utils.Obj2Name(model)
+	model_name := fmtModelName(object_name)
+	alt_model_name := model_name // model别名,当Model使用别名Tag时作用
+	table_name := model_name     // utils.SnakeCasedName(object_name)
 	v := reflect.Indirect(reflect.ValueOf(model))
 	lType := v.Type()
 
-	// #确认ORM包含该表 以便更新
-	//res_model = self.models[lType]
-	/*res_model = self.models[lModelName]
-	if res_model == nil || res_model.is_base {
-		res_model = NewModel(lModelName, v, lType)
-	} else {
-		res_model._inherits = make([]string, 0) // Append前先清空
-	}*/
-
-	res_model = NewModel(lModelName, v, lType) // 不检测是否已经存在于ORM中 直接替换旧
-	lTable := core.NewTable(lTableName, lType) // 创建一个原始ORM表
-	res_model.table = lTable                   // 提前关联为后续Tag函数使用
+	//model_object := self.newObj(model_name)
+	res_model = NewModel(model_name, v, lType) // 不检测是否已经存在于ORM中 直接替换旧
+	table := core.NewTable(table_name, lType)  // 创建一个原始ORM表
+	res_model.table = table                    // 提前关联为后续Tag函数使用
 	res_model.is_base = false
 
 	var (
@@ -694,19 +696,19 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 		is_table_tag = false
 		lIgonre = false
-		lFieldName = utils.SnakeCasedName(lMemberName)
+		lFieldName = fmtFieldName(lMemberName)
 		lColName = lFieldName
 		lFieldValue = v.Field(i)
 		lFieldType = lType.Field(i).Type
 		lFieldTag := lType.Field(i).Tag
-		//logger.Dbg("%s:%s %s", lModelName, lMemberName, lColName)
+		//logger.Dbg("%s:%s %s", model_name, lMemberName, lColName)
 		// # 忽略TModel类字段
 		if strings.Index(strings.ToLower(lMemberName), strings.ToLower("TModel")) != -1 {
 			lIgonre = true
 			is_table_tag = true
 		}
 
-		if lCol = lTable.GetColumn(lColName); lCol == nil {
+		if lCol = table.GetColumn(lColName); lCol == nil {
 			// 创建Column
 			lCol = core.NewColumn(
 				lColName,
@@ -741,7 +743,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		if lField = res_model.FieldByName(lFieldName); lField == nil {
 			// do nothing here
 			//lField = self.NewFieldFromSqlType(lFieldName, lCol)
-			//base_field = NewBaseField(lFieldName, lModelName)
+			//base_field = NewBaseField(lFieldName, model_name)
 			//logger.Dbg("lField", &lField, lFieldName)
 		} else {
 			//<** 如果是继承的字段则替换
@@ -798,7 +800,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				//以下代码是为了避免XORM解析不规则字符串为字段名提醒使用者规范Tag数据格式应该注意不用空格
 				lTag = parseTag(key)
 				// 验证
-				logger.Assert(len(lTag) != 0, "Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", lModelName, lFieldName, lFieldTag, key, lTag)
+				logger.Assert(len(lTag) != 0, "Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, lFieldName, lFieldTag, key, lTag)
 
 				field_type_name = strings.ToLower(lTag[0])
 				lStr = strings.Replace(key, field_type_name, "", 1) // 去掉Tag Item
@@ -809,7 +811,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					if strings.Index(lStr, " ") != -1 {
 						if !strings.HasPrefix(lStr, "'") &&
 							!strings.HasSuffix(lStr, "'") {
-							logger.Panicf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", lTableName, strings.ToUpper(lFieldName))
+							logger.Panicf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", table_name, strings.ToUpper(lFieldName))
 						}
 					}
 				}
@@ -831,7 +833,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				lField = self.newFieldFromSqlType(lFieldName, lCol)
 				// 必须确保上面的代码能获取到定义的字段类型
 				if lField == nil {
-					logger.Panicf("must difine the field type for the model field :" + lModelName + "." + lFieldName)
+					logger.Panicf("must difine the field type for the model field :" + model_name + "." + lFieldName)
 				}
 			}
 			lField.Base().model_name = alt_model_name
@@ -878,7 +880,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					if len(vals) > 1 && !is_table_tag {
 						//logger.Dbg("relate to:", utils.DotCasedName(lMemberName), utils.SnakeCasedName(lTag[1]))
 						// 现在成员名是关联的Model名,Tag 为关联的字段
-						res_model._relations[utils.DotCasedName(lMemberName)] = utils.SnakeCasedName(vals[1])
+						res_model._relations[fmtModelName(lMemberName)] = utils.SnakeCasedName(vals[1])
 					}
 					break
 				case "index":
@@ -896,8 +898,9 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 							lRefFldName := utils.SnakeCasedName(vals[1])
 							lRelateFields = append(lRelateFields, lRefFldName)
 							//logger.Dbg("relate to:", utils.DotCasedName(lMemberName), lRefFldName)
+
 							// 现在成员名是关联的Model名,Tag 为关联的字段
-							res_model._relations[utils.DotCasedName(lMemberName)] = lRefFldName
+							res_model._relations[fmtModelName(lMemberName)] = lRefFldName
 						}
 					} else {
 						//  extends
@@ -923,7 +926,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					} else {
 						// check not field type also
 						if _, has := field_creators[lStr]; has {
-							logger.Warnf("Unknown tag %s from %s:%s", lStr, lModelName, lFieldName)
+							logger.Warnf("Unknown tag %s from %s:%s", lStr, model_name, lFieldName)
 						}
 
 						//# 其他数据库类型
@@ -944,13 +947,13 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			}
 
 			for idx_name, idx_type := range lIndexs {
-				if index, ok := lTable.Indexes[idx_name]; ok {
+				if index, ok := table.Indexes[idx_name]; ok {
 					index.AddColumn(lCol.Name)
 					lCol.Indexes[index.Name] = core.IndexType
 				} else {
 					index := core.NewIndex(idx_name, idx_type)
 					index.AddColumn(lCol.Name)
-					lTable.AddIndex(index)
+					table.AddIndex(index)
 					lCol.Indexes[index.Name] = core.IndexType
 				}
 			}
@@ -1000,7 +1003,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		// #　通过条件过滤不学要的原始字段
 		if !lIgonre && lField.Base()._attr_store && lField.Base()._column_type != "" {
 			//if !is_exit_col {
-			lTable.AddColumn(lCol)
+			table.AddColumn(lCol)
 			//} else {
 			//	logger.Dbg("is_exit_col", lCol.Name)
 			//}
@@ -1024,60 +1027,62 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 	}
 
 	// #　合并旧的信息到新Table
-	if tb, has := self.tables[lTableName]; has {
+	if tb, has := self.tables[table_name]; has {
 		// #复制 Col
 		for _, col := range tb.Columns() {
-			if lTable.GetColumn(col.Name) == nil {
-				//logger.Dbg("copy " + col.Name)
-				lTable.AddColumn(col)
+			if table.GetColumn(col.Name) == nil {
+				table.AddColumn(col)
 			}
 		}
 
 		// # 复制 Indx
 		for _, idx := range tb.Indexes {
-			if _, has := lTable.Indexes[idx.Name]; !has {
-				lTable.AddIndex(idx)
+			if _, has := table.Indexes[idx.Name]; !has {
+				table.AddIndex(idx)
 			}
 		}
 
 		// # 复制 Key
 		for _, key := range tb.PrimaryKeys {
-			if utils.InStrings(key, lTable.PrimaryKeys...) == -1 {
-				lTable.PrimaryKeys = append(lTable.PrimaryKeys, key)
+			if utils.InStrings(key, table.PrimaryKeys...) == -1 {
+				table.PrimaryKeys = append(table.PrimaryKeys, key)
 			}
 		}
 
 		for field, on := range tb.Created {
-			if _, has := lTable.Created[field]; !has {
-				lTable.Created[field] = on
+			if _, has := table.Created[field]; !has {
+				table.Created[field] = on
 			}
 		}
 
-		if lTable.Deleted == "" && tb.Deleted != "" {
-			lTable.Deleted = tb.Deleted
+		if table.Deleted == "" && tb.Deleted != "" {
+			table.Deleted = tb.Deleted
 		}
 
-		if lTable.Updated == "" && tb.Updated != "" {
-			lTable.Updated = tb.Updated
+		if table.Updated == "" && tb.Updated != "" {
+			table.Updated = tb.Updated
 		}
 
-		if lTable.AutoIncrement == "" && tb.AutoIncrement != "" {
-			lTable.AutoIncrement = tb.AutoIncrement
+		if table.AutoIncrement == "" && tb.AutoIncrement != "" {
+			table.AutoIncrement = tb.AutoIncrement
 		}
 
-		if lTable.Updated == "" && tb.Updated != "" {
-			lTable.Updated = tb.Updated
+		if table.Updated == "" && tb.Updated != "" {
+			table.Updated = tb.Updated
 		}
 
-		if lTable.Version == "" && tb.Version != "" {
-			lTable.AutoIncrement = tb.AutoIncrement
+		if table.Version == "" && tb.Version != "" {
+			table.AutoIncrement = tb.AutoIncrement
 		}
 	}
-	res_model.setBaseTable(lTable)
+	res_model.setBaseTable(table)
+
 	// #添加加至列表
 	//self.models[res_model._cls_type] = res_model // #Update tables map
 	self.models[res_model.GetModelName()] = res_model // #Update tables map
-	self.tables[res_model.table.Name] = lTable        // #Update tables map
+	self.tables[res_model.table.Name] = table         // #Update tables map
+
+	// 注册到对象服务
 	self.osv.RegisterModel(region, res_model)
 
 	return
