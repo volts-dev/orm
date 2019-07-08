@@ -101,7 +101,6 @@ func NewExpression(model *TModel, domain *TDomainNode, context map[string]interf
 		joins:      make([]string, 0),
 	}
 
-	//utils.PrintStringList(domain)
 	node, err := normalize_domain(domain)
 	if err != nil {
 		return nil, err
@@ -167,7 +166,7 @@ func NewExtendedLeaf(leaf *TDomainNode, model *TModel, context []TJoinContext, i
         - left is in MAGIC_COLUMNS
 "*/
 func (self *TExtendedLeaf) check_leaf(internal bool) {
-	if !is_operator(self.leaf) && !is_leaf(self.leaf, internal) {
+	if !is_operator(self.leaf) && !isLeaf(self.leaf, internal) {
 		//raise ValueError("Invalid leaf %s" % str(self.leaf))
 		//提示错误
 	}
@@ -197,8 +196,8 @@ func (self *TExtendedLeaf) is_false_leaf() bool {
 	return parseDomain(self.leaf) == FALSE_LEAF
 }
 
-func (self *TExtendedLeaf) is_leaf(interna bool) bool {
-	return is_leaf(self.leaf, interna)
+func (self *TExtendedLeaf) isLeaf(interna bool) bool {
+	return isLeaf(self.leaf, interna)
 }
 
 /*""" Test whether an object is a valid domain operator. """*/
@@ -354,7 +353,7 @@ def get_alias_from_query(from_query):
 // 确保 操作符为小写
 //""" Change a term's operator to some canonical form, simplifying later processing. """
 func normalize_leaf(leaf *TDomainNode) *TDomainNode {
-	if !is_leaf(leaf) {
+	if !isLeaf(leaf) {
 		return leaf
 	}
 
@@ -445,7 +444,7 @@ func combine(operator, unit, zero string, domains []string) (result *utils.TStri
 
     Note: OLD TODO change the share wizard to use this function.
 """*/ /*
-func is_leaf(element *utils.TStringList, internal ...bool) bool {
+func isLeaf(element *utils.TStringList, internal ...bool) bool {
 	INTERNAL_OPS := append(TERM_OPERATORS, "<>")
 	if internal != nil && internal[0] {
 		INTERNAL_OPS = append(INTERNAL_OPS, "inselect")
@@ -459,7 +458,7 @@ func is_leaf(element *utils.TStringList, internal ...bool) bool {
 		utils.InStrings(element.String(), TRUE_LEAF, FALSE_LEAF) != -1
 
 	/*
-	   def is_leaf(element, internal=False):
+	   def isLeaf(element, internal=False):
 
 	       INTERNAL_OPS = TERM_OPERATORS + ('<>',)
 	       if internal:
@@ -490,9 +489,6 @@ func normalize_domain(domain *TDomainNode) (*TDomainNode, error) {
 
 	// must be including Terms
 	if !domain.IsList() {
-		logger.Err("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
-		//return // TODO 考虑是否直接返回？？？
-		//return Query2StringList(TRUE_DOMAIN)
 		return nil, fmt.Errorf("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
 	}
 
@@ -510,8 +506,8 @@ func normalize_domain(domain *TDomainNode) (*TDomainNode, error) {
 			expected = 1
 		}
 
-		result.Push(node)  //添加
-		if is_leaf(node) { //domain term
+		result.Push(node) //添加
+		if isLeaf(node) { //domain term
 			expected -= 1
 		} else {
 			//logger.Dbg("op_arity", op_arity[item.Text])
@@ -576,8 +572,9 @@ func distribute_not(domain *TDomainNode) *TDomainNode {
 			is_negate = utils.StrToBool(negate.String())
 		}
 
+		//logger.Dbg("opop", isLeaf(node), node.Count(), parseDomain(node.Item(1)), node.String(0))
 		// # negate tells whether the subdomain starting with token must be negated
-		if is_leaf(node) {
+		if isLeaf(node) {
 			if is_negate {
 				left, operator, right := node.String(0), node.String(1), node.Item(2)
 				if _, has := TERM_OPERATORS_NEGATION[operator]; has {
@@ -599,8 +596,10 @@ func distribute_not(domain *TDomainNode) *TDomainNode {
 				} else {
 					result.Push(op)
 				}
+
 				stack.Push(utils.BoolToStr(is_negate))
 				stack.Push(utils.BoolToStr(is_negate))
+
 			} else {
 				result.Push(op)
 			}
@@ -899,7 +898,6 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				return err
 			}
 		}
-		logger.Dbg("parse1")
 
 		//logger.Dbg("Leaf>", lPath, model, field, IsInheritField)
 		// ########################################
@@ -1431,8 +1429,7 @@ func (self *TExpression) ToSql(params ...interface{}) ([]string, []interface{}) 
 // params sql value
 func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{}) {
 	var (
-		stack = NewDomainNode()
-		//		lParams = NewDomainNode()
+		stack  = NewDomainNode()
 		ops    map[string]string
 		q1, q2 *TDomainNode
 		query  string
@@ -1446,35 +1443,31 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 
 	// 遍历并生成
 	for _, eleaf := range self.result {
-		//logger.Dbg("self.result", eleaf.leaf.String(), eleaf.join_context, params)
-		if eleaf.is_leaf(true) {
+		logger.Dbg("self.result", eleaf.leaf.String(), eleaf.join_context, params)
+		if eleaf.isLeaf(true) {
 			q, p, en_p := self.leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.
 			params = en_p
 			res_params = utils.SlicInsert(res_params, 0, p...)
 			stack.Push(q)
-			//logger.Dbg("is_leaf", q, p, res_params, stack.String())
+
 		} else if eleaf.leaf.String() == NOT_OPERATOR {
-			//logger.Dbg("NOT_OPERATOR", stack.Pop().String())
 			stack.Push("(NOT (%s))", stack.Pop().String())
+
 		} else {
 			ops = map[string]string{AND_OPERATOR: " AND ", OR_OPERATOR: " OR "}
 			q1 = stack.Pop()
 			q2 = stack.Pop()
-			//logger.Dbg("q1,q2", q1 != nil, q2 != nil)
 			if q1 != nil && q2 != nil {
 				lStr := fmt.Sprintf("(%s %s %s)", q1.String(), ops[eleaf.leaf.String()], q2.String())
-				//logger.Dbg("q1,q2 2", q1 != nil, q2 != nil, lStr, stack.Len(), stack.String())
 				stack.Push(lStr)
-				//logger.Dbg("q1,q2 2", q1 != nil, q2 != nil, lStr, stack.Len(), stack.String())
 			}
 		}
 	}
 
-	//logger.Dbg("aaaa", stack.Count(), stack.String())
 	// #上面Pop取出合并后应该为1
 	if stack.Count() != 1 {
 		res_params = nil
-		logger.Errf("domain to sql error: stack.Len() %d", stack.Count())
+		logger.Errf("domain to sql error: stack.Len() %d %v", stack.Count(), self.result)
 	}
 
 	query = stack.String(0)
@@ -1482,7 +1475,7 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 	if joins != "" {
 		query = fmt.Sprintf("(%s) AND %s", joins, query)
 	}
-	//logger.Dbg("lParams.Flatten()", joins, res_params)
+
 	return []string{query}, res_params //lParams.Flatten()
 }
 

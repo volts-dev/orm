@@ -29,8 +29,8 @@ type (
 
 		// 对象被创建时
 		Default(field string, val ...interface{}) (res interface{}) // 默认值修改获取
-		One2many(ids, model string, fieldKey string) *dataset.TDataSet
-		Many2many(detail_model, ref_model string, key_id, ref_id string) *dataset.TDataSet
+		One2many(ids, model string, fieldKey string) (*dataset.TDataSet, error)
+		Many2many(detail_model, ref_model string, key_id, ref_id string) (*dataset.TDataSet, error)
 
 		// return the list of inherits model name
 		Inherits() []string
@@ -47,6 +47,7 @@ type (
 		//Field(field string, val ...*TField) (result *TField) // 作废
 		MethodByName(method string) *TMethod
 		FieldByName(field string, val ...IField) (result IField)
+		GetFieldByName(name string) IField
 		GetFields() map[string]IField
 		RelateFieldByName(field string, val ...*TRelateField) (res *TRelateField)
 		RelateFields() map[string]*TRelateField
@@ -117,6 +118,7 @@ type (
 		table         *core.Table // TODO 大写 传送给Core包使用
 		__RecordField IField      //TODO 废弃 改名称RecordIdKeyField 表的唯一主键字段 自增/主键/唯一 如：Id
 
+		// TODO　ａ object
 		idField string // the field name of UID
 
 		// # 锁
@@ -729,6 +731,11 @@ func (self *TModel) RelateFieldByName(name string, fields ...*TRelateField) (res
 	return
 }
 
+func (self *TModel) GetFieldByName(name string) IField {
+	field := self._fields[name]
+	return field
+}
+
 func (self *TModel) GetFields() map[string]IField {
 	return self._fields
 }
@@ -897,23 +904,28 @@ func (self *TModel) _add_inherited_fields() {
 
 // 获取外键所有Child关联2222222记录
 //TODO ids []string
-func (self *TModel) One2many(ids, model string, fieldKey string) (ds *dataset.TDataSet) {
-	if model != "" && fieldKey != "" {
-		lMOdelObj, err := self.osv.GetModel(model) // #i
+func (self *TModel) One2many(ids, modelName string, fieldKey string) (ds *dataset.TDataSet, err error) {
+	if modelName != "" && fieldKey != "" {
+		model, err := self.osv.GetModel(modelName) // #i
 		if err != nil {
-			logger.Dbg("func GetById():", reflect.TypeOf(lMOdelObj), model)
+			return nil, err
 		}
 
 		lDomain := fmt.Sprintf(`[('%s', 'in', [%s])]`, fieldKey, ids)
 		//logger.Dbg("One2many", lDomain)
 		//ds = lMOdelObj.SearchRead(lDomain, nil, 0, 0, "", nil)
-		ds, _ = lMOdelObj.Records().Domain(lDomain).Read()
+		ds, err = model.Records().Domain(lDomain).Read()
+		if err != nil {
+			return nil, err
+		}
 	}
-	return
+
+	return ds, nil
 }
 
-func (self *TModel) Many2many(detail_model, ref_model string, key_id, ref_id string) *dataset.TDataSet {
-	return nil
+// TODO Many2many
+func (self *TModel) Many2many(detail_model, ref_model string, key_id, ref_id string) (*dataset.TDataSet, error) {
+	return nil, nil
 }
 
 /*

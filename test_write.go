@@ -21,7 +21,7 @@ func TestWrite(title string, t *testing.T) {
 		data.Name = "Write" + utils.IntToStr(i)
 		data.Title = "Write"
 
-		id, err = model.Records().Create(data)
+		id, err := model.Records().Create(data)
 		if err != nil {
 			t.Fatalf("Create data failue %d %v", id, err)
 		}
@@ -58,7 +58,7 @@ func test_write(o *TOrm, t *testing.T) {
 	}
 
 	if effect != 1 {
-		t.Fatalf("Write effected %i", effect)
+		t.Fatalf("Write effected %d", effect)
 	}
 
 	ds, err = model.Records().Ids(ds.FieldByName("id").AsString()).Read()

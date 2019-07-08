@@ -492,7 +492,6 @@ func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
 				continue
 			}
 
-			logger.Dbg("ff", rel_id)
 			//logger.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
 			rel_ds, err := model.NameGet([]interface{}{rel_id})
 			if err != nil {
@@ -511,7 +510,7 @@ func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
 func (self *TMany2OneField) OnConvertToWrite(ctx *TFieldEventContext) (interface{}, error) {
 	switch ctx.Value.(type) {
 	case []interface{}:
-		logger.Dbg("TMany2OneField", ctx.Value)
+		//logger.Dbg("TMany2OneField", ctx.Value)
 		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
 			ctx.Value = lst[0]
 		}
@@ -529,7 +528,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 
 	switch ctx.Value.(type) {
 	case []interface{}:
-		logger.Dbg("TMany2OneField", ctx.Value)
+		//logger.Dbg("TMany2OneField", ctx.Value)
 		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
 			ctx.Value = lst[0]
 		}

@@ -5,11 +5,6 @@ import (
 	"volts-dev/utils"
 )
 
-var (
-	id  int64
-	err error
-)
-
 //TODO 无ID
 //TODO 带条件和字段
 func TestCreate(title string, t *testing.T) {
@@ -23,6 +18,11 @@ func TestCreate(title string, t *testing.T) {
 	test_create_m2m(test_orm, t)
 }
 
+func TestCreate10(title string, t *testing.T) {
+	PrintSubject(title, "Create() 10 records")
+	test_create(test_orm, t)
+}
+
 // Test the model create a record by an object
 func test_create(o *TOrm, t *testing.T) {
 	data := new(UserModel)
@@ -33,18 +33,18 @@ func test_create(o *TOrm, t *testing.T) {
 		data.Name = "Create" + utils.IntToStr(i)
 
 		// Call the API Create()
-		id, err = ss.Model("user_model").Create(data)
+		id, err := ss.Model("user_model").Create(data)
 		if err != nil {
 			t.Fatalf("create data failure %d %s", id, err.Error())
 		}
 
-		if id == -1 {
+		if id == nil {
 			t.Fatal("created not returned id")
 			return
 		}
 	}
 
-	err = ss.Commit()
+	err := ss.Commit()
 	if err != nil {
 		e := ss.Rollback()
 		if e != nil {
@@ -61,29 +61,33 @@ func test_create_relate(o *TOrm, t *testing.T) {
 
 	model, err := o.GetModel("company_model")
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 		return
 	}
 
 	id, err := model.Records().Create(data)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 		return
 	}
 
-	if id < 0 {
-		t.Error("create_with_relate not returned id")
+	if id == nil {
+		t.Fatal("create_with_relate not returned id")
 		return
 	}
 
-	partner, _ := o.GetModel("partner_model")
+	partner, err := o.GetModel("partner_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	ds, err := partner.Records().Ids(utils.IntToStr(id)).Read()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	if ds.FieldByName("name").AsString() != data.Name && ds.FieldByName("homepage").AsString() != data.Homepage {
-		t.Errorf("the value should be equal to the insert data")
+		t.Fatal("the value should be equal to the insert data")
 	}
 }
 

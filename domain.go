@@ -26,6 +26,7 @@ const (
 )
 
 var (
+	PrintToken       = false // print token
 	DOMAIN_OPERATORS = []string{NOT_OPERATOR, OR_OPERATOR, AND_OPERATOR}
 	//# Negation of domain expressions
 	DOMAIN_OPERATORS_NEGATION = map[string]string{
@@ -87,6 +88,40 @@ type (
 		children []*TDomainNode
 	}
 )
+
+func PrintDomain(list *TDomainNode) {
+	fmt.Printf(
+		"[Root]  Count:%d  Text:%v  IsList:%v ",
+		list.Count(),
+		list.String(),
+		list.IsList(),
+	)
+	fmt.Println()
+
+	printNodes(1, list)
+	fmt.Println()
+}
+
+func printNodes(idx int, list *TDomainNode) {
+	for i, Item := range list.Nodes() {
+		for j := 0; j < idx; j++ { // 空格距离ss
+			fmt.Print("  ")
+		}
+		if idx > 0 {
+			fmt.Print("┗", "  ")
+		}
+		fmt.Printf(
+			"[%d]  Count:%d  Text:%v  IsList:%v ",
+			i,
+			Item.Count(),
+			Item.String(),
+			Item.IsList(),
+		)
+
+		fmt.Println()
+		printNodes(idx+1, Item)
+	}
+}
 
 func NewDomainNode(value ...interface{}) *TDomainNode {
 	node := &TDomainNode{}
@@ -503,6 +538,11 @@ func NewDomainParser(sql string) *TDomainParser {
 			break
 		}
 
+		// print token
+		if PrintToken {
+			fmt.Println(lexer.PrintToken(item))
+		}
+
 		parser.items = append(parser.items, item)
 	}
 
@@ -627,7 +667,7 @@ func lexMultiLineComment(lex *lexer.TLexer) lexer.StateFn {
 
 func lexOperator(lex *lexer.TLexer) lexer.StateFn {
 	lex.AcceptWhile(isOperator)
-	lex.Emit(lexer.TokenOperator)
+	lex.Emit(lexer.OPERATOR)
 	return lexWhitespace
 }
 
@@ -648,7 +688,7 @@ func lexNumber(lex *lexer.TLexer) lexer.StateFn {
 		return lexIdentifierOrKeyword
 	}
 
-	lex.Emit(lexer.TokenNumber)
+	lex.Emit(lexer.NUMBER)
 	return lexWhitespace
 }
 
@@ -673,7 +713,7 @@ func lexString(lex *lexer.TLexer) lexer.StateFn {
 			if lex.Peek() == quote {
 				lex.Next()
 			} else {
-				lex.Emit(lexer.TokenString)
+				lex.Emit(lexer.STRING)
 				return lexWhitespace
 			}
 		}
@@ -725,7 +765,7 @@ func lexIdentifierOrKeyword(lex *lexer.TLexer) lexer.StateFn {
 
 func lexHolder(lex *lexer.TLexer) lexer.StateFn {
 	lex.AcceptWhile(isHolder)
-	lex.Emit(lexer.TokenValueHolder)
+	lex.Emit(lexer.HOLDER)
 	return lexWhitespace
 }
 
@@ -808,7 +848,7 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 		case lexer.RPAREN:
 			goto exit
 
-		case lexer.IDENT, lexer.TokenString, lexer.TokenNumber, lexer.TokenValueHolder:
+		case lexer.IDENT, lexer.HOLDER, lexer.STRING, lexer.NUMBER:
 			if utils.InStrings(strings.ToLower(item.Val), "and", "or") != -1 {
 				if strings.ToLower(item.Val) == "and" {
 					temp.Insert(AndOrCount, AND_OPERATOR)
@@ -824,10 +864,10 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 				break
 			}
 
-			list.Push(_trim_quotes(item.Val))
+			list.Push(trimQuotes(item.Val))
 
-		case lexer.TokenOperator, lexer.TokenKeyword:
-			list.Push(_trim_quotes(item.Val))
+		case lexer.OPERATOR, lexer.KEYWORD:
+			list.Push(trimQuotes(item.Val))
 
 		}
 
@@ -854,7 +894,7 @@ exit:
 	}
 }
 
-func _trim_quotes(s string) string {
+func trimQuotes(s string) string {
 	s = strings.Trim(s, `'`)
 	s = strings.Trim(s, `"`)
 	return s
@@ -883,16 +923,20 @@ func Query2Domain(qry string) (*TDomainNode, error) {
 // transfer string domain to a domain object
 func String2Domain(domain string) (*TDomainNode, error) {
 	parser := NewDomainParser(domain)
-	res_domain, err := parseQuery(parser, 0)
-	if err != nil {
-		return nil, err
-	}
+	return parseQuery(parser, 0)
 
-	if res_domain.Count() == 0 {
-		return nil, fmt.Errorf("could not parse the string('%s') to domain", domain)
-	}
+	/*
+		res_domain, err := parseQuery(parser, 0)
+		if err != nil {
+			return nil, err
+		}
 
-	return res_domain.Item(0), nil
+		if res_domain.Count() == 0 {
+			return nil, fmt.Errorf("could not parse the string('%s') to domain", domain)
+		}
+
+		return res_domain.Item(0), nil
+	*/
 }
 
 // transfer the domain object to string
@@ -905,7 +949,12 @@ func parseDomain(node *TDomainNode) string {
 	//STEP  如果是Value Object 不处理
 	IsList := false
 	if node.Count() == 0 {
+		if node.Value != nil {
+			return utils.Itf2Str(node.Value)
+		}
+
 		return ""
+
 	} else {
 		IsList = true
 	}
@@ -916,7 +965,7 @@ func parseDomain(node *TDomainNode) string {
 
 	for _, item := range node.children {
 		//fmt.Println("item", item.String())
-		/*if is_leaf(item) {
+		/*if isLeaf(item) {
 			lStr = `(` + node.Quote(item.String(0)) + `, ` + node.Quote(item.String(1)) + `, `
 			if item.Item(2).IsList() {
 				lStr = lStr + `[` + item.String(2) + `])`
@@ -951,7 +1000,7 @@ func parseDomain(node *TDomainNode) string {
 	lStr = strings.Join(lStrLst, ",")
 
 	// 组合[XX,XX]
-	if is_leaf(node) {
+	if isLeaf(node) {
 		lStr = `(` + lStr + `)`
 	} else if IsList {
 		lStr = `[` + lStr + `]`
@@ -971,7 +1020,7 @@ func parseDomain(node *TDomainNode) string {
 
     Note: OLD TODO change the share wizard to use this function.
 """*/
-func is_leaf(element *TDomainNode, internal ...bool) bool {
+func isLeaf(element *TDomainNode, internal ...bool) bool {
 	INTERNAL_OPS := append(TERM_OPERATORS, "<>")
 
 	if internal != nil && internal[0] {
@@ -984,7 +1033,7 @@ func is_leaf(element *TDomainNode, internal ...bool) bool {
 	//||utils.InStrings(Domain2String(element), TRUE_LEAF, FALSE_LEAF) != -1 // BUG
 
 	/*
-	   def is_leaf(element, internal=False):
+	   def isLeaf(element, internal=False):
 
 	       INTERNAL_OPS = TERM_OPERATORS + ('<>',)
 	       if internal:

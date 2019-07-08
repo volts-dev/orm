@@ -35,7 +35,7 @@ func test_sync(t *testing.T) {
 		t.Fatalf("model should be empty!")
 	}
 
-	isEmpty, err = test_orm.IsTableEmpty("user.model")
+	isEmpty, err = test_orm.IsTableEmpty("user_model")
 	if err != nil {
 		t.Fatalf("test IsTableEmpty() failure: %v", err)
 	}
@@ -52,13 +52,13 @@ func test_sync(t *testing.T) {
 	}
 
 	PrintSubject(title, "DropTables()")
-	err = test_orm.DropTables("partner.model", "company.model", "user.model", "company.user.ref")
+	err = test_orm.DropTables("partner.model", "company.model", "user_model", "company.user.ref")
 	if err != nil {
 		panic(err)
 	}
 
 	PrintSubject(title, "CreateTables()")
-	err = test_orm.CreateTables("partner.model", "company.model", "user.model", "company.user.ref")
+	err = test_orm.CreateTables("partner.model", "company.model", "user_model", "company.user.ref")
 	if err != nil {
 		panic(err)
 	}
@@ -73,7 +73,7 @@ func test_sync(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	err = test_orm.CreateIndexes("user.model")
+	err = test_orm.CreateIndexes("user_model")
 	if err != nil {
 		panic(err)
 	}
@@ -91,7 +91,7 @@ func test_sync(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	err = test_orm.CreateUniques("user.model")
+	err = test_orm.CreateUniques("user_model")
 	if err != nil {
 		panic(err)
 	}

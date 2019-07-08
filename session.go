@@ -627,6 +627,18 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	return self
 }
 
+// TODO 在生成的SQL语句前加sql
+func (self *TSession) Prefix(sql string) *TSession {
+	return self
+
+}
+
+// TODO 在生成的SQL语句后加sqlS
+func (self *TSession) Suffix(sql string) *TSession {
+	return self
+
+}
+
 // select filed or select all using * symbol
 func (self *TSession) Select(fields ...string) *TSession {
 	self.Statement.Select(fields...)
@@ -754,15 +766,15 @@ func (self *TSession) _validate(vals map[string]interface{}) {
 	}
 }
 
-func (self *TSession) create(src interface{}, classic_create bool) (res_id int64, res_err error) {
+func (self *TSession) create(src interface{}, classic_create bool) (res_id interface{}, res_err error) {
 	if len(self.Statement.TableName()) < 1 {
-		return -1, ErrTableNotFound
+		return nil, ErrTableNotFound
 	}
 
 	vals := self.itf_to_itfmap(src)
 	if len(vals) == 0 {
 		res_err = fmt.Errorf("can't support this type of values: %v", src)
-		return -1, res_err
+		return nil, res_err
 	}
 
 	// the list of tuples used in this formatting corresponds to
@@ -799,7 +811,7 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id int64
 
 	lNewVals, lRefVals, lNewTodo, res_err = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, false)
 	if res_err != nil {
-		return -1, res_err
+		return nil, res_err
 	}
 	//
 	for tbl, rel_vals := range lRefVals {
@@ -814,25 +826,25 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id int64
 		//}
 
 		// 获取管理表ID字段
-		record_id := ""
-		record_id = utils.Itf2Str(rel_vals[self.Statement.IdKey])
+		record_id := rel_vals[self.Statement.IdKey]
 		//logger.Dbg("record_id", record_id)
 
 		// 创建或者更新关联表记录
 		lMdlObj, err := self.orm.osv.GetModel(tbl) // #i
-		if err == nil {
-			//logger.Dbg("record_id", record_id)
-			if record_id == "" || record_id == "0" {
-				effect, err := lMdlObj.Records().Create(rel_vals)
-				if err != nil {
-					logger.Err(err)
-				}
-				record_id = utils.IntToStr(effect)
-			} else {
-				lMdlObj.Records().Ids(record_id).Write(rel_vals)
+		if err != nil {
+			return nil, err
+		}
+
+		//logger.Dbg("record_id", record_id)
+		if record_id == nil || utils.IsBlank(record_id) {
+			effect, err := lMdlObj.Records().Create(rel_vals)
+			if err != nil {
+				return nil, err
 			}
+			record_id = effect
+
 		} else {
-			logger.Err(err)
+			lMdlObj.Records().Ids(record_id).Write(rel_vals)
 		}
 
 		lNewVals[self.model._relations[tbl]] = record_id
@@ -864,7 +876,7 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id int64
 		}
 
 		if k == id_field {
-			res_id = v.(int64)
+			res_id = v
 		}
 
 		if fields != "" {
@@ -879,11 +891,9 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id int64
 
 	// generate returning field
 	lReturnKey := ""
-	if res_id < 1 { // the model not using IdField
-		auto_field := self.orm.GetTable(self.Statement.TableName()).AutoIncrement
-		id_field = auto_field
-
-		id_field := self.orm.Quote(id_field)
+	if res_id == nil || utils.IsBlank(res_id) { // the model not using IdField
+		id_field = self.orm.GetTable(self.Statement.TableName()).AutoIncrement
+		id_field = self.orm.Quote(id_field)
 		if id_field != "" {
 			lReturnKey = ` RETURNING ` + id_field
 		}
@@ -903,13 +913,14 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id int64
 
 	res, err := self.Exec(sql, params...)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 
+	// 支持递增字段返回ID
 	if lReturnKey != "" {
 		res_id, res_err = res.LastInsertId()
 		if res_err != nil {
-			return -1, res_err
+			return nil, res_err
 		}
 	}
 
@@ -922,7 +933,7 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id int64
 				lField.OnWrite(&TFieldEventContext{
 					Session: self,
 					Model:   self.model,
-					Id:      utils.IntToStr(res_id),
+					Id:      res_id,
 					Field:   lField,
 					Value:   vals[name]})
 				/*
@@ -941,11 +952,12 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id int64
 		}
 	}
 
-	if res_id != 0 {
+	if res_id != nil {
 		//更新缓存
 		table_name := self.Statement.TableName()
 		lRec := dataset.NewRecordSet(nil, lNewVals)
 		self.orm.cacher.PutById(table_name, utils.IntToStr(res_id), lRec) //for create
+
 		// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
 		self.orm.cacher.ClearByTable(table_name) //for create
 	}
@@ -1405,7 +1417,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 
 	// 更新计算字段
 	for _, name := range lNewTodo {
-		logger.Dbg(name)
+		//logger.Dbg(name)
 		lField := self.model.FieldByName(name)
 		if lField != nil {
 			lField.OnWrite(&TFieldEventContext{
@@ -1474,13 +1486,13 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 	return
 }
 
-func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id int64, res_err error) {
+func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id interface{}, res_err error) {
 	if self.IsAutoClose {
 		defer self.Close()
 	}
 
 	if self.IsDeprecated {
-		return -1, fmt.Errorf("the session of query is invalid!")
+		return nil, fmt.Errorf("the session of query is invalid!")
 	}
 
 	var classic bool
@@ -1601,14 +1613,12 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 		}
 	}
 	//}
-	logger.Dbg("read")
 
 	//# fetch stored fields from the database to the cache
 	dataset, _, err := self._read_from_database(lIds, stored, inherited)
 	if err != nil {
 		return nil, err
 	}
-	logger.Dbg("read1")
 
 	// 处理那些数据库不存在的字段：company_ids...
 	//# retrieve results from records; this takes values from the cache and
@@ -1629,7 +1639,6 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 
 	// 获取ManytoOne的Name
 	//use_name_get := classic_read
-	logger.Dbg("read2")
 
 	//dataset.First()
 	//for !dataset.Eof() {
@@ -1667,11 +1676,9 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 
 	//	dataset.Next()
 	//}
-	logger.Dbg("read3")
 
 	dataset.First() // 返回游标0
 	dataset.Classic(classic_read)
-
 	return dataset, nil
 }
 
@@ -2153,7 +2160,7 @@ func _ids_to_sql(ids ...interface{}) string {
 func (self *TSession) _read_from_database(ids []interface{}, field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string, err error) {
 	// # 从缓存里获得数据
 	records, less_ids := self._read_from_cache(ids)
-	logger.Dbg("db")
+
 	// # 补缺缓存没有的数据
 	if len(less_ids) > 0 {
 		table_name := self.Statement.TableName()
@@ -2229,7 +2236,6 @@ func (self *TSession) _read_from_database(ids []interface{}, field_names, inheri
 			where_clause,
 			order_str,
 		)
-		//logger.Dbg("read sql", res_sql)
 
 		//res_ds:=NewDataSet()
 
@@ -2286,7 +2292,8 @@ func (self *TSession) _read_from_database(ids []interface{}, field_names, inheri
 				self.orm.cacher.PutById(table_name, id, rec)
 			}
 		*/
-	} else { // # init dataset
+	} else {
+		// # init dataset
 		res_ds = dataset.NewDataSet()
 		//res_ds.KeyField = self.Statement.IdKey //#重要配Key置
 		//res_ds.SetKeyField(self.Statement.IdKey)//# 废除因为无效果

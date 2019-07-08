@@ -151,7 +151,7 @@ func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
 			logger.Err(err)
 		}
 
-		//logger.Dbg("op", query, new_cond.String(0), StringList2Domain(new_cond), StringList2Domain(new_cond.Item(0)))
+		//logger.Dbg("op ", query, new_cond.Count(), new_cond.String(), Domain2String(new_cond))
 		if self.domain == nil || self.domain.Count() == 0 {
 			if self.domain == nil {
 				// build a [] list for contain condition leaf
@@ -646,7 +646,6 @@ func (self *TStatement) _where_calc(domain *TDomainNode, active_test bool, conte
 	if context == nil {
 		context = make(map[string]interface{})
 	}
-	logger.Dbg("_where_calc")
 
 	// domain = domain[:]
 	// if the object has a field named 'active', filter out all inactive
@@ -670,15 +669,12 @@ func (self *TStatement) _where_calc(domain *TDomainNode, active_test bool, conte
 				domain.Insert(0, node)
 			}
 		} else {
-			logger.Dbg("_where_calc1")
-
 			//domain = Query2StringList(`[('active', '=', 1)]`)
 			var err error
 			domain, err = String2Domain(`[('active', '=', 1)]`)
 			if err != nil {
 				logger.Err(err)
 			}
-			logger.Dbg("_where_calc2")
 
 		}
 	}
@@ -687,13 +683,10 @@ func (self *TStatement) _where_calc(domain *TDomainNode, active_test bool, conte
 	var where_clause []string
 	var where_params []interface{}
 	if domain != nil && domain.Count() > 0 {
-		logger.Dbg("_where_calc3")
-
 		exp, err := NewExpression(self.Session.model, domain, context)
 		if err != nil {
 			return nil, err
 		}
-		logger.Dbg("_where_calc4")
 
 		tables = exp.get_tables().Strings()
 		where_clause, where_params = exp.to_sql(self.Params...)
@@ -702,7 +695,6 @@ func (self *TStatement) _where_calc(domain *TDomainNode, active_test bool, conte
 		where_clause, where_params, tables = nil, nil, append(tables, self.Session.Statement.TableName())
 
 	}
-	logger.Dbg("_where_calc5")
 
 	return NewQuery(tables, where_clause, where_params, nil, nil), nil //self.Registry.r Query(tables, where_clause, where_params)
 }

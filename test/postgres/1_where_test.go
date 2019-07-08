@@ -6,5 +6,6 @@ import (
 )
 
 func TestWhere(t *testing.T) {
-	orm.TestWhere(test.TestOrm, t)
+	orm.TestCreate10("", t)
+	orm.TestWhere("", t)
 }

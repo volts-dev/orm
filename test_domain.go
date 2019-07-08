@@ -14,7 +14,7 @@ func TestDomain(title string, o *TOrm, t *testing.T) {
 func test_read_by_domain(o *TOrm, t *testing.T) {
 	domain := `[('id', 'in', [1,6])]`
 
-	model, _ := o.GetModel("user.model")
+	model, _ := o.GetModel("user_model")
 	ds, err := model.Records().Domain(domain).Read()
 	if err != nil {
 		panic(err)

@@ -17,5 +17,5 @@ var (
 	ErrNeedDeletedCond error = errors.New("Delete need at least one condition")
 	ErrNotImplemented  error = errors.New("Not implemented.")
 	ErrDeleteFailed    error = errors.New("Delete Failed.")
-	ErrInvalidSession  error = errors.New("the session of query is invalid!")
+	ErrInvalidSession  error = errors.New("The session of query is invalid!")
 )

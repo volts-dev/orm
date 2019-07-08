@@ -3,20 +3,29 @@ package orm
 import (
 	"fmt"
 	"testing"
-
-	"github.com/volts-dev/utils"
 )
 
-func TestDomain(t *testing.T) {
-	var domain string
-	domain = `[('act_window_id', 'in', [1])]`
-	fmt.Println(domain)
-	ls := Query2StringList(domain)
-	utils.PrintStringList(ls)
+func TestExpression(t *testing.T) {
+	test_leaf_1(t)
+}
 
-	ls = normalize_domain(ls)
-	utils.PrintStringList(ls)
+func test_leaf_1(t *testing.T) {
+	var err error
+	qry := `[('id', 'in', [1])]`
+	fmt.Println(qry)
 
-	ls = distribute_not(ls)
-	utils.PrintStringList(ls)
+	domain, err := String2Domain(qry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	PrintDomain(domain)
+
+	domain, err = normalize_domain(domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	PrintDomain(domain)
+
+	domain = distribute_not(domain)
+	PrintDomain(domain)
 }

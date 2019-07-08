@@ -35,7 +35,7 @@ func test_read(o *TOrm, t *testing.T) {
 	}
 
 	if ds.Count() == 0 {
-		t.Fatalf("Read return %d", ds.Count())
+		t.Fatalf("the action Read() return %d!", ds.Count())
 	}
 }
 

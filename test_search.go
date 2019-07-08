@@ -10,7 +10,7 @@ func TestSearch(title string, t *testing.T) {
 }
 
 func test_search(o *TOrm, t *testing.T) {
-	model, _ := o.GetModel("user.model")
+	model, _ := o.GetModel("user_model")
 	ids, err := model.Records().Select("*").Search()
 	if err != nil {
 		t.Fatalf("testing search() failure")
