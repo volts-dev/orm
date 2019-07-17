@@ -67,7 +67,7 @@ type (
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
-		SearchName(name string, domain string, operator string, limit int, name_get_uid string, context map[string]interface{}) *dataset.TDataSet
+		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) *dataset.TDataSet
 		//SearchCount(domain string, context map[string]interface{}) int
 	}
 
@@ -91,7 +91,7 @@ type (
 
 		_cls_type  reflect.Type  // # Model 反射类
 		_cls_value reflect.Value // # Model 反射值 供某些程序调用方法
-		_name      string        // # xx.xx 映射在OSV的名称
+		name       string        // # xx.xx 映射在OSV的名称
 		//_table         string                       // # xx_xx 映射在数据库上的名称
 		_inherits      []string                     // # Pg数据库表继承 #考虑废弃
 		_fields        map[string]IField            // # model的所有字段
@@ -118,7 +118,7 @@ type (
 		table         *core.Table // TODO 大写 传送给Core包使用
 		__RecordField IField      //TODO 废弃 改名称RecordIdKeyField 表的唯一主键字段 自增/主键/唯一 如：Id
 
-		// TODO　ａ object
+		// TODO　a object
 		idField string // the field name of UID
 
 		// # 锁
@@ -155,7 +155,7 @@ func NewModel(name string, model_value reflect.Value, model_type reflect.Type) (
 	mdl = &TModel{
 		_cls_type:  model_type,
 		_cls_value: model_value,
-		_name:      name,
+		name:       name,
 		//_table:         strings.Replace(name, ".", "_", -1),
 		_fields:        make(map[string]IField),
 		_relate_fields: make(map[string]*TRelateField),
@@ -206,14 +206,14 @@ func (self *TModel) GetRecordName() string {
 
 // pravite
 func (self *TModel) SetName(n string) {
-	self._name = n
+	self.name = n
 	//self._table = strings.Replace(n, ".", "_", -1)
 	self.table.Name = strings.Replace(n, ".", "_", -1)
 }
 
 // 获取Model名称
 func (self *TModel) GetModelName() string {
-	return self._name
+	return self.name
 }
 
 // 返回Model的描述字符串
@@ -346,7 +346,7 @@ func (self *TModel) _search(args *utils.TStringList, fields []string, offset int
 	return res.Keys()
 }
 */
-func (self *TModel) _search_name(name string, args *utils.TStringList, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (ds *dataset.TDataSet) {
+func (self *TModel) __search_name(name string, args *utils.TStringList, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (ds *dataset.TDataSet) {
 	/*	// private implementation of name_search, allows passing a dedicated user
 		// for the name_get part to solve some access rights issues
 		if args == nil {
@@ -362,7 +362,7 @@ func (self *TModel) _search_name(name string, args *utils.TStringList, operator 
 		}
 		// optimize out the default criterion of ``ilike ''`` that matches everything
 		if self._rec_name == "" {
-			utils.Logger.Warn("Cannot execute name_search, no _rec_name defined on %s", self._name)
+			utils.Logger.Warn("Cannot execute name_search, no _rec_name defined on %s", self.name)
 		} else if name != "" && operator != "ilike" {
 			lDomain := NewStringList()
 			lDomain.PushString(self._rec_name)
@@ -427,7 +427,7 @@ func (self *TModel) __convert_to_read(field IField, value interface{}, use_name_
 			//   value_sudo = value.sudo()
 			//# performance trick: make sure that all records of the same
 			//# model as value in value.env will be prefetched in value_sudo.env
-			// value_sudo.env.prefetch[value._name].update(value.env.prefetch[value._name])
+			// value_sudo.env.prefetch[value.name].update(value.env.prefetch[value.name])
 			lModel, err := self.osv.GetModel(field.Base().RelateModelName()) // #i
 			if err != nil {
 				logger.Err(err, "@convert_to_read")
@@ -466,53 +466,13 @@ func (self *TModel) __convert_to_read(field IField, value interface{}, use_name_
 	return
 }
 
-// 获取字段值 for m2m,selection,
-// return :map[string]interface{} 可以是map[id]map[field]vals,map[string]map[xxx][]string,
-func (self *TModel) __field_value_get(ids []string, fields []*TField, values *dataset.TDataSet, context map[string]interface{}) (result map[string]map[string]interface{}) {
-	lField := fields[0]
-	switch lField.Type() {
-	case "one2many":
-		//if self._context:
-		//    context = dict(context or {})
-		//    context.update(self._context)
-
-		//# retrieve the records in the comodel
-		comodel, err := self.osv.GetModel(lField.RelateModelName()) //obj.pool[self._obj].browse(cr, user, [], context)
-		if err != nil {
-			logger.Err(err)
-		}
-		inverse := lField.RelateFieldName()
-		//domain = self._domain(obj) if callable(self._domain) else self._domain
-		// domain = domain + [(inverse, 'in', ids)]
-		domain := fmt.Sprintf(`[('%s', 'in', [%s])]`, inverse, strings.Join(ids, ","))
-		//records_ids := comodel.Search(domain, 0, 0, "", false, nil)
-		lDs, _ := comodel.Records().Domain(domain).Read() // #i
-		records_ids := lDs.Keys()
-		// result = {id: [] for id in ids}
-		//# read the inverse of records without prefetching other fields on them
-		result = make(map[string]map[string]interface{})
-
-		for _, id := range ids {
-			for _, f := range fields {
-				result[id] = make(map[string]interface{})
-				result[id][f.Name()] = map[string][]interface{}{id: records_ids}
-			}
-		}
-
-		return result
-	case "many2many": // "many2one" is classic write
-	case "selection":
-	}
-	return
-}
-
 //根据名称创建简约记录
 func (self *TModel) name_create() {
 
 }
 
 // 获得id和名称
-func (self *TModel) _name_get(ids []interface{}, fields []string) (result *dataset.TDataSet) {
+func (self *TModel) __name_get(ids []interface{}, fields []string) (result *dataset.TDataSet) {
 	//result = self.Read(ids, fields)
 	result, _ = self.Records().Select(fields...).Ids(ids...).Read()
 	return
@@ -541,7 +501,7 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 	return nil, fmt.Errorf("%s Call NameGet() failure! Arg: %v", self.GetModelName(), ids)
 }
 
-func (self *TModel) SearchName(name string, domain string, operator string, limit int, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet) {
+func (self *TModel) SearchName(name string, domain string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet) {
 	if operator == "" {
 		operator = "ilike"
 	}
@@ -567,7 +527,7 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 	}
 	// 检测name 字段
 	if self._rec_name == "" {
-		logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self._name)
+		logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self.name)
 		//logger.Dbg("SearchName:", name, domain, lDomain.String())
 		return nil
 	}
@@ -582,21 +542,21 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 	if fld := self.FieldByName(self._rec_name); fld != nil {
 		lNameField = self._rec_name
 	} else {
-		lNameField = self._name
+		lNameField = self.name
 	}
 
 	//logger.Dbg("SearchName:", lNameField, lDomain.String())
 	//access_rights_uid = name_get_uid or user
 	// 获取匹配的Ids
 	//lIds := self._search(lDomain, nil, 0, limit, "", false, access_rights_uid, context)
-	lDs, _ := self.Records().Domain(lDomain.String()).Limit(int(limit)).Read()
+	lDs, _ := self.Records().Domain(lDomain.String()).Limit(limit).Read()
 	lIds := lDs.Keys()
 	result, _ = self.Records().Select(self.idField, lNameField).Ids(lIds...).Read()
 	return result //self.name_get(lIds, []string{"id", lNameField}) //self.SearchRead(lDomain.String(), []string{"id", lNameField}, 0, limit, "", context)
 }
 
 // 更新单一字段
-func (self *TModel) _WriteField(id int64, field *TField, value string, rel_context map[string]interface{}) {
+func (self *TModel) __WriteField(id int64, field *TField, value string, rel_context map[string]interface{}) {
 	//self._update_field(id, field, value, rel_context)
 }
 
@@ -736,14 +696,17 @@ func (self *TModel) GetFieldByName(name string) IField {
 	return field
 }
 
+// Fields returns the fields collection of this model
 func (self *TModel) GetFields() map[string]IField {
 	return self._fields
 }
 
+// RelateFields returns the relate fields collection of this model
 func (self *TModel) RelateFields() map[string]*TRelateField {
 	return self._relate_fields
 }
 
+//
 func (self *TModel) Relations() map[string]string {
 	return self._relations
 }
@@ -753,11 +716,6 @@ func (self *TModel) IdField(field ...string) string {
 		self.idField = field[0]
 	}
 	return self.idField
-}
-
-// Fields returns the fields collection of this model
-func (self *TModel) Fields_() *TFieldsSet {
-	return self.fields
 }
 
 // Methods returns the methods collection of this model
@@ -779,7 +737,6 @@ func (self *TModel) Orm() *TOrm {
 func (self *TModel) Records() *TSession {
 	lSession := self.orm.NewSession()
 	lSession.model = self
-	//lSession.Statement.TableNameClause = self.GetTableName()
 	lSession.IsClassic = true
 
 	return lSession.Model(self.GetModelName())
@@ -944,7 +901,7 @@ func (self *TModel) Many2many(detail_model, ref_model string, key_id, ref_id str
 	  _auto_end).
 
 */
-func (self *TModel) _select_column_data() *dataset.TDataSet {
+func (self *TModel) __select_column_data() *dataset.TDataSet {
 	//# attlen is the number of bytes necessary to represent the type when
 	// # the type has a fixed size. If the type has a varying size attlen is
 	//# -1 and atttypmod is the size limit + 4, or -1 if there is no limit.
@@ -963,20 +920,6 @@ func (self *TModel) _select_column_data() *dataset.TDataSet {
 	logger.Err(err)
 
 	return lDs
-
-}
-
-func (self *TModel) _table_exist() bool {
-	lDs, err := self.orm.Query(`SELECT relname FROM pg_class WHERE relkind IN ('r','v') AND relname=%s`, self.GetTableName())
-	logger.Err(err)
-	return lDs.Count() > 0
-}
-
-// 由ORM接管
-func (self *TModel) _create_table() {
-	//   cr.execute('CREATE TABLE "%s" (id SERIAL NOT NULL, PRIMARY KEY(id))' % (self._table,))
-	//   cr.execute(("COMMENT ON TABLE \"%s\" IS %%s" % self._table), (self._description,))
-	//   _schema.debug("Table '%s': created", self._table)
 
 }
 

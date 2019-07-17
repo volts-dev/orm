@@ -9,7 +9,7 @@ import (
 func test_sync(t *testing.T) {
 	title := "Sync"
 	PrintSubject(title, "SyncModel()")
-	err := test_orm.SyncModel("test",
+	_, err := test_orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),
 		new(UserModel),

@@ -135,14 +135,14 @@ func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 	var lObj *TObj
 	var lMethod reflect.Method
 
-	//logger.Dbg("RegisterModel:", region, aModel._name, aModel._cls_type, aModel._cls_type.PkgPath())
+	//logger.Dbg("RegisterModel:", region, aModel.name, aModel._cls_type, aModel._cls_type.PkgPath())
 	//获得Object 检查是否存在，不存在则创建
-	if obj, has := self.models[aModel._name]; !has {
-		lObj = self.new_obj(aModel._name)
-		lObj.name = aModel._name // Model 名称
+	if obj, has := self.models[aModel.name]; !has {
+		lObj = self.new_obj(aModel.name)
+		lObj.name = aModel.name // Model 名称
 		lObj.uidFieldName = aModel.idField
-		self.models[aModel._name] = lObj
-		//logger.Dbg("!has", region, aModel._name)
+		self.models[aModel.name] = lObj
+		//logger.Dbg("!has", region, aModel.name)
 	} else {
 		lObj = obj
 	}
@@ -156,7 +156,7 @@ func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 	}
 
 	//STEP 添加Model 类型
-	lObj.object_types[region][aModel._name] = aModel._cls_type
+	lObj.object_types[region][aModel.name] = aModel._cls_type
 
 	//utils.Dbg("RegisterModel Method", aType, aType.NumField(), aType.NumMethod())
 	// @添加方法映射到对象里
@@ -216,7 +216,7 @@ func (self *TOsv) newObj(name string) (obj *TObj) {
 		}
 
 		self.models[name] = obj
-		//logger.Dbg("!has", region, aModel._name)
+		//logger.Dbg("!has", region, aModel.name)
 	}
 
 	return obj
@@ -244,7 +244,7 @@ func (self *TOsv) new_obj(name string) (obj *TObj) {
 // 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
 func (self *TOsv) GetMethod(model, name string) (res_md *TMethod) {
-	lModel := self._getModelByMethod(model, name)
+	lModel := self.getModelByMethod(model, name)
 
 	//web.Debug("CallModelHandler", utils.TitleCasedName(name))
 	//web.Debug("CallModelHandler", lM.IsNil())
@@ -307,12 +307,25 @@ func (self *TOsv) GetModel(model string, module ...string) (IModel, error) {
 	return nil, errors.New("Model is a interface of IModel")
 }
 
+//
+func (self *TOsv) GetModels() (models []string) {
+	models = make([]string, len(self.models))
+
+	idx := 0
+	for name, _ := range self.models {
+		models[idx] = name
+		idx++
+	}
+
+	return models
+}
+
 // @ name
 // @ Session
 // @ Registry
 func (self *TOsv) NewModel(name string) (mdl *TModel) {
 	mdl = &TModel{
-		_name: name,
+		name: name,
 		//_table:  strings.Replace(name, ".", "_", -1),
 		_fields: make(map[string]IField),
 	}
@@ -383,7 +396,7 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TObj, 
 }
 
 // #module 可以为空取默认
-func (self *TOsv) _getModelByModule(region, model string) (val reflect.Value) {
+func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 	var (
 		has         bool
 		obj         *TObj
@@ -394,7 +407,7 @@ func (self *TOsv) _getModelByModule(region, model string) (val reflect.Value) {
 
 	//获取Model的Object对象
 	if obj, has = self.models[model]; has {
-		//logger.Dbg("_getModelByModule1", obj, len(self.models), region, model)
+		//logger.Dbg("getModelByModule1", obj, len(self.models), region, model)
 
 		// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
 		for module_name, module_map = range obj.object_types {
@@ -431,7 +444,7 @@ func (self *TOsv) _getModelByModule(region, model string) (val reflect.Value) {
 }
 
 // TODO 继承类Model 的方法调用顺序提取
-func (self *TOsv) _getModelByMethod(model string, method string) (val reflect.Value) {
+func (self *TOsv) getModelByMethod(model string, method string) (val reflect.Value) {
 	var (
 		has   bool
 		obj   *TObj
@@ -458,7 +471,7 @@ func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error)
 		return nil, errors.New("Must enter a model name!")
 	}
 
-	lM := self._getModelByModule(region, model)
+	lM := self.getModelByModule(region, model)
 	if lM.IsValid() && !lM.IsNil() {
 		if m, ok := lM.Interface().(IModel); ok {
 			return m, nil
@@ -480,7 +493,7 @@ func (self *TOsv) ContainsModel(m string) (has bool) {
 // 废弃 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
 func (self *TOsv) CallModelHandler(handler *server.TWebHandler, model, method string) bool {
-	lM := self._getModelByMethod(model, method)
+	lM := self.getModelByMethod(model, method)
 
 	if lM.IsValid() { //|| !lM.IsNil()
 		// 转换method

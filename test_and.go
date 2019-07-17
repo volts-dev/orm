@@ -5,36 +5,46 @@ import (
 	//	"github.com/volts-dev/utils"
 )
 
-func TestAnd(orm *TOrm, t *testing.T) {
-	// 注册Model
-	/*	orm.SyncModel("test",
-			new(BaseModel),
-			new(RelateModel),
-			new(BaseRelateRef),
-		)
+func TestAnd(title string, t *testing.T) {
+	PrintSubject(title, "And()")
+	test_and(test_orm, t)
+}
 
-		model, _ := orm.GetModel("base.model")
-		session := model.Records()
+func test_and(o *TOrm, t *testing.T) {
+	model, err := o.GetModel("user_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 测试Select 默认所有
+	ds, err := model.Records().Where("id=?", 1).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		ids := make([]interface{}, 0)
-		var i int64
-		for i = 0; i < 50; i++ {
-			data := &BaseModel{Name: "Orm" + utils.IntToStr(i), Title: "小明" + utils.IntToStr(i+5), Help: utils.Md5(utils.IntToStr(i))}
+	// 测试Select 默认所有
+	ds, err = model.Records().Where("id=? and title=?", 1, "admin").Read()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			id, err := session.Create(data)
-			if err != nil {
-				t.Error(err)
-				panic(err)
-			}
-			t.Log(id)
-			ids = append(ids, i)
-		}
-		session.Commit()
+	ds, err = model.Records().Where("id=? and title=? or help=?", 1, "admin", "您好!").Read()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		dataset, err := model.Records().Where("name=?", "Orm1").And("title=?", "小明6").And("help ilike ?", "%a%").Read()
-		if err != nil {
-			panic(err.Error())
-		}
+	// 测试Select 所有
+	ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Read()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		t.Log(dataset.Keys())*/
+	// 测试Select 所有
+	ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Or("help=?", "您好!").Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ds.Count() == 0 {
+		t.Fatalf("the action Read() return %d!", ds.Count())
+	}
 }

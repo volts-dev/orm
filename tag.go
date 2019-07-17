@@ -354,9 +354,9 @@ func tag_extends_relate(ctx *TFieldContext) {
 						model.GetBase()._common_fields[fld.Name()] = make(map[string]IField)
 					}
 
-					model.GetBase()._common_fields[fld.Name()][parentModel._name] = lNewFld
+					model.GetBase()._common_fields[fld.Name()][parentModel.name] = lNewFld
 					model.GetBase()._common_fields[fld.Name()][f.Base().model_name] = f
-					//logger.Dbg("_common_fields2", fld.Name, parentModel._name, f.model_name, &lNewFld)
+					//logger.Dbg("_common_fields2", fld.Name, parentModel.name, f.model_name, &lNewFld)
 				}
 			}
 		}
@@ -554,9 +554,9 @@ func tag_table_name(ctx *TFieldContext) {
 		name = strings.Trim(name, "'")
 
 		if name != "" { // 检测合法不为空
-			model.GetBase()._name = fmtModelName(name)
+			model.GetBase().name = fmtModelName(name)
 			model.GetBase().table.Name = fmtModelName(name) //strings.Replace(name, ".", "_", -1)
-			//logger.Dbg("tag_table_name", params, name, model.GetBase()._name, model.GetBase().table.Name)
+			//logger.Dbg("tag_table_name", params, name, model.GetBase().name, model.GetBase().table.Name)
 		}
 	}
 }

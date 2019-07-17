@@ -895,7 +895,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 					if strings.ToLower(attr) == "relate" {
 						if len(vals) > 1 {
-							lRefFldName := utils.SnakeCasedName(vals[1])
+							lRefFldName := fmtFieldName(vals[1])
 							lRelateFields = append(lRelateFields, lRefFldName)
 							//logger.Dbg("relate to:", utils.DotCasedName(lMemberName), lRefFldName)
 
@@ -1092,10 +1092,14 @@ func (self *TOrm) HasModel(name string) bool {
 	return self.osv.HasModel(name)
 }
 
-// TODO　考虑返回错误
 // get model object from the orm which registed
 func (self *TOrm) GetModel(model string, module ...string) (res_model IModel, err error) {
 	return self.osv.GetModel(model, module...)
+}
+
+// return the mane of models
+func (self *TOrm) GetModels() []string {
+	return self.osv.GetModels()
 }
 
 // return the table object
@@ -1362,7 +1366,7 @@ func (self *TOrm) DBMetas() (res_tables []*core.Table, err error) {
 //# 插入一个新的Table并创建
 // 同步更新Model 并返回同步后表 <字段>
 //region 区分相同Model名称来自哪个模块，等级
-func (self *TOrm) SyncModel(region string, models ...interface{}) (err error) {
+func (self *TOrm) SyncModel(region string, models ...interface{}) (modelNames []string, err error) {
 	session := self.NewSession()
 	defer session.Close()
 	return session.SyncModel(region, models...)

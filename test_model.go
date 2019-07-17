@@ -28,6 +28,7 @@ type (
 	UserModel struct {
 		TModel     `table:""`
 		Id         int64     `field:"pk autoincr title('ID') index"`
+		Uid        int64     `field:"Id() pk  title('ID') index"`
 		CreateTime time.Time `field:"datetime() created"`
 		WriteTime  time.Time `field:"datetime() updated"`
 

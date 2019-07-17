@@ -44,7 +44,7 @@ func TestInit(dataSource *DataSource, show_sql bool) error {
 		return err
 	}
 
-	err = test_orm.SyncModel("test",
+	_, err = test_orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),
 		new(UserModel),

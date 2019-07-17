@@ -155,12 +155,12 @@ func (self *TSession) query(sql string, paramStr ...interface{}) (*dataset.TData
 		if self.IsAutoCommit {
 			return self.org_query(sql, paramStr...)
 		}
-		return self.tx_query(sql, paramStr...)
+		return self.txQuery(sql, paramStr...)
 
 	})
 }
 
-func (self *TSession) do_prepare(sql string) (*core.Stmt, error) {
+func (self *TSession) doPrepare(sql string) (*core.Stmt, error) {
 	stmt, err := self.db.Prepare(sql)
 	if err != nil {
 		return nil, err
@@ -176,7 +176,7 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 	)
 
 	if self.Prepared {
-		stmt, res_err = self.do_prepare(sql_str)
+		stmt, res_err = self.doPrepare(sql_str)
 		if res_err != nil {
 			return
 		}
@@ -216,7 +216,7 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 	return
 }
 
-func (self *TSession) tx_query(sql string, params ...interface{}) (res_dataset *dataset.TDataSet, res_err error) {
+func (self *TSession) txQuery(sql string, params ...interface{}) (res_dataset *dataset.TDataSet, res_err error) {
 	var (
 		lRows *core.Rows
 	)
@@ -287,7 +287,7 @@ func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, err
 			}
 			return self.org_exec(sql_str, args...)
 		}
-		return self.tx_exec(sql_str, args...)
+		return self.txExec(sql_str, args...)
 	})
 
 }
@@ -297,7 +297,7 @@ func (self *TSession) org_exec(sql string, args ...interface{}) (res sql.Result,
 	if self.Prepared {
 		var stmt *core.Stmt
 
-		stmt, err = self.do_prepare(sql)
+		stmt, err = self.doPrepare(sql)
 		if err != nil {
 			return
 		}
@@ -312,7 +312,7 @@ func (self *TSession) org_exec(sql string, args ...interface{}) (res sql.Result,
 	return self.db.Exec(sql, args...)
 }
 
-func (self *TSession) tx_exec(sql string, args ...interface{}) (sql.Result, error) {
+func (self *TSession) txExec(sql string, args ...interface{}) (sql.Result, error) {
 	//for _, filter := range session.Engine.dialect.Filters() {
 	//	sql = filter.Do(sql, session.Engine.dialect, session.Statement.RefTable)
 	//}
@@ -324,12 +324,13 @@ func (self *TSession) tx_exec(sql string, args ...interface{}) (sql.Result, erro
 }
 
 // synchronize structs to database tables
-func (self *TSession) SyncModel(region string, models ...interface{}) error {
+func (self *TSession) SyncModel(region string, models ...interface{}) (modelNames []string, err error) {
 	tables, err := self.orm.DBMetas() // 获取基本数据库信息
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	modelNames = make([]string, 0)
 	for _, model := range models {
 		model := self.orm.mapping(region, model)
 		lModelName := model.GetModelName()
@@ -351,26 +352,29 @@ func (self *TSession) SyncModel(region string, models ...interface{}) error {
 			//err = self.StoreEngine(s.Statement.StoreEngine).CreateTable(bean)
 			err = self.CreateTable(lModelName)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			err = self.CreateUniques(lModelName)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			err = self.CreateIndexes(lModelName)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else {
-			err := self.alter_table(model, model.table, lTable)
+			err := self.alterTable(model, model.table, lTable)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
+
+		modelNames = append(modelNames, lModelName)
 	}
-	return nil
+
+	return modelNames, nil
 }
 
 /* #
@@ -378,7 +382,7 @@ func (self *TSession) SyncModel(region string, models ...interface{}) error {
 * @new_tb:Model映射后的新表结构
 * @cur_tb:当前数据库的表结构
  */
-func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (err error) {
+func (self *TSession) alterTable(model *TModel, new_tb, cur_tb *core.Table) (err error) {
 	lOrm := self.orm
 	lTableName := new_tb.Name
 	var cur_col *core.Column
@@ -455,7 +459,7 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 			lSession.model = model
 			lSession.Statement.Table = new_tb
 			defer lSession.Close()
-			err = lSession.add_column(col.Name)
+			err = lSession.addColumn(col.Name)
 		}
 		if err != nil {
 			return err
@@ -512,7 +516,8 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 			lSession.model = model
 			lSession.Statement.Table = new_tb
 			defer lSession.Close()
-			err = lSession.add_unique(lTableName, name)
+			err = lSession.addUnique(lTableName, name)
+
 		} else if index.Type == core.IndexType {
 			lSession := lOrm.NewSession()
 			lSession.Model(model.GetModelName())
@@ -520,8 +525,9 @@ func (self *TSession) alter_table(model *TModel, new_tb, cur_tb *core.Table) (er
 			lSession.model = model
 			lSession.Statement.Table = new_tb
 			defer lSession.Close()
-			err = lSession.add_index(lTableName, name)
+			err = lSession.addIndex(lTableName, name)
 		}
+
 		if err != nil {
 			return err
 		}
@@ -542,7 +548,7 @@ func (self *TSession) IsExist(model ...string) (bool, error) {
 	if len(model) > 0 {
 		lModelName = model[0]
 	} else if self.model != nil {
-		lModelName = self.model._name
+		lModelName = self.model.name
 	} else {
 		return false, errors.New("model should not be blank")
 	}
@@ -693,6 +699,12 @@ func (self *TSession) NotIn(clause string, args ...interface{}) *TSession {
 	return self
 }
 
+// set the pointed field value for create/write operations
+func (self *TSession) Set(fieldName string, value interface{}) *TSession {
+	self.Statement.Set(fieldName, value)
+	return self
+}
+
 /* support domain string and list objec
 [('foo', '=', 'bar')]
 foo = 'bar'
@@ -733,7 +745,7 @@ func (self *TSession) OrderBy(order string) *TSession {
 	return self
 }
 
-func (self *TSession) Limit(limit int, offset ...int) *TSession {
+func (self *TSession) Limit(limit int64, offset ...int64) *TSession {
 	self.Statement.Limit(limit, offset...)
 	return self
 }
@@ -771,10 +783,22 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id inter
 		return nil, ErrTableNotFound
 	}
 
-	vals := self.itf_to_itfmap(src)
-	if len(vals) == 0 {
-		res_err = fmt.Errorf("can't support this type of values: %v", src)
-		return nil, res_err
+	var vals map[string]interface{}
+	if src != nil {
+		vals = self.itf_to_itfmap(src)
+		if len(vals) == 0 {
+			res_err = fmt.Errorf("can't support this type of values: %v", src)
+			return nil, res_err
+		}
+
+		vals = utils.MergeMaps(self.Statement.Sets, vals)
+
+	} else {
+		if len(self.Statement.Sets) == 0 {
+			return 0, fmt.Errorf("must submit the values for update")
+		}
+
+		vals = self.Statement.Sets
 	}
 
 	// the list of tuples used in this formatting corresponds to
@@ -809,7 +833,7 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id inter
 		lNewTodo []string
 	)
 
-	lNewVals, lRefVals, lNewTodo, res_err = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, true, false)
+	lNewVals, lRefVals, lNewTodo, res_err = self.separateValues(vals, self.Statement.Fields, self.Statement.NullableFields, true, true)
 	if res_err != nil {
 		return nil, res_err
 	}
@@ -965,10 +989,6 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id inter
 	return res_id, nil
 }
 
-func (self *TSession) _generate_caches_key(model, key interface{}) string {
-	return fmt.Sprintf(`%v:%v`, model, key)
-}
-
 // TODO FN
 // 分配值并补全ID,Update,Create字段值
 // separate data for difference type of update
@@ -976,12 +996,10 @@ func (self *TSession) _generate_caches_key(model, key interface{}) string {
 //	includeAutoIncr bool, allUseBool bool, useAllCols bool,
 //	mustColumnMap map[string]bool, nullableMap map[string]bool,
 //	columnMap map[string]bool, update, unscoped bool
-func (self *TSession) _separate_values(vals map[string]interface{}, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, includePkey bool) (map[string]interface{}, map[string]map[string]interface{}, []string, error) {
+// includePkey is the values inclduing key
+func (self *TSession) separateValues(vals map[string]interface{}, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, mustPkey bool) (map[string]interface{}, map[string]map[string]interface{}, []string, error) {
 	//!!! create record not need to including pk
-	//var lIncludePK bool = true
-	//if len(includePkey) > 0 {
-	///	lIncludePK = includePkey[0]
-	//}
+
 	// 用于更新本Model的实际数据
 	/*    # list of column assignments defined as tuples like:
 	      #   (column_name, format_string, column_value)
@@ -1000,8 +1018,8 @@ func (self *TSession) _separate_values(vals map[string]interface{}, mustFields m
 		rel_vals[tbl] = make(map[string]interface{}) //* 新建空Map以防Nil导致内存出错
 		if val, has := vals[self.model._relations[tbl]]; has && val != nil {
 			//新建新的并存入已经知道的ID
-			rel_id := val      //utils.Itf2Str(val)
-			if rel_id != nil { //&& rel_id != "" { //TODO 强制ORM使用Id作为主键
+			rel_id := val
+			if rel_id != nil {
 				rel_vals[tbl][self.model.idField] = rel_id //utils.Itf2Str(vals[self.model._relations[tbl]])
 			}
 		}
@@ -1015,25 +1033,27 @@ func (self *TSession) _separate_values(vals map[string]interface{}, mustFields m
 
 		col := field.Base().column
 
-		// TODO 保留审视
-		//	if col != nil && !includePkey && (col.IsAutoIncrement || col.IsPrimaryKey) {
-		if col != nil && !includePkey && col.IsAutoIncrement {
-			continue //!!! no use any AutoIncrement field's value
+		// TODO 保留审视 // ignore AutoIncrement field
+		//	if col != nil && !mustPkey && (col.IsAutoIncrement || col.IsPrimaryKey) {
+		if col != nil && col.IsAutoIncrement {
+			continue //!!! do no use any AutoIncrement field's value
 		}
 
-		// 格式化IdField数据 生成UID
-		if f, ok := field.(*TIdField); ok {
-			vals[name] = f.OnCreate(&TFieldEventContext{
-				Session: self,
-				Model:   self.model,
-				Field:   field,
-				Id:      utils.IntToStr(0),
-				Value:   vals[name]},
-			)
+		// ** 格式化IdField数据 生成UID
+		if mustPkey {
+			if f, ok := field.(*TIdField); ok {
+				vals[name] = f.OnCreate(&TFieldEventContext{
+					Session: self,
+					Model:   self.model,
+					Field:   field,
+					Id:      utils.IntToStr(0),
+					Value:   vals[name]},
+				)
+			}
 		}
 
 		// update time zone to create and update tags' fields
-		if !includePkey && field.Base()._is_created {
+		if mustPkey && field.Base()._is_created {
 			lTimeItfVal, _ := self.orm._now_time(field.Type()) //TODO 优化预先生成日期
 			vals[name] = lTimeItfVal
 
@@ -1143,20 +1163,30 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 	}
 
 	var (
-		lIds     []interface{}
-		lNewVals map[string]interface{}
-		lRefVals map[string]map[string]interface{}
-		lNewTodo []string
+		lIds           []interface{}
+		vals, lNewVals map[string]interface{}
+		lRefVals       map[string]map[string]interface{}
+		lNewTodo       []string
 	)
 
-	//self._check_model()
+	if src != nil {
+		//self._check_model()
+		vals = self.itf_to_itfmap(src)
+		if len(vals) == 0 { // 检查合法
+			return 0, fmt.Errorf("can't shupport this type of values")
+		}
 
-	vals := self.itf_to_itfmap(src)
-	if len(vals) == 0 { // 检查合法
-		return -1, fmt.Errorf("can't shupport this type of values")
+		// add SETS to values
+		vals = utils.MergeMaps(self.Statement.Sets, vals)
+		lNewVals = vals // #默认	}
+	} else {
+		// add values from conditon Set()
+		if len(self.Statement.Sets) == 0 {
+			return 0, fmt.Errorf("must submit the values for update")
+		}
+
+		lNewVals = self.Statement.Sets
 	}
-
-	lNewVals = vals // #默认
 
 	// #获取Ids
 	if len(self.Statement.IdParam) > 0 {
@@ -1165,7 +1195,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		var err error
 		lIds, err = self.search("", nil)
 		if err != nil {
-			return -1, err
+			return 0, err
 		}
 	} else {
 		idField := self.model.idField
@@ -1173,12 +1203,14 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 			lIds = []interface{}{id}
 
 		} else {
-			return -1, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
+			return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 		}
 	}
 
-	if len(lIds) == 0 {
-		return -1, fmt.Errorf("must have ids")
+	// the PK condition status
+	includePkey := len(lIds) > 0
+	if !includePkey {
+		return 0, fmt.Errorf("must have ids")
 	}
 
 	if self.IsClassic {
@@ -1198,9 +1230,9 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 			}
 		}
 
-		lNewVals, lRefVals, lNewTodo, res_err = self._separate_values(vals, self.Statement.Fields, self.Statement.NullableFields, false, false)
+		lNewVals, lRefVals, lNewTodo, res_err = self.separateValues(vals, self.Statement.Fields, self.Statement.NullableFields, false, !includePkey)
 		if res_err != nil {
-			return -1, res_err
+			return 0, res_err
 
 		}
 
@@ -1235,7 +1267,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 					//utils.Dbg("write@:", self._relate_fields[key])
 					//  ffield = self._fields.get(field)
 					//  if ffield and ffield.deprecated:
-					//      _logger.warning('Field %s.%s is deprecated: %s', self._name, field, ffield.deprecated)
+					//      _logger.warning('Field %s.%s is deprecated: %s', self.name, field, ffield.deprecated)
 					if rel_fld := self.model.RelateFieldByName(name); rel_fld == nil && !field.IsForeignField() {
 						//utils.Dbg("write:", key)
 						if len(field.Selection) == 0 && val != nil {
@@ -1270,7 +1302,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 				//utils.Dbg("write@:", self._relate_fields[key])
 				//  ffield = self._fields.get(field)
 				//  if ffield and ffield.deprecated:
-				//      _logger.warning('Field %s.%s is deprecated: %s', self._name, field, ffield.deprecated)
+				//      _logger.warning('Field %s.%s is deprecated: %s', self.name, field, ffield.deprecated)
 				if rel_fld := self.model.RelateFieldByName(key); rel_fld == nil && !field.IsForeignField() {
 					//utils.Dbg("write:", key)
 					if len(field.Selection) == 0 && vals[field.Name] != nil {
@@ -1329,7 +1361,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 
 		if values == "" {
-			return -1, fmt.Errorf("must have values")
+			return 0, fmt.Errorf("must have values")
 		}
 		/*
 			if len(args) > 0 {
@@ -1356,12 +1388,12 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s IN (%s)`, self.Statement.TableName(), values, self.Statement.IdKey, in_vals)
 		res, err := self.exec(sql, params...)
 		if err != nil {
-			return -1, err
+			return 0, err
 		}
 
 		res_effect, res_err = res.RowsAffected()
 		if res_err != nil {
-			return -1, res_err
+			return 0, res_err
 		}
 
 		/*table_name := self.Statement.TableName()
@@ -1479,7 +1511,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 
 		if len(unknown_fields) > 0 {
-			logger.Err("No such field(s) in model %s: %s.", self.model._name, strings.Join(unknown_fields, ","))
+			logger.Err("No such field(s) in model %s: %s.", self.model.name, strings.Join(unknown_fields, ","))
 		}
 	*/
 
@@ -1596,7 +1628,7 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 					inherited = append(inherited, name)
 				}
 			} else {
-				//_logger.warning("%s.read() with unknown field '%s'", self._name, name)
+				//_logger.warning("%s.read() with unknown field '%s'", self.name, name)
 				logger.Warnf(`%s.read() with unknown field '%s'`, self.model.GetModelName(), name)
 			}
 
@@ -1615,7 +1647,7 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 	//}
 
 	//# fetch stored fields from the database to the cache
-	dataset, _, err := self._read_from_database(lIds, stored, inherited)
+	dataset, _, err := self.readFromDatabase(lIds, stored, inherited)
 	if err != nil {
 		return nil, err
 	}
@@ -1948,20 +1980,20 @@ func (self *TSession) DropTable(name string) (err error) {
 	return
 }
 
-func (self *TSession) add_column(colName string) error {
+func (self *TSession) addColumn(colName string) error {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
 
 	col := self.Statement.Table.GetColumn(colName)
-	//logger.Dbg("add_column", self.Statement.Table.Type, colName, col)
+	//logger.Dbg("addColumn", self.Statement.Table.Type, colName, col)
 	sql, args := self.Statement._generate_add_column(col)
 	_, err := self.exec(sql, args...)
 	return err
 }
 
-func (self *TSession) add_index(tableName, idxName string) error {
+func (self *TSession) addIndex(tableName, idxName string) error {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -1973,7 +2005,7 @@ func (self *TSession) add_index(tableName, idxName string) error {
 	return err
 }
 
-func (self *TSession) add_unique(tableName, uqeName string) error {
+func (self *TSession) addUnique(tableName, uqeName string) error {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -2134,7 +2166,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 }
 
 //# ids_less 缺少的ID
-func (self *TSession) _read_from_cache(ids []interface{}) (res []*dataset.TRecordSet, ids_less []interface{}) {
+func (self *TSession) readFromCache(ids []interface{}) (res []*dataset.TRecordSet, ids_less []interface{}) {
 	res, ids_less = self.orm.cacher.GetByIds(self.Statement.TableName(), ids...)
 	return
 }
@@ -2157,9 +2189,9 @@ func _ids_to_sql(ids ...interface{}) string {
 // 从数据库读取记录并保存到缓存中
 // :param field_names: Model的所有字段
 // :param inherited_field_names:关联父表的所有字段
-func (self *TSession) _read_from_database(ids []interface{}, field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string, err error) {
+func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string, err error) {
 	// # 从缓存里获得数据
-	records, less_ids := self._read_from_cache(ids)
+	records, less_ids := self.readFromCache(ids)
 
 	// # 补缺缓存没有的数据
 	if len(less_ids) > 0 {
@@ -2365,7 +2397,7 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 	//	lOmitFields := make([]string, 0) // 有效字段
 	for i := 0; i < lType.NumField(); i++ {
 		lField = lType.Field(i)
-		lName = utils.SnakeCasedName(lField.Name)
+		lName = fmtFieldName(lField.Name)
 
 		lIsRequiredField = true
 		if lToOmitFields {
@@ -2403,7 +2435,7 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 			switch strings.ToLower(lTag[0]) {
 			case "name":
 				if len(lTag) > 1 {
-					lName = utils.SnakeCasedName(lTag[1])
+					lName = fmtFieldName(lTag[1])
 				}
 			case "extends", "relate":
 				//				IsStruct = true
@@ -2432,7 +2464,6 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 		//logger.Dbg("field#", lName, lFieldType, lFieldValue)
 		switch lFieldType.Kind() {
 		case reflect.Struct:
-
 			if lFieldType.ConvertibleTo(core.TimeType) {
 				t := lFieldValue.Convert(core.TimeType).Interface().(time.Time)
 				if !lIsRequiredField && (t.IsZero() || !lFieldValue.IsValid()) {
@@ -2508,45 +2539,6 @@ func (self *TSession) itf_to_itfmap(src interface{}) map[string]interface{} {
 	}
 
 	return nil
-}
-
-// 获取字段值 for m2m,selection,
-// return :map[string]interface{} 可以是map[id]map[field]vals,map[string]map[xxx][]string,
-func (self *TSession) __field_value_get(ids []string, fields []*TField, values *dataset.TDataSet, context map[string]interface{}) (result map[string]map[string]interface{}) {
-	lField := fields[0]
-	switch lField.Type() {
-	case "one2many":
-		//if self._context:
-		//    context = dict(context or {})
-		//    context.update(self._context)
-
-		//# retrieve the records in the comodel
-		comodel, err := self.orm.osv.GetModel(lField.RelateModelName()) //obj.pool[self._obj].browse(cr, user, [], context)
-		if err != nil {
-		}
-		inverse := lField.RelateFieldName()
-		//domain = self._domain(obj) if callable(self._domain) else self._domain
-		// domain = domain + [(inverse, 'in', ids)]
-		domain := fmt.Sprintf(`[('%s', 'in', [%s])]`, inverse, strings.Join(ids, ","))
-		//records_ids := comodel.Search(domain, 0, 0, "", false, nil)
-		lDs, _ := comodel.Records().Domain(domain).Read()
-		records_ids := lDs.Keys()
-		// result = {id: [] for id in ids}
-		//# read the inverse of records without prefetching other fields on them
-		result = make(map[string]map[string]interface{})
-
-		for _, id := range ids {
-			for _, f := range fields {
-				result[id] = make(map[string]interface{})
-				result[id][f.Name()] = map[string][]interface{}{id: records_ids}
-			}
-		}
-
-		return result
-	case "many2many": // "many2one" is classic write
-	case "selection":
-	}
-	return
 }
 
 //# the query may involve several tables: we need fully-qualified names

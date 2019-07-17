@@ -480,16 +480,21 @@ func isLeaf(element *utils.TStringList, internal ...bool) bool {
  """
 */
 func normalize_domain(domain *TDomainNode) (*TDomainNode, error) {
-	//lLst := utils.Domain2StringList(domain)
 	if domain == nil {
 		logger.Err("Invaild domain")
-		//return Query2StringList(TRUE_DOMAIN)
 		return String2Domain(TRUE_DOMAIN)
 	}
 
 	// must be including Terms
 	if !domain.IsList() {
 		return nil, fmt.Errorf("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
+	}
+
+	// 将LEAF封装成完整Domain
+	if isLeaf(domain) {
+		shell := NewDomainNode()
+		shell.Push(domain)
+		domain = shell
 	}
 
 	op_arity := map[string]int{
@@ -521,9 +526,7 @@ func normalize_domain(domain *TDomainNode) (*TDomainNode, error) {
 		logger.Errf("This domain is syntactically not correct: %s", Domain2String(domain))
 	}
 
-	// 格式化List 生成Text
-	//result.Update()
-	//logger.Dbg("normalize_domain", StringList2Domain(result))
+	//PrintDomain(result) // print domain
 	return result, nil
 }
 
@@ -778,7 +781,7 @@ func (self *TExpression) push_result(leaf *TExtendedLeaf) {
 //   perform a name_search on comodel for each name
 //       return the list of related ids
 // 获得Ids
-func (self *TExpression) to_ids(value *TDomainNode, comodel *TModel, context map[string]interface{}, limit int) *TDomainNode {
+func (self *TExpression) to_ids(value *TDomainNode, comodel *TModel, context map[string]interface{}, limit int64) *TDomainNode {
 	var names []string
 
 	// 分类 id 直接返回 Name 则需要查询获得其Id
@@ -1443,7 +1446,6 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 
 	// 遍历并生成
 	for _, eleaf := range self.result {
-		logger.Dbg("self.result", eleaf.leaf.String(), eleaf.join_context, params)
 		if eleaf.isLeaf(true) {
 			q, p, en_p := self.leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.
 			params = en_p
@@ -1454,6 +1456,7 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 			stack.Push("(NOT (%s))", stack.Pop().String())
 
 		} else {
+			// domain 操作符
 			ops = map[string]string{AND_OPERATOR: " AND ", OR_OPERATOR: " OR "}
 			q1 = stack.Pop()
 			q2 = stack.Pop()

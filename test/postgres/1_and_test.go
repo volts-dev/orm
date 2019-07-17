@@ -6,5 +6,5 @@ import (
 )
 
 func TestAnd(t *testing.T) {
-	orm.TestAnd(test.TestOrm, t)
+	orm.TestAnd("", t)
 }

@@ -243,7 +243,7 @@ func (self *TDomainNode) Push(item ...interface{}) *TDomainNode {
 	return self
 }
 
-// #添加字符串到该 List
+// #push node in to it
 func (self *TDomainNode) PushNode(nodes ...*TDomainNode) *TDomainNode {
 	// 当Self是一个值时必须添加自己到items里成为列表的一部分
 	if self.Value != nil && len(self.children) == 0 {
@@ -368,6 +368,14 @@ func (self *TDomainNode) IsIntLeaf() bool {
 	}
 
 	return true
+}
+
+func (self *TDomainNode) IsDomainOperator() bool {
+	return utils.InStrings(self.String(), DOMAIN_OPERATORS...) != -1
+}
+
+func (self *TDomainNode) IsTermOperator() bool {
+	return utils.InStrings(self.String(), TERM_OPERATORS...) != -1
 }
 
 func (self *TDomainNode) In(strs ...interface{}) bool {
@@ -804,16 +812,15 @@ id in (1, 2, 3)
 //	[('picking_id.picking_type_id.code', '=', 'incoming'), ('location_id.usage', '!=', 'internal'), ('location_dest_id.usage', '=', 'internal')]
 
 func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
-	var (
-		AndOrCount int = 0
-	)
+	AndOrCount := 0
 	temp := NewDomainNode() // 存储临时列表 提供给AND
 	list := NewDomainNode() // 存储临时叶 提供给所有
+
 	for !parser.IsEnd() {
 		item := parser.Item()
 		//fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[item.Type], item.Val))
 		switch item.Type {
-		case lexer.LPAREN:
+		case lexer.LPAREN, lexer.LBRACK:
 			// 检测是否到尾部
 			parser.Next()
 			if parser.IsEnd() {
@@ -826,26 +833,24 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 
 			}
 
-			list.Push(new_list)
-			// 以下废弃
-			/*
-				// TODO 优化
-				next := parser.ConsumeWhitespace()
-				//parser.Next()
-				//next := parser.Item()
-				//parser.Backup()
+			cnt := list.Count()
+			if cnt == 3 && list.Item(1).IsTermOperator() {
+				// 兼容 [('model', '=','%s'),('type', '=', '%s'), ('mode', '=', 'primary')]
+				ls := NewDomainNode()
+				ls.Push(list)
+				ls.Push(new_list)
 
-				//fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[next.Type], next.Val))
-				//list 是整个[ xx,xx ],所以取到的xx,xx 必须平铺出来当List的子项
-				if list.Count() == 0 && next.Val != "," {
-					list.Push(new_list.Items()...)
-				} else { // 如果带其他子项可能是 [ xx,xx,[xx,xx] ] 则不用展开
+				list = ls
+			} else if cnt > 0 {
 
-					list.Push(new_list)
+				// 兼容In里的小列表("id" in ("a","b")
+				list.Push(new_list)
 
-				}
-			*/
-		case lexer.RPAREN:
+			} else {
+				list = new_list
+			}
+
+		case lexer.RPAREN, lexer.RBRACK:
 			goto exit
 
 		case lexer.IDENT, lexer.HOLDER, lexer.STRING, lexer.NUMBER:
@@ -858,7 +863,7 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 					temp.Insert(AndOrCount, OR_OPERATOR)
 				}
 
-				AndOrCount++
+				//AndOrCount++
 				temp.Push(list)        // 已经完成了一个叶的采集 暂存列表里
 				list = NewDomainNode() // 新建一个列表继续采集
 				break
@@ -883,13 +888,13 @@ exit:
 		// 由于(XX=1 and XX='111') 已经把 and,XX=1, XX='111'当子项传给Temp 所以返回Temp
 		temp.Push(list) // 已经完成了一个叶的采集 暂存列表里
 
-		// 由于SQL where语句一般不包含[] 所以添加一层以抵消
+		/*// 由于SQL where语句一般不包含[] 所以添加一层以抵消
 		if level == 0 {
 			shell := NewDomainNode()
 			shell.Push(temp)
 			return shell, nil
 		}
-
+		*/
 		return temp, nil // 结束该列表采集
 	}
 }
@@ -1029,7 +1034,7 @@ func isLeaf(element *TDomainNode, internal ...bool) bool {
 	}
 	//??? 出现过==Nil还是继续执行之下的代码
 	return (element != nil && element.Count() == 3) &&
-		utils.InStrings(strings.ToLower(element.String(1)), INTERNAL_OPS...) != -1 // 注意操作符确保伟小写
+		utils.InStrings(element.String(1), INTERNAL_OPS...) != -1 // 注意操作符确保伟小写
 	//||utils.InStrings(Domain2String(element), TRUE_LEAF, FALSE_LEAF) != -1 // BUG
 
 	/*

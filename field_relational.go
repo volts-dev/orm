@@ -81,13 +81,13 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 	fld.Base()._attr_store = false
 	cnt := len(params)
 	if cnt == 4 {
-		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName()))  // 字段归属的Model
-		model2 := fmtModelName(utils.TitleCasedName(params[1]))        // 字段链接的Model
-		rel_model := fmt.Sprintf("%s_%s_rel", model1, model2)          // 表字段关系的Model
-		fld.Base().comodel_name = model2                               //目标表
-		fld.Base().relmodel_name = rel_model                           //提供目标表格关系的表
-		fld.Base().cokey_field_name = utils.SnakeCasedName(params[2])  //目标表关键字段
-		fld.Base().relkey_field_name = utils.SnakeCasedName(params[3]) // 关系表关键字段
+		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
+		model2 := fmtModelName(utils.TitleCasedName(params[1]))       // 字段链接的Model
+		rel_model := fmt.Sprintf("%s_%s_rel", model1, model2)         // 表字段关系的Model
+		fld.Base().comodel_name = model2                              //目标表
+		fld.Base().relmodel_name = rel_model                          //提供目标表格关系的表
+		fld.Base().cokey_field_name = fmtFieldName(params[2])         //目标表关键字段
+		fld.Base().relkey_field_name = fmtFieldName(params[3])        // 关系表关键字段
 		fld.Base()._attr_relation = fld.Base().comodel_name
 		fld.Base()._attr_type = "many2many"
 
@@ -203,7 +203,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 
 	domain, err := Query2Domain(field.Domain())
 	if err != nil {
-		logger.Err(err)
+		return err
 	}
 	sess := session.Orm().NewSession()
 	defer sess.Close()
@@ -212,7 +212,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 	sess.Model(field.Base().comodel_name)
 	wquery, err := sess.Statement._where_calc(domain, false, nil)
 	if err != nil {
-		logger.Err(err)
+		return err
 	}
 	order_by := sess.Statement._generate_order_by(wquery, nil)
 	from_c, where_c, where_params := wquery.get_sql()

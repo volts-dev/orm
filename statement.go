@@ -14,47 +14,42 @@ import (
 )
 
 type (
+	// TODO 添加错误信息使整个statement 无法执行错误不合法查询
 	TStatement struct {
-		Session *TSession
-		Table   *core.Table
-		domain  *TDomainNode // 查询条件
-
-		//Domain             *utils.TStringList // 查询条件
+		Session            *TSession
+		Table              *core.Table
+		domain             *TDomainNode  // 查询条件
 		Params             []interface{} // 储存有序值
 		IdKey              string        // 开发者决定的数据表主键
 		IdParam            []interface{}
-		Fields             map[string]bool // show which fields will be list out
+		Sets               map[string]interface{} // 预存数据值 供更新
+		Fields             map[string]bool        // show which fields will be list out
 		NullableFields     map[string]bool
 		TableNameClause    string
 		AltTableNameClause string // 当无Objet实例时使用字符串表名称
 		AliasTableName     string
-
-		__WhereClause  string
-		JoinClause     string
-		FromClause     string
-		OmitClause     string
-		GroupBySClause string
-		OrderByClause  string
-		LimitClause    int
-		OffsetClause   int
-
-		IsCount     bool
-		IsForUpdate bool
-		UseCascade  bool
-		//Domain  string
-
-		Charset     string //???
-		StoreEngine string //???
+		JoinClause         string
+		FromClause         string
+		OmitClause         string
+		GroupBySClause     string
+		OrderByClause      string
+		LimitClause        int64
+		OffsetClause       int64
+		IsCount            bool
+		IsForUpdate        bool
+		UseCascade         bool
+		Charset            string //???
+		StoreEngine        string //???
 
 	}
 )
 
 // Init reset all the statment's fields
 func (self *TStatement) Init() {
+	self.Sets = nil // 不预先创建添加GC负担
 	self.IdParam = make([]interface{}, 0)
-	self.Fields = make(map[string]bool)
-	self.NullableFields = make(map[string]bool)
-	self.__WhereClause = ""
+	self.Fields = make(map[string]bool)         // TODO 优化
+	self.NullableFields = make(map[string]bool) // TODO 优化
 	self.FromClause = ""
 	self.OrderByClause = ""
 	self.LimitClause = 0
@@ -80,15 +75,6 @@ func (self *TStatement) TableName() string {
 // Id generate "where id = ? " statment or for composite key "where key1 = ? and key2 = ?"
 func (self *TStatement) Ids(ids ...interface{}) *TStatement {
 	self.IdParam = append(self.IdParam, ids...)
-	// TODO support interface IDS
-	/*
-		switch id.(type) {
-		case string:
-			self.IdParam = append(self.IdParam, id.(string))
-		case int, int8, int16, int32, int64:
-			self.IdParam = append(self.IdParam, fmt.Sprintf("%d", i))
-		}*/
-
 	return self
 }
 
@@ -121,81 +107,86 @@ func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
 }
 
 func (self *TStatement) Domain(domain interface{}, args ...interface{}) *TStatement {
-	switch domain.(type) {
-	case string:
-		//self.Op(self.Session.orm.dialect.AndStr(), Query2StringList(domain.(string)))
-		node, err := String2Domain(domain.(string))
-		if err != nil {
-			logger.Err(err)
-			return self
+	self.Op(AND_OPERATOR, domain, args...)
+
+	/*
+		switch domain.(type) {
+		case string:
+			//self.Op(self.Session.orm.dialect.AndStr(), Query2StringList(domain.(string)))
+			node, err := String2Domain(domain.(string))
+			if err != nil {
+				logger.Err(err)
+				return self
+			}
+			self.Op(self.Session.orm.dialect.AndStr(), node, args...)
+
+		case *TDomainNode:
+			self.Op(self.Session.orm.dialect.AndStr(), domain.(*TDomainNode), args...)
+
+		default:
+			logger.Errf("not support this type of domain %v", domain)
+
 		}
-		self.Op(self.Session.orm.dialect.AndStr(), node, args...)
-
-	case *TDomainNode:
-		self.Op(self.Session.orm.dialect.AndStr(), domain.(*TDomainNode), args...)
-
-	default:
-		logger.Errf("not support this type of domain %v", domain)
-
-	}
-
+	*/
 	return self
 }
 
 func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
+	var new_cond *TDomainNode
+	var err error
 	switch query.(type) {
 	case string:
 		// 添加信的条件
-		new_cond, err := Query2Domain(query.(string))
+		new_cond, err = Query2Domain(query.(string))
 		if err != nil {
 			logger.Err(err)
 		}
 
-		//logger.Dbg("op ", query, new_cond.Count(), new_cond.String(), Domain2String(new_cond))
-		if self.domain == nil || self.domain.Count() == 0 {
-			if self.domain == nil {
-				// build a [] list for contain condition leaf
-				self.domain = NewDomainNode()
-			}
-			self.domain.Push(new_cond)                 // push new condition leaf in list
-			self.Params = append(self.Params, args...) //push argument
-
-		} else {
-			//if self.Domain.Count() == 1 {
-			//	self.Domain = self.Domain.Item(0)
-			//}
-			// 合并新条件
-			qry := NewDomainNode()
-			qry.Insert(0, op)                    // 添加操作符
-			qry.PushNode(self.domain.Nodes()...) // 第一条件
-			qry.Push(new_cond)                   // 第二条件
-			self.domain = qry
-			self.Params = append(self.Params, args...)
-		}
 	case *TDomainNode:
-		new_cond := query.(*TDomainNode)
+		new_cond = query.(*TDomainNode)
 
-		// 添加信的条件
-		if self.domain == nil || self.domain.Count() == 0 {
-			self.domain = new_cond
-			self.Params = args //append(self.Params, args...)
-		} else {
-			//if self.Domain.Count() == 1 {
-			//	self.Domain = self.Domain.Item(0)
-			//}
-			// 合并新条件
-			qry := NewDomainNode()
-			qry.Insert(0, op)                    // 添加操作符
-			qry.PushNode(self.domain.Nodes()...) // 第一条件
-			qry.Push(new_cond)                   // 第二条件
-			self.domain = qry
-			self.Params = append(self.Params, args...)
-		}
-	//self.query =
 	default:
 		logger.Errf("op not support this query %v", query)
 	}
 
+	//logger.Dbg("op ", query, new_cond.Count(), new_cond.String(), Domain2String(new_cond))
+	if self.domain == nil || self.domain.Count() == 0 {
+		self.domain = new_cond
+		self.Params = args // append(self.Params, args...) //push argument
+
+	} else {
+		if isLeaf(self.domain) {
+			// 合并新条件
+			if isLeaf(new_cond) {
+				// 合并两个Leaf
+				qry := NewDomainNode()
+				qry.Insert(0, op)     // 添加操作符
+				qry.Push(self.domain) // 第一条件
+				qry.Push(new_cond)    // 第二条件
+				self.domain = qry
+			} else {
+				new_cond.Insert(0, op)     // 添加操作符
+				new_cond.Push(self.domain) // 第一条件
+				self.domain = new_cond
+			}
+
+		} else if self.domain.Item(0).IsDomainOperator() {
+			if isLeaf(new_cond) {
+				// 合并新条件
+				self.domain.Insert(0, op)  // 添加操作符
+				self.domain.Push(new_cond) // 第二条件
+			} else {
+				qry := NewDomainNode()
+				qry.Insert(0, op)     // 添加操作符
+				qry.Push(self.domain) // 第一条件
+				qry.Push(new_cond)    // 第二条件
+				self.domain = qry
+			}
+
+		}
+		self.Params = append(self.Params, args...)
+
+	}
 }
 
 // And add Where & and statment
@@ -240,6 +231,14 @@ func (self *TStatement) NotIn(field string, args ...interface{}) *TStatement {
 	return self
 }
 
+func (self *TStatement) Set(fieldName string, value interface{}) *TStatement {
+	if self.Sets == nil {
+		self.Sets = make(map[string]interface{})
+	}
+	self.Sets[fieldName] = value
+	return self
+}
+
 func (self *TStatement) Join(joinOperator string, tablename interface{}, condition string, args ...interface{}) {
 
 }
@@ -281,7 +280,7 @@ func (self *TStatement) Omit(fields ...string) {
 }
 
 // Limit generate LIMIT start, limit statement
-func (self *TStatement) Limit(limit int, offset ...int) *TStatement {
+func (self *TStatement) Limit(limit int64, offset ...int64) *TStatement {
 	self.LimitClause = limit
 	if len(offset) > 0 {
 		self.OffsetClause = offset[0]
