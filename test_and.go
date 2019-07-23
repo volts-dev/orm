@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"fmt"
 	"testing"
 	//	"github.com/volts-dev/utils"
 )
@@ -15,6 +16,7 @@ func test_and(o *TOrm, t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	// 测试Select 默认所有
 	ds, err := model.Records().Where("id=?", 1).Read()
 	if err != nil {
@@ -44,7 +46,13 @@ func test_and(o *TOrm, t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ds.Count() == 0 {
+	// 测试Select 所有
+	fmt.Println("check domain combie domain")
+	ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Or("help=? and title=?", "您好!", "中国!").Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ds.IsEmpty() {
 		t.Fatalf("the action Read() return %d!", ds.Count())
 	}
 }

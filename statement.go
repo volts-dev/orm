@@ -165,11 +165,14 @@ func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
 				qry.Push(new_cond)    // 第二条件
 				self.domain = qry
 			} else {
-				new_cond.Insert(0, op)     // 添加操作符
-				new_cond.Push(self.domain) // 第一条件
-				self.domain = new_cond
+				//qry := NewDomainNode()
+				//qry.Insert(0, op)     // 添加操作符
+				//qry.Push(self.domain) // 第一条件
+				//qry.Push(new_cond)    // 第二条件
+				//self.domain = qry
+				self.domain.Insert(0, op)  // 添加操作符
+				self.domain.Push(new_cond) // 第二条件
 			}
-
 		} else if self.domain.Item(0).IsDomainOperator() {
 			if isLeaf(new_cond) {
 				// 合并新条件
@@ -205,8 +208,8 @@ func (self *TStatement) Or(query string, args ...interface{}) *TStatement {
 func (self *TStatement) In(field string, args ...interface{}) *TStatement {
 	//keys := strings.Repeat("?,", len(args)-1) + "?"
 	keys := NewDomainNode()
-	for _, _ = range args {
-		keys.Push("?")
+	for _, val := range args {
+		keys.Push(val)
 	}
 
 	new_cond := NewDomainNode()

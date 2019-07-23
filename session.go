@@ -1163,7 +1163,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 	}
 
 	var (
-		lIds           []interface{}
+		ids            []interface{}
 		vals, lNewVals map[string]interface{}
 		lRefVals       map[string]map[string]interface{}
 		lNewTodo       []string
@@ -1177,8 +1177,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 
 		// add SETS to values
-		vals = utils.MergeMaps(self.Statement.Sets, vals)
-		lNewVals = vals // #默认	}
+		lNewVals = utils.MergeMaps(self.Statement.Sets, vals)
 	} else {
 		// add values from conditon Set()
 		if len(self.Statement.Sets) == 0 {
@@ -1186,21 +1185,27 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 
 		lNewVals = self.Statement.Sets
+
 	}
 
 	// #获取Ids
 	if len(self.Statement.IdParam) > 0 {
-		lIds = self.Statement.IdParam
-	} else if self.Statement.domain.Count() > 0 {
-		var err error
-		lIds, err = self.search("", nil)
-		if err != nil {
-			return 0, err
-		}
+		ids = self.Statement.IdParam
 	} else {
 		idField := self.model.idField
 		if id, has := lNewVals[idField]; has {
-			lIds = []interface{}{id}
+			ids = []interface{}{id}
+
+		} else if self.Statement.domain.Count() > 0 {
+			var err error
+			ids, err = self.search("", nil)
+			if err != nil {
+				return 0, err
+			}
+
+			if len(ids) == 0 {
+				return 0, fmt.Errorf("no records matched")
+			}
 
 		} else {
 			return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
@@ -1208,14 +1213,14 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 	}
 
 	// the PK condition status
-	includePkey := len(lIds) > 0
+	includePkey := len(ids) > 0
 	if !includePkey {
-		return 0, fmt.Errorf("must have ids")
+		return 0, fmt.Errorf("must have ids or qury clause")
 	}
 
 	if self.IsClassic {
 		//???
-		for field, _ := range vals {
+		for field, _ := range lNewVals {
 			var fobj IField
 			fobj = self.model.FieldByName(field)
 			if fobj == nil {
@@ -1230,115 +1235,11 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 			}
 		}
 
-		lNewVals, lRefVals, lNewTodo, res_err = self.separateValues(vals, self.Statement.Fields, self.Statement.NullableFields, false, !includePkey)
+		lNewVals, lRefVals, lNewTodo, res_err = self.separateValues(lNewVals, self.Statement.Fields, self.Statement.NullableFields, false, !includePkey)
 		if res_err != nil {
 			return 0, res_err
-
 		}
-
-		/*
-			for name, field := range self.model.GetFields() {
-				if field == nil {
-					continue
-				}
-
-				if field._is_created || field._is_updated {
-					val, _ := self.orm._now_time(field._type)
-					vals[name] = val
-				}
-
-				if val, has := vals[name]; has {
-					// TODO 优化锁
-					// #相同名称的字段分配给对应表
-					lComm := self.model.CommonFieldByName(name)
-					if lComm != nil {
-						logger.Dbg("_creataa:", name, lComm)
-						for tbl, _ := range lComm {
-							// 确保添加字段为表
-							if rel_vals[tbl] != nil {
-								rel_vals[tbl][name] = val
-							}
-						}
-
-						continue // 字段分配完毕
-					}
-					//utils.Dbg("write@:", key)
-					//utils.Dbg("write@:", field.foreign_field)
-					//utils.Dbg("write@:", self._relate_fields[key])
-					//  ffield = self._fields.get(field)
-					//  if ffield and ffield.deprecated:
-					//      _logger.warning('Field %s.%s is deprecated: %s', self.name, field, ffield.deprecated)
-					if rel_fld := self.model.RelateFieldByName(name); rel_fld == nil && !field.IsForeignField() {
-						//utils.Dbg("write:", key)
-						if len(field.Selection) == 0 && val != nil {
-							self._check_selection_field_value(field, val) //context
-						}
-
-						if field.IsClassicWrite() && field.Fnct_inv() == nil {
-							if totranslate && field.Translatable() {
-
-							} else {
-								updates[name] = field.SymbolFunc()(utils.Itf2Str(val))
-							}
-							direct = append(direct, name)
-						} else {
-							upd_todo = append(upd_todo, name)
-						}
-					} else {
-						updend = append(updend, name)
-					}
-				}
-			}
-
-
-			for key, _ := range vals {
-				field := self.model.FieldByName(key)
-				if field == nil {
-					continue
-				}
-
-				//utils.Dbg("write@:", key)
-				//utils.Dbg("write@:", field.foreign_field)
-				//utils.Dbg("write@:", self._relate_fields[key])
-				//  ffield = self._fields.get(field)
-				//  if ffield and ffield.deprecated:
-				//      _logger.warning('Field %s.%s is deprecated: %s', self.name, field, ffield.deprecated)
-				if rel_fld := self.model.RelateFieldByName(key); rel_fld == nil && !field.IsForeignField() {
-					//utils.Dbg("write:", key)
-					if len(field.Selection) == 0 && vals[field.Name] != nil {
-						self._check_selection_field_value(field, vals[field.Name]) //context
-					}
-
-					if field.IsClassicWrite() && field.Fnct_inv() == nil {
-						if totranslate && field.Translatable() {
-
-						} else {
-							updates[key] = field.SymbolFunc()(utils.Itf2Str(vals[key]))
-						}
-						direct = append(direct, key)
-					} else {
-						upd_todo = append(upd_todo, key)
-					}
-				} else {
-					updend = append(updend, key)
-				}
-			}
-		*/
-
 	}
-	//updates["create_id"] = UserId
-	//updates["write_id"] = UserId
-	//direct = append(direct, "write_id")
-	//direct = append(direct, "write_date")
-	//vals["create_date"] = //由ORM替代
-	//vals["write_date"] =
-
-	// 被设置默认值的字段赋值给Val
-	//for k, v := range self._default {
-	//	if updates[k] == nil {
-	//		updates[k] = v
-	//	}
-	//}
 
 	if len(lNewVals) > 0 {
 		//#更新
@@ -1381,8 +1282,8 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 			}
 		*/
 		// add in ids data
-		in_vals := strings.Repeat("?,", len(lIds)-1) + "?"
-		params = append(params, lIds...)
+		in_vals := strings.Repeat("?,", len(ids)-1) + "?"
+		params = append(params, ids...)
 
 		// format sql
 		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s IN (%s)`, self.Statement.TableName(), values, self.Statement.IdKey, in_vals)
@@ -1399,7 +1300,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		/*table_name := self.Statement.TableName()
 		//lCacher := self.orm.cacher.RecCacher(self.Statement.TableName()) // for write
 		//if lCacher != nil {
-		for _, id := range lIds {
+		for _, id := range ids {
 			if id != "" {
 				//更新缓存
 				//lKey := self._generate_caches_key(self.Statement.TableName(), id)
@@ -1422,9 +1323,9 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		//    nids.extend([x[0] for x in cr.fetchall()])
 
 		// add in ids data
-		in_vals := strings.Repeat("?,", len(lIds)-1) + "?"
+		in_vals := strings.Repeat("?,", len(ids)-1) + "?"
 		lSql := fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, lFldName, self.model.GetTableName(), self.Statement.IdKey, in_vals)
-		lDs, err := self.orm.Query(lSql, lIds...)
+		lDs, err := self.orm.Query(lSql, ids...)
 		if err != nil {
 			logger.Err(err)
 		}
@@ -1455,65 +1356,12 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 			lField.OnWrite(&TFieldEventContext{
 				Session: self,
 				Model:   self.model,
-				Id:      lIds[0], // TODO 修改获得更合理
+				Id:      ids[0], // TODO 修改获得更合理
 				Field:   lField,
 				Value:   vals[name], //utils.IntToStr(vals[name]),
 			})
-
-			/*for _, id := range lIds {
-
-
-					// result += self._columns[name].set(cr, self, id_new, name, vals[name], user, rel_context) or []
-					//logger.Dbg("id:", lIds, id)
-					//if ctrl, has := self.orm.field_ctrl[lField.Type]; has {
-					//ctrl.Write(self, id, lField, utils.IntToStr(vals[name]), nil)
-					//} else {
-					lField.__OnWrite(						&TFieldEventContext{
-							Session: self,
-							Model:   self.model,
-							Id:      utils.IntToStr(id),
-							Field:   lField,
-							Value:   vals[name], //utils.IntToStr(vals[name]),
-						})
-					//self._update_field(id, lField, utils.IntToStr(vals[name]), nil)
-					//}
-
-			}*/
 		}
 	}
-	/*
-		unknown_fields := make([]string, 0)
-		for table, fld_name := range self.model._relations {
-			//lFldName := self.model._relations[table]
-			nids := make([]string, 0)
-			// for sub_ids in cr.split_for_in_conditions(ids):
-			//     cr.execute('select distinct "'+col+'" from "'+self._table+'" ' \
-			//               'where id IN %s', (sub_ids,))
-			//    nids.extend([x[0] for x in cr.fetchall()])
-			lDs, err := self.orm.Query(`select distinct "%s" from "%s" where id IN(%s)`, fld_name, self.model.TableName(), strings.Join(lIds, ","))
-			if !logger.Err(err) {
-				lDs.First()
-				for !lDs.Eof() {
-					nids = append(nids, lDs.FieldByName(fld_name).AsString())
-					lDs.Next()
-				}
-			}
-
-			v := make(map[string]interface{})
-			for _, fld_name := range updend {
-				if rel_fld := self.model.RelateFieldByName(fld_name); rel_fld != nil && rel_fld.RelateTableName == table {
-					v[fld_name] = vals[fld_name]
-					//unknown_fields.remove(val) TODO
-				}
-
-			}
-
-		}
-
-		if len(unknown_fields) > 0 {
-			logger.Err("No such field(s) in model %s: %s.", self.model.name, strings.Join(unknown_fields, ","))
-		}
-	*/
 
 	return
 }
@@ -1595,14 +1443,18 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 	computed := make([]string, 0) // 数据库没有的字段
 
 	// get data ids with query
-	var lIds []interface{}
+	var ids []interface{}
 	if len(self.Statement.IdParam) > 0 {
-		lIds = self.Statement.IdParam
+		ids = self.Statement.IdParam
 	} else {
 		var err error
-		lIds, err = self.search("", nil)
+		ids, err = self.search("", nil)
 		if err != nil {
 			return nil, err
+		}
+
+		if len(ids) == 0 {
+			return dataset.NewDataSet(), nil
 		}
 	}
 
@@ -1647,7 +1499,7 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 	//}
 
 	//# fetch stored fields from the database to the cache
-	dataset, _, err := self.readFromDatabase(lIds, stored, inherited)
+	dataset, _, err := self.readFromDatabase(ids, stored, inherited)
 	if err != nil {
 		return nil, err
 	}

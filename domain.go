@@ -343,6 +343,7 @@ func (self *TDomainNode) IsSimpleLeaf() bool {
 
 	return true
 }
+
 func (self *TDomainNode) IsString() bool {
 	_, ok := self.Value.(string)
 	return ok

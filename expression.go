@@ -107,6 +107,7 @@ func NewExpression(model *TModel, domain *TDomainNode, context map[string]interf
 	}
 
 	exp.Expression = distribute_not(node)
+	PrintDomain(exp.Expression) // print domain
 
 	err = exp.parse(context)
 	if err != nil {
@@ -526,7 +527,6 @@ func normalize_domain(domain *TDomainNode) (*TDomainNode, error) {
 		logger.Errf("This domain is syntactically not correct: %s", Domain2String(domain))
 	}
 
-	//PrintDomain(result) // print domain
 	return result, nil
 }
 
@@ -578,6 +578,7 @@ func distribute_not(domain *TDomainNode) *TDomainNode {
 		//logger.Dbg("opop", isLeaf(node), node.Count(), parseDomain(node.Item(1)), node.String(0))
 		// # negate tells whether the subdomain starting with token must be negated
 		if isLeaf(node) {
+			// (...)
 			if is_negate {
 				left, operator, right := node.String(0), node.String(1), node.Item(2)
 				if _, has := TERM_OPERATORS_NEGATION[operator]; has {
@@ -589,6 +590,10 @@ func distribute_not(domain *TDomainNode) *TDomainNode {
 			} else {
 				result.Push(node)
 			}
+
+		} else if node.Count() > 1 && node.Item(0).IsDomainOperator() {
+			// [&,(...),(...)]
+			result.Push(node)
 
 		} else if op := node.String(); op != "" {
 			if op == NOT_OPERATOR {
@@ -608,29 +613,6 @@ func distribute_not(domain *TDomainNode) *TDomainNode {
 			}
 		}
 	}
-
-	/*
-		if domain.String(0) != NOT_OPERATOR {
-			lFst := domain.Item(0)
-			result.Push(lFst)
-			result.Push(distribute_not(domain.Clone(1, -1)).Items()...)
-
-			return //result.Push(lFst, distribute_not(domain.Clone(1, -1)).Items()...)
-		} else {
-			//logger.Dbg("todo Clone next", domain.Clone(1, -1).String(0))
-			done, todo := distribute_negate(domain.Clone(1, -1))
-			result.Push(done.Items()...)
-
-			// 循环遍历下一个
-			if todo != nil {
-				//logger.Dbg("todo ", todo.String(0))
-				result.Push(distribute_not(todo).Items()...)
-			}
-
-			return //result.Push(done, distribute_not(todo))
-		}
-
-		return nil*/
 
 	return result
 }
