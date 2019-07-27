@@ -100,7 +100,7 @@ func NewExpression(model *TModel, domain *TDomainNode, context map[string]interf
 		root_model: model,
 		joins:      make([]string, 0),
 	}
-
+	//PrintDomain(domain)
 	node, err := normalize_domain(domain)
 	if err != nil {
 		return nil, err

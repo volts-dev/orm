@@ -48,7 +48,7 @@ func test_and(o *TOrm, t *testing.T) {
 
 	// 测试Select 所有
 	fmt.Println("check domain combie domain")
-	ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Or("help=? and title=?", "您好!", "中国!").Read()
+	ds, err = model.Records().Where("id=?", 2).Or("help=? and (title=? or name=?)", "您好!", "中国!", "test").Read()
 	if err != nil {
 		t.Fatal(err)
 	}

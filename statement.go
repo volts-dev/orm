@@ -165,13 +165,13 @@ func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
 				qry.Push(new_cond)    // 第二条件
 				self.domain = qry
 			} else {
-				//qry := NewDomainNode()
-				//qry.Insert(0, op)     // 添加操作符
-				//qry.Push(self.domain) // 第一条件
-				//qry.Push(new_cond)    // 第二条件
-				//self.domain = qry
-				self.domain.Insert(0, op)  // 添加操作符
-				self.domain.Push(new_cond) // 第二条件
+				qry := NewDomainNode()
+				qry.Insert(0, op)                  // 添加操作符
+				qry.Push(self.domain)              // 第一条件
+				qry.PushNode(new_cond.children...) // 第二条件
+				self.domain = qry
+				// self.domain.Insert(0, op)  // 添加操作符
+				// self.domain.Push(new_cond) // 第二条件
 			}
 		} else if self.domain.Item(0).IsDomainOperator() {
 			if isLeaf(new_cond) {

@@ -251,7 +251,6 @@ func (self *TDomainNode) PushNode(nodes ...*TDomainNode) *TDomainNode {
 	}
 
 	for _, n := range nodes {
-		//logger.Dbg("PushString", str, self)
 		self.children = append(self.children, n)
 	}
 
@@ -331,6 +330,12 @@ func (self *TDomainNode) Count() int {
 
 func (self *TDomainNode) IsList() bool {
 	return len(self.children) > 0
+}
+
+// empty is have not value and children
+func (self *TDomainNode) IsEmpty() bool {
+	n := len(self.children)
+	return n == 0 || (n == 0 && self.Value == nil)
 }
 
 // 所有Item 都是String
@@ -829,48 +834,59 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 			}
 
 			//开始列表采集 { xx,xx } 处理XX,XX进List
-			new_list, err := parseQuery(parser, level+1)
+			new_leaf, err := parseQuery(parser, level+1)
 			if err != nil {
 
 			}
 
-			cnt := list.Count()
-			if cnt == 3 && list.Item(1).IsTermOperator() {
-				// 兼容 [('model', '=','%s'),('type', '=', '%s'), ('mode', '=', 'primary')]
-				ls := NewDomainNode()
-				ls.Push(list)
-				ls.Push(new_list)
-
-				list = ls
-			} else if cnt > 0 {
-
-				// 兼容In里的小列表("id" in ("a","b")
-				list.Push(new_list)
-
+			// 将所有非 domain 操作符的列表平铺添加到主domain
+			if new_leaf.IsList() && new_leaf.Item(0).IsDomainOperator() {
+				temp.PushNode(new_leaf.children...)
+				//list = NewDomainNode()
+				break
 			} else {
-				list = new_list
+				cnt := list.Count()
+				if cnt == 3 && list.Item(1).IsTermOperator() {
+					// 兼容 [('model', '=','%s'),('type', '=', '%s'), ('mode', '=', 'primary')]
+					ls := NewDomainNode()
+					ls.Push(list)
+					ls.Push(new_leaf)
+
+					list = ls
+				} else if cnt > 0 {
+					// 兼容In里的小列表("id" in ("a","b")
+
+					list.Push(new_leaf)
+
+				} else {
+					list = new_leaf
+				}
 			}
 
 		case lexer.RPAREN, lexer.RBRACK:
 			goto exit
 
 		case lexer.IDENT, lexer.HOLDER, lexer.STRING, lexer.NUMBER:
-			if utils.InStrings(strings.ToLower(item.Val), "and", "or") != -1 {
-				if strings.ToLower(item.Val) == "and" {
+			value := strings.ToLower(item.Val)
+			if utils.InStrings(value, "and", "or") != -1 {
+				if value == "and" {
 					temp.Insert(AndOrCount, AND_OPERATOR)
-				}
-
-				if strings.ToLower(item.Val) == "or" {
+				} else if value == "or" {
 					temp.Insert(AndOrCount, OR_OPERATOR)
 				}
 
 				//AndOrCount++
-				temp.Push(list)        // 已经完成了一个叶的采集 暂存列表里
+				// 过滤空list
+				if !list.IsEmpty() {
+					temp.Push(list) // 已经完成了一个叶的采集 暂存列表里
+				}
 				list = NewDomainNode() // 新建一个列表继续采集
-				break
-			}
 
-			list.Push(trimQuotes(item.Val))
+				break
+			} else {
+				list.Push(trimQuotes(item.Val))
+
+			}
 
 		case lexer.OPERATOR, lexer.KEYWORD:
 			list.Push(trimQuotes(item.Val))
@@ -882,12 +898,15 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 
 exit:
 	if temp.Count() == 0 { // 当temp为0 时证明不是带Or And 的条件 直接返回List
-		//fmt.Println("auuuu", list.Flatten())
 		return list, nil
 	} else {
-		// # 以下处理SQL语句
 		// 由于(XX=1 and XX='111') 已经把 and,XX=1, XX='111'当子项传给Temp 所以返回Temp
-		temp.Push(list) // 已经完成了一个叶的采集 暂存列表里
+		if isLeaf(list) {
+			temp.Push(list)
+		} else {
+			// 已经完成了一个叶的采集 暂存列表里
+			temp.PushNode(list.children...) // 已经完成了一个叶的采集 暂存列表里
+		}
 
 		/*// 由于SQL where语句一般不包含[] 所以添加一层以抵消
 		if level == 0 {
