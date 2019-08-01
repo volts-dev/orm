@@ -109,25 +109,6 @@ func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
 func (self *TStatement) Domain(domain interface{}, args ...interface{}) *TStatement {
 	self.Op(AND_OPERATOR, domain, args...)
 
-	/*
-		switch domain.(type) {
-		case string:
-			//self.Op(self.Session.orm.dialect.AndStr(), Query2StringList(domain.(string)))
-			node, err := String2Domain(domain.(string))
-			if err != nil {
-				logger.Err(err)
-				return self
-			}
-			self.Op(self.Session.orm.dialect.AndStr(), node, args...)
-
-		case *TDomainNode:
-			self.Op(self.Session.orm.dialect.AndStr(), domain.(*TDomainNode), args...)
-
-		default:
-			logger.Errf("not support this type of domain %v", domain)
-
-		}
-	*/
 	return self
 }
 
@@ -149,14 +130,12 @@ func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
 		logger.Errf("op not support this query %v", query)
 	}
 
-	//logger.Dbg("op ", query, new_cond.Count(), new_cond.String(), Domain2String(new_cond))
 	if self.domain == nil || self.domain.Count() == 0 {
 		self.domain = new_cond
-		self.Params = args // append(self.Params, args...) //push argument
+		self.Params = args
 
 	} else {
 		if isLeaf(self.domain) {
-			// 合并新条件
 			if isLeaf(new_cond) {
 				// 合并两个Leaf
 				qry := NewDomainNode()
@@ -170,24 +149,23 @@ func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
 				qry.Push(self.domain)              // 第一条件
 				qry.PushNode(new_cond.children...) // 第二条件
 				self.domain = qry
-				// self.domain.Insert(0, op)  // 添加操作符
-				// self.domain.Push(new_cond) // 第二条件
 			}
+
 		} else if self.domain.Item(0).IsDomainOperator() {
 			if isLeaf(new_cond) {
-				// 合并新条件
+				// 添加单叶新条件
 				self.domain.Insert(0, op)  // 添加操作符
 				self.domain.Push(new_cond) // 第二条件
 			} else {
-				qry := NewDomainNode()
-				qry.Insert(0, op)     // 添加操作符
-				qry.Push(self.domain) // 第一条件
-				qry.Push(new_cond)    // 第二条件
-				self.domain = qry
+				// 添加多叶新条件
+				self.domain.Insert(0, op)                  // 添加操作符
+				self.domain.PushNode(new_cond.children...) // 第二条件
 			}
-
 		}
-		self.Params = append(self.Params, args...)
+
+		if args != nil {
+			self.Params = append(self.Params, args...)
+		}
 
 	}
 }
@@ -206,31 +184,27 @@ func (self *TStatement) Or(query string, args ...interface{}) *TStatement {
 
 // In generate "Where column IN (?) " statement
 func (self *TStatement) In(field string, args ...interface{}) *TStatement {
-	//keys := strings.Repeat("?,", len(args)-1) + "?"
-	keys := NewDomainNode()
-	for _, val := range args {
-		keys.Push(val)
+	if len(args) == 0 {
+		// TODO report err stack
+		return self
 	}
 
+	keys := NewDomainNode(args...)
 	new_cond := NewDomainNode()
 	new_cond.Push(field)
 	new_cond.Push("IN")
 	new_cond.Push(keys)
-	self.Op(AND_OPERATOR, new_cond, args...)
+	self.Op(AND_OPERATOR, new_cond)
 	return self
 }
 
 func (self *TStatement) NotIn(field string, args ...interface{}) *TStatement {
-	keys := NewDomainNode()
-	for _, _ = range args {
-		keys.Push("?")
-	}
-
+	keys := NewDomainNode(args...)
 	new_cond := NewDomainNode()
 	new_cond.Push(field)
 	new_cond.Push("NOT IN")
 	new_cond.Push(keys)
-	self.Op(AND_OPERATOR, new_cond, args...)
+	self.Op(AND_OPERATOR, new_cond)
 	return self
 }
 
@@ -291,12 +265,12 @@ func (self *TStatement) Limit(limit int64, offset ...int64) *TStatement {
 	return self
 }
 
-func (self *TStatement) _generate_create_table() string {
+func (self *TStatement) generate_create_table() string {
 	return self.Session.orm.dialect.CreateTableSql(self.Table, self.AltTableNameClause,
 		self.StoreEngine, self.Charset)
 }
 
-func (self *TStatement) _generate_sum(columns ...string) (string, []interface{}, error) {
+func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, error) {
 	/*	var sumStrs = make([]string, 0, len(columns))
 		for _, colName := range columns {
 			if !strings.Contains(colName, " ") && !strings.Contains(colName, "(") {
@@ -321,7 +295,7 @@ func (self *TStatement) _generate_sum(columns ...string) (string, []interface{},
 	return "", nil, nil
 }
 
-func (self *TStatement) _generate_unique() []string {
+func (self *TStatement) generate_unique() []string {
 	var sqls []string = make([]string, 0)
 	for _, index := range self.Table.Indexes {
 		if index.Type == core.UniqueType {
@@ -332,15 +306,15 @@ func (self *TStatement) _generate_unique() []string {
 	return sqls
 }
 
-func (self *TStatement) _generate_add_column(col *core.Column) (string, []interface{}) {
+func (self *TStatement) generate_add_column(col *core.Column) (string, []interface{}) {
 	quote := self.Session.orm.Quote
 	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.TableName()), col.String(self.Session.orm.dialect))
 	return sql, []interface{}{}
 }
 
-func (self *TStatement) _generate_index() []string {
+func (self *TStatement) generate_index() []string {
 	var sqls []string = make([]string, 0)
-	quote := self.Session.orm._fmt_quote
+	quote := self.Session.orm.fmtQuote
 
 	for idxName, index := range self.Table.Indexes {
 		lIdxName := fmt.Sprintf("IDX_%v_%v", self.Table.Name, idxName)
@@ -354,7 +328,7 @@ func (self *TStatement) _generate_index() []string {
 }
 
 // Auto generating conditions according a struct
-func (self *TStatement) _generate_query(vals map[string]interface{}, includeVersion bool, includeUpdated bool, includeNil bool,
+func (self *TStatement) generate_query(vals map[string]interface{}, includeVersion bool, includeUpdated bool, includeNil bool,
 	includeAutoIncr bool, allUseBool bool, useAllCols bool, unscoped bool, mustColumnMap map[string]bool) (res_clause string, res_params []interface{}) {
 	//res_domain = utils.NewStringList()
 	lClauses := make([]string, 0)
@@ -515,7 +489,7 @@ func (self *TStatement) _generate_query(vals map[string]interface{}, includeVers
 			if col.SQLType.IsText() {
 				bytes, err := json.Marshal(lFieldVal.Interface())
 				if err != nil {
-					logger.Errf("_generate_query:", err)
+					logger.Errf("generate_query:", err)
 					continue
 				}
 				val = string(bytes)
@@ -595,7 +569,7 @@ func (self *TStatement) _inherits_join_calc(alias string, field string, query *T
 	   # handle the case where the field is translated
 	   translate = model._columns[field].translate
 	   if translate and not callable(translate):
-	       return model._generate_translated_field(alias, field, query)
+	       return model.generate_translated_field(alias, field, query)
 	   else:
 	       return '"%s"."%s"' % (alias, field)
 	*/
@@ -627,7 +601,7 @@ func (self *TStatement) _inherits_join_calc(alias string, field string, query *T
 	//# handle the case where the field is translated
 	lField := model.FieldByName(field)
 	if lField != nil && lField.Translatable() { //  if translate and not callable(translate):
-		// return model._generate_translated_field(alias, field, query)
+		// return model.generate_translated_field(alias, field, query)
 		return fmt.Sprintf(`"%s"."%s"`, alias, field)
 	} else {
 		return fmt.Sprintf(`"%s"."%s"`, alias, field)
@@ -685,7 +659,7 @@ func (self *TStatement) _where_calc(domain *TDomainNode, active_test bool, conte
 	var where_clause []string
 	var where_params []interface{}
 	if domain != nil && domain.Count() > 0 {
-		exp, err := NewExpression(self.Session.model, domain, context)
+		exp, err := NewExpression(self.Session.orm, self.Session.model, domain, context)
 		if err != nil {
 			return nil, err
 		}
@@ -713,7 +687,7 @@ func (self *TStatement) _check_qorder(word string) (result bool) {
 	return true
 }
 
-func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query *TQuery, reverse_direction bool, seen []string) []string {
+func (self *TStatement) generate_order_by_inner(alias, order_spec string, query *TQuery, reverse_direction bool, seen []string) []string {
 	if seen == nil {
 		//初始化
 	}
@@ -765,7 +739,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 				// key = (self._name, order_column._obj, order_field)
 				// if key not in seen{
 				//     seen.add(key)
-				//     inner_clauses = self._generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
+				//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 				//	}
 			} else if field.Store() && field.ColumnType() != "" {
 				qualifield_name := self._inherits_join_calc(alias, order_field, query)
@@ -785,7 +759,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 
 					if order_fld.IsClassicRead() { //_classic_read:
 						if order_fld.Translatable() { // && not callable(order_column.translate):
-							// inner_clauses = []string{self._generate_translated_field(alias, order_field, query)}
+							// inner_clauses = []string{self.generate_translated_field(alias, order_field, query)}
 						} else {
 							inner_clauses = []string{fmt.Sprintf(`"%s"."%s"`, alias, order_field)}
 						}
@@ -794,7 +768,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 						// key = (self._name, order_column._obj, order_field)
 						// if key not in seen{
 						//     seen.add(key)
-						//     inner_clauses = self._generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
+						//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 						//	}
 					} else {
 						continue //# ignore non-readable or "non-joinable" fields
@@ -811,7 +785,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 						// key = (parent_obj._name, order_column._obj, order_field)
 						// if key not in seen{
 						//    seen.add(key)
-						//     inner_clauses = self._generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
+						//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 						//}
 					} else {
 						continue //# ignore non-readable or "non-joinable" fields
@@ -852,7 +826,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 	                 order_column = self._columns[order_field]
 	                 if order_column._classic_read:
 	                     if order_column.translate and not callable(order_column.translate):
-	                         inner_clauses = [self._generate_translated_field(alias, order_field, query)]
+	                         inner_clauses = [self.generate_translated_field(alias, order_field, query)]
 	                     else:
 	                         inner_clauses = ['"%s"."%s"' % (alias, order_field)]
 	                     add_dir = True
@@ -860,7 +834,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 	                     key = (self._name, order_column._obj, order_field)
 	                     if key not in seen:
 	                         seen.add(key)
-	                         inner_clauses = self._generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
+	                         inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 	                 else:
 	                     continue  # ignore non-readable or "non-joinable" fields
 	             elif order_field in self._inherit_fields:
@@ -873,7 +847,7 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 	                     key = (parent_obj._name, order_column._obj, order_field)
 	                     if key not in seen:
 	                         seen.add(key)
-	                         inner_clauses = self._generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
+	                         inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 	                 else:
 	                     continue  # ignore non-readable or "non-joinable" fields
 	             else:
@@ -897,11 +871,11 @@ func (self *TStatement) _generate_order_by_inner(alias, order_spec string, query
 *
 *        :raise ValueError in case order_spec is malformed
  */
-func (self *TStatement) _generate_order_by(query *TQuery, context map[string]interface{}) (result string) {
+func (self *TStatement) generate_order_by(query *TQuery, context map[string]interface{}) (result string) {
 	order_by_clause := ""
 
 	if self.OrderByClause != "" {
-		order_by_elements := self._generate_order_by_inner(self.Session.Statement.TableName(), self.OrderByClause, query, false, nil)
+		order_by_elements := self.generate_order_by_inner(self.Session.Statement.TableName(), self.OrderByClause, query, false, nil)
 		if len(order_by_elements) > 0 {
 			order_by_clause = strings.Join(order_by_elements, ",")
 		}
@@ -914,7 +888,7 @@ func (self *TStatement) _generate_order_by(query *TQuery, context map[string]int
 	return
 }
 
-func (self *TStatement) _generate_fields() []string {
+func (self *TStatement) generate_fields() []string {
 	table := self.Table
 	var fields []string
 	for _, col := range table.Columns() {

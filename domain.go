@@ -3,7 +3,6 @@ package orm
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/volts-dev/lexer"
 	"github.com/volts-dev/utils"
@@ -72,10 +71,6 @@ var (
 
 // ItemType identifies the type of lex Items.
 type (
-
-	// ValidatorFn represents a function that is used to check whether a specific rune matches certain rules.
-	ValidatorFn func(rune) bool
-
 	TDomainParser struct {
 		items []lexer.TToken
 		Pos   int
@@ -149,14 +144,18 @@ func (self *TDomainNode) String(idx ...int) string {
 			if i > -1 && i < cnt {
 				return parseDomain(self.children[i])
 			} else {
-				panic("bounding idx")
+				logger.Panicf("bounding idx %d", idx)
 			}
 		}
 	}
 
-	//self.Update()
+	if self.IsList() {
+		return parseDomain(self)
+	}
+
 	return utils.Itf2Str(self.Value)
 }
+
 func (self *TDomainNode) Clear() {
 	self.Value = nil
 	self.children = nil
@@ -261,18 +260,6 @@ func (self *TDomainNode) PushNode(nodes ...*TDomainNode) *TDomainNode {
 // len(idx)==1:返回Idx 指定item
 // len(idx)>1:返回Slice 范围的items
 func (self *TDomainNode) Nodes(idx ...int) []*TDomainNode {
-	//self.Update()
-
-	/*  ??? 待考究
-	if !self.IsList() {
-		// 如果是空白的对象 返回Nil
-		if self.Text == "" {
-			return nil
-		}
-
-		return []*TStringList{self}
-	}
-	*/
 	cnt := len(idx)
 	if cnt == 0 {
 		return self.children // 返回所有
@@ -301,7 +288,7 @@ func (self *TDomainNode) Item(idx int) *TDomainNode {
 		}
 	}
 
-	panic("bound idx")
+	logger.Panicf("bound idx %d", idx)
 	return nil
 }
 
@@ -564,225 +551,6 @@ func NewDomainParser(sql string) *TDomainParser {
 	return parser
 }
 
-// isSpace reports whether r is a whitespace character (space or end of line).
-func isWhitespace(r rune) bool {
-	return r == ' ' || r == '\t' || r == '\r' || r == '\n'
-}
-
-// isSpace reports whether r is a space character.
-func isSpace(r rune) bool {
-	return r == ' ' || r == '\t'
-}
-
-// isEndOfLine reports whether r is an end-of-line character.
-func isEndOfLine(r rune) bool {
-	return r == '\r' || r == '\n' || r == lexer.EOF
-}
-
-// isOperator reports whether r is an operator.
-func isOperator(r rune) bool {
-	return r == '+' || r == '-' || r == '*' || r == '/' || r == '=' || r == '>' || r == '<' || r == '~' || r == '|' || r == '^' || r == '&' || r == '%'
-	//return utils.InStrings()
-}
-
-func isHolder(r rune) bool {
-	return r == '?' || r == '%' || r == 's'
-}
-
-func lexWhitespace(lex *lexer.TLexer) lexer.StateFn {
-	lex.AcceptWhile(isWhitespace)
-	if lex.Pos() > 0 {
-		lex.Emit(lexer.TokenWhitespace)
-	}
-
-	next := lex.Peek()
-	nextTwo := lex.PeekNext(2)
-
-	switch {
-	case next == lexer.EOF:
-		lex.Emit(lexer.EOF)
-		return nil
-
-	case nextTwo == "--":
-		return lexSingleLineComment
-
-	case nextTwo == "/*":
-		return lexMultiLineComment
-
-	case nextTwo == "%s":
-		return lexHolder
-	case next == '(' || next == '[':
-		lex.Next()
-		lex.Emit(lexer.LPAREN)
-		return lexWhitespace
-
-	case next == ')' || next == ']':
-		lex.Next()
-		lex.Emit(lexer.RPAREN)
-		return lexWhitespace
-
-	case next == ',':
-		lex.Next()
-		lex.Emit(lexer.COMMA)
-		return lexWhitespace
-
-	case next == ';':
-		lex.Next()
-		lex.Emit(lexer.SEMICOLON)
-		return lexWhitespace
-
-	case isOperator(next):
-		return lexOperator
-
-	case next == '"' || next == '\'':
-		return lexString
-
-	case ('0' <= next && next <= '9'):
-		return lexNumber
-
-	case utils.IsAlphaNumericRune(next) || next == '`':
-		return lexIdentifierOrKeyword
-
-	case next == '?':
-		return lexHolder
-
-	default:
-		lex.Errorf("don't know what to do with '%s'", nextTwo)
-		return nil
-	}
-}
-
-func lexSingleLineComment(lex *lexer.TLexer) lexer.StateFn {
-	lex.AcceptUntil(isEndOfLine)
-	lex.Emit(lexer.TokenSingleLineComment)
-	return lexWhitespace
-}
-
-func lexMultiLineComment(lex *lexer.TLexer) lexer.StateFn {
-	lex.Next()
-	lex.Next()
-	for {
-		lex.AcceptUntil(func(r rune) bool { return r == '*' })
-		if lex.PeekNext(2) == "*/" {
-			lex.Next()
-			lex.Next()
-			lex.Emit(lexer.TokenMultiLineComment)
-			return lexWhitespace
-		}
-
-		if lex.Peek() == lexer.EOF {
-			lex.Errorf("reached EOF when looking for comment end")
-			return nil
-		}
-
-		lex.Next()
-	}
-}
-
-func lexOperator(lex *lexer.TLexer) lexer.StateFn {
-	lex.AcceptWhile(isOperator)
-	lex.Emit(lexer.OPERATOR)
-	return lexWhitespace
-}
-
-func lexNumber(lex *lexer.TLexer) lexer.StateFn {
-	count := 0
-	count += lex.AcceptWhile(unicode.IsDigit)
-	if lex.Accept(".") > 0 {
-		count += 1 + lex.AcceptWhile(unicode.IsDigit)
-	}
-	if lex.Accept("eE") > 0 {
-		count += 1 + lex.Accept("+-")
-		count += lex.AcceptWhile(unicode.IsDigit)
-	}
-
-	if utils.IsAlphaNumericRune(lex.Peek()) {
-		// We were lexing an identifier all along - backup and pass the ball
-		lex.BackupWith(count)
-		return lexIdentifierOrKeyword
-	}
-
-	lex.Emit(lexer.NUMBER)
-	return lexWhitespace
-}
-
-func lexString(lex *lexer.TLexer) lexer.StateFn {
-	quote := lex.Next()
-
-	for {
-		n := lex.Next()
-
-		if n == lexer.EOF {
-			return lex.Errorf("unterminated quoted string")
-		}
-		if n == '\\' {
-			//TODO: fix possible problems with NO_BACKSLASH_ESCAPES mode
-			if lex.Peek() == lexer.EOF {
-				return lex.Errorf("unterminated quoted string")
-			}
-			lex.Next()
-		}
-
-		if n == quote {
-			if lex.Peek() == quote {
-				lex.Next()
-			} else {
-				lex.Emit(lexer.STRING)
-				return lexWhitespace
-			}
-		}
-	}
-
-}
-
-func lexIdentifierOrKeyword(lex *lexer.TLexer) lexer.StateFn {
-	for {
-		s := lex.Next()
-
-		if s == '`' {
-			for {
-				n := lex.Next()
-
-				if n == lexer.EOF {
-					return lex.Errorf("unterminated quoted string")
-				} else if n == '`' {
-					if lex.Peek() == '`' {
-						lex.Next()
-					} else {
-						break
-					}
-				}
-			}
-			lex.Emit(lexer.IDENT)
-		} else if utils.IsAlphaNumericRune(s) {
-			lex.AcceptWhile(utils.IsAlphaNumericRune)
-
-			//TODO: check whether token is a keyword or an identifier
-			lex.Emit(lexer.IDENT)
-		}
-
-		lex.AcceptWhile(isWhitespace)
-		if lex.Pos() > 0 {
-			lex.Emit(lexer.TokenWhitespace)
-		}
-
-		if lex.Peek() != '.' {
-			break
-		}
-
-		lex.Next()
-		lex.Emit(lexer.PERIOD)
-	}
-
-	return lexWhitespace
-}
-
-func lexHolder(lex *lexer.TLexer) lexer.StateFn {
-	lex.AcceptWhile(isHolder)
-	lex.Emit(lexer.HOLDER)
-	return lexWhitespace
-}
-
 // s Html文件流
 /*
 [('foo', '=', 'bar')]
@@ -818,13 +586,11 @@ id in (1, 2, 3)
 //	[('picking_id.picking_type_id.code', '=', 'incoming'), ('location_id.usage', '!=', 'internal'), ('location_dest_id.usage', '=', 'internal')]
 
 func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
-	AndOrCount := 0
-	temp := NewDomainNode() // 存储临时列表 提供给AND
-	list := NewDomainNode() // 存储临时叶 提供给所有
+	result := NewDomainNode() // 存储临时列表 提供给AND
+	list := NewDomainNode()   // 存储临时叶 提供给所有
 
 	for !parser.IsEnd() {
 		item := parser.Item()
-		//fmt.Println(fmt.Sprintf("> %q('%q')", itemNames[item.Type], item.Val))
 		switch item.Type {
 		case lexer.LPAREN, lexer.LBRACK:
 			// 检测是否到尾部
@@ -836,12 +602,12 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 			//开始列表采集 { xx,xx } 处理XX,XX进List
 			new_leaf, err := parseQuery(parser, level+1)
 			if err != nil {
-
+				logger.Err(err)
 			}
 
 			// 将所有非 domain 操作符的列表平铺添加到主domain
 			if new_leaf.IsList() && new_leaf.Item(0).IsDomainOperator() {
-				temp.PushNode(new_leaf.children...)
+				result.PushNode(new_leaf.children...)
 				//list = NewDomainNode()
 				break
 			} else {
@@ -855,7 +621,6 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 					list = ls
 				} else if cnt > 0 {
 					// 兼容In里的小列表("id" in ("a","b")
-
 					list.Push(new_leaf)
 
 				} else {
@@ -870,22 +635,20 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 			value := strings.ToLower(item.Val)
 			if utils.InStrings(value, "and", "or") != -1 {
 				if value == "and" {
-					temp.Insert(AndOrCount, AND_OPERATOR)
+					result.Insert(0, AND_OPERATOR)
 				} else if value == "or" {
-					temp.Insert(AndOrCount, OR_OPERATOR)
+					result.Insert(0, OR_OPERATOR)
 				}
 
-				//AndOrCount++
 				// 过滤空list
 				if !list.IsEmpty() {
-					temp.Push(list) // 已经完成了一个叶的采集 暂存列表里
+					result.Push(list) // 已经完成了一个叶的采集 暂存列表里
 				}
 				list = NewDomainNode() // 新建一个列表继续采集
-
 				break
 			} else {
 				list.Push(trimQuotes(item.Val))
-
+				break
 			}
 
 		case lexer.OPERATOR, lexer.KEYWORD:
@@ -897,15 +660,15 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 	}
 
 exit:
-	if temp.Count() == 0 { // 当temp为0 时证明不是带Or And 的条件 直接返回List
+	if result.Count() == 0 { // 当temp为0 时证明不是带Or And 的条件 直接返回List
 		return list, nil
 	} else {
 		// 由于(XX=1 and XX='111') 已经把 and,XX=1, XX='111'当子项传给Temp 所以返回Temp
 		if isLeaf(list) {
-			temp.Push(list)
+			result.Push(list)
 		} else {
 			// 已经完成了一个叶的采集 暂存列表里
-			temp.PushNode(list.children...) // 已经完成了一个叶的采集 暂存列表里
+			result.PushNode(list.children...) // 已经完成了一个叶的采集 暂存列表里
 		}
 
 		/*// 由于SQL where语句一般不包含[] 所以添加一层以抵消
@@ -915,7 +678,7 @@ exit:
 			return shell, nil
 		}
 		*/
-		return temp, nil // 结束该列表采集
+		return result, nil // 结束该列表采集
 	}
 }
 
@@ -1009,7 +772,7 @@ func parseDomain(node *TDomainNode) string {
 		} else {
 			//fmt.Println("_update val", item.Text)
 			//lStrLst = append(lStrLst, node.Quote(item.Text))
-			lStrLst = append(lStrLst, item.Value.(string))
+			lStrLst = append(lStrLst, item.String())
 		}
 	}
 

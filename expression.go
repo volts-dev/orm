@@ -52,7 +52,7 @@ type (
 		/*
 			            :attr [string, tuple] leaf: operator or tuple-formatted domain expression
 			            :attr obj model: current working model
-						:attr list _models: list of chained models, updated when adding joins
+						:attr list models: list of chained models, updated when adding joins
 						:attr list context: list of join contexts. This is a list of
 				                tuples like ``(lhs, table, lhs_col, col, link)``
 
@@ -76,7 +76,7 @@ type (
 		leaf         *TDomainNode
 		model        *TModel
 
-		_models []*TModel
+		models []*TModel
 	}
 
 	/*""" Parse a domain expression
@@ -85,6 +85,7 @@ type (
 	    For more info: http://christophe-simonis-at-tiny.blogspot.com/2008/08/new-new-domain-notation.html
 	"""*/
 	TExpression struct {
+		orm        *TOrm
 		root_model *TModel // 本次解析的主要
 		Table      string
 		Expression *TDomainNode
@@ -94,20 +95,22 @@ type (
 	}
 )
 
-func NewExpression(model *TModel, domain *TDomainNode, context map[string]interface{}) (*TExpression, error) {
+func NewExpression(orm *TOrm, model *TModel, domain *TDomainNode, context map[string]interface{}) (*TExpression, error) {
 	exp := &TExpression{
 		//Table: table,
+		orm:        orm,
 		root_model: model,
 		joins:      make([]string, 0),
 	}
-	//PrintDomain(domain)
+
 	node, err := normalize_domain(domain)
 	if err != nil {
 		return nil, err
 	}
 
 	exp.Expression = distribute_not(node)
-	PrintDomain(exp.Expression) // print domain
+
+	//PrintDomain(exp.Expression) // print domain
 
 	err = exp.parse(context)
 	if err != nil {
@@ -122,7 +125,7 @@ func NewExpression(model *TModel, domain *TDomainNode, context map[string]interf
    :attr [string, tuple] leaf: operator or tuple-formatted domain
        expression
    :attr obj model: current working model
-   :attr list _models: list of chained models, updated when
+   :attr list models: list of chained models, updated when
        adding joins
    :attr list join_context: list of join contexts. This is a list of
        tuples like ``(lhs, table, lhs_col, col, link)``
@@ -152,7 +155,7 @@ func NewExtendedLeaf(leaf *TDomainNode, model *TModel, context []TJoinContext, i
 
 	ex_leaf.normalize_leaf()
 
-	ex_leaf._models = append(ex_leaf._models, model)
+	ex_leaf.models = append(ex_leaf.models, model)
 	//# check validity
 	ex_leaf.check_leaf(internal)
 	return ex_leaf
@@ -167,7 +170,7 @@ func NewExtendedLeaf(leaf *TDomainNode, model *TModel, context []TJoinContext, i
         - left is in MAGIC_COLUMNS
 "*/
 func (self *TExtendedLeaf) check_leaf(internal bool) {
-	if !is_operator(self.leaf) && !isLeaf(self.leaf, internal) {
+	if !isOperator(self.leaf) && !isLeaf(self.leaf, internal) {
 		//raise ValueError("Invalid leaf %s" % str(self.leaf))
 		//提示错误
 	}
@@ -180,32 +183,40 @@ func (self *TExtendedLeaf) generate_alias() string {
 		links = append(links, []string{context.DestModel.GetTableName(), context.Link})
 	}
 
-	alias, _ /* alias_statement*/ := generate_table_alias(self._models[0].GetTableName(), links)
+	alias, _ /* alias_statement*/ := generate_table_alias(self.models[0].GetTableName(), links)
 	//logger.Dbg("generate_alias", alias)
 	return alias
 }
 
-func (self *TExtendedLeaf) is_operator() bool {
-	return is_operator(self.leaf)
-}
-
 func (self *TExtendedLeaf) is_true_leaf() bool {
-	return parseDomain(self.leaf) == TRUE_LEAF
+	if isLeaf(self.leaf) {
+		return parseDomain(self.leaf) == TRUE_LEAF
+	}
+
+	return false
 }
 
 func (self *TExtendedLeaf) is_false_leaf() bool {
-	return parseDomain(self.leaf) == FALSE_LEAF
-}
+	if isLeaf(self.leaf) {
+		return parseDomain(self.leaf) == FALSE_LEAF
+	}
 
-func (self *TExtendedLeaf) isLeaf(interna bool) bool {
-	return isLeaf(self.leaf, interna)
+	return false
 }
 
 /*""" Test whether an object is a valid domain operator. """*/
-func is_operator(op *TDomainNode) bool {
-	return utils.InStrings(parseDomain(op), DOMAIN_OPERATORS...) != -1
+func isOperator(op *TDomainNode) bool {
+	if op.IsList() {
+		return false
+	}
+
+	return utils.InStrings(op.String(), DOMAIN_OPERATORS...) != -1
 }
 
+//
+func idsToSqlHolder(ids ...interface{}) string {
+	return strings.Repeat("?,", len(ids)-1) + "?"
+}
 func (self *TExtendedLeaf) normalize_leaf() bool {
 	self.leaf = normalize_leaf(self.leaf)
 	return true
@@ -218,7 +229,7 @@ func (self *TExtendedLeaf) add_join_context(model *TModel, lhs_col, table_col, l
 
 	self.join_context = append(self.join_context, TJoinContext{SourceModel: self.model,
 		DestModel: model, SourceFiled: lhs_col, DestFiled: table_col, Link: link})
-	self._models = append(self._models, model)
+	self.models = append(self.models, model)
 	self.model = model
 }
 
@@ -227,7 +238,7 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 	links := make([][]string, 0)
 	for _, context := range self.join_context {
 		links = append(links, []string{context.DestModel.GetTableName(), context.Link})
-		_, alias_statement := generate_table_alias(self._models[0].GetTableName(), links)
+		_, alias_statement := generate_table_alias(self.models[0].GetTableName(), links)
 		tables.PushString(alias_statement)
 	}
 
@@ -236,7 +247,7 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 
 func (self *TExtendedLeaf) get_join_conditions() (conditions []string) {
 	conditions = make([]string, 0) //utils.NewStringList()
-	alias := self._models[0].GetTableName()
+	alias := self.models[0].GetTableName()
 	for _, context := range self.join_context {
 		previous_alias := alias
 		alias += "__" + context.Link
@@ -363,7 +374,7 @@ func normalize_leaf(leaf *TDomainNode) *TDomainNode {
 	if operator == "<>" {
 		operator = "!="
 	}
-	if utils.IsBoolStr(leaf.String(2)) && utils.InStrings(operator, "in", "not in") != -1 {
+	if utils.IsBoolItf(leaf.Item(2)) && utils.InStrings(operator, "in", "not in") != -1 {
 		//   _logger.warning("The domain term '%s' should use the '=' or '!=' operator." % ((left, original, right),))
 		if operator == "in" {
 			operator = "="
@@ -852,7 +863,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		ex_leaf = self.pop() // Get the next leaf to process
 
 		// 获取各参数 # Get working variables
-		if ex_leaf.is_operator() {
+		if isOperator(ex_leaf.leaf) {
 			left = ex_leaf.leaf
 			operator = nil
 			right = nil
@@ -896,7 +907,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		// -> add directly to result
 		// ----------------------------------------
 		// 对操[作符/True/False]的条件直接添加，无需转换
-		if ex_leaf.is_operator() || ex_leaf.is_true_leaf() || ex_leaf.is_false_leaf() {
+		if isOperator(ex_leaf.leaf) || ex_leaf.is_true_leaf() || ex_leaf.is_false_leaf() {
 			self.push_result(ex_leaf)
 
 			/*
@@ -913,7 +924,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			*/
 		} else if field == nil && !IsInheritField {
 			// FIELD NOT FOUND
-			return fmt.Errorf("Invalid field %s in leaf %s", left.String(), ex_leaf.leaf.String())
+			return fmt.Errorf("Invalid field %s in leaf %s", left.String(), Domain2String(ex_leaf.leaf))
 			//} else if (field == nil || (field != nil && field.IsForeignField())) && IsInheritField {
 		} else if IsInheritField {
 			// ----------------------------------------
@@ -1028,7 +1039,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			lDs, _ := comodel.Records().Domain(lDomain).Read()
 			right_ids := lDs.Keys()
 
-			lDomain = fmt.Sprintf(`[('%s', 'in', [%s])]`, lPath[0], _ids_to_sql(right_ids))
+			lDomain = fmt.Sprintf(`[('%s', 'in', [%s])]`, lPath[0], idsToSqlHolder(right_ids))
 			lDs, _ = model.Records().Domain(lDomain, right_ids...).Read()
 			table_ids := lDs.Keys()
 			ex_leaf.leaf = NewDomainNode()
@@ -1135,25 +1146,29 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 
 // 用leaf生成SQL
 // 将值用占位符? 区分出来
+// res_query：查询语法
+// res_params：新占位符？参数值
+// res_arg：params 分配给占用符后剩下的值
 func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}) (res_query string, res_params []interface{}, res_arg []interface{}) {
 	var (
-		vals              []interface{} // 该Term 的值 每个Or,And等条件都有自己相当数量的值
-		lIsHolder         bool          = false
-		first_right_value string        // 提供最终值以供条件判断
+	//first_right_value interface{}   // 提供最终值以供条件判断
 	)
+	var vals []interface{}              // 该Term 的值 每个Or,And等条件都有自己相当数量的值
 	res_params = make([]interface{}, 0) //NewDomainNode()
-	model := eleaf.model
-	leaf := eleaf.leaf
+	res_arg = params                    // 初始化剩余参数
 
+	model := eleaf.model
+
+	leaf := eleaf.leaf
 	left := leaf.Item(0)
 	operator := leaf.Item(1)
 	right := leaf.Item(2)
 
-	// 是否是model字段
-	lField := model.FieldByName(left.String())
-	lIsField := lField != nil
+	field := model.FieldByName(left.String())
+	is_field := field != nil // 是否是model字段
+	//	is_holder := false
 
-	//logger.Dbg("_leaf_to_sql", lIsField, left.String(), operator.String(), right.String(), right.IsList())
+	//logger.Dbg("_leaf_to_sql", is_field, left.String(), operator.String(), right.String(), right.IsList())
 
 	// 重新检查合法性 不行final sanity checks - should never fail
 	if utils.InStrings(operator.String(), append(TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
@@ -1167,21 +1182,50 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	//            "Invalid value %r in domain term %r" % (right, leaf)
 
 	table_alias := eleaf.generate_alias()
+	holder_count := 0
+	if right.IsList() {
+		for _, node := range right.children {
+			// 识别SQL占位符并切取值
+			if utils.InStrings(node.String(), "?", "%s") != -1 {
+				vals = append(vals, params[holder_count:1]...)
+				holder_count++
+				res_arg = params[holder_count:] // 修改params值留到下个Term 返回
 
-	// 检测查询是否占位符?并获取值
-	first_right_value = right.String(0)
-	if utils.HasStrings(right.String(), "?", "%s") != -1 {
-		lIsHolder = true
-		if len(params) > 0 {
-			first_right_value = utils.Itf2Str(params[0])
-			len := utils.MaxInt(1, right.Count()-1)
+			} else {
+				vals = append(vals, node.Value)
 
-			//logger.Dbg("getttttttt", len, params, params[0:len], params[len:], right.Count(), right.String())
-			vals = params[0:len]
-			res_arg = params[len:] // 修改params值留到下个Term 返回
+			}
 		}
-		//res_params = append(res_params, lVal)
+	} else {
+		if utils.InStrings(right.String(), "?", "%s") != -1 {
+			vals = append(vals, params[holder_count:1]...)
+			holder_count++
+			res_arg = params[holder_count:] // 修改params值留到下个Term 返回
+		} else {
+			vals = append(vals, right.Value)
+		}
+		//logger.Dbg("holder2", right.String(), right.Value, vals, params, params[holder_count:1], holder_count, res_arg)
+
 	}
+	//logger.Dbg("holder", vals, holder_count, res_arg)
+
+	/*	// 检测查询是否占位符?并获取值
+		if utils.InStrings(right.String(), "?", "%s") != -1 {
+			is_holder = true
+			if len(params) > 0 {
+				first_right_value = params[0]
+				le := utils.MaxInt(1, right.Count()-1)
+
+				logger.Dbg("getttttttt", le, params, params[0:le], params[le:], right.Count(), right.String())
+				vals = params[0:le]
+				res_arg = params[le:] // 修改params值留到下个Term 返回
+			}
+			//res_params = append(res_params, lVal)
+		} else {
+			// 使用Vals作为right传值
+			vals = append(vals, right.Flatten()...)
+		}
+	*/
 
 	if leaf.String() == TRUE_LEAF {
 		res_query = "TRUE"
@@ -1192,58 +1236,46 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		res_params = nil
 
 	} else if operator.String() == "inselect" { // in(val,val)
-		if lIsHolder {
-			res_params = append(res_params, first_right_value)
-		} else {
-			res_params = append(res_params, right.String(1)) //right.Item(1)
-		}
-		res_query = fmt.Sprintf(`(%s."%s" in (?))`, table_alias, left.String())
+		holders := strings.Repeat("?,", len(vals)-1) + "?"
+		res_query = fmt.Sprintf(`(%s."%s" in (%s))`, table_alias, left.String(), holders)
+		res_params = append(res_params, vals...)
 
 	} else if operator.String() == "not inselect" {
-		if lIsHolder {
-			res_params = append(res_params, first_right_value)
-		} else {
-			res_params = append(res_params, right.String(1)) //right.Item(1)
-		}
-		res_query = fmt.Sprintf(`%s."%s" not in (?))`, table_alias, left.String())
+		holders := strings.Repeat("?,", len(vals)-1) + "?"
+		res_query = fmt.Sprintf(`%s."%s" not in (%s))`, table_alias, left.String(), holders)
+		res_params = append(res_params, vals...)
 
 	} else if operator.In("in", "not in") { //# 数组值
 		if right.IsList() {
-			if lIsHolder {
-				res_params = append(res_params, vals...)
-			} else {
-				res_params = append(res_params, right.Flatten()...) // right
-			}
+			res_params = append(res_params, vals...)
 
 			check_nulls := false
-			//logger.Dbg("right.IsList ", lIsHolder, res_params)
+			//logger.Dbg("right.IsList ", is_holder, res_params)
 			for idx, item := range res_params {
-				//if utils.IsBool(item) && utils.Itf2Bool(item) == false {
 				if utils.IsBoolItf(item) && utils.Itf2Bool(item) == false {
 					check_nulls = true
-					//logger.Dbg("check_nulls", true)
-					//res_params.Remove(idx)
 					res_params = utils.SlicRemove(res_params, idx)
 				}
 			}
+
 			//logger.Dbg("res_params", res_params)
 			// In 值操作
-			if res_params != nil {
-				instr := ""
+			if len(vals) > 0 {
+				holders := ""
 				if left.String() == self.root_model.idField {
 					//instr = strings.Join(utils.Repeat("%s", len(res_params)), ",") // 数字不需要冒号[1,2,3]
-					instr = strings.Join(utils.Repeat("?", len(res_params)), ",")
+					holders = strings.Repeat("?,", len(vals)-1) + "?"
 					//logger.Dbg("instr", instr, res_params)
 				} else {
 					// 获得字段Fortmat格式符 %s,%d 等
 					//ss := model.FieldByName(left.String()).SymbolChar()
-					ss := "?"
+					//ss := "?"
 					// 等同于参数量重复打印格式符
-					instr = strings.Join(utils.Repeat(ss, len(res_params)), ",") // 字符串需要冒号 ['1','2','3']
+					holders = strings.Repeat("?,", len(vals)-1) + "?" // 字符串需要冒号 ['1','2','3']
 					// res_params = map(ss[1], res_params) // map(function, iterable, ...)
 					//logger.Dbg("instr else", instr, res_params)
 				}
-				res_query = fmt.Sprintf(`(%s."%s" %s (%s))`, table_alias, left.String(), operator.String(), instr)
+				res_query = fmt.Sprintf(`(%s."%s" %s (%s))`, table_alias, left.String(), operator.String(), holders)
 			} else {
 				// The case for (left, 'in', []) or (left, 'not in', []).
 				// 对于空值的语句
@@ -1263,55 +1295,54 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			} else if check_nulls && operator.String() == "not in" {
 				res_query = fmt.Sprintf(`(%s AND %s."%s" IS NOT NULL)`, res_query, table_alias, left.String()) // needed only for TRUE.
 			}
-		} else { // Must not happen
-			var is_bool_value bool
-			if lIsHolder {
-				is_bool_value = utils.Itf2Bool(vals[0])
-			} else {
-				is_bool_value = utils.IsBoolStr(right.String())
-			}
-			if is_bool_value {
-				r := ""
-				logger.Warnf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
-				if operator.String() == "in" {
-					if utils.StrToBool(right.String()) {
-						r = "NOT NULL"
-					} else {
-						r = "NULL"
-					}
+
+		} else if utils.IsBoolItf(vals[0]) { // Must not happen
+			r := ""
+			logger.Warnf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
+			if operator.String() == "in" {
+				if utils.Itf2Bool(vals[0]) {
+					r = "NOT NULL"
 				} else {
-					if utils.StrToBool(right.String()) {
-						r = "NULL"
-					} else {
-						r = "NOT NULL"
-					}
+					r = "NULL"
 				}
-				res_query = fmt.Sprintf(`(%s."%s" IS %s)`, table_alias, left.String(), r)
-				res_params = nil
+			} else {
+				if utils.Itf2Bool(vals[0]) {
+					r = "NULL"
+				} else {
+					r = "NOT NULL"
+				}
 			}
+			res_query = fmt.Sprintf(`(%s."%s" IS %s)`, table_alias, left.String(), r)
+			res_params = nil
+
 			//  raise ValueError("Invalid domain term %r" % (leaf,))
+		} else {
+			// single value use "=" term
+			res_query = fmt.Sprintf(`(%s."%s" = ?)`, table_alias, left.String()) //TODO quote
+			res_params = append(res_params, vals[0])
+
 		}
-	} else if lIsField && (lField.Type() == FIELD_TYPE_BOOL) &&
-		((operator.String() == "=" && strings.ToLower(first_right_value) == "false") || (operator.String() == "!=" && strings.ToLower(first_right_value) == "ture")) {
+	} else if is_field && (field.Type() == FIELD_TYPE_BOOL) &&
+		((operator.String() == "=" && utils.Itf2Bool(vals[0]) == false) || (operator.String() == "!=" && utils.Itf2Bool(vals[0]) == true)) {
 		// 字段是否Bool类型
 		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, table_alias, left.String(), table_alias, left.String())
 		res_params = nil
 
-	} else if (strings.ToLower(first_right_value) == "false" || strings.ToLower(first_right_value) == "") && (operator.String() == "=") {
+	} else if (vals == nil || utils.IsBlank(vals[0])) && operator.String() == "=" {
 		res_query = fmt.Sprintf(`%s."%s" IS NULL `, table_alias, left.String())
 		res_params = nil
 
-	} else if lIsField && lField.Type() == FIELD_TYPE_BOOL &&
-		((operator.String() == "!=" && strings.ToLower(first_right_value) == "false") || (operator.String() == "==" && strings.ToLower(first_right_value) == "ture")) {
+	} else if is_field && field.Type() == FIELD_TYPE_BOOL &&
+		((operator.String() == "!=" && utils.Itf2Bool(vals[0]) == false) || (operator.String() == "==" && utils.Itf2Bool(vals[0]) == true)) {
 		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, table_alias, left.String(), table_alias, left.String())
 		res_params = nil
 
-	} else if (strings.ToLower(first_right_value) == "false" || strings.ToLower(first_right_value) == "") && (operator.String() == "!=") {
+	} else if (vals == nil || utils.IsBlank(vals[0])) && (operator.String() == "!=") {
 		res_query = fmt.Sprintf(`%s."%s" IS NOT NULL`, table_alias, left.String())
 		res_params = nil
 
-	} else if operator.String() == "=?" { // # Boolen 判断
-		if strings.ToLower(first_right_value) == "false" || strings.ToLower(first_right_value) == "" {
+	} else if operator.String() == "=?" { //TODO  未完成 # Boolen 判断
+		if vals == nil || utils.IsBlank(vals[0]) {
 			// '=?' is a short-circuit that makes the term TRUE if right is None or False
 			res_query = "TRUE"
 			res_params = nil
@@ -1324,25 +1355,24 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			res_query, res_params, res_arg = self.leaf_to_sql(create_substitution_leaf(eleaf, lDomain, model, false), nil)
 		}
 
-	} else if left.String() == self.root_model.idField { // TODO id字段必须和Orm 其他地方一致
+	} else if left.String() == self.root_model.idField {
 		res_query = fmt.Sprintf("%s.%s %s ?", table_alias, self.root_model.idField, operator.String())
-		if lIsHolder {
-			res_params = append(res_params, vals...)
-		} else {
-			//logger.Dbg("ID###", right.String(), right.Flatten(), utils.Strs2Itfs(right.Flatten()))
-			res_params = append(res_params, right.Flatten()...) //fright
-		}
+		res_params = append(res_params, vals...)
 
 	} else {
+		// TODO 字段值格式化
 		// 是否需要添加“%%”
 		need_wildcard := operator.In("like", "ilike", "not like", "not ilike")
+		add_null := right.String() == ""
 
 		// 兼容 =like 和 =ilike
 		sql_operator := operator.String()
 		if sql_operator == "=like" {
 			sql_operator = "like"
+
 		} else if sql_operator == "=ilike" {
 			sql_operator = "ilike"
+
 		}
 
 		cast := ""
@@ -1351,59 +1381,38 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		}
 
 		// #组合Sql
-		if lIsField {
+		if is_field {
 			//format = need_wildcard and '%s' or model._columns[left]._symbol_set[0]
 			format := ""
 			// 范查询
 			if need_wildcard {
 				//format = "'%s'" // %XX%号在参数里添加
-				format = "?" // fmt.Sprintf(lField._symbol_c, "?") //lField.SymbolFunc("?") //
+				format = "?" // fmt.Sprintf(field._symbol_c, "?") //field.SymbolFunc("?") //
 			} else {
-				//format = lField.SymbolChar()
-				format = "?" // fmt.Sprintf(lField._symbol_c, "?") //lField.SymbolFunc("?") //
+				//format = field.SymbolChar()
+				format = "?" // fmt.Sprintf(field._symbol_c, "?") //field.SymbolFunc("?") //
 			}
 
 			//unaccent = self._unaccent if sql_operator.endswith('like') else lambda x: x
-			column := fmt.Sprintf("%s.%s", table_alias, _quote(left.String()))
+			column := fmt.Sprintf("%s.%s", table_alias, self.orm.Quote(left.String()))
 			res_query = fmt.Sprintf("(%s %s %s)", column+cast, sql_operator, format)
+
 		} else if left.In(MAGIC_COLUMNS) {
 			res_query = fmt.Sprintf("(%s.\"%s\"%s %s ?)", table_alias, left.String(), cast, sql_operator)
-			if lIsHolder {
-				res_params = append(res_params, vals...)
-			} else {
-				res_params = append(res_params, right.String()) // NewDomainNode(right.String())
-			}
+
 		} else {
 			//# Must not happen
 			logger.Errf(`Invalid field %s in domain term %s`, left.String(), leaf.String())
 		}
 
-		add_null := false
-		if need_wildcard {
-			if lIsHolder {
-				res_params = append(res_params, vals...)
-			} else {
-				res_params = append(res_params, fmt.Sprintf("%%%s%%", right.String())) //NewDomainNode(lVal)
-			}
-
-			add_null = right.String() == ""
-		} else if lIsField {
-			if lIsHolder {
-				res_params = append(res_params, vals...)
-			} else {
-				//res_params = NewDomainNode(lField.SymbolFunc()(right.String())) //添加字符串参数
-				res_params = append(res_params, lField.SymbolFunc()(right.String()))
-			}
-			//res_params = NewDomainNode(lField.SymbolFunc()(lVal)) //添加字符串参数
-
-		}
-
 		if add_null {
 			res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, table_alias, left.String())
 		}
+
+		res_params = append(res_params, vals...)
 	}
 	//logger.Dbg("toDQL:", res_query, res_params)
-	return
+	return res_query, res_params, res_arg
 }
 
 // to generate the SQL expression and params
@@ -1425,21 +1434,20 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 	// Process the domain from right to left, using a stack, to generate a SQL expression.
 	self.reverse(self.result)
 	params = utils.ReverseItfs(params...)
-
 	// 遍历并生成
 	for _, eleaf := range self.result {
-		if eleaf.isLeaf(true) {
-			q, p, en_p := self.leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.
-			params = en_p
-			res_params = utils.SlicInsert(res_params, 0, p...)
-			stack.Push(q)
+		if isLeaf(eleaf.leaf, true) {
+			query, query_params, other_params := self.leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.
+			params = other_params                                                // 剩余的params参数
+			res_params = utils.SlicInsert(res_params, 0, query_params...)
+			stack.Push(query)
 
 		} else if eleaf.leaf.String() == NOT_OPERATOR {
 			stack.Push("(NOT (%s))", stack.Pop().String())
 
 		} else {
 			// domain 操作符
-			ops = map[string]string{AND_OPERATOR: " AND ", OR_OPERATOR: " OR "}
+			ops = map[string]string{AND_OPERATOR: " AND ", OR_OPERATOR: " OR "} //TODO 优化
 			q1 = stack.Pop()
 			q2 = stack.Pop()
 			if q1 != nil && q2 != nil {
@@ -1448,6 +1456,12 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 			}
 		}
 	}
+
+	// TODO 移除
+	//if len(params) > 0 {
+	//	logger.Dbg("ttt2", params)
+	//	res_params = append(res_params, params...)
+	//}
 
 	// #上面Pop取出合并后应该为1
 	if stack.Count() != 1 {

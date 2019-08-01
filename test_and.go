@@ -16,39 +16,40 @@ func test_and(o *TOrm, t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	/*
+		// 测试Select 默认所有
+		ds, err := model.Records().Where("id=?", 1).Read()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 测试Select 默认所有
-	ds, err := model.Records().Where("id=?", 1).Read()
-	if err != nil {
-		t.Fatal(err)
-	}
+		// 测试Select 默认所有
+		ds, err = model.Records().Where("id=? and title=?", 1, "admin").Read()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 测试Select 默认所有
-	ds, err = model.Records().Where("id=? and title=?", 1, "admin").Read()
-	if err != nil {
-		t.Fatal(err)
-	}
+		ds, err = model.Records().Where("id=? and title=? or help=?", 1, "admin", "您好!").Read()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	ds, err = model.Records().Where("id=? and title=? or help=?", 1, "admin", "您好!").Read()
-	if err != nil {
-		t.Fatal(err)
-	}
+		// 测试Select 所有
+		ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Read()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 测试Select 所有
-	ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Read()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// 测试Select 所有
-	ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Or("help=?", "您好!").Read()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+		// 测试Select 所有
+		ds, err = model.Records().Where("id=?", 2).And("name=?", "test").Or("help=?", "您好!").Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+	*/
 	// 测试Select 所有
 	fmt.Println("check domain combie domain")
-	ds, err = model.Records().Where("id=?", 2).Or("help=? and (title=? or name=?)", "您好!", "中国!", "test").Read()
+	domain := `[&,('help','=','您好!'),('title', '=', ['中国!','aa','bb']]`
+	ds, err := model.Records().Where("id=?", 2).Domain(domain).Read()
 	if err != nil {
 		t.Fatal(err)
 	}

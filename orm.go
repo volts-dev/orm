@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"go/ast"
 	"io"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -228,11 +227,6 @@ func (self *TOrm) ModelByName(name string) *TModel {
 	return self.models[name]
 }
 
-func (self *TOrm) __ModelByType(t reflect.Type) *TModel {
-	//return self.models[t]
-	return nil
-}
-
 // TODO 更新表信息
 func (self *TOrm) _updateTable(table string) {
 	//for self.Engine.Dialect().GetColumns()
@@ -272,7 +266,7 @@ func (self *TOrm) QuoteStr() string {
 }
 
 func (self *TOrm) Quote(keyName string) string {
-	return self._fmt_quote(keyName)
+	return self.fmtQuote(keyName)
 }
 
 func (self *TOrm) log_exec_sql(sql string, args []interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
@@ -553,7 +547,7 @@ func parseTag(tag string) (tags []string) {
 	return
 }
 
-func (self *TOrm) _fmt_quote(keyName string) string {
+func (self *TOrm) fmtQuote(keyName string) string {
 	keyName = strings.TrimSpace(keyName)
 	if len(keyName) == 0 {
 		return keyName
@@ -569,7 +563,7 @@ func (self *TOrm) _fmt_quote(keyName string) string {
 }
 
 // TODO
-func (self *TOrm) _now_time(sqlTypeName string) (res_val interface{}, res_time time.Time) {
+func (self *TOrm) nowTime(sqlTypeName string) (res_val interface{}, res_time time.Time) {
 	res_time = time.Now()
 	if self.dialect.DBType() == core.ORACLE {
 		return
@@ -612,10 +606,10 @@ func (self *TOrm) _now_time(sqlTypeName string) (res_val interface{}, res_time t
 
 // FormatTime format time
 func (self *TOrm) FormatTime(sqlTypeName string, t time.Time) (v interface{}) {
-	return self._format_time(self.TimeZone, sqlTypeName, t)
+	return self.formatTime(self.TimeZone, sqlTypeName, t)
 }
 
-func (self *TOrm) _format_time(tz *time.Location, sqlTypeName string, t time.Time) (v interface{}) {
+func (self *TOrm) formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v interface{}) {
 	if self.dialect.DBType() == core.ORACLE {
 		return t
 	}
@@ -1093,8 +1087,8 @@ func (self *TOrm) HasModel(name string) bool {
 }
 
 // get model object from the orm which registed
-func (self *TOrm) GetModel(model string, module ...string) (res_model IModel, err error) {
-	return self.osv.GetModel(model, module...)
+func (self *TOrm) GetModel(modelName string, origin ...string) (model IModel, err error) {
+	return self.osv.GetModel(modelName, origin...)
 }
 
 // return the mane of models
@@ -1103,10 +1097,10 @@ func (self *TOrm) GetModels() []string {
 }
 
 // return the table object
-func (self *TOrm) GetTable(table string) (res_table *core.Table) {
+func (self *TOrm) GetTable(tableName string) (table *core.Table) {
 	var has bool
-	if res_table, has = self.tables[table]; has {
-		return res_table
+	if table, has = self.tables[tableName]; has {
+		return table
 	}
 	return nil
 }
@@ -1181,17 +1175,6 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 	return results, lastError
 }
 
-// TODO remove
-// Import SQL DDL file
-func (self *TOrm) __ImportFile(ddlPath string) ([]sql.Result, error) {
-	file, err := os.Open(ddlPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	return self.Import(file)
-}
-
 func (self *TOrm) ShowSql(sw ...bool) {
 	if len(sw) > 0 {
 		self._show_sql = sw[0]
@@ -1242,7 +1225,7 @@ func (self *TOrm) IsExist(db string) bool {
 }
 
 // 删除表
-func (self *TOrm) DropTables(models ...string) error {
+func (self *TOrm) DropTables(names ...string) error {
 	session := self.NewSession()
 	defer session.Close()
 
@@ -1251,7 +1234,7 @@ func (self *TOrm) DropTables(models ...string) error {
 		return err
 	}
 
-	for _, model := range models {
+	for _, model := range names {
 		err = session.DropTable(model)
 		if err != nil {
 			session.Rollback()
@@ -1259,12 +1242,6 @@ func (self *TOrm) DropTables(models ...string) error {
 		}
 	}
 	return session.Commit()
-}
-
-func (self *TOrm) __DB() IRawSession {
-	session := self.NewSession()
-	defer session.Close()
-	return session
 }
 
 // TODO 根据表依赖关系顺序创建表
@@ -1312,17 +1289,17 @@ func (self *TOrm) CreateDatabase(name string) error {
 }
 
 // build the indexes for model
-func (self *TOrm) CreateIndexes(model string) error {
+func (self *TOrm) CreateIndexes(modelName string) error {
 	session := self.NewSession()
 	defer session.Close()
-	return session.CreateIndexes(model)
+	return session.CreateIndexes(modelName)
 }
 
 // build the uniques for model
-func (self *TOrm) CreateUniques(model string) error {
+func (self *TOrm) CreateUniques(modelName string) error {
 	session := self.NewSession()
 	defer session.Close()
-	return session.CreateUniques(model)
+	return session.CreateUniques(modelName)
 }
 
 // DBMetas Retrieve all tables, columns, indexes' informations from database.

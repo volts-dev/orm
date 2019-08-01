@@ -6,5 +6,5 @@ import (
 )
 
 func TestIn(t *testing.T) {
-	orm.TestIn(test.TestOrm, t)
+	orm.TestIn("", t)
 }

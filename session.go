@@ -19,18 +19,6 @@ import (
 type (
 	TExecResult int64
 
-	IRawSession interface {
-		CreateIndexes(model string) error
-		CreateTable(model string) error
-		CreateUniques(model string) error
-		DropTable(model string) (err error)
-		Exec(sql_str string, args ...interface{}) (sql.Result, error)
-		Query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error)
-		Ping() error
-		IsEmpty(model string) (bool, error)
-		IsExist(model ...string) (bool, error)
-	}
-
 	TSession struct {
 		db *core.DB
 		tx *core.Tx // 由Begin 传递而来
@@ -1042,7 +1030,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 		// ** 格式化IdField数据 生成UID
 		if mustPkey {
 			if f, ok := field.(*TIdField); ok {
-				vals[name] = f.OnCreate(&TFieldEventContext{
+				new_vals[name] = f.OnCreate(&TFieldEventContext{
 					Session: self,
 					Model:   self.model,
 					Field:   field,
@@ -1054,7 +1042,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 
 		// update time zone to create and update tags' fields
 		if mustPkey && field.Base()._is_created {
-			lTimeItfVal, _ := self.orm._now_time(field.Type()) //TODO 优化预先生成日期
+			lTimeItfVal, _ := self.orm.nowTime(field.Type()) //TODO 优化预先生成日期
 			vals[name] = lTimeItfVal
 
 		} else if field.Base()._is_created {
@@ -1062,7 +1050,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			continue
 
 		} else if field.Base()._is_updated {
-			lTimeItfVal, _ := self.orm._now_time(field.Type()) //TODO 优化预先生成日期
+			lTimeItfVal, _ := self.orm.nowTime(field.Type()) //TODO 优化预先生成日期
 			vals[name] = lTimeItfVal
 		}
 
@@ -1120,13 +1108,13 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 						Model:   self.model,
 						//Id:      lIds[0],
 						Field: field,
-						Value: val, //utils.IntToStr(vals[name]),
+						Value: val,
 					})
 
 					if err != nil {
 						return nil, nil, nil, err
 					}
-
+					//logger.Dbgf("val %v %v", name, val)
 					new_vals[name] = val // field.SymbolFunc()(utils.Itf2Str(val))
 
 				} else {
@@ -1185,7 +1173,6 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 
 		lNewVals = self.Statement.Sets
-
 	}
 
 	// #获取Ids
@@ -1303,7 +1290,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		for _, id := range ids {
 			if id != "" {
 				//更新缓存
-				//lKey := self._generate_caches_key(self.Statement.TableName(), id)
+				//lKey := self.generate_caches_key(self.Statement.TableName(), id)
 				lRec := NewRecordSet(nil, lNewVals)
 				self.orm.cacher.PutById(table_name, id, lRec)
 			}
@@ -1468,22 +1455,16 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 
 			fld := self.model.FieldByName(name)
 			if fld != nil && !fld.IsForeignField() { //如果是本Model的字段
-				//utils.Dbg("stored:", name)
 				stored = append(stored, name)
 			} else if fld != nil {
-				//utils.Dbg("computed:", name)
 				computed = append(computed, name)
 
-				//field := self.model.FieldByName(name)
 				if fld.IsForeignField() { // and field.base_field.column:
-					//utils.Dbg("inherited:", name)
 					inherited = append(inherited, name)
 				}
 			} else {
-				//_logger.warning("%s.read() with unknown field '%s'", self.name, name)
 				logger.Warnf(`%s.read() with unknown field '%s'`, self.model.GetModelName(), name)
 			}
-
 		}
 	} else {
 		for name, field := range self.model.GetFields() {
@@ -1604,7 +1585,7 @@ func (self *TSession) Sum(colName string) (float64, error) {
 		var args []interface{}
 		var err error
 		if len(self.statement.RawSQL) == 0 {
-			sql, args, err = self.statement._generate_sum(columnNames...)
+			sql, args, err = self.statement.generate_sum(columnNames...)
 			if err != nil {
 				return err
 			}
@@ -1671,7 +1652,7 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	id_field := self.model.idField
 
 	//#1 删除目标Model记录
-	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.TableName(), id_field, _ids_to_sql(lIds...))
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.TableName(), id_field, idsToSqlHolder(lIds...))
 	res, err := self.exec(sql, lIds)
 	if err != nil {
 		return 0, err
@@ -1728,7 +1709,7 @@ func (self *TSession) CreateTable(model string) error {
 
 
 	}	*/
-	lSql = self.Statement._generate_create_table()
+	lSql = self.Statement.generate_create_table()
 
 	if self.IsClassic {
 		//TODO 考虑删除 使用更标准的
@@ -1769,7 +1750,7 @@ func (self *TSession) CreateUniques(model string) error {
 	tableName = utils.SnakeCasedName(tableName)
 	self.Statement.Table = self.orm.GetTable(tableName)
 
-	lSqls := self.Statement._generate_unique()
+	lSqls := self.Statement.generate_unique()
 	for _, sql := range lSqls {
 		_, err := self.exec(sql)
 		if err != nil {
@@ -1790,7 +1771,7 @@ func (self *TSession) CreateIndexes(model string) error {
 	tableName = utils.SnakeCasedName(tableName)
 	self.Statement.Table = self.orm.GetTable(tableName)
 
-	lSqls := self.Statement._generate_index()
+	lSqls := self.Statement.generate_index()
 	for _, sql := range lSqls {
 		_, err := self.exec(sql)
 		if err != nil {
@@ -1840,7 +1821,7 @@ func (self *TSession) addColumn(colName string) error {
 
 	col := self.Statement.Table.GetColumn(colName)
 	//logger.Dbg("addColumn", self.Statement.Table.Type, colName, col)
-	sql, args := self.Statement._generate_add_column(col)
+	sql, args := self.Statement.generate_add_column(col)
 	_, err := self.exec(sql, args...)
 	return err
 }
@@ -1949,15 +1930,15 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 		return nil, err
 	}
 
-	order_by = self.Statement._generate_order_by(query, context) // TODO 未完成
+	order_by = self.Statement.generate_order_by(query, context) // TODO 未完成
 	from_clause, where_clause, where_clause_params = query.get_sql()
 	//logger.Dbg("from_clause", from_clause)
 	//logger.Dbg("where_clause", where_clause)
 	//logger.Dbg("where_clause_params", where_clause_params)
 	//} else {
 	//	from_clause = self.Statement.TableName()
-	//	//where_clause, where_clause_params = self.Statement.WhereClause, self.Statement.Params //self.Statement._generate_query(context, true, true, false, true, true, true, true, nil)
-	//	where_clause, where_clause_params = self.Statement.WhereClause, self.Statement.Params //self.Statement._generate_query(context, true, true, false, true, true, true, true, nil)
+	//	//where_clause, where_clause_params = self.Statement.WhereClause, self.Statement.Params //self.Statement.generate_query(context, true, true, false, true, true, true, true, nil)
+	//	where_clause, where_clause_params = self.Statement.WhereClause, self.Statement.Params //self.Statement.generate_query(context, true, true, false, true, true, true, true, nil)
 	//}
 
 	if where_clause != "" {
@@ -2023,11 +2004,6 @@ func (self *TSession) readFromCache(ids []interface{}) (res []*dataset.TRecordSe
 	return
 }
 
-//
-func _ids_to_sql(ids ...interface{}) string {
-	return strings.Repeat("?,", len(ids)-1) + "?"
-}
-
 /*
    """ Read the given fields of the records in ``self`` from the database,
        and store them in cache. Access errors are also stored in cache.
@@ -2061,14 +2037,14 @@ func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited
 				`%s.%s IN (%s)`,
 				self.orm.Quote(table_name),
 				self.orm.Quote(self.Statement.IdKey),
-				_ids_to_sql(ids...))},
+				idsToSqlHolder(ids...))},
 			ids,
 			nil,
 			nil,
 		)
 
 		//self._apply_ir_rules(query, 'read')
-		order_str := self.Statement._generate_order_by(query, nil)
+		order_str := self.Statement.generate_order_by(query, nil)
 
 		//qual_names = map(qualify, set(fields_pre + [self._fields['id']]))
 		qual_names := make([]string, 0)
@@ -2106,7 +2082,7 @@ func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited
 			}
 
 		} else {
-			qual_names = self.Statement._generate_fields()
+			qual_names = self.Statement.generate_fields()
 		}
 
 		// # determine the actual query to execute

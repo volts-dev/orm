@@ -107,10 +107,12 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 	}
 }
 
+// 创建关联表
 //model, columns
 func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 	orm := ctx.Orm
 	fld := ctx.Field
+	model := ctx.Model
 	rel := strings.Replace(fld.MiddleModelName(), ".", "_", -1)
 
 	has, err := orm.IsTableExist(rel)
@@ -119,18 +121,20 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 	}
 
 	if !has {
+		field := model.FieldByName(model.IdField())
+		sqlType := field.ColumnType()
 		id1 := fld.RelateFieldName()
 		id2 := fld.MiddleFieldName()
 		query := fmt.Sprintf(`
-	           CREATE TABLE "%s" ("%s" INTEGER NOT NULL,
-	                                 "%s" INTEGER NOT NULL,
-	                                 UNIQUE("%s","%s"));
+	           CREATE TABLE "%s" (
+				"%s" %s NOT NULL,
+				"%s" %s NOT NULL,UNIQUE("%s","%s"));
 	           COMMENT ON TABLE "%s" IS '%s';
 	           CREATE INDEX ON "%s" ("%s");
 	           CREATE INDEX ON "%s" ("%s")`,
-			rel, id1,
-			id2,
-			id1, id2,
+			rel,
+			id1, sqlType,
+			id2, sqlType, id1, id2,
 			rel, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.ModelName(), rel),
 			rel, id1,
 			rel, id2)
@@ -214,7 +218,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 	if err != nil {
 		return err
 	}
-	order_by := sess.Statement._generate_order_by(wquery, nil)
+	order_by := sess.Statement.generate_order_by(wquery, nil)
 	from_c, where_c, where_params := wquery.get_sql()
 	if where_c == "" {
 		where_c = "1=1"
