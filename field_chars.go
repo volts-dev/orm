@@ -2,6 +2,7 @@ package orm
 
 import (
 	"github.com/go-xorm/core"
+	"github.com/volts-dev/utils"
 )
 
 type (
@@ -31,6 +32,14 @@ func NewTextField() IField {
 func (self *TCharField) Init(ctx *TFieldContext) {
 	col := ctx.Column
 	fld := ctx.Field
+	params := ctx.Params
+
+	if len(params) > 0 {
+		length := utils.StrToInt(params[0])
+		if length != 0 {
+			col.Length = length
+		}
+	}
 
 	col.SQLType = core.SQLType{core.Varchar, 0, 0}
 	fld.Base()._column_type = core.Varchar
@@ -42,6 +51,14 @@ func (self *TCharField) Init(ctx *TFieldContext) {
 func (self *TTextField) Init(ctx *TFieldContext) {
 	col := ctx.Column
 	fld := ctx.Field
+	params := ctx.Params
+
+	if len(params) > 0 {
+		length := utils.StrToInt(params[0])
+		if length != 0 {
+			col.Length = length
+		}
+	}
 
 	col.SQLType = core.SQLType{core.Text, 0, 0}
 	fld.Base()._column_type = core.Text

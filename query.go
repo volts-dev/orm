@@ -81,27 +81,28 @@ func NewQuery(tables []string, where_clause []string, params []interface{}, join
 }
 
 // Returns (query_from, query_where, query_params).
-func (self *TQuery) get_sql() (from_clause, where_clause string, where_clause_params []interface{}) {
+func (self *TQuery) get_sql() (fromClause, whereClause string, whereClauseParams []interface{}) {
 	tables_to_process := self.tables
-	self.alias_mapping = self._get_alias_mapping()
-	lFromClause := make([]string, 0)
-	lFromParams := make([]interface{}, 0)
+	self.alias_mapping = self.get_alias_mapping()
+	from_clause := make([]string, 0)
+	from_params := make([]interface{}, 0)
 
 	for pos, table := range tables_to_process {
 		if pos > 0 {
-			lFromClause = append(lFromClause, ",")
+			from_clause = append(from_clause, ",")
 		}
-		lFromClause = append(lFromClause, table)
+
+		from_clause = append(from_clause, table)
 		_, table_alias := get_alias_from_query(table)
 		if _, has := self.joins[table_alias]; has {
-			self.add_joins_for_table(table_alias, tables_to_process, lFromClause, lFromParams)
+			self.add_joins_for_table(table_alias, tables_to_process, from_clause, from_params)
 		}
 	}
 
-	from_clause = strings.Join(lFromClause, "")             // 上面已经添加","
-	where_clause = strings.Join(self.where_clause, " AND ") // to string
-	where_clause_params = append(lFromParams, self.where_clause_params...)
-	return //"".join(from_clause), " AND ".join(self.where_clause), from_params + self.where_clause_params
+	fromClause = strings.Join(from_clause, "")             // 上面已经添加","
+	whereClause = strings.Join(self.where_clause, " AND ") // to string
+	whereClauseParams = append(from_params, self.where_clause_params...)
+	return fromClause, whereClause, whereClauseParams
 }
 
 /* """ Join a destination table to the current table.
@@ -137,55 +138,34 @@ func (self *TQuery) get_sql() (from_clause, where_clause string, where_clause_pa
 """*/
 // 添加目标表到当前表
 func (self *TQuery) add_join(connection []string, implicit bool, outer bool, extra, extra_params map[string]interface{}) (string, string) {
-	lhs := connection[0]
-	table := connection[1]
-	lhs_col := connection[2]
-	col := connection[3]
+	// (lhs.lhs_col = table.col)
+	lhs := connection[0]     // mdoel name
+	lhs_col := connection[1] // field
+	table := connection[2]   // relate model name
+	col := connection[3]     // realte field
+
 	link := connection[4]
 	alias, alias_statement := generate_table_alias(lhs, [][]string{[]string{table, link}})
 
 	if implicit {
-		/*	       if alias_statement not in self.tables:
-			           self.tables.append(alias_statement)
-			           condition = '("%s"."%s" = "%s"."%s")' % (lhs, lhs_col, alias, col)
-			           self.where_clause.append(condition)
-			       else:
-			           # already joined
-			           pass
-			       return alias, alias_statement
-		*/
 		if utils.InStrings(alias_statement, self.tables...) == -1 {
 			self.tables = append(self.tables, alias_statement)
 			condition := fmt.Sprintf(`("%s"."%s" = "%s"."%s")`, lhs, lhs_col, alias, col)
+			logger.Dbg("aa", condition)
 			self.where_clause = append(self.where_clause, condition)
 		} else {
 			//# already joined
 			// pass
 		}
+
 		return alias, alias_statement
 	} else {
-		/*
-		   aliases = self._get_table_aliases()
-		   	       assert lhs in aliases, "Left-hand-side table %s must already be part of the query tables %s!" % (lhs, str(self.tables))
-		   	       if alias_statement in self.tables:
-		   	           # already joined, must ignore (promotion to outer and multiple joins not supported yet)
-		   	           pass
-		   	       else:
-		   	           # add JOIN
-		   	           self.tables.append(alias_statement)
-		   	           join_tuple = (alias, lhs_col, col, outer and 'LEFT JOIN' or 'JOIN')
-		   	           self.joins.setdefault(lhs, []).append(join_tuple)
-		   	           if extra:
-		   	               extra = extra.format(lhs=lhs, rhs=alias)
-		   	               self.extras[(lhs, join_tuple)] = (extra, extra_params)
-		   	       return alias, alias_statement
-		*/
 		//aliases := self._get_table_aliases()
 		// assert lhs in aliases, "Left-hand-side table %s must already be part of the query tables %s!" % (lhs, str(self.tables))
 		if utils.InStrings(alias_statement, self.tables...) != -1 {
-			//# already joined, must ignore (promotion to outer and multiple joins not supported yet)
+			// already joined, must ignore (promotion to outer and multiple joins not supported yet)
 		} else {
-			//# add JOIN
+			// add JOIN
 			join_tuple := utils.NewStringList()
 			self.tables = append(self.tables, alias_statement)
 			if outer {
@@ -247,7 +227,7 @@ func (self *TQuery) _get_table_aliases() (aliases []string) {
 }
 
 // 获得表别名枚举
-func (self *TQuery) _get_alias_mapping() (mapping map[string]string) {
+func (self *TQuery) get_alias_mapping() (mapping map[string]string) {
 	mapping = make(map[string]string)
 	for _, table := range self.tables {
 		_, statement := get_alias_from_query(table)

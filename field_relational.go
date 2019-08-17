@@ -80,20 +80,20 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 	fld.Base()._column_type = "" //* not a store field
 	fld.Base()._attr_store = false
 	cnt := len(params)
-	if cnt == 4 {
+	if cnt == 3 {
 		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
-		model2 := fmtModelName(utils.TitleCasedName(params[1]))       // 字段链接的Model
+		model2 := fmtModelName(utils.TitleCasedName(params[0]))       // 字段链接的Model
 		rel_model := fmt.Sprintf("%s_%s_rel", model1, model2)         // 表字段关系的Model
 		fld.Base().comodel_name = model2                              //目标表
 		fld.Base().relmodel_name = rel_model                          //提供目标表格关系的表
-		fld.Base().cokey_field_name = fmtFieldName(params[2])         //目标表关键字段
-		fld.Base().relkey_field_name = fmtFieldName(params[3])        // 关系表关键字段
+		fld.Base().cokey_field_name = fmtFieldName(params[1])         //目标表关键字段
+		fld.Base().relkey_field_name = fmtFieldName(params[2])        // 关系表关键字段
 		fld.Base()._attr_relation = fld.Base().comodel_name
 		fld.Base()._attr_type = "many2many"
 
-	} else if cnt == 2 {
+	} else if cnt == 1 {
 		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
-		model2 := fmtModelName(utils.TitleCasedName(params[1]))       // 字段链接的Model
+		model2 := fmtModelName(utils.TitleCasedName(params[0]))       // 字段链接的Model
 		rel_model := fmt.Sprintf("%s_%s_rel", model1, model2)         // 表字段关系的Model
 		fld.Base().comodel_name = model2                              //目标表
 		fld.Base().relmodel_name = rel_model                          //提供目标表格关系的表
@@ -214,7 +214,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 
 	//table_name := field.comodel_name//sess.Statement.TableName()
 	sess.Model(field.Base().comodel_name)
-	wquery, err := sess.Statement._where_calc(domain, false, nil)
+	wquery, err := sess.Statement.where_calc(domain, false, nil)
 	if err != nil {
 		return err
 	}
@@ -459,8 +459,8 @@ func (self *TMany2OneField) Init(ctx *TFieldContext) {
 	//col.SQLType = core.Type2SQLType(lFieldType)
 	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
 	//fld.Base()._classic_write = true
-	logger.Assert(len(params) > 1, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
-	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[1])) //目标表
+	logger.Assert(len(params) > 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
 	fld.Base()._attr_relation = fld.Base().comodel_name
 	fld.Base()._attr_type = "many2one" //core.Int
 }
@@ -553,10 +553,10 @@ func (self *TOne2ManyField) Init(ctx *TFieldContext) { //comodel_name string, in
 
 	//Field.Base()._classic_read = false
 	//Field.Base()._classic_write = false
-	logger.Assert(len(params) == 3, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
+	logger.Assert(len(params) > 1, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
 
-	field.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[1])) //目标表
-	field.Base().cokey_field_name = fmtFieldName(params[2])                   //目标表关键字段
+	field.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
+	field.Base().cokey_field_name = fmtFieldName(params[1])                   //目标表关键字段
 	field.Base()._attr_relation = field.Base().comodel_name
 	field.Base()._attr_type = "one2many"
 }

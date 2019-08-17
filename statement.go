@@ -16,9 +16,9 @@ import (
 type (
 	// TODO 添加错误信息使整个statement 无法执行错误不合法查询
 	TStatement struct {
+		domain             *TDomainNode // 查询条件
 		Session            *TSession
 		Table              *core.Table
-		domain             *TDomainNode  // 查询条件
 		Params             []interface{} // 储存有序值
 		IdKey              string        // 开发者决定的数据表主键
 		IdParam            []interface{}
@@ -40,12 +40,12 @@ type (
 		UseCascade         bool
 		Charset            string //???
 		StoreEngine        string //???
-
 	}
 )
 
 // Init reset all the statment's fields
 func (self *TStatement) Init() {
+	self.domain = NewDomainNode()
 	self.Sets = nil // 不预先创建添加GC负担
 	self.IdParam = make([]interface{}, 0)
 	self.Fields = make(map[string]bool)         // TODO 优化
@@ -56,7 +56,6 @@ func (self *TStatement) Init() {
 	self.OffsetClause = 0
 	self.IsCount = false
 	self.Params = make([]interface{}, 0)
-	self.domain = NewDomainNode()
 }
 
 // TableName return current tableName
@@ -551,7 +550,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
    :param query: query object on which the JOIN should be added
    :return: qualified name of field, to be used in SELECT clause
    """*/
-func (self *TStatement) _inherits_join_calc(alias string, field string, query *TQuery) (result string) {
+func (self *TStatement) inherits_join_calc(alias string, fieldName string, query *TQuery) (result string) {
 	/*
 	   # INVARIANT: alias is the SQL alias of model._table in query
 	   model = self
@@ -575,36 +574,43 @@ func (self *TStatement) _inherits_join_calc(alias string, field string, query *T
 	*/
 	var model IModel
 	model = self.Session.model
-	if rel := model.RelateFieldByName(field); rel != nil {
-		//for name, _ := range self._relate_fields {
-		if fld := model.FieldByName(field); fld != nil && fld.IsForeignField() {
-			// # retrieve the parent model where field is inherited from
-			parent_model_name := model.RelateFieldByName(field).RelateTableName
-			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
-			if err == nil {
-				parent_field := model.Relations()[parent_model_name]
-				//# JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
-				parent_alias, _ := query.add_join(
-					[]string{alias, parent_model.GetTableName(), parent_field, self.IdKey, parent_field}, true, false, nil, nil)
-				model, alias = parent_model, parent_alias
+	logger.Dbg("inherits_join_calc", fieldName, self.IdKey)
 
-			} else {
-				logger.Err(err, "@_inherits_join_calc")
-				//Dbg("_inherits_join_calc:", field, alias, parent_model_name)
+	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
+		//for name, _ := range self._relate_fields {
+		if fld := model.FieldByName(fieldName); fld != nil && fld.IsInheritedField() {
+			// # retrieve the parent model where field is inherited from
+			parent_model_name := rel.RelateTableName
+			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
+			if err != nil {
+				logger.Err(err, "@inherits_join_calc")
+				//Dbg("inherits_join_calc:", field, alias, parent_model_name)
 			}
 
+			//NOTE JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
+			parent_field := model.Obj().GetRelationByName(parent_model_name)
+			parent_alias, _ := query.add_join(
+				[]string{
+					alias, parent_field,
+					parent_model.GetTableName(), parent_model.IdField(),
+					parent_field},
+				true,
+				false,
+				nil,
+				nil)
+			model, alias = parent_model, parent_alias
+
 		} else {
-			//logger.Dbg("_inherits_join_calc:", field, alias, fld)
+			//logger.Dbg("inherits_join_calc:", field, alias, fld)
 		}
 	}
-
 	//# handle the case where the field is translated
-	lField := model.FieldByName(field)
-	if lField != nil && lField.Translatable() { //  if translate and not callable(translate):
+	field := model.FieldByName(fieldName)
+	if field != nil && field.Translatable() { //  if translate and not callable(translate):
 		// return model.generate_translated_field(alias, field, query)
-		return fmt.Sprintf(`"%s"."%s"`, alias, field)
+		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
 	} else {
-		return fmt.Sprintf(`"%s"."%s"`, alias, field)
+		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
 	}
 
 	return
@@ -618,7 +624,7 @@ func (self *TStatement) _inherits_join_calc(alias string, field string, query *T
   :return: the query expressing the given domain as provided in domain
   :rtype: osv.query.Query
 */
-func (self *TStatement) _where_calc(domain *TDomainNode, active_test bool, context map[string]interface{}) (*TQuery, error) {
+func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, context map[string]interface{}) (*TQuery, error) {
 	if context == nil {
 		context = make(map[string]interface{})
 	}
@@ -731,7 +737,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				continue
 			}
 
-			if field.IsForeignField() {
+			if field.IsRelatedField() {
 
 			}
 
@@ -742,7 +748,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 				//	}
 			} else if field.Store() && field.ColumnType() != "" {
-				qualifield_name := self._inherits_join_calc(alias, order_field, query)
+				qualifield_name := self.inherits_join_calc(alias, order_field, query)
 				if field.Type() == "boolean" {
 					qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 				}
@@ -779,7 +785,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 					// parent_obj = self.pool[self._inherit_fields[order_field][3]]
 					// order_column = parent_obj._columns[order_field]
 					if order_fld.IsClassicRead() { //_classic_read:
-						inner_clauses = []string{self._inherits_join_calc(alias, order_field, query)}
+						inner_clauses = []string{self.inherits_join_calc(alias, order_field, query)}
 						add_dir = true
 					} else if order_fld.Type() == "many2one" {
 						// key = (parent_obj._name, order_column._obj, order_field)
@@ -841,7 +847,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 	                 parent_obj = self.pool[self._inherit_fields[order_field][3]]
 	                 order_column = parent_obj._columns[order_field]
 	                 if order_column._classic_read:
-	                     inner_clauses = [self._inherits_join_calc(alias, order_field, query)]
+	                     inner_clauses = [self.inherits_join_calc(alias, order_field, query)]
 	                     add_dir = True
 	                 elif order_column._type == 'many2one':
 	                     key = (parent_obj._name, order_column._obj, order_field)

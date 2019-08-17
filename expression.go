@@ -226,7 +226,6 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 //        ``(lhs, model, lhs_col, col, link)``
 // After adding the join, the model of the current leaf is updated.
 func (self *TExtendedLeaf) add_join_context(model *TModel, lhs_col, table_col, link string) {
-
 	self.join_context = append(self.join_context, TJoinContext{SourceModel: self.model,
 		DestModel: model, SourceFiled: lhs_col, DestFiled: table_col, Link: link})
 	self.models = append(self.models, model)
@@ -260,52 +259,10 @@ func (self *TExtendedLeaf) get_join_conditions() (conditions []string) {
 }
 
 /*
-func NewList(src string) (node *TNode) {
-	node = &TNode{IsList: false}
-	node = node.parse(src)
-	return
-}
-
-func (self *TNode) parse(src string) (node *TNode) {
-	// 初始化 Text Node
-	node = &TNode{
-		Type:     LeafType,
-		Text:     src,
-		Elements: nil}
-
-	// ('active', '=', True)
-	if strings.HasPrefix(src, "(") && strings.HasSuffix(src, ")") {
-		node.Type = NodeType
-		lElements := strings.Split(src[1:len(src)-1], ",")
-		for _, e := range lElements {
-			n := &TNode{Elements: nil, Text: e, Type: LeafType}
-			node.Elements = append(node.Elements, n)
-		}
-	}
-
-	// ['&', ('active', '=', True), ('value', '!=', 'foo')] 只对[]处理 其他返回Text Node
-	if strings.HasPrefix(src, "[") && strings.HasSuffix(src, "]") {
-		node.Type = TreeType
-		lElements := strings.Split(src[1:len(src)-1], ",")
-		for _, e := range lElements {
-			n := self.parse(e)
-			node.Elements = append(node.Elements, n)
-		}
-	}
-	return
-}
-
-func (self *TNode) doPrint(a []interface{}, addspace, addnewline bool) {
-
-}
-*/
-
-/*
 # --------------------------------------------------
 # Generic leaf manipulation
 # --------------------------------------------------
 */
-
 func _quote(to_quote string) string {
 	/*
 	   	def _quote(to_quote):
@@ -848,7 +805,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 	var (
 		ex_leaf               *TExtendedLeaf
 		left, operator, right *TDomainNode
-		lPath                 []string
+		path                  []string
 		comodel               IModel
 		err                   error
 	)
@@ -878,12 +835,12 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		}
 
 		// :var list path: left operand seen as a sequence of field names
-		lPath = strings.SplitN(left.String(), ".", 2) // "foo.bar" -> ["foo", "bar"]
-		model := ex_leaf.model                        // get the model instance
-		lFieldName := lPath[0]                        // get the   first part
-		IsInheritField := model.RelateFieldByName(lFieldName) != nil
+		path = strings.SplitN(left.String(), ".", 2) // "foo.bar" -> ["foo", "bar"]
+		model := ex_leaf.model                       // get the model instance
+		lFieldName := path[0]                        // get the   first part
+		//IsInheritField := model.obj.GetRelatedFieldByName(lFieldName) != nil
 		//_, IsInheritField := model._relate_fields[lFieldName] // 是否是继承字段
-		//column := model._Columns[lPath[0]]
+		//column := model._Columns[path[0]]
 		//   comodel = model.pool.get(getattr(field, 'comodel_name', None))
 
 		// get the model
@@ -895,7 +852,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 		}
 
-		//logger.Dbg("Leaf>", lPath, model, field, IsInheritField)
+		//logger.Dbg("Leaf>", path, model, field, IsInheritField)
 		// ########################################
 		// 			解析修改leaf 兼容字段
 		// ########################################
@@ -922,11 +879,11 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			   # -> else: crash
 			   # ----------------------------------------
 			*/
-		} else if field == nil && !IsInheritField {
+		} else if field == nil {
 			// FIELD NOT FOUND
 			return fmt.Errorf("Invalid field %s in leaf %s", left.String(), Domain2String(ex_leaf.leaf))
-			//} else if (field == nil || (field != nil && field.IsForeignField())) && IsInheritField {
-		} else if IsInheritField {
+
+		} else if field.IsInheritedField() {
 			// ----------------------------------------
 			// FIELD NOT FOUND
 			// -> from inherits'd fields -> work on the related model, and add
@@ -937,7 +894,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			//    TODO: make these fields explicitly available in self.columns instead!
 			// -> else: crash
 			// ----------------------------------------
-			//if field != nil && field.IsForeignField() && IsInheritField {
+			//if field != nil && field.IsRelatedField() && IsInheritField {
 
 			//# comments about inherits'd fields
 			//#  { 'field_name': ('parent_model', 'm2o_field_to_reach_parent',
@@ -945,14 +902,16 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 
 			// next_model = model.pool[model._inherit_fields[path[0]][0]]
 			//ex_leaf.add_join_context(next_model, model._inherits[next_model._name], 'id', model._inherits[next_model._name])
+			logger.Dbg("ttt", model.obj.GetRelatedFieldByName(lFieldName))
 
-			lRefFld := model.RelateFieldByName(lFieldName)
-			next_model, err := model.orm.GetModel(lRefFld.RelateTableName)
+			related_field := model.obj.GetRelatedFieldByName(lFieldName)
+			next_model, err := model.orm.GetModel(related_field.RelateTableName)
 			if err != nil {
 				return err
 			}
-			//logger.Dbg("IsForeignField>>", lFieldName, next_model.GetModelName())
-			ex_leaf.add_join_context(next_model.GetBase(), model._relations[next_model.GetModelName()], "id", model._relations[next_model.GetModelName()])
+			logger.Dbg("ttt", next_model, related_field)
+			//logger.Dbg("IsRelatedField>>", lFieldName, next_model.GetModelName())
+			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.GetModelName()), "id", model.obj.GetRelationByName(next_model.GetModelName()))
 			self.push(ex_leaf)
 
 		} else if left.String() == self.root_model.idField && utils.InStrings(operator.String(), "child_of", "parent_of") != -1 {
@@ -972,10 +931,10 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				self.push(new_leaf)
 			}
 
-		} else if field != nil && utils.InStrings(lPath[0], MAGIC_COLUMNS...) != -1 {
+		} else if field != nil && utils.InStrings(path[0], MAGIC_COLUMNS...) != -1 {
 			self.push_result(ex_leaf)
 
-		} else if len(lPath) > 1 && !field.IsForeignField() && field.Type() == "many2one" && field.IsAutoJoin() {
+		} else if len(path) > 1 && field.Type() == "many2one" && field.IsAutoJoin() {
 			/* # ----------------------------------------
 			   # PATH SPOTTED
 			   # -> many2one or one2many with IsAutoJoin():
@@ -989,20 +948,20 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			   #    as after transforming the column, it will go through this loop once again
 			   # ----------------------------------------*/
 
-			//logger.Dbg(`if len(lPath) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
+			//logger.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			// # res_partner.state_id = res_partner__state_id.id
 			ex_leaf.add_join_context(comodel.GetBase(), lFieldName, "id", lFieldName)
-			self.push(create_substitution_leaf(ex_leaf, NewDomainNode(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
+			self.push(create_substitution_leaf(ex_leaf, NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
 
-		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.Type() == "one2many" && field.IsAutoJoin() {
-			//logger.Dbg(`if len(lPath) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
+		} else if len(path) > 1 && field.Store() && field.Type() == "one2many" && field.IsAutoJoin() {
+			//logger.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			//  # res_partner.id = res_partner__bank_ids.partner_id
 			ex_leaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), lFieldName)
 			domain, err := Query2Domain(field.Domain()) //column._domain(model) if callable(column._domain) else column._domain
 			if err != nil {
 				logger.Err(err)
 			}
-			self.push(create_substitution_leaf(ex_leaf, NewDomainNode(lPath[1], operator.String(), right.String()), comodel.GetBase(), false))
+			self.push(create_substitution_leaf(ex_leaf, NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
 			if domain != nil {
 				domain, err = normalize_domain(domain)
 				if err != nil {
@@ -1020,34 +979,34 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				self.push(create_substitution_leaf(ex_leaf, op, comodel.GetBase(), false))
 			}
 
-		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.IsAutoJoin() {
+		} else if len(path) > 1 && field.Store() && field.IsAutoJoin() {
 			return fmt.Errorf("_auto_join attribute not supported on many2many column %s", left.String())
 
-		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && field.Type() == "many2one" {
+		} else if len(path) > 1 && field.Store() && field.Type() == "many2one" {
 			//logger.Dbg(`if len(path) > 1 && field.Type == 'many2one'`)
-			lDomain := fmt.Sprintf(`[('%s', '%s', '%s')]`, lPath[1], operator.String(), right.String())
-			lDs, _ := comodel.Records().Domain(lDomain).Read() //search(cr, uid, [(path[1], operator, right)], context=dict(context, active_test=False))
+			domain := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
+			lDs, _ := comodel.Records().Domain(domain).Read() //search(cr, uid, [(path[1], operator, right)], context=dict(context, active_test=False))
 			right_ids := lDs.Keys()
 			ex_leaf.leaf = NewDomainNode()
-			ex_leaf.leaf.Push(lPath[0], "in")
+			ex_leaf.leaf.Push(path[0], "in")
 			ex_leaf.leaf.Push(right_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
-		} else if len(lPath) > 1 && field.Store() && !field.IsForeignField() && utils.InStrings(field.Type(), "many2many", "one2many") != -1 {
+		} else if len(path) > 1 && field.Store() && utils.InStrings(field.Type(), "many2many", "one2many") != -1 {
 			// Making search easier when there is a left operand as column.o2m or column.m2m
-			lDomain := fmt.Sprintf(`[('%s', '%s', '%s')]`, lPath[1], operator.String(), right.String())
-			lDs, _ := comodel.Records().Domain(lDomain).Read()
+			domain := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
+			lDs, _ := comodel.Records().Domain(domain).Read()
 			right_ids := lDs.Keys()
 
-			lDomain = fmt.Sprintf(`[('%s', 'in', [%s])]`, lPath[0], idsToSqlHolder(right_ids))
-			lDs, _ = model.Records().Domain(lDomain, right_ids...).Read()
+			domain = fmt.Sprintf(`[('%s', 'in', [%s])]`, path[0], idsToSqlHolder(right_ids))
+			lDs, _ = model.Records().Domain(domain, right_ids...).Read()
 			table_ids := lDs.Keys()
 			ex_leaf.leaf = NewDomainNode()
 			ex_leaf.leaf.Push("id", "in")
 			ex_leaf.leaf.Push(table_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
-		} else if !field.Store() && field == nil || field.IsForeignField() {
+		} else if !field.Store() {
 			//# Non-stored field should provide an implementation of search.
 			var domain *TDomainNode
 			if !field.Search() {
@@ -1059,9 +1018,9 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				domain = NewDomainNode()
 			} else {
 				//# Let the field generate a domain.
-				if len(lPath) > 1 {
+				if len(path) > 1 {
 					operator.Value = "in"
-					lDomain := fmt.Sprintf(`[('%s', '%s', '%s')]`, lPath[1], operator.String(), right.String())
+					lDomain := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
 					lDs, _ := comodel.Records().Domain(lDomain).Read()
 					right.Clear()
 					right.Push(lDs.Keys()...)
@@ -1129,16 +1088,12 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 	// END OF PARSING FULL DOMAIN
 	// -> generate joins
 	// ----------------------------------------
-	var joins, lLst []string
+	var joins, conditions []string
 	joins = make([]string, 0) // NewDomainNode()
 	for _, eleaf := range self.result {
-		lLst = eleaf.get_join_conditions()
-		//for _, lst := range lLst {
-		//	joins.Union(lst)
-		//}
-		joins = append(joins, lLst...)
+		conditions = eleaf.get_join_conditions()
+		joins = append(joins, conditions...)
 	}
-
 	self.joins = joins
 
 	return nil

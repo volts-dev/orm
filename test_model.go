@@ -26,11 +26,13 @@ type (
 	}
 
 	UserModel struct {
-		TModel     `table:""`
-		Id         int64     `field:"pk autoincr title('ID') index"`
-		Uid        int64     `field:"Id() pk  title('ID') index"`
-		CreateTime time.Time `field:"datetime() created"`
-		WriteTime  time.Time `field:"datetime() updated"`
+		TModel       `table:""`
+		PartnerModel `field:"relate(PartnerId)"`
+		PartnerId    int64     `field:"one2one(partner_model)"`
+		Id           int64     `field:"pk autoincr title('ID') index"`
+		Uid          int64     `field:"Id() pk  title('ID') index"`
+		CreateTime   time.Time `field:"datetime() created"`
+		WriteTime    time.Time `field:"datetime() updated"`
 
 		Name  string `field:"char() size(15) unique index required"`
 		Title string `field:"title('Test Title.')"`

@@ -53,11 +53,11 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 	//fld.Base()._attr_type = "selection"
 	//fld.Base()._column_type = "selection"
 	//lField.initSelection(lTag[1:]...)
-	logger.Assert(len(params) > 1, "Selection(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	logger.Assert(len(params) > 0, "Selection(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 
 	fld.Base()._compute = "" //初始化
 	//logger.Dbg(arg)
-	lStr := strings.Trim(params[1], "'")
+	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
 	//logger.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base()._cls_value, ctx.Model.Base()._cls_value.MethodByName(lStr))
 	//if m := model.MethodByName(lStr); m != nil {
@@ -114,10 +114,11 @@ func (self *TSelectionField) _setup_related_full(model IModel) {
 // 配置字段内容
 func (self *TSelectionField) setup_full(model IModel) {
 	if self._setup_done != "full" {
-		if !self.IsRelated() {
+/*		if !self.IsRelated() {
 		} else {
 
 		}
+		*/
 		self._setup_done = "full"
 	}
 }

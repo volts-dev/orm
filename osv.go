@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
@@ -33,38 +34,103 @@ type (
 	// TObj 是一个多个同名不同体Model集合，这些不同体(结构体/继承结构)的MOdel最终只是同一个数据表的表现
 	// fields：存储所有结构体的字段，即这个对象表的所有字段
 	TObj struct {
-		name          string // model 名称
-		uidFieldName  string
-		fields        map[string]IField            // map[field]
-		relations     map[string]string            // many2many many2one... 等关联表
-		relate_fields map[string]*TRelateField     // 关联字段如 UserId CompanyID
-		common_fields map[string]map[string]IField // 关联字段如 UserId CompanyID
-
-		methods      map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
-		object_val   map[reflect.Type]*TModel           // map[Model] 备份对象
-		object_types map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
-		object_table map[reflect.Type]*core.Table
-		//id_caches    cache.ICacher //废弃 缓存Id 对应记录
-		//sql_caches   cache.ICacher //废弃 缓存Sql
-		default_values map[string]interface{} // store the default values of model
-
+		name              string // model 名称
+		uidFieldName      string
+		fields            map[string]IField                  // map[field]
+		relations         map[string]string                  // many2many many2one... 等关联表
+		relatedFields     map[string]*TRelatedField          // 关联字段如 UserId CompanyID
+		commonFields      map[string]map[string]IField       //
+		methods           map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
+		object_val        map[reflect.Type]*TModel           // map[Model] 备份对象
+		object_types      map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
+		object_table      map[reflect.Type]*core.Table
+		defaultValues     map[string]interface{} // store the default values of model
+		relationsLock     sync.RWMutex
+		defaultValuesLock sync.RWMutex
+		relatedFieldsLock sync.RWMutex
+		commonFieldsLock  sync.RWMutex
 	}
 
 	TOsv struct {
-		models map[string]*TObj // 为每个Model存储BaseModel // TODO 名称或许为Objects
 		orm    *TOrm
+		models map[string]*TObj // 为每个Model存储BaseModel // TODO 名称或许为Objects
 		//_models_pool   map[string]sync.Pool // model 对象池
 		//_models_fields map[string]map[string]*TField
-
-		//Registry *TRegistry
-		//Reader *TOrm
-		//Writer *TOrm
 	}
 )
 
-func (self *TObj) GetDefault(key string) (interface{}, bool) {
-	val, has := self.default_values[key]
-	return val, has
+func (self *TObj) GetRelations() map[string]string {
+	return self.relations
+}
+
+func (self *TObj) GetRelationByName(modelName string) (fieldName string) {
+	self.relationsLock.RLock()
+	fieldName = self.relations[modelName]
+	self.relationsLock.RUnlock()
+	return
+}
+
+func (self *TObj) SetRelationByName(modelName string, fieldName string) {
+	self.relationsLock.Lock()
+	self.relations[modelName] = fieldName
+	self.relationsLock.Unlock()
+	return
+}
+
+func (self *TObj) GetDefault() map[string]interface{} {
+	return self.defaultValues
+}
+
+func (self *TObj) GetDefaultByName(fieldName string) (value interface{}) {
+	self.defaultValuesLock.RLock()
+	value = self.defaultValues[fieldName]
+	self.defaultValuesLock.RUnlock()
+	return
+}
+
+func (self *TObj) SetDefaultByName(fieldName string, value interface{}) {
+	self.defaultValuesLock.Lock()
+	self.defaultValues[fieldName] = value
+	self.defaultValuesLock.Unlock()
+	return
+}
+
+func (self *TObj) GetRelatedFields() (all map[string]*TRelatedField) {
+	self.relatedFieldsLock.RLock()
+	all = self.relatedFields
+	self.relatedFieldsLock.RUnlock()
+	return
+}
+
+func (self *TObj) GetRelatedFieldByName(fieldName string) (field *TRelatedField) {
+	self.relatedFieldsLock.RLock()
+	field = self.relatedFields[fieldName]
+	self.relatedFieldsLock.RUnlock()
+	return
+}
+
+func (self *TObj) SetRelatedFieldByName(fieldName string, field *TRelatedField) {
+	self.relatedFieldsLock.Lock()
+	self.relatedFields[fieldName] = field
+	self.relatedFieldsLock.Unlock()
+	return
+}
+func (self *TObj) GetCommonFieldByName(fieldName string) (tableField map[string]IField) {
+	self.commonFieldsLock.RLock()
+	tableField = self.commonFields[fieldName]
+	self.commonFieldsLock.RUnlock()
+	return
+}
+
+func (self *TObj) SetCommonFieldByName(fieldName string, tableName string, field IField) {
+	if self.commonFields[fieldName] == nil {
+		self.commonFields[fieldName] = make(map[string]IField)
+	}
+
+	self.commonFieldsLock.Lock()
+	self.commonFields[fieldName][tableName] = field
+	self.commonFieldsLock.Unlock()
+	return
 }
 
 // 创建一个Objects Services
@@ -130,6 +196,16 @@ func (self *TOsv) SetupModels() {
 	//	}
 }
 
+func (self *TOsv) newObject(name string) *TObj {
+	obj := self.models[name]
+	if obj == nil {
+		obj = self.newObj(name)
+		self.models[name] = obj
+	}
+
+	return obj
+}
+
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 	var lObj *TObj
@@ -138,14 +214,13 @@ func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 	//logger.Dbg("RegisterModel:", region, aModel.name, aModel._cls_type, aModel._cls_type.PkgPath())
 	//获得Object 检查是否存在，不存在则创建
 	if obj, has := self.models[aModel.name]; !has {
-		lObj = self.new_obj(aModel.name)
-		lObj.name = aModel.name // Model 名称
-		lObj.uidFieldName = aModel.idField
-		self.models[aModel.name] = lObj
-		//logger.Dbg("!has", region, aModel.name)
+		lObj = self.newObj(aModel.name)
 	} else {
 		lObj = obj
 	}
+
+	lObj.uidFieldName = aModel.idField
+	self.models[aModel.name] = lObj
 
 	// 为该Model对应的Table
 	lObj.object_table[aModel._cls_type] = aModel.table
@@ -178,20 +253,6 @@ func (self *TOsv) RegisterModel(region string, aModel *TModel) {
 		lObj.fields[name] = field
 	}
 
-	// #关联表
-	for name, field := range aModel._relations {
-		lObj.relations[name] = field
-	}
-
-	// #关联字段
-	for name, field := range aModel._relate_fields {
-		lObj.relate_fields[name] = field
-	}
-
-	// #共同字段
-	for name, field := range aModel._common_fields {
-		lObj.common_fields[name] = field
-	}
 }
 
 // New an object for restore
@@ -203,14 +264,14 @@ func (self *TOsv) newObj(name string) (obj *TObj) {
 			name:          name,                    // model 名称
 			fields:        make(map[string]IField), // map[field]
 			relations:     make(map[string]string),
-			relate_fields: make(map[string]*TRelateField),
-			common_fields: make(map[string]map[string]IField),
-			//common_fields :make(map[string]*TRelateField)
-			methods:        make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
-			object_val:     make(map[reflect.Type]*TModel),           // map[Model] 备份对象
-			object_types:   make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
-			object_table:   make(map[reflect.Type]*core.Table),
-			default_values: make(map[string]interface{}),
+			relatedFields: make(map[string]*TRelatedField),
+			commonFields:  make(map[string]map[string]IField),
+			//common_fields :make(map[string]*TRelatedField)
+			methods:       make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
+			object_val:    make(map[reflect.Type]*TModel),           // map[Model] 备份对象
+			object_types:  make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
+			object_table:  make(map[reflect.Type]*core.Table),
+			defaultValues: make(map[string]interface{}),
 			//id_caches:  cache.NewMemoryCache(),
 			//sql_caches: cache.NewMemoryCache(),
 		}
@@ -220,25 +281,6 @@ func (self *TOsv) newObj(name string) (obj *TObj) {
 	}
 
 	return obj
-}
-
-func (self *TOsv) new_obj(name string) (obj *TObj) {
-	obj = &TObj{
-		name:          name,                    // model 名称
-		fields:        make(map[string]IField), // map[field]
-		relations:     make(map[string]string),
-		relate_fields: make(map[string]*TRelateField),
-		common_fields: make(map[string]map[string]IField),
-		//common_fields :make(map[string]*TRelateField)
-		methods:        make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
-		object_val:     make(map[reflect.Type]*TModel),           // map[Model] 备份对象
-		object_types:   make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
-		object_table:   make(map[reflect.Type]*core.Table),
-		default_values: make(map[string]interface{}),
-		//id_caches:  cache.NewMemoryCache(),
-		//sql_caches: cache.NewMemoryCache(),
-	}
-	return
 }
 
 // 根据Model和Action 执行方法
@@ -358,28 +400,6 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TObj, 
 			}
 		}
 		lModel._fields_lock.Unlock()
-
-		lModel._relations_lock.Lock()
-		for key, val := range obj.relations {
-			lModel._relations[key] = val
-		}
-		lModel._relations_lock.Unlock()
-
-		lModel._relate_fields_lock.Lock()
-		for key, val := range obj.relate_fields {
-			lModel._relate_fields[key] = val
-		}
-		lModel._relate_fields_lock.Unlock()
-
-		lModel._common_fields_lock.Lock()
-		for key, val := range obj.common_fields {
-			t := make(map[string]IField)
-			for n, f := range val {
-				t[n] = f
-			}
-			lModel._common_fields[key] = t
-		}
-		lModel._common_fields_lock.Unlock()
 
 		//		lModel.id_caches = obj.id_caches
 		//		lModel.sql_caches = obj.sql_caches

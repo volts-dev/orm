@@ -53,14 +53,14 @@ func (self *TIntField) Init(ctx *TFieldContext) {
 
 	if len(vals) > 0 {
 		switch vals[0] {
-		case "32":
-			col.SQLType = core.SQLType{core.Int, 0, 0}
-			fld.Base()._column_type = core.Int
-			fld.Base()._attr_type = "int"
 		case "64":
 			col.SQLType = core.SQLType{core.BigInt, 0, 0}
 			fld.Base()._column_type = core.BigInt
 			fld.Base()._attr_type = "bigint"
+		default:
+			col.SQLType = core.SQLType{core.Int, 0, 0}
+			fld.Base()._column_type = core.Int
+			fld.Base()._attr_type = "int"
 		}
 	} else {
 		col.SQLType = core.SQLType{core.Int, 0, 0}

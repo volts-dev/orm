@@ -28,18 +28,18 @@ type (
 		GetBase() *TModel
 
 		// 对象被创建时
-		Default(field string, val ...interface{}) (res interface{}) // 默认值修改获取
+		GetDefault() map[string]interface{}
+		GetDefaultByName(fieldName string) (value interface{})
+		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
 		One2many(ids, model string, fieldKey string) (*dataset.TDataSet, error)
 		Many2many(detail_model, ref_model string, key_id, ref_id string) (*dataset.TDataSet, error)
-
-		// return the list of inherits model name
-		Inherits() []string
 
 		// return the model name
 		GetModelName() string
 		GetTableName() string
 		GetTableDescription() string
-
+		GetCommonFieldByName(fieldName string) (tableField map[string]IField)
+		SetCommonFieldByName(fieldName string, tableName string, field IField)
 		SetRecordName(n string)
 		SetName(n string)
 		//		SetRegistry(reg *TRegistry)
@@ -49,9 +49,9 @@ type (
 		FieldByName(field string, val ...IField) (result IField)
 		GetFieldByName(name string) IField
 		GetFields() map[string]IField
-		RelateFieldByName(field string, val ...*TRelateField) (res *TRelateField)
-		RelateFields() map[string]*TRelateField
-		Relations() map[string]string
+		//RelateFieldByName(field string, val ...*TRelatedField) (res *TRelatedField)
+		//RelateFields() map[string]*TRelatedField
+		//Relations() map[string]string
 		IdField(field ...string) string
 		// new a orm records session for query
 		Records() *TSession
@@ -61,7 +61,7 @@ type (
 		//update(vals map[string]interface{}, where string, args ...interface{}) (id int64)
 		//Unlink(ids ...string) bool
 		Osv() *TOsv
-
+		Obj() *TObj
 		Orm() *TOrm
 		//NameGet(ids []string) [][]string
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
@@ -89,26 +89,20 @@ type (
 		//WriteId    int64     `field:"int"`
 		//WriteTime  time.Time `field:"datetime updated"`
 
-		_cls_type  reflect.Type  // # Model 反射类
-		_cls_value reflect.Value // # Model 反射值 供某些程序调用方法
-		name       string        // # xx.xx 映射在OSV的名称
-		//_table         string                       // # xx_xx 映射在数据库上的名称
-		_inherits      []string                     // # Pg数据库表继承 #考虑废弃
-		_fields        map[string]IField            // # model的所有字段
-		_relations     map[string]string            // # 存放关联表和个关联字段many2many many2one... 等关联表
-		_relate_fields map[string]*TRelateField     // # 存放所有关联表字段由OSV初始化
-		_common_fields map[string]map[string]IField // # [fld][tbl]
-		_parent_name   string                       // #! 父表中的字段名称
-		_parent_store  bool                         // #! 是否有父系关联 比如类目，菜单
-		__default      map[string]interface{}       //废弃 # Model 字段默认值
-		_sequence      string                       //
-		_order         string                       //
-		_module        string                       // # 属于哪个模块所有
-		_rec_name      string                       // # 记录的名称字段 如字段Name,Title,PartNo
-		_auto          bool                         // # True # create database backend
-		_transient     bool                         // # 暂时的
-		_description   string                       // # 描述
-		is_base        bool                         // #该Model是否是基Model,并非扩展Model
+		_cls_type     reflect.Type      // # Model 反射类
+		_cls_value    reflect.Value     // # Model 反射值 供某些程序调用方法
+		name          string            // # xx.xx 映射在OSV的名称
+		_fields       map[string]IField // # model的所有字段
+		_parent_name  string            // #! 父表中的字段名称
+		_parent_store bool              // #! 是否有父系关联 比如类目，菜单
+		_sequence     string            //
+		_order        string            //
+		_module       string            // # 属于哪个模块所有
+		_rec_name     string            // # 记录的名称字段 如字段Name,Title,PartNo
+		_auto         bool              // # True # create database backend
+		_transient    bool              // # 暂时的
+		_description  string            // # 描述
+		is_base       bool              // #该Model是否是基Model,并非扩展Model
 		// # 核心对象
 		orm           *TOrm
 		osv           *TOsv
@@ -122,10 +116,8 @@ type (
 		idField string // the field name of UID
 
 		// # 锁
-		_fields_lock        sync.RWMutex
-		_relations_lock     sync.RWMutex
-		_relate_fields_lock sync.RWMutex
-		_common_fields_lock sync.RWMutex
+		_fields_lock sync.RWMutex
+		//_relations_lock sync.RWMutex
 
 		// TODO
 		fields  *TFieldsSet
@@ -157,14 +149,10 @@ func NewModel(name string, model_value reflect.Value, model_type reflect.Type) (
 		_cls_value: model_value,
 		name:       name,
 		//_table:         strings.Replace(name, ".", "_", -1),
-		_fields:        make(map[string]IField),
-		_relate_fields: make(map[string]*TRelateField),
-		_common_fields: make(map[string]map[string]IField),
-		_relations:     make(map[string]string),
-		_inherits:      make([]string, 0),
-		_order:         "id",
-		__default:      make(map[string]interface{}),
-		_auto:          true,
+		_fields: make(map[string]IField),
+		//		_relate_fields: make(map[string]*TRelatedField),
+		_order: "id",
+		_auto:  true,
 
 		//registry:        session.Registry,
 		//session:         session,
@@ -312,7 +300,7 @@ func (self *TModel) _search(args *utils.TStringList, fields []string, offset int
 	//	fields_str = `*`
 	//}
 
-	query := self._where_calc(args, false, context)
+	query := self.where_calc(args, false, context)
 	order_by = self._generate_order_by(order, query, context) // TODO 未完成
 	from_clause, where_clause, where_clause_params := query.get_sql()
 	if where_clause == "" {
@@ -577,10 +565,6 @@ func (self *TModel) GetTableName() string {
 	return self.table.Name
 }
 
-func (self *TModel) Inherits() []string {
-	return self._inherits
-}
-
 func (self *TModel) db_ref_table() *core.Table {
 	return self.table
 }
@@ -625,15 +609,16 @@ func (self *TModel) db_ref_table() *core.Table {
 func (self *TModel) import_data() {
 
 }
+func (self *TModel) GetDefault() map[string]interface{} {
+	return self.obj.GetDefault()
+}
 
-func (self *TModel) Default(field string, val ...interface{}) (res interface{}) {
-	if len(val) > 0 {
-		self.obj.default_values[field] = val[0]
-		return val[0]
-	} else {
-		return self.obj.default_values[field]
-	}
-	return
+func (self *TModel) GetDefaultByName(fieldName string) (value interface{}) {
+	return self.obj.GetDefaultByName(fieldName)
+}
+
+func (self *TModel) SetDefaultByName(fieldName string, value interface{}) {
+	self.obj.SetDefaultByName(fieldName, value)
 }
 
 // # query model's field name XxxXxx as xxx_xxx
@@ -654,41 +639,12 @@ func (self *TModel) FieldByName(field string, val ...IField) (res IField) {
 }
 
 // 获得拥有该字段的所有表
-func (self *TModel) CommonFieldByName(field string, val ...map[string]IField) (res map[string]IField) {
-	if val != nil {
-		self._common_fields_lock.Lock()
-		defer self._common_fields_lock.Unlock()
-		self._common_fields[field] = val[0]
-		return val[0]
-	} else {
-		self._common_fields_lock.RLock()
-		defer self._common_fields_lock.RUnlock()
-		return self._common_fields[field]
-	}
-	return
+func (self *TModel) GetCommonFieldByName(fieldName string) (tableField map[string]IField) {
+	return self.obj.GetCommonFieldByName(fieldName)
 }
 
-// get the relate field by name.
-func (self *TModel) RelateFieldByName(name string, fields ...*TRelateField) (res *TRelateField) {
-	//logger.Dbg("TModel.Field", len(val), field, val, val != nil)
-	//logger.Dbg("TModel.Field2", len(self._fields), self._fields[field], self._fields)
-
-	if len(fields) > 0 {
-		self._relate_fields_lock.Lock()
-		defer self._relate_fields_lock.Unlock()
-		if name == "" {
-			for _, field := range fields {
-				self._relate_fields[field.name] = field
-			}
-		} else {
-			self._relate_fields[name] = fields[0]
-		}
-	} else {
-		self._relate_fields_lock.RLock()
-		defer self._relate_fields_lock.RUnlock()
-		return self._relate_fields[name]
-	}
-	return
+func (self *TModel) SetCommonFieldByName(fieldName string, tableName string, field IField) {
+	self.obj.SetCommonFieldByName(fieldName, tableName, field)
 }
 
 func (self *TModel) GetFieldByName(name string) IField {
@@ -699,16 +655,6 @@ func (self *TModel) GetFieldByName(name string) IField {
 // Fields returns the fields collection of this model
 func (self *TModel) GetFields() map[string]IField {
 	return self._fields
-}
-
-// RelateFields returns the relate fields collection of this model
-func (self *TModel) RelateFields() map[string]*TRelateField {
-	return self._relate_fields
-}
-
-//
-func (self *TModel) Relations() map[string]string {
-	return self._relations
 }
 
 func (self *TModel) IdField(field ...string) string {
@@ -726,6 +672,10 @@ func (self *TModel) GetMethods() *TMethodsSet {
 // TODO 废除因为继承的一致性冲突
 func (self *TModel) Osv() *TOsv {
 	return self.osv
+}
+
+func (self *TModel) Obj() *TObj {
+	return self.obj
 }
 
 // TODO 废除因为继承的一致性冲突
@@ -766,14 +716,11 @@ func (self *TModel) relations_reload() {
 	*/
 	//TODO  锁安全
 	var (
-		fielss            map[string]IField
-		relate_fields     map[string]*TRelateField
-		tmp_relate_fields []*TRelateField
-		size              int
-		idx               int
+		fielss        map[string]IField
+		relate_fields map[string]*TRelatedField
 	)
 
-	for tbl, fld := range self._relations {
+	for tbl, fld := range self.obj.GetRelations() {
 		//logger.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
 		rel_model, err := self.osv.GetModel(tbl) // #i //TableByName(tbl)
 		if err != nil {
@@ -782,22 +729,17 @@ func (self *TModel) relations_reload() {
 
 		rel_model.relations_reload()
 		fielss = rel_model.GetFields()
-		relate_fields = rel_model.RelateFields()
-		size = len(fielss) + len(relate_fields)
-		tmp_relate_fields = make([]*TRelateField, size) // 临时
+		relate_fields = rel_model.Obj().GetRelatedFields() //RelateFields()
 
-		idx = 0
 		for name, field := range fielss {
-			tmp_relate_fields[idx] = NewRelateField(name, tbl, fld, field, tbl)
-			idx++
+			self.obj.SetRelatedFieldByName(name, NewRelateField(name, tbl, fld, field, tbl))
+
 		}
 
 		for name, source := range relate_fields {
-			tmp_relate_fields[idx] = NewRelateField(name, tbl, fld, source.RelateField, source.RelateTopestTable)
-			idx++
+			self.obj.SetRelatedFieldByName(name, NewRelateField(name, tbl, fld, source.RelateField, source.RelateTopestTable))
 		}
 
-		self.RelateFieldByName("", tmp_relate_fields...)
 		/*
 			self._relate_fields_lock.Lock()
 			for name, field := range rel_model.Fields() {
@@ -820,7 +762,7 @@ func (self *TModel) _add_inherited_fields() {
 	//# determine candidate inherited fields
 	//	var fields = make([]*TField, 0)
 	var lNew IField
-	for parent_model, _ := range self._relations {
+	for parent_model, _ := range self.obj.GetRelations() {
 		parent, err := self.osv.GetModel(parent_model) // #i
 		if err != nil {
 			logger.Err(err, "@_add_inherited_fields")
@@ -833,8 +775,7 @@ func (self *TModel) _add_inherited_fields() {
 			//#  - copy inherited fields iff their original field is copied
 			if has := self.FieldByName(refname); has != nil {
 				lNew = utils.Clone(ref).(IField)
-				//*lNew = *ref //复制关联字段
-				lNew.IsForeignField(true)
+				lNew.IsInheritedField(true)
 				self.FieldByName(refname, ref)
 			}
 		}
@@ -926,7 +867,7 @@ func (self *TModel) __select_column_data() *dataset.TDataSet {
 //转换
 func (self *TModel) _validate(vals map[string]interface{}) {
 	for key, val := range vals {
-		if f := self.FieldByName(key); f != nil && !f.IsRelated() {
+		if f := self.FieldByName(key); f != nil && !f.IsRelatedField() {
 			//webgo.Debug("_Validate", key, val, f._type)
 			switch f.Type() {
 			case "boolean":

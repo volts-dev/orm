@@ -152,9 +152,9 @@ func init() {
 
 		// # rel
 		//TAG_RELATED] = "related" //废弃
-		TAG_EXTENDS:  tag_extends_relate,
-		TAG_RELATE:   tag_extends_relate,
-		TAG_INHERITS: tag_extends_relate, //tag_inherits
+		TAG_EXTENDS: tag_extends,
+		TAG_RELATE:  tag_relate,
+		//TAG_INHERITS: tag_extends_relate, //tag_inherits
 		//T
 	}
 }
@@ -173,7 +173,7 @@ func RegisterTagController(name string, ctrl ITagController) {
 	tag_ctrl[name] = ctrl
 }
 
-func SelectTagController(name string) ITagController {
+func GetTagControllerByName(name string) ITagController {
 	ctrl, ok := tag_ctrl[name]
 	if !ok {
 		fmt.Errorf("cache: unknown adapter name %q (forgot to import?)", name)
@@ -203,9 +203,9 @@ func tag_compute(ctx *TFieldContext) {
 	fld.Base()._attr_store = false
 	fld.Base()._attr_readonly = false
 
-	if len(params) > 1 {
+	if len(params) > 0 {
 		fld.Base()._compute = "" // 初始化
-		lStr := strings.Trim(params[1], "'")
+		lStr := strings.Trim(params[0], "'")
 		lStr = strings.Replace(lStr, "''", "'", -1)
 		if m := ctx.Model.GetBase()._cls_value.MethodByName(lStr); m.IsValid() {
 			fld.Base()._compute = lStr
@@ -220,13 +220,7 @@ func tag_inverse(ctx *TFieldContext) {
 
 // 废弃
 func tag_type(ctx *TFieldContext) {
-	params := ctx.Params
 
-	if len(params) > 1 {
-		//if ctrl, has := ctx.Orm.tag_ctrl[params[1]]; has {
-		//CCC ctrl(model, fld_val, fld, col)
-		//}
-	}
 }
 
 //
@@ -255,29 +249,23 @@ func tag_auto(ctx *TFieldContext) {
 	fld.Base().auto_increment = true
 }
 
-// TODO 实现默认 传入Model >obj >Tmodel
+// TODO test
 func tag_default(ctx *TFieldContext) {
 	col := ctx.Column
-	//	fld := ctx.Field
+	fld := ctx.Field
 	params := ctx.Params
-	//	model := ctx.Model
+	model := ctx.Model
 
-	if len(params) > 1 {
-		col.Default = params[1]
-		//fld.Base()._attr_default = params[1]
-		// save to model object
-		//Logger().Dbg(model)
-		//Logger().Dbg(model.GetBase().obj)
-		//Logger().Dbg(model.GetBase().obj.default_values)
-		// TODO 实现默认 传入Model >obj >Tmodel
-		//model.GetBase().obj.default_values[fld.Name()] = params[1]
+	if len(params) > 0 {
+		col.Default = params[0]
+		model.Obj().SetDefaultByName(fld.Name(), params[0]) // save to model object
 	}
 }
 
-func tag_extends_relate(ctx *TFieldContext) {
+//TODO tag_extends 未完成
+func tag_extends(ctx *TFieldContext) {
 	fld_val := ctx.FieldTypeValue
 	model := ctx.Model
-	fld := ctx.Field
 	params := ctx.Params
 
 	switch fld_val.Kind() {
@@ -285,28 +273,19 @@ func tag_extends_relate(ctx *TFieldContext) {
 		logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
 		break
 	case reflect.Struct:
-		var (
-			parentModel *TModel // 新ORM的Table
-			ignoreCols  bool
-		)
-		is_relate := strings.ToLower(params[0]) == "relate"
-
-		if strings.ToLower(params[0]) == TAG_INHERITS {
-			ignoreCols = true //# 继承在创建表时需要忽略被继承表的字段避免主键独立序号
-			if utils.InStrings(fld.Name(), model.GetBase()._inherits...) == -1 {
-				model.GetBase()._inherits = append(model.GetBase()._inherits, fld.Name())
-			}
-			// 字段其他参数映射
-		}
-
 		// #当该值为空时表示不限制字段
-		lRelFields := params[1:]
+		lRelFields := params
 		lRelFieldsCnt := len(lRelFields)
-		parentModel = ctx.Orm.mapping("", fld_val.Interface())
-		for _, fld := range parentModel._fields {
 
+		object_name := utils.Obj2Name(fld_val.Interface())
+		model_name := fmtModelName(object_name)
+		// 现在成员名是关联的Model名,Tag 为关联的字段
+		model.Obj().SetRelationByName(model_name, params[0])
+
+		parentModel := ctx.Orm.mapping("", fld_val.Interface())
+		for _, fld := range parentModel._fields {
 			// #限制某些字段
-			// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
+			// @ 当参数多余1个时判断为限制字段　例如：`field:"extends(PartnerId,Name)"`
 			if lRelFieldsCnt > 1 && utils.InStrings(fld.Name(), lRelFields...) == -1 {
 				continue
 			}
@@ -314,22 +293,10 @@ func tag_extends_relate(ctx *TFieldContext) {
 			lNewFld := utils.Clone(fld).(IField) // 复制关联字段
 			lNewFld.SetBase(fld.Base())
 			if f := model.FieldByName(fld.Name()); f == nil {
-				//logger.Dbg("FFF", parentModel.ModelName(), fld, fld.Name, lNewFld)
-
 				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
-				if !is_relate {
-					if !ignoreCols { // 继承表的字段不被用于创建表
-						// # 复制扩展表字段段
-						//parent_col := parentModel.table.GetColumn(fld.Name())
-						//if parent_col != nil {
-						//	model.table.AddColumn(parent_col)
-						//}
-						// db:读写锁
-						model.GetBase().table.AddColumn(lNewFld.Column())
-					}
-				} else {
-					lNewFld.Base().foreign_field = true
-				}
+
+				// db:读写锁
+				model.GetBase().table.AddColumn(lNewFld.Column())
 
 				if lNewFld.Base().auto_increment {
 					model.GetBase().table.AutoIncrement = lNewFld.Name()
@@ -343,21 +310,66 @@ func tag_extends_relate(ctx *TFieldContext) {
 				}
 
 				model.GetBase()._fields[fld.Name()] = lNewFld
+			}
+		}
+	}
+}
 
-				// 记录继承字段
-				//lModelName := utils.TitleCasedName(utils.DotCasedName(lFieldTable.Name))
-				//model.InheritFields[fld.Name] = NewRelateField(fld.Name, lModelName, "", fld, "")
-			} else {
-				// 继承Model间有相同字段 标记起来
-				if is_relate {
-					if model.GetBase()._common_fields[fld.Name()] == nil {
-						model.GetBase()._common_fields[fld.Name()] = make(map[string]IField)
-					}
+func tag_relate(ctx *TFieldContext) {
+	fld_val := ctx.FieldTypeValue
+	model := ctx.Model
+	params := ctx.Params
 
-					model.GetBase()._common_fields[fld.Name()][parentModel.name] = lNewFld
-					model.GetBase()._common_fields[fld.Name()][f.Base().model_name] = f
-					//logger.Dbg("_common_fields2", fld.Name, parentModel.name, f.model_name, &lNewFld)
+	switch fld_val.Kind() {
+	case reflect.Ptr:
+		logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
+		break
+	case reflect.Struct:
+		// #当该值为空时表示不限制字段
+		lRelFields := params
+		lRelFieldsCnt := len(lRelFields)
+
+		//
+		object_name := utils.Obj2Name(fld_val.Interface())
+		model_name := fmtModelName(object_name)
+		// 现在成员名是关联的Model名,Tag 为关联的字段
+		model.Obj().SetRelationByName(model_name, fmtFieldName(params[0]))
+
+		parentModel, err := ctx.Orm.GetModel(model_name)
+		if err != nil || parentModel == nil {
+			parentModel = ctx.Orm.mapping("", fld_val.Interface())
+			logger.Dbg("parentModel ", model_name)
+		}
+
+		for _, fld := range parentModel.GetFields() {
+			// #限制某些字段
+			// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
+			if lRelFieldsCnt > 1 && utils.InStrings(fld.Name(), lRelFields...) == -1 {
+				continue
+			}
+
+			new_field := utils.Clone(fld).(IField) // 复制关联字段
+			new_field.SetBase(fld.Base())
+			if f := model.FieldByName(fld.Name()); f == nil {
+				//logger.Dbg("FFF", parentModel.GetModelName(), fld.Name(), fld, new_field)
+
+				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
+				new_field.Base().isInheritedField = true
+
+				if new_field.Base().auto_increment {
+					model.GetBase().table.AutoIncrement = new_field.Name()
 				}
+
+				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
+				if new_field.Base().primary_key && new_field.Base().auto_increment {
+					model.GetBase().idField = new_field.Name()
+				}
+				model.GetBase()._fields[fld.Name()] = new_field
+
+			} else {
+				model.GetBase().SetCommonFieldByName(fld.Name(), parentModel.GetTableName(), new_field)
+				model.GetBase().SetCommonFieldByName(fld.Name(), f.Base().model_name, f)
+				//logger.Dbg("_common_fields2", fld.Name, parentModel.name, f.model_name, &lNewFld)
 			}
 		}
 	}
@@ -368,7 +380,7 @@ func tag_created(ctx *TFieldContext) {
 	fld := ctx.Field
 
 	col.IsCreated = true
-	fld.Base()._is_created = true
+	fld.Base().isCreated = true
 }
 
 func tag_updated(ctx *TFieldContext) {
@@ -376,18 +388,16 @@ func tag_updated(ctx *TFieldContext) {
 	fld := ctx.Field
 
 	col.IsUpdated = true
-	fld.Base()._is_updated = true
+	fld.Base().isUpdated = true
 }
 
 func tag_deleted(ctx *TFieldContext) {
 	col := ctx.Column
-
 	col.IsDeleted = true
 }
 
 func tag_ver(ctx *TFieldContext) {
 	col := ctx.Column
-
 	col.IsVersion = true
 	col.Default = "1"
 }
@@ -397,14 +407,15 @@ func tag_name(ctx *TFieldContext) {
 	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
-	if len(params) == 2 {
-		name := params[1]
+	cnt := len(params)
+	if cnt == 1 {
+		name := params[0]
 		name = strings.Trim(name, "'")
 
 		//  更新关联字段名称
-		for tbl, f := range model.GetBase()._relations {
-			if f == fld.Name() {
-				model.GetBase()._relations[tbl] = name
+		for tbl, fieldName := range model.GetBase().obj.GetRelations() {
+			if fld.Name() == fieldName {
+				model.GetBase().obj.SetRelationByName(tbl, name)
 				break
 			}
 		}
@@ -414,7 +425,7 @@ func tag_name(ctx *TFieldContext) {
 		fld.Base()._attr_name = name
 	}
 
-	if len(params) == 3 {
+	if cnt == 2 {
 		//old_name := params[1]
 		//new_ame := params[2]
 		//TODO
@@ -428,8 +439,8 @@ func tag_title(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	if len(params) > 1 {
-		title := strings.Trim(params[1], "'")
+	if len(params) > 0 {
+		title := strings.Trim(params[0], "'")
 		title = strings.Replace(title, "''", "'", -1)
 		fld.Base()._attr_title = title
 	}
@@ -440,8 +451,8 @@ func tag_help(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	if len(params) > 1 {
-		help := strings.Trim(params[1], "'")
+	if len(params) > 0 {
+		help := strings.Trim(params[0], "'")
 		help = strings.Replace(help, "''", "'", -1)
 		col.Comment = help
 		fld.Base()._attr_help = help
@@ -454,8 +465,8 @@ func tag_required(ctx *TFieldContext) {
 	params := ctx.Params
 
 	fld.Base()._attr_required = true
-	if len(params) > 1 {
-		fld.Base()._attr_required = utils.StrToBool(params[1])
+	if len(params) > 0 {
+		fld.Base()._attr_required = utils.StrToBool(params[0])
 	}
 
 	col.Nullable = !fld.Base()._attr_required
@@ -468,8 +479,8 @@ func tag_read_only(ctx *TFieldContext) {
 
 	fld.Base()._attr_readonly = true
 	col.MapType = core.ONLYFROMDB
-	if len(params) > 1 {
-		fld.Base()._attr_readonly = utils.StrToBool(params[1])
+	if len(params) > 0 {
+		fld.Base()._attr_readonly = utils.StrToBool(params[0])
 	}
 }
 
@@ -478,9 +489,9 @@ func tag_size(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	if len(params) > 1 {
-		col.Length = int(utils.StrToInt64(params[1]))
-		fld.Base()._attr_size = utils.StrToInt64(params[1])
+	if len(params) > 0 {
+		col.Length = int(utils.StrToInt64(params[0]))
+		fld.Base()._attr_size = utils.StrToInt64(params[0])
 	}
 }
 
@@ -488,31 +499,8 @@ func tag_ondelete(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	if len(params) > 1 {
-		fld.Base().ondelete = strings.Trim(params[1], "'")
-	}
-}
-
-func __tag_write(ctx *TFieldContext) {
-	//	fld := ctx.Field
-	params := ctx.Params
-
-	//logger.Dbg("write::", arg, utils.StrToBool(arg[1]))
-	if len(params) > 1 {
-		//	fld.Base()._classic_write = utils.StrToBool(params[1])
-	} else {
-		//	fld.Base()._classic_write = true
-	}
-}
-
-func __tag_read(ctx *TFieldContext) {
-	//	fld := ctx.Field
-	params := ctx.Params
-
-	if len(params) > 1 {
-		//		fld.Base()._classic_read = utils.StrToBool(params[1])
-	} else {
-		//		fld.Base()._classic_read = true
+	if len(params) > 0 {
+		fld.Base().ondelete = strings.Trim(params[0], "'")
 	}
 }
 
@@ -520,18 +508,19 @@ func tag_store(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	if len(params) > 1 {
-		fld.Base()._attr_store = utils.StrToBool(params[1])
+	if len(params) > 0 {
+		fld.Base()._attr_store = utils.StrToBool(params[0])
 	} else {
 		fld.Base()._attr_store = true
 	}
 }
+
 func tag_domain(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	if len(params) > 1 {
-		domain := strings.Trim(params[1], "'")
+	if len(params) > 0 {
+		domain := strings.Trim(params[0], "'")
 		fld.Base()._attr_domain = domain
 	}
 }
@@ -549,8 +538,8 @@ func tag_table_name(ctx *TFieldContext) {
 	params := ctx.Params
 
 	// TODO 未安全测试
-	if len(params) > 1 {
-		name := params[1]
+	if len(params) > 0 {
+		name := params[0]
 		name = strings.Trim(name, "'")
 
 		if name != "" { // 检测合法不为空
@@ -566,8 +555,8 @@ func tag_table_description(ctx *TFieldContext) {
 	model := ctx.Model
 	params := ctx.Params
 
-	if len(params) > 1 {
-		description := strings.Trim(params[1], "'")
+	if len(params) > 0 {
+		description := strings.Trim(params[0], "'")
 		description = strings.Replace(description, "''", "'", -1)
 		model.GetBase()._description = description
 		model.GetBase().table.Comment = description
@@ -580,7 +569,7 @@ func tag_table_order(ctx *TFieldContext) {
 	model := ctx.Model
 	params := ctx.Params
 
-	if len(params) > 1 {
-		model.GetBase()._order = strings.Trim(params[1], "'")
+	if len(params) > 0 {
+		model.GetBase()._order = strings.Trim(params[0], "'")
 	}
 }

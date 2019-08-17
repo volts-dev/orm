@@ -309,9 +309,10 @@ type (
 		MiddleModelName() string // 多对多关系中 记录2表记录关联关系的表
 		FieldsId() string
 		IsIndex() bool
-		IsRelated() bool
-		IsForeignField(arg ...bool) bool
-		IsCommonField(arg ...bool) bool
+		//IsRelated() bool
+		IsRelatedField(arg ...bool) bool
+		IsInheritedField(arg ...bool) bool
+		//IsCommonField(arg ...bool) bool
 		IsAutoJoin() bool
 		//IsClassicRead() bool
 		//IsClassicWrite() bool
@@ -338,10 +339,12 @@ type (
 		_inherit          bool                // 是否继承该字段指向的Model的多有字段
 		_args             map[string]string   // [Tag]val 里的参数
 		_setup_done       string              // 字段安装完成步骤 Base,full
-		foreign_field     bool                // 该字段是关联表的字段
-		common_field      bool                // 废弃 所有表共有的字段
-		related           bool                //
-		inherited         bool                // 是否是继承的字段 (_inherits)
+		isCreated         bool                //# 时间字段自动更新日期
+		isUpdated         bool                //
+		isInheritedField  bool                // 该字段是否关联表的字段 relate
+		isRelatedField    bool                // 该字段是否关联表的外键字段
+		___common_field   bool                // 废弃 所有表共有的字段
+		___related        bool                //
 		automatic         bool                // 是否是自动创建的字段 ("magic" field)
 		model_name        string              // 字段所在的模型名称
 		comodel_name      string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
@@ -392,8 +395,6 @@ type (
 		_compute      string      //# 字段值的计算函数函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
 		_compute_sudo bool        //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
 		_oldname      string      //# the previous name of this field, so that ORM can rename it automatically at migration
-		_is_created   bool        //# 时间字段自动更新日期
-		_is_updated   bool
 
 		// # one2many
 		_fields_id string
@@ -405,7 +406,7 @@ type (
 		attachment bool
 	}
 
-	TRelateField struct {
+	TRelatedField struct {
 		// Mapping from inherits'd field name to triple (m, r, f, n) where
 		// m is the model from which it is inherits'd,
 		// r is the (local) field towards m,
@@ -542,8 +543,9 @@ func NewField(name, type_name string) IField {
 	return fld
 }
 
-func NewRelateField(aNames string, relate_table_name string, relate_field_name string, aField IField, relate_topest_table string) *TRelateField {
-	return &TRelateField{
+// TODO　改名外键
+func NewRelateField(aNames string, relate_table_name string, relate_field_name string, aField IField, relate_topest_table string) *TRelatedField {
+	return &TRelatedField{
 		name:              aNames,
 		RelateTableName:   relate_table_name,
 		RelateFieldName:   relate_field_name,
@@ -673,10 +675,6 @@ func (self *TField) IsIndex() bool {
 	return self.index
 }
 
-func (self *TField) IsRelated() bool {
-	return self.related
-}
-
 //TODO 改名称
 func (self *TField) FuncMultiName() string {
 	return self._func_multi
@@ -690,23 +688,27 @@ func (self *TField) Column() *core.Column {
 	return self.column
 }
 
-/*
-func (self *TField) Searchable() bool {
-	return self.search
-}*/
-
-func (self *TField) IsForeignField(arg ...bool) bool {
+// 该字段是不是指向其他model的id
+func (self *TField) IsRelatedField(arg ...bool) bool {
 	if len(arg) > 0 {
-		self.foreign_field = arg[0]
+		self.isRelatedField = arg[0]
 	}
-	return self.foreign_field
+	return self.isRelatedField
 }
 
-func (self *TField) IsCommonField(arg ...bool) bool {
+//
+func (self *TField) IsInheritedField(arg ...bool) bool {
 	if len(arg) > 0 {
-		self.common_field = arg[0]
+		self.isInheritedField = arg[0]
 	}
-	return self.common_field
+	return self.isInheritedField
+}
+
+func (self *TField) ___IsCommonField(arg ...bool) bool {
+	if len(arg) > 0 {
+		self.___common_field = arg[0]
+	}
+	return self.___common_field
 }
 
 func (self *TField) UseAttachment() bool {
