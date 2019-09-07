@@ -121,7 +121,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 	}
 
 	if !has {
-		field := model.FieldByName(model.IdField())
+		field := model.GetFieldByName(model.IdField())
 		sqlType := field.ColumnType()
 		id1 := fld.RelateFieldName()
 		id2 := fld.MiddleFieldName()
@@ -253,10 +253,10 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 		params := append(where_params, id)
 
 		// # 获取字段关联表的字符
-		ids := ctx.Session.Orm().cacher.GetBySql(cacher_table_name, query, params)
+		ids := ctx.Session.Orm().Cacher.GetBySql(cacher_table_name, query, params)
 		if len(ids) > 0 {
 			// # 查询 field.Relation 表数据
-			records, less := session.Orm().cacher.GetByIds(cacher_table_name, ids...)
+			records, less := session.Orm().Cacher.GetByIds(cacher_table_name, ids...)
 			if len(less) == 0 {
 				res_ds = dataset.NewDataSet()
 				res_ds.AppendRecord(records...)
@@ -277,9 +277,9 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 			}
 
 			// # store result in cache
-			session.Orm().cacher.PutBySql(cacher_table_name, query, where_params, ds.Keys()...) // # 添加Sql查询结果
+			session.Orm().Cacher.PutBySql(cacher_table_name, query, where_params, ds.Keys()...) // # 添加Sql查询结果
 			for _, id := range ds.Keys() {
-				session.Orm().cacher.PutById(cacher_table_name, id, ds.RecordByKey(id)) // # 添加记录缓存
+				session.Orm().Cacher.PutById(cacher_table_name, id, ds.RecordByKey(id)) // # 添加记录缓存
 			}
 
 			res_ds = ds
@@ -575,7 +575,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
 		return err
 	}
 
-	rel_filed := rel_model.FieldByName(relkey_field_name)
+	rel_filed := rel_model.GetFieldByName(relkey_field_name)
 	if rel_filed.ColumnType() != "many2one" {
 		return logger.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
 	}

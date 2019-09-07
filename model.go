@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"sync"
 
+	//"sync"
 	"volts-dev/dataset"
 
 	core "github.com/go-xorm/core"
@@ -23,9 +23,7 @@ type (
 		//check_access_rights(operation string) bool
 
 		// public
-
-		// get the base model object
-		GetBase() *TModel
+		GetBase() *TModel // get the base model object
 
 		// 对象被创建时
 		GetDefault() map[string]interface{}
@@ -38,15 +36,12 @@ type (
 		GetModelName() string
 		GetTableName() string
 		GetTableDescription() string
-		GetCommonFieldByName(fieldName string) (tableField map[string]IField)
-		SetCommonFieldByName(fieldName string, tableName string, field IField)
 		SetRecordName(n string)
 		SetName(n string)
 		//		SetRegistry(reg *TRegistry)
 		//		Session() *TSession
 		//Field(field string, val ...*TField) (result *TField) // 作废
 		MethodByName(method string) *TMethod
-		FieldByName(field string, val ...IField) (result IField)
 		GetFieldByName(name string) IField
 		GetFields() map[string]IField
 		//RelateFieldByName(field string, val ...*TRelatedField) (res *TRelatedField)
@@ -71,6 +66,7 @@ type (
 		//SearchCount(domain string, context map[string]interface{}) int
 	}
 
+	// ???
 	IModelPretected interface {
 		IModel
 		db_ref_table() *core.Table
@@ -89,20 +85,20 @@ type (
 		//WriteId    int64     `field:"int"`
 		//WriteTime  time.Time `field:"datetime updated"`
 
-		_cls_type     reflect.Type      // # Model 反射类
-		_cls_value    reflect.Value     // # Model 反射值 供某些程序调用方法
-		name          string            // # xx.xx 映射在OSV的名称
-		_fields       map[string]IField // # model的所有字段
-		_parent_name  string            // #! 父表中的字段名称
-		_parent_store bool              // #! 是否有父系关联 比如类目，菜单
-		_sequence     string            //
-		_order        string            //
-		_module       string            // # 属于哪个模块所有
-		_rec_name     string            // # 记录的名称字段 如字段Name,Title,PartNo
-		_auto         bool              // # True # create database backend
-		_transient    bool              // # 暂时的
-		_description  string            // # 描述
-		is_base       bool              // #该Model是否是基Model,并非扩展Model
+		modelType  reflect.Type  // # Model 反射类
+		modelValue reflect.Value // # Model 反射值 供某些程序调用方法
+		name       string        // # xx.xx 映射在OSV的名称
+		//_fields       map[string]IField // # model的所有字段
+		_parent_name  string // #! 父表中的字段名称
+		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
+		_sequence     string //
+		_order        string //
+		_module       string // # 属于哪个模块所有
+		_rec_name     string // # 记录的名称字段 如字段Name,Title,PartNo
+		_auto         bool   // # True # create database backend
+		_transient    bool   // # 暂时的
+		_description  string // # 描述
+		is_base       bool   // #该Model是否是基Model,并非扩展Model
 		// # 核心对象
 		orm           *TOrm
 		osv           *TOsv
@@ -116,7 +112,7 @@ type (
 		idField string // the field name of UID
 
 		// # 锁
-		_fields_lock sync.RWMutex
+		//_fields_lock sync.RWMutex
 		//_relations_lock sync.RWMutex
 
 		// TODO
@@ -145,11 +141,11 @@ var (
 // @ Registry
 func NewModel(name string, model_value reflect.Value, model_type reflect.Type) (mdl *TModel) {
 	mdl = &TModel{
-		_cls_type:  model_type,
-		_cls_value: model_value,
+		modelType:  model_type,
+		modelValue: model_value,
 		name:       name,
 		//_table:         strings.Replace(name, ".", "_", -1),
-		_fields: make(map[string]IField),
+		//_fields: make(map[string]IField),
 		//		_relate_fields: make(map[string]*TRelatedField),
 		_order: "id",
 		_auto:  true,
@@ -177,7 +173,7 @@ func (self *TModel) SetRecordName(n string) {
 	self._rec_name = n
 }
 
-// 获取主键字段名称
+//TODO 废除 获取主键字段名称
 func (self *TModel) GetKeyName() string {
 	return self.GetRecordName()
 }
@@ -211,7 +207,7 @@ func (self *TModel) GetTableDescription() string {
 
 // 实际注册的model原型
 func (self *TModel) Interface() interface{} {
-	return self._cls_value.Interface()
+	return self.modelValue.Interface()
 }
 
 func (self *TModel) GetBase() *TModel {
@@ -383,18 +379,18 @@ func (self *TModel) __convert_to_read(field IField, value interface{}, use_name_
 	switch field.Type() {
 	case "selection":
 		lMehodName := field.Compute()
-		//logger.Dbg("selection:", lMehodName, self._cls_value.MethodByName(lMehodName))
+		//logger.Dbg("selection:", lMehodName, self.modelValue.MethodByName(lMehodName))
 		if m := self.MethodByName(lMehodName); m != nil {
-			/*		//if m := self._cls_value.MethodByName(lMehodName); m.IsValid() {
-					//logger.Dbg("selection:", m, self._cls_value)
-					m.SetArgs(self._cls_value)
+			/*		//if m := self.modelValue.MethodByName(lMehodName); m.IsValid() {
+					//logger.Dbg("selection:", m, self.modelValue)
+					m.SetArgs(self.modelValue)
 					if m.Call() {
 						if res, ok := m.AsInterface().([][]string); ok {
 							field.Selections(res...)
 						}
 					}
 
-					/*results := m.Call([]reflect.Value{self._cls_value}) //
+					/*results := m.Call([]reflect.Value{self.modelValue}) //
 					//logger.Dbg("selection:", results)
 					if len(results) == 1 {
 						//fld.Selection, _ = results[0].Interface().([][]string)
@@ -469,7 +465,7 @@ func (self *TModel) __name_get(ids []interface{}, fields []string) (result *data
 func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 	name := self._rec_name
 	id_field := self.idField
-	if f := self.FieldByName(name); f != nil {
+	if f := self.GetFieldByName(name); f != nil {
 		ds, err := self.Records().Select(id_field, name).Ids(ids...).Read()
 		if err != nil {
 			return nil, err
@@ -509,7 +505,7 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 
 	// 使用默认 name 字段
 	if self._rec_name == "" {
-		if fld := self.FieldByName("name"); fld != nil {
+		if fld := self.GetFieldByName("name"); fld != nil {
 			self._rec_name = "name"
 		}
 	}
@@ -527,7 +523,7 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 	}
 
 	lNameField := ""
-	if fld := self.FieldByName(self._rec_name); fld != nil {
+	if fld := self.GetFieldByName(self._rec_name); fld != nil {
 		lNameField = self._rec_name
 	} else {
 		lNameField = self.name
@@ -621,40 +617,13 @@ func (self *TModel) SetDefaultByName(fieldName string, value interface{}) {
 	self.obj.SetDefaultByName(fieldName, value)
 }
 
-// # query model's field name XxxXxx as xxx_xxx
-func (self *TModel) FieldByName(field string, val ...IField) (res IField) {
-	//logger.Dbg("TModel.Field", len(val), field, val, val != nil)
-	//logger.Dbg("TModel.Field2", len(self._fields), self._fields[field], self._fields)
-	if val != nil {
-		self._fields_lock.Lock()
-		defer self._fields_lock.Unlock()
-		self._fields[field] = val[0]
-		return val[0]
-	} else {
-		self._fields_lock.RLock()
-		defer self._fields_lock.RUnlock()
-		return self._fields[field]
-	}
-	return
-}
-
-// 获得拥有该字段的所有表
-func (self *TModel) GetCommonFieldByName(fieldName string) (tableField map[string]IField) {
-	return self.obj.GetCommonFieldByName(fieldName)
-}
-
-func (self *TModel) SetCommonFieldByName(fieldName string, tableName string, field IField) {
-	self.obj.SetCommonFieldByName(fieldName, tableName, field)
-}
-
 func (self *TModel) GetFieldByName(name string) IField {
-	field := self._fields[name]
-	return field
+	return self.obj.GetFieldByName(name)
 }
 
 // Fields returns the fields collection of this model
 func (self *TModel) GetFields() map[string]IField {
-	return self._fields
+	return self.obj.GetFields()
 }
 
 func (self *TModel) IdField(field ...string) string {
@@ -773,10 +742,10 @@ func (self *TModel) _add_inherited_fields() {
 			//# following specific properties:
 			//#  - reading inherited fields should not bypass access rights
 			//#  - copy inherited fields iff their original field is copied
-			if has := self.FieldByName(refname); has != nil {
+			if has := self.obj.GetFieldByName(refname); has != nil {
 				lNew = utils.Clone(ref).(IField)
 				lNew.IsInheritedField(true)
-				self.FieldByName(refname, ref)
+				self.obj.SetFieldByName(refname, ref)
 			}
 		}
 	}
@@ -867,7 +836,7 @@ func (self *TModel) __select_column_data() *dataset.TDataSet {
 //转换
 func (self *TModel) _validate(vals map[string]interface{}) {
 	for key, val := range vals {
-		if f := self.FieldByName(key); f != nil && !f.IsRelatedField() {
+		if f := self.GetFieldByName(key); f != nil && !f.IsRelatedField() {
 			//webgo.Debug("_Validate", key, val, f._type)
 			switch f.Type() {
 			case "boolean":

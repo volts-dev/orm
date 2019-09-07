@@ -100,6 +100,7 @@ func (self *TCacher) genSqlKey(table string, sql string, args interface{}, remov
 	return str
 }
 
+// turn on the cacher for query
 func (self *TCacher) Active(sw bool) {
 	self.active = sw
 }

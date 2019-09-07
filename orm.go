@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
 	"volts-dev/dataset"
 
 	core "github.com/go-xorm/core"
@@ -32,36 +31,24 @@ const (
 var (
 	BlankStrItf interface{} = ""
 	BlankNumItf interface{} = 0
-
-	DbType       string = "postgres"
-	DbUser       string = "postgres"
-	DbPassword   string = "postgres"
-	DbMasterHost string = "localhost:5432"
-	DbSlaveHost  string = "localhost:5432"
-	// pg:only "require" (default), "verify-full", and "disable" supported
-	DbSSLMode   string = "disable" // 字符串
-	TestShowSql bool   = true
-
-	cacher_max_item = 1000
-	cacher_gc_time  = 15
 )
 
 type (
 	TOrm struct {
 		db          *core.DB
-		osv         *TOsv // 对象管理
 		dialect     core.Dialect
 		dataSource  *DataSource
+		osv         *TOsv // 对象管理
 		models      map[string]*TModel
 		tables      map[string]*core.Table // #作为非经典模式参考
 		nameIndex   map[string]*TModel
-		cacher      *TCacher // TODO 大写
 		showSql     bool
 		showSqlTime bool
 
 		// public
-		FieldIdentifier string // 字段 tag 标记
-		TableIdentifier string // 表 tag 标记
+		Cacher          *TCacher // TODO 大写
+		FieldIdentifier string   // 字段 tag 标记
+		TableIdentifier string   // 表 tag 标记
 		TimeZone        *time.Location
 	}
 )
@@ -102,16 +89,16 @@ func NewOrm(dataSource *DataSource) (*TOrm, error) {
 		db:              db,
 		dialect:         dialect,
 		dataSource:      dataSource,
-		FieldIdentifier: "field",
-		TableIdentifier: "table",
 		models:          make(map[string]*TModel),
 		tables:          make(map[string]*core.Table),
 		nameIndex:       make(map[string]*TModel),
+		FieldIdentifier: "field",
+		TableIdentifier: "table",
 		TimeZone:        time.Local,
 	}
 
 	// Cacher
-	orm.cacher = NewCacher()
+	orm.Cacher = NewCacher()
 
 	// OSV
 	orm.osv = NewOsv(orm)
@@ -125,13 +112,13 @@ func NewOrm(dataSource *DataSource) (*TOrm, error) {
 // 更新现有数据库以及表信息并模拟创建TModel
 // 反转Table 到 Model
 func (self *TOrm) reverse() error {
-	lTables, err := self.DBMetas()
+	tables, err := self.DBMetas()
 	if err != nil {
 		return err
 	}
 
-	for _, tb := range lTables {
-		logger.Infof("%s found!", tb.Name)
+	for _, tb := range tables {
+		logger.Infof("%s found in database!", tb.Name)
 
 		if _, has := self.tables[tb.Name]; !has {
 			self.tables[tb.Name] = tb
@@ -141,6 +128,7 @@ func (self *TOrm) reverse() error {
 
 			// new a base model instance
 			model := NewModel(model_name, model_val, model_type)
+			model.obj = self.osv.newObject(model_name)
 			model.table = tb // piont to the table
 			model.is_base = true
 			self.models[model_name] = model
@@ -175,7 +163,7 @@ func (self *TOrm) reverse() error {
 
 				// 为字段添加数据库字段属性
 				field.Base().column = col
-				model._fields[col.Name] = field
+				model.obj.SetFieldByName(col.Name, field)
 			}
 		}
 	}
@@ -229,11 +217,11 @@ func (self *TOrm) NewSession(classic_mode ...bool) *TSession {
 	return session
 }
 
-// @classic_mode : 使用Model实例为基础
-func (self *TOrm) Model(name string) *TSession {
+// 使用Model实例为基础
+func (self *TOrm) Model(modelName string) *TSession {
 	session := self.NewSession()
 	session.IsAutoClose = true
-	return session.Model(name)
+	return session.Model(modelName)
 }
 
 // 返回数据库所有表对象
@@ -677,7 +665,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		//logger.Dbg("%s:%s %s", model_name, lMemberName, lColName)
 
 		// # 忽略TModel类字段
-		if strings.Index(strings.ToLower(lMemberName), strings.ToLower("TModel")) != -1 {
+		if strings.Index(strings.ToLower(lMemberName), "tmodel") != -1 {
 			igonre = true
 			is_table_tag = true
 		}
@@ -712,7 +700,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		}
 
 		// 如果 Field 不存在于ORM中
-		if field = res_model.FieldByName(lFieldName); field != nil {
+		if field = res_model.GetFieldByName(lFieldName); field != nil {
 			//** 如果是继承的字段则替换
 			//原因：Join时导致Select到的字段为关联表字段而获取不到原本Model的字段如Id,write_time...
 
@@ -720,7 +708,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				//# 共同重叠字段
 				//# 将关联表字段移入重叠字段表
 				// 将现有表字段添加进重叠字段
-				res_model.SetCommonFieldByName(lFieldName, field.ModelName(), field) // 添加Parent表共同字段
+				res_model.obj.SetCommonFieldByName(lFieldName, field.ModelName(), field) // 添加Parent表共同字段
 
 				//#替换掉关联字段并添加到重叠字段表里,表示该字段继承的关联表也有.
 				new_fld := utils.Clone(field).(IField)
@@ -728,8 +716,8 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 				// 添加model表共同字段
 				new_fld.Base().model_name = alt_model_name
-				new_fld.Base().isInheritedField = false                                  // # 共同字段非外键字段
-				res_model.SetCommonFieldByName(lFieldName, new_fld.ModelName(), new_fld) // 将现有表字段添加进重叠字段
+				new_fld.Base().isInheritedField = false                                      // # 共同字段非外键字段
+				res_model.obj.SetCommonFieldByName(lFieldName, new_fld.ModelName(), new_fld) // 将现有表字段添加进重叠字段
 				field = new_fld
 			}
 		}
@@ -853,14 +841,17 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					} else {
 						// check not field type also
 						if _, has := field_creators[lStr]; has {
-							logger.Warnf("Unknown tag %s from %s:%s", lStr, model_name, lFieldName)
+							// already init by field creators
+							break
 						}
 
 						//# 其他数据库类型
 						if _, ok := core.SqlTypes[strings.ToUpper(attr)]; ok {
 							column.SQLType = core.SQLType{strings.ToUpper(attr), 0, 0}
-							logger.Warnf("Unknown %s", column.SQLType, attr)
+							break
 						}
+
+						logger.Warnf("Unknown tag %s from %s:%s", lStr, model_name, lFieldName)
 					}
 				}
 			}
@@ -941,13 +932,13 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		field.UpdateDb(field_context)
 		// 添加字段进Table
 		if !igonre && field.Type() != "" && field.Name() != "" {
-			res_model._fields[lFieldName] = field // !!!替代方式
+			res_model.obj.SetFieldByName(lFieldName, field) // !!!替代方式
 		}
 	} // end for
 
 	// 设置关联到外表的字段
 	for _, name := range relate_fields {
-		if fld, has := res_model._fields[name]; has {
+		if fld := res_model.obj.GetFieldByName(name); fld != nil {
 			fld.Base().IsRelatedField(true)
 		}
 	}
@@ -1004,7 +995,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 	res_model.setBaseTable(table)
 
 	// #添加加至列表
-	//self.models[res_model._cls_type] = res_model // #Update tables map
+	//self.models[res_model.modelType] = res_model // #Update tables map
 	self.models[res_model.GetModelName()] = res_model // #Update tables map
 	self.tables[res_model.table.Name] = table         // #Update tables map
 
@@ -1029,27 +1020,11 @@ func (self *TOrm) GetModels() []string {
 }
 
 // return the table object
-func (self *TOrm) GetTable(tableName string) (table *core.Table) {
-	var has bool
-	if table, has = self.tables[tableName]; has {
+func (self *TOrm) GetTable(tableName string) *core.Table {
+	if table, has := self.tables[tableName]; has {
 		return table
 	}
 	return nil
-}
-
-// set slave server
-func (self *TOrm) SetSlave(db_src string) {
-
-}
-
-// cacher switch of model
-func (self *TOrm) SetCacher(table string, open bool) {
-	self.cacher.SetStatus(open, table)
-}
-
-// turn on the cacher for query
-func (self *TOrm) ActiveCacher(sw bool) {
-	self.cacher.Active(sw)
 }
 
 // SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
@@ -1067,13 +1042,16 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 		if atEOF && len(data) == 0 {
 			return 0, nil, nil
 		}
+
 		if i := bytes.IndexByte(data, ';'); i >= 0 {
 			return i + 1, data[0:i], nil
 		}
+
 		// If we're at EOF, we have a final, non-terminated line. Return it.
 		if atEOF {
 			return len(data), data, nil
 		}
+
 		// Request more data.
 		return 0, nil, nil
 	}
@@ -1280,7 +1258,6 @@ func (self *TOrm) Query(sql string, params ...interface{}) (ds *dataset.TDataSet
 func (self *TOrm) Exec(sql string, params ...interface{}) (sql.Result, error) {
 	session := self.NewSession()
 	defer session.Close()
-
 	return session.Exec(sql, params...)
 }
 

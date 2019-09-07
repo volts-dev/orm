@@ -9,7 +9,7 @@ import (
 //TODO 带条件和字段
 func TestCreate(title string, t *testing.T) {
 	PrintSubject(title, "Create()")
-	test_create(test_orm, t)
+	test_create(test_orm, t, 10)
 
 	PrintSubject(title, "Create Relate")
 	test_create_relate(test_orm, t)
@@ -18,18 +18,13 @@ func TestCreate(title string, t *testing.T) {
 	test_create_m2m(test_orm, t)
 }
 
-func TestCreate10(title string, t *testing.T) {
-	PrintSubject(title, "Create() 10 records")
-	test_create(test_orm, t)
-}
-
 // Test the model create a record by an object
-func test_create(o *TOrm, t *testing.T) {
+func test_create(o *TOrm, t *testing.T, count int) (ids []interface{}) {
 	data := new(UserModel)
 	*data = *user
 	ss := o.NewSession()
 	ss.Begin()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < count; i++ {
 		data.Name = "Create" + utils.IntToStr(i)
 
 		// Call the API Create()
@@ -42,6 +37,8 @@ func test_create(o *TOrm, t *testing.T) {
 			t.Fatal("created not returned id")
 			return
 		}
+
+		ids = append(ids, id)
 	}
 
 	err := ss.Commit()
@@ -53,6 +50,8 @@ func test_create(o *TOrm, t *testing.T) {
 
 		t.Fatal(err)
 	}
+
+	return
 }
 
 func test_create_relate(o *TOrm, t *testing.T) {

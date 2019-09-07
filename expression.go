@@ -48,6 +48,7 @@ type (
 		DestFiled   string  //destination model column for join condition
 		Link        string
 	}
+
 	TExtendedLeaf struct {
 		/*
 			            :attr [string, tuple] leaf: operator or tuple-formatted domain expression
@@ -226,8 +227,13 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 //        ``(lhs, model, lhs_col, col, link)``
 // After adding the join, the model of the current leaf is updated.
 func (self *TExtendedLeaf) add_join_context(model *TModel, lhs_col, table_col, link string) {
-	self.join_context = append(self.join_context, TJoinContext{SourceModel: self.model,
-		DestModel: model, SourceFiled: lhs_col, DestFiled: table_col, Link: link})
+	self.join_context = append(self.join_context,
+		TJoinContext{
+			SourceModel: self.model,
+			DestModel:   model,
+			SourceFiled: lhs_col,
+			DestFiled:   table_col,
+			Link:        link})
 	self.models = append(self.models, model)
 	self.model = model
 }
@@ -844,7 +850,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		//   comodel = model.pool.get(getattr(field, 'comodel_name', None))
 
 		// get the model
-		field := model.FieldByName(lFieldName) // get the field instance which has full details
+		field := model.GetFieldByName(lFieldName) // get the field instance which has full details
 		if field != nil {
 			comodel, err = model.Orm().GetModel(field.ModelName()) // get the model of the field owner
 			if err != nil {
@@ -1119,7 +1125,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	operator := leaf.Item(1)
 	right := leaf.Item(2)
 
-	field := model.FieldByName(left.String())
+	field := model.GetFieldByName(left.String())
 	is_field := field != nil // 是否是model字段
 	//	is_holder := false
 
@@ -1130,7 +1136,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		logger.Warnf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
 	}
 
-	if !(left.In(TRUE_LEAF, FALSE_LEAF) || model.FieldByName(left.String()) != nil || left.In(MAGIC_COLUMNS)) { //
+	if !(left.In(TRUE_LEAF, FALSE_LEAF) || model.GetFieldByName(left.String()) != nil || left.In(MAGIC_COLUMNS)) { //
 		logger.Warnf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 	}
 	//        assert not isinstance(right, BaseModel), \

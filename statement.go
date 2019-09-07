@@ -17,7 +17,7 @@ type (
 	// TODO 添加错误信息使整个statement 无法执行错误不合法查询
 	TStatement struct {
 		domain             *TDomainNode // 查询条件
-		Session            *TSession
+		session            *TSession
 		Table              *core.Table
 		Params             []interface{} // 储存有序值
 		IdKey              string        // 开发者决定的数据表主键
@@ -86,7 +86,7 @@ func (self *TStatement) Select(fields ...string) *TStatement {
 		}
 
 		// 安全代码应该由开发者自己检查
-		if field := self.Session.model.FieldByName(name); field != nil {
+		if field := self.session.model.obj.GetFieldByName(name); field != nil {
 			self.Fields[name] = true
 		}
 	}
@@ -96,8 +96,8 @@ func (self *TStatement) Select(fields ...string) *TStatement {
 
 // Where add Where statment
 func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
-	if !strings.Contains(query, self.Session.orm.dialect.EqStr()) {
-		query = strings.Replace(query, "=", self.Session.orm.dialect.EqStr(), -1)
+	if !strings.Contains(query, self.session.orm.dialect.EqStr()) {
+		query = strings.Replace(query, "=", self.session.orm.dialect.EqStr(), -1)
 	}
 
 	self.Op(AND_OPERATOR, query, args...)
@@ -252,7 +252,7 @@ func (self *TStatement) Omit(fields ...string) {
 	for _, field := range fields {
 		self.Fields[strings.ToLower(field)] = false
 	}
-	self.OmitClause = self.Session.orm.Quote(strings.Join(fields, self.Session.orm.Quote(", ")))
+	self.OmitClause = self.session.orm.Quote(strings.Join(fields, self.session.orm.Quote(", ")))
 }
 
 // Limit generate LIMIT start, limit statement
@@ -265,7 +265,7 @@ func (self *TStatement) Limit(limit int64, offset ...int64) *TStatement {
 }
 
 func (self *TStatement) generate_create_table() string {
-	return self.Session.orm.dialect.CreateTableSql(self.Table, self.AltTableNameClause,
+	return self.session.orm.dialect.CreateTableSql(self.Table, self.AltTableNameClause,
 		self.StoreEngine, self.Charset)
 }
 
@@ -273,7 +273,7 @@ func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, 
 	/*	var sumStrs = make([]string, 0, len(columns))
 		for _, colName := range columns {
 			if !strings.Contains(colName, " ") && !strings.Contains(colName, "(") {
-				colName = self.Session.Orm().Quote(colName)
+				colName = self.session.Orm().Quote(colName)
 			}
 			sumStrs = append(sumStrs, fmt.Sprintf("COALESCE(sum(%s),0)", colName))
 		}
@@ -298,7 +298,7 @@ func (self *TStatement) generate_unique() []string {
 	var sqls []string = make([]string, 0)
 	for _, index := range self.Table.Indexes {
 		if index.Type == core.UniqueType {
-			sql := self.Session.orm.dialect.CreateIndexSql(self.Table.Name, index)
+			sql := self.session.orm.dialect.CreateIndexSql(self.Table.Name, index)
 			sqls = append(sqls, sql)
 		}
 	}
@@ -306,14 +306,14 @@ func (self *TStatement) generate_unique() []string {
 }
 
 func (self *TStatement) generate_add_column(col *core.Column) (string, []interface{}) {
-	quote := self.Session.orm.Quote
-	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.TableName()), col.String(self.Session.orm.dialect))
+	quote := self.session.orm.Quote
+	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.TableName()), col.String(self.session.orm.dialect))
 	return sql, []interface{}{}
 }
 
 func (self *TStatement) generate_index() []string {
 	var sqls []string = make([]string, 0)
-	quote := self.Session.orm.fmtQuote
+	quote := self.session.orm.fmtQuote
 
 	for idxName, index := range self.Table.Indexes {
 		lIdxName := fmt.Sprintf("IDX_%v_%v", self.Table.Name, idxName)
@@ -345,7 +345,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 
 	for name, val := range vals {
 
-		//field = self.Session.model.FieldByName(name)
+		//field = self.session.model.FieldByName(name)
 		col = self.Table.GetColumn(name) // field.column
 		if col == nil {
 			continue
@@ -392,8 +392,8 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 				if includeNil {
 					//args = append(args, nil)
 					//colNames = append(colNames, fmt.Sprintf("%v %s ?", colName, engine.dialect.EqStr()))
-					lClauses = append(lClauses, fmt.Sprintf("%v %s ?", name, self.Session.orm.dialect.EqStr()))
-					//res_domain.AddSubList(name, self.Session.orm.dialect.EqStr(), "?")
+					lClauses = append(lClauses, fmt.Sprintf("%v %s ?", name, self.session.orm.dialect.EqStr()))
+					//res_domain.AddSubList(name, self.session.orm.dialect.EqStr(), "?")
 					res_params = append(res_params, nil)
 				}
 				continue
@@ -445,7 +445,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 				if !lIsRequiredField && (t.IsZero() || !lFieldVal.IsValid()) {
 					continue
 				}
-				val = self.Session.orm.FormatTime(col.SQLType.Name, t)
+				val = self.session.orm.FormatTime(col.SQLType.Name, t)
 			} else if _, ok := reflect.New(lFieldType).Interface().(core.Conversion); ok {
 				continue
 
@@ -518,7 +518,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 		}
 
 		var Clause string
-		if col.IsPrimaryKey && self.Session.orm.dialect.DBType() == "ql" {
+		if col.IsPrimaryKey && self.session.orm.dialect.DBType() == "ql" {
 			//condi = "id() == ?"
 			Clause = "id() == ?"
 			//left = "id()"
@@ -526,8 +526,8 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 			//right = "?"
 
 		} else {
-			//condi = fmt.Sprintf("%v %s ?", colName, self.Session.orm.dialect.EqStr())
-			Clause = fmt.Sprintf("%v %s ?", name, self.Session.orm.dialect.EqStr())
+			//condi = fmt.Sprintf("%v %s ?", colName, self.session.orm.dialect.EqStr())
+			Clause = fmt.Sprintf("%v %s ?", name, self.session.orm.dialect.EqStr())
 			//left = name
 			//oprator = "="
 			//right = "?"
@@ -537,7 +537,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 		res_params = append(res_params, val)
 	}
 
-	res_clause = strings.Join(lClauses, " "+self.Session.orm.dialect.AndStr()+" ")
+	res_clause = strings.Join(lClauses, " "+self.session.orm.dialect.AndStr()+" ")
 	return
 }
 
@@ -573,12 +573,11 @@ func (self *TStatement) inherits_join_calc(alias string, fieldName string, query
 	       return '"%s"."%s"' % (alias, field)
 	*/
 	var model IModel
-	model = self.Session.model
-	logger.Dbg("inherits_join_calc", fieldName, self.IdKey)
+	model = self.session.model
 
 	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
 		//for name, _ := range self._relate_fields {
-		if fld := model.FieldByName(fieldName); fld != nil && fld.IsInheritedField() {
+		if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInheritedField() {
 			// # retrieve the parent model where field is inherited from
 			parent_model_name := rel.RelateTableName
 			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
@@ -605,7 +604,7 @@ func (self *TStatement) inherits_join_calc(alias string, fieldName string, query
 		}
 	}
 	//# handle the case where the field is translated
-	field := model.FieldByName(fieldName)
+	field := model.GetFieldByName(fieldName)
 	if field != nil && field.Translatable() { //  if translate and not callable(translate):
 		// return model.generate_translated_field(alias, field, query)
 		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
@@ -632,7 +631,7 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 	// domain = domain[:]
 	// if the object has a field named 'active', filter out all inactive
 	// records unless they were explicitely asked for
-	if has := self.Session.model.FieldByName("active"); has != nil && active_test {
+	if has := self.session.model.obj.GetFieldByName("active"); has != nil && active_test {
 		if domain != nil {
 			// the item[0] trick below works for domain items and '&'/'|'/'!'
 			// operators too
@@ -665,7 +664,7 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 	var where_clause []string
 	var where_params []interface{}
 	if domain != nil && domain.Count() > 0 {
-		exp, err := NewExpression(self.Session.orm, self.Session.model, domain, context)
+		exp, err := NewExpression(self.session.orm, self.session.model, domain, context)
 		if err != nil {
 			return nil, err
 		}
@@ -674,7 +673,7 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 		where_clause, where_params = exp.to_sql(self.Params...)
 
 	} else {
-		where_clause, where_params, tables = nil, nil, append(tables, self.Session.Statement.TableName())
+		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.TableName())
 
 	}
 
@@ -730,7 +729,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 			order_by_elements = append(order_by_elements, lStr)
 
 		} else {
-			field := self.Session.model.FieldByName(order_field)
+			field := self.session.model.obj.GetFieldByName(order_field)
 			if field == nil {
 				//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
 				logger.Warnf("Sorting field %s not found on model %s", order_field, self.Table.Name)
@@ -761,7 +760,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 		}
 
 		/*
-				if order_fld := self.Session.model.FieldByName(order_field); order_fld != nil {
+				if order_fld := self.session.model.FieldByName(order_field); order_fld != nil {
 
 					if order_fld.IsClassicRead() { //_classic_read:
 						if order_fld.Translatable() { // && not callable(order_column.translate):
@@ -779,8 +778,8 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 					} else {
 						continue //# ignore non-readable or "non-joinable" fields
 					}
-				} else if rel_fld := self.Session.model.RelateFieldByName(order_field); rel_fld != nil {
-					parent_obj := self.Session.orm.osv.GetModel(rel_fld.RelateTableName) // #i
+				} else if rel_fld := self.session.model.RelateFieldByName(order_field); rel_fld != nil {
+					parent_obj := self.session.orm.osv.GetModel(rel_fld.RelateTableName) // #i
 					order_fld := parent_obj.FieldByName(order_field)
 					// parent_obj = self.pool[self._inherit_fields[order_field][3]]
 					// order_column = parent_obj._columns[order_field]
@@ -881,7 +880,7 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 	order_by_clause := ""
 
 	if self.OrderByClause != "" {
-		order_by_elements := self.generate_order_by_inner(self.Session.Statement.TableName(), self.OrderByClause, query, false, nil)
+		order_by_elements := self.generate_order_by_inner(self.session.Statement.TableName(), self.OrderByClause, query, false, nil)
 		if len(order_by_elements) > 0 {
 			order_by_clause = strings.Join(order_by_elements, ",")
 		}
@@ -911,19 +910,19 @@ func (self *TStatement) generate_fields() []string {
 		if self.JoinClause != "" {
 			var name string
 			if self.AliasTableName != "" {
-				name = self.Session.orm.Quote(self.AliasTableName)
+				name = self.session.orm.Quote(self.AliasTableName)
 			} else {
-				name = self.Session.orm.Quote(self.TableName())
+				name = self.session.orm.Quote(self.TableName())
 			}
-			name += "." + self.Session.orm.Quote(col.Name)
-			if col.IsPrimaryKey && self.Session.orm.dialect.DBType() == "ql" {
+			name += "." + self.session.orm.Quote(col.Name)
+			if col.IsPrimaryKey && self.session.orm.dialect.DBType() == "ql" {
 				fields = append(fields, "id() AS "+name)
 			} else {
 				fields = append(fields, name)
 			}
 		} else {
-			name := self.Session.orm.Quote(col.Name)
-			if col.IsPrimaryKey && self.Session.orm.dialect.DBType() == "ql" {
+			name := self.session.orm.Quote(col.Name)
+			if col.IsPrimaryKey && self.session.orm.dialect.DBType() == "ql" {
 				fields = append(fields, "id() AS "+name)
 			} else {
 				fields = append(fields, name)

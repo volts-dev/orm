@@ -45,6 +45,7 @@ type (
 		object_types      map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
 		object_table      map[reflect.Type]*core.Table
 		defaultValues     map[string]interface{} // store the default values of model
+		fieldsLock        sync.RWMutex
 		relationsLock     sync.RWMutex
 		defaultValuesLock sync.RWMutex
 		relatedFieldsLock sync.RWMutex
@@ -60,6 +61,8 @@ type (
 )
 
 func (self *TObj) GetRelations() map[string]string {
+	self.relationsLock.RLock()
+	defer self.relationsLock.RUnlock()
 	return self.relations
 }
 
@@ -77,7 +80,28 @@ func (self *TObj) SetRelationByName(modelName string, fieldName string) {
 	return
 }
 
+func (self *TObj) GetFields() map[string]IField {
+	self.fieldsLock.RLock()
+	defer self.fieldsLock.RUnlock()
+	return self.fields
+}
+
+func (self *TObj) GetFieldByName(name string) IField {
+	self.fieldsLock.RLock()
+	field := self.fields[name]
+	self.fieldsLock.RUnlock()
+	return field
+}
+
+func (self *TObj) SetFieldByName(name string, field IField) {
+	self.fieldsLock.Lock()
+	self.fields[name] = field
+	self.fieldsLock.Unlock()
+}
+
 func (self *TObj) GetDefault() map[string]interface{} {
+	self.defaultValuesLock.RLock()
+	defer self.defaultValuesLock.RUnlock()
 	return self.defaultValues
 }
 
@@ -197,62 +221,98 @@ func (self *TOsv) SetupModels() {
 }
 
 func (self *TOsv) newObject(name string) *TObj {
-	obj := self.models[name]
+	obj := &TObj{
+		name:          name,                    // model 名称
+		fields:        make(map[string]IField), // map[field]
+		relations:     make(map[string]string),
+		relatedFields: make(map[string]*TRelatedField),
+		commonFields:  make(map[string]map[string]IField),
+		//common_fields :make(map[string]*TRelatedField)
+		methods:       make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
+		object_val:    make(map[reflect.Type]*TModel),           // map[Model] 备份对象
+		object_types:  make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
+		object_table:  make(map[reflect.Type]*core.Table),
+		defaultValues: make(map[string]interface{}),
+		//id_caches:  cache.NewMemoryCache(),
+		//sql_caches: cache.NewMemoryCache(),
+	}
+	/*obj := self.models[name]
 	if obj == nil {
 		obj = self.newObj(name)
 		self.models[name] = obj
 	}
-
+	*/
 	return obj
 }
 
 // register new model to the object service
-func (self *TOsv) RegisterModel(region string, aModel *TModel) {
-	var lObj *TObj
+func (self *TOsv) RegisterModel(region string, model *TModel) {
 	var lMethod reflect.Method
 
-	//logger.Dbg("RegisterModel:", region, aModel.name, aModel._cls_type, aModel._cls_type.PkgPath())
+	//logger.Dbg("RegisterModel:", region, model.name, model.modelType, model.modelType.PkgPath())
 	//获得Object 检查是否存在，不存在则创建
-	if obj, has := self.models[aModel.name]; !has {
-		lObj = self.newObj(aModel.name)
+	obj := self.models[model.name]
+	if obj == nil {
+		obj = model.obj
 	} else {
-		lObj = obj
+		new_obj := model.obj
+
+		// 覆盖默认值
+		obj.defaultValuesLock.Lock()
+		for key, val := range new_obj.defaultValues {
+			obj.defaultValues[key] = val
+		}
+		obj.defaultValuesLock.Unlock()
+
+		// #添加字段
+		obj.fieldsLock.Lock()
+		for name, field := range new_obj.fields {
+			obj.fields[name] = field
+		}
+		obj.fieldsLock.Unlock()
+
+		// #关联表
+		obj.relationsLock.Lock()
+		for name, field := range new_obj.relations {
+			obj.relations[name] = field
+		}
+		obj.relationsLock.Unlock()
+
+		// #共同字段
+		obj.commonFieldsLock.Lock()
+		for name, value := range new_obj.commonFields {
+			obj.commonFields[name] = value
+		}
+		obj.commonFieldsLock.Unlock()
 	}
 
-	lObj.uidFieldName = aModel.idField
-	self.models[aModel.name] = lObj
-
 	// 为该Model对应的Table
-	lObj.object_table[aModel._cls_type] = aModel.table
+	obj.object_table[model.modelType] = model.table
 
 	// 赋值
-	if _, has := lObj.object_types[region]; !has {
-		lObj.object_types[region] = make(map[string]reflect.Type)
+	if _, has := obj.object_types[region]; !has {
+		obj.object_types[region] = make(map[string]reflect.Type)
 	}
 
 	//STEP 添加Model 类型
-	lObj.object_types[region][aModel.name] = aModel._cls_type
+	obj.object_types[region][model.name] = model.modelType
 
 	//utils.Dbg("RegisterModel Method", aType, aType.NumField(), aType.NumMethod())
 	// @添加方法映射到对象里
-	for i := 0; i < aModel._cls_type.NumMethod(); i++ {
-		lMethod = aModel._cls_type.Method(i)
+	for i := 0; i < model.modelType.NumMethod(); i++ {
+		lMethod = model.modelType.Method(i)
 		//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
 		// 参数验证func(self,handler)
 		//lMethod.Type.In(1).Elem().String() == handlerType.String()
 		//logger.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
 
 		//if lMethod.Type.NumIn() == 2 {
-		lObj.methods[lMethod.Name] = aModel._cls_type // 添加方法对应的Object
+		obj.methods[lMethod.Name] = model.modelType // 添加方法对应的Object
 		//}
-
 	}
 
-	// #添加字段
-	for name, field := range aModel._fields {
-		lObj.fields[name] = field
-	}
-
+	obj.uidFieldName = model.idField
+	self.models[model.name] = obj
 }
 
 // New an object for restore
@@ -277,7 +337,7 @@ func (self *TOsv) newObj(name string) (obj *TObj) {
 		}
 
 		self.models[name] = obj
-		//logger.Dbg("!has", region, aModel.name)
+		//logger.Dbg("!has", region, model.name)
 	}
 
 	return obj
@@ -369,7 +429,7 @@ func (self *TOsv) NewModel(name string) (mdl *TModel) {
 	mdl = &TModel{
 		name: name,
 		//_table:  strings.Replace(name, ".", "_", -1),
-		_fields: make(map[string]IField),
+		//_fields: make(map[string]IField),
 	}
 
 	//mdl._sequence = mdl._table + "_id_seq"
@@ -390,22 +450,9 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TObj, 
 		//logger.Dbg("_initObject", len(obj.object_table), obj.object_table[atype])
 		lModel.table = obj.object_table[atype]
 
-		// lModel._fields = obj.fields
-		lModel._fields_lock.Lock()
-		for key, val := range obj.fields {
-			lModel._fields[key] = val
-
-			if key == "name" {
-				lModel.SetRecordName("name")
-			}
-		}
-		lModel._fields_lock.Unlock()
-
-		//		lModel.id_caches = obj.id_caches
-		//		lModel.sql_caches = obj.sql_caches
 		lModel.relations_reload()
 
-		//lModel._cls_type = atype
+		//lModel.modelType = atype
 		m.setBaseModel(lModel)
 		//m.SetName(name)
 		//m.SetRegistry(self)

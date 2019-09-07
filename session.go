@@ -50,7 +50,7 @@ func (v TExecResult) RowsAffected() (int64, error) {
 
 func (self *TSession) init() error {
 	self.Statement.Init()
-	self.Statement.Session = self
+	self.Statement.session = self
 	self.IsAutoCommit = true // 默认情况下单个SQL是不用事务自动
 	self.IsAutoClose = false
 	self.AutoResetStatement = true
@@ -156,8 +156,8 @@ func (self *TSession) doPrepare(sql string) (*core.Stmt, error) {
 
 func (self *TSession) org_query(sql_str string, args ...interface{}) (res_dataset *dataset.TDataSet, res_err error) {
 	var (
-		lRows *core.Rows
-		stmt  *core.Stmt
+		rows *core.Rows
+		stmt *core.Stmt
 	)
 
 	if self.Prepared {
@@ -165,12 +165,12 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 		if res_err != nil {
 			return
 		}
-		lRows, res_err = stmt.Query(args...)
+		rows, res_err = stmt.Query(args...)
 		if res_err != nil {
 			return
 		}
 	} else {
-		lRows, res_err = self.db.Query(sql_str, args...)
+		rows, res_err = self.db.Query(sql_str, args...)
 		if res_err != nil {
 			return
 		}
@@ -185,15 +185,16 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 
 	}
 
-	if lRows != nil {
-		defer lRows.Close()
-		for lRows.Next() {
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
 			tempMap := make(map[string]interface{})
-			res_err = lRows.ScanMap(&tempMap)
+			res_err = rows.ScanMap(&tempMap)
 			if res_err != nil {
 				return
 			}
 
+			// TODO 优化不使用MAP
 			res_dataset.NewRecord(tempMap)
 		}
 	}
@@ -203,10 +204,10 @@ func (self *TSession) org_query(sql_str string, args ...interface{}) (res_datase
 
 func (self *TSession) txQuery(sql string, params ...interface{}) (res_dataset *dataset.TDataSet, res_err error) {
 	var (
-		lRows *core.Rows
+		rows *core.Rows
 	)
 
-	lRows, res_err = self.tx.Query(sql, params...)
+	rows, res_err = self.tx.Query(sql, params...)
 	if res_err != nil {
 		return
 	}
@@ -217,11 +218,11 @@ func (self *TSession) txQuery(sql string, params ...interface{}) (res_dataset *d
 	}
 
 	//res_dataset.SetKeyField(self.Statement.IdKey) // 默认不设置
-	if lRows != nil {
-		defer lRows.Close()
-		for lRows.Next() {
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
 			tempMap := make(map[string]interface{})
-			res_err = lRows.ScanMap(&tempMap)
+			res_err = rows.ScanMap(&tempMap)
 			if res_err != nil {
 				return
 			}
@@ -336,22 +337,22 @@ func (self *TSession) SyncModel(region string, models ...interface{}) (modelName
 			//err = self.StoreEngine(s.Statement.StoreEngine).CreateTable(bean)
 			err = self.CreateTable(lModelName)
 			if err != nil {
-				return nil, err
+				return modelNames, err
 			}
 
 			err = self.CreateUniques(lModelName)
 			if err != nil {
-				return nil, err
+				return modelNames, err
 			}
 
 			err = self.CreateIndexes(lModelName)
 			if err != nil {
-				return nil, err
+				return modelNames, err
 			}
 		} else {
 			err := self.alterTable(model, model.table, lTable)
 			if err != nil {
-				return nil, err
+				return modelNames, err
 			}
 		}
 
@@ -838,6 +839,7 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id inter
 	*/
 
 	// 被设置默认值的字段赋值给Val
+	logger.Dbg("create GetDefault", self.model.obj.GetDefault())
 	for k, v := range self.model.obj.GetDefault() {
 		if lNewVals[k] == nil {
 			lNewVals[k] = v //fmt. lFld._symbol_c
@@ -879,8 +881,8 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id inter
 	}
 
 	//1 lReturnKey := ""
-	//logger.Dbg("TableByType", self.model._cls_type, self.orm.TableByType(self.model._cls_type))
-	//lRecField := self.orm.TableByType(self.model._cls_type).RecordField
+	//logger.Dbg("TableByType", self.model.modelType, self.orm.TableByType(self.model.modelType))
+	//lRecField := self.orm.TableByType(self.model.modelType).RecordField
 	//2 lRecField := self.orm.Quote(self.orm.GetTable(self.Statement.TableName()).AutoIncrement)
 	//lRecField := self.orm.Quote(self.model.RecordField.Name)
 	//3 if lRecField != "" {
@@ -906,7 +908,7 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id inter
 	if self.IsClassic || classic_create {
 		// 更新关联字段
 		for _, name := range lNewTodo {
-			lField := self.model.FieldByName(name)
+			lField := self.model.GetFieldByName(name)
 			//logger.Dbg("create lNewTodo", name, lField, res_id)
 			if lField != nil {
 				lField.OnWrite(&TFieldEventContext{
@@ -923,10 +925,10 @@ func (self *TSession) create(src interface{}, classic_create bool) (res_id inter
 		//更新缓存
 		table_name := self.Statement.TableName()
 		lRec := dataset.NewRecordSet(nil, lNewVals)
-		self.orm.cacher.PutById(table_name, utils.IntToStr(res_id), lRec) //for create
+		self.orm.Cacher.PutById(table_name, utils.IntToStr(res_id), lRec) //for create
 
 		// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
-		self.orm.cacher.ClearByTable(table_name) //for create
+		self.orm.Cacher.ClearByTable(table_name) //for create
 	}
 
 	return res_id, nil
@@ -1028,11 +1030,10 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 
 			// TODO 优化锁
 			// #相同名称的字段分配给对应表
-			comm_tables := self.model.GetCommonFieldByName(name) // 获得拥有该字段的所有表
+			comm_tables := self.model.obj.GetCommonFieldByName(name) // 获得拥有该字段的所有表
 			if comm_tables != nil {
 				// 为各表预存值
 				for tbl, _ := range comm_tables {
-					logger.Dbg("lComm:", comm_tables, tbl, name, self.model.GetModelName())
 					if tbl == self.model.GetModelName() {
 						new_vals[name] = val // 为当前表添加共同字段值
 
@@ -1053,8 +1054,6 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			//comm_field := self.model.obj.GetCommonFieldByName(name)
 			if field.IsInheritedField() {
 				// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
-				logger.Dbg("lComm2:", field.ModelName(), name)
-
 				lTableName := field.ModelName() // rel_fld.RelateTableName
 				rel_vals[lTableName][name] = val
 
@@ -1167,7 +1166,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		//???
 		for field, _ := range lNewVals {
 			var fobj IField
-			fobj = self.model.FieldByName(field)
+			fobj = self.model.GetFieldByName(field)
 			if fobj == nil {
 				lF := self.model.obj.GetRelatedFieldByName(field)
 				if lF != nil {
@@ -1243,14 +1242,14 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 
 		/*table_name := self.Statement.TableName()
-		//lCacher := self.orm.cacher.RecCacher(self.Statement.TableName()) // for write
+		//lCacher := self.orm.Cacher.RecCacher(self.Statement.TableName()) // for write
 		//if lCacher != nil {
 		for _, id := range ids {
 			if id != "" {
 				//更新缓存
 				//lKey := self.generate_caches_key(self.Statement.TableName(), id)
 				lRec := NewRecordSet(nil, lNewVals)
-				self.orm.cacher.PutById(table_name, id, lRec)
+				self.orm.Cacher.PutById(table_name, id, lRec)
 			}
 		}*/
 		//}
@@ -1294,7 +1293,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 	// 更新计算字段
 	for _, name := range lNewTodo {
 		//logger.Dbg(name)
-		lField := self.model.FieldByName(name)
+		lField := self.model.GetFieldByName(name)
 		if lField != nil {
 			lField.OnWrite(&TFieldEventContext{
 				Session: self,
@@ -1409,7 +1408,7 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 				continue
 			}
 
-			fld := self.model.FieldByName(name)
+			fld := self.model.obj.GetFieldByName(name)
 			if fld != nil && !fld.IsRelatedField() { //如果是本Model的字段
 				stored = append(stored, name)
 			} else if fld != nil {
@@ -1446,13 +1445,13 @@ func (self *TSession) read(classic_read bool) (*dataset.TDataSet, error) {
 	// # computes remaining fields
 	name_fields := make(map[string]IField)
 	for _, name := range stored {
-		fld := self.model.FieldByName(name)
+		fld := self.model.obj.GetFieldByName(name)
 		if fld != nil {
 			name_fields[name] = fld
 		}
 	}
 	for _, name := range computed {
-		fld := self.model.FieldByName(name)
+		fld := self.model.obj.GetFieldByName(name)
 		if fld != nil {
 			name_fields[name] = fld
 		}
@@ -1592,13 +1591,11 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	//self._check_model()
 
 	// get id list
-	var lIds []interface{}
 	if len(ids) > 0 {
-		lIds = ids
 		self.Statement.IdParam = append(self.Statement.IdParam, ids...)
 	} else {
 		var err error
-		lIds, err = self.search("", nil)
+		ids, err = self.search("", nil)
 		if err != nil {
 			return 0, err
 		}
@@ -1608,29 +1605,29 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	id_field := self.model.idField
 
 	//#1 删除目标Model记录
-	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.TableName(), id_field, idsToSqlHolder(lIds...))
-	res, err := self.exec(sql, lIds)
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.TableName(), id_field, idsToSqlHolder(ids...))
+	res, err := self.exec(sql, ids...)
 	if err != nil {
 		return 0, err
 	}
 
-	if cnt, err := res.RowsAffected(); err != nil || (int(cnt) != len(lIds)) {
+	if cnt, err := res.RowsAffected(); err != nil || (int(cnt) != len(ids)) {
 		self.Rollback()
 		return 0, ErrDeleteFailed
 	}
 
 	table_name := self.Statement.TableName()
-	//lCacher := self.orm.cacher.RecCacher(self.Statement.TableName()) // for del
+	//lCacher := self.orm.Cacher.RecCacher(self.Statement.TableName()) // for del
 	//if lCacher != nil {
-	for _, id := range lIds {
+	for _, id := range ids {
 		//lCacher.Remove(id)
-		self.orm.cacher.RemoveById(table_name, id)
+		self.orm.Cacher.RemoveById(table_name, id)
 	}
 	//}
 	// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
-	//lCacher = self.orm.cacher.SqlCacher(self.Statement.TableName()) // for del
+	//lCacher = self.orm.Cacher.SqlCacher(self.Statement.TableName()) // for del
 	//lCacher.Clear()
-	self.orm.cacher.ClearByTable(self.Statement.TableName())
+	self.orm.Cacher.ClearByTable(self.Statement.TableName())
 
 	return res.RowsAffected()
 }
@@ -1883,7 +1880,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 		// hurt performance
 		query_str = `SELECT count(1) FROM ` + from_clause + where_clause
 
-		res_ids := self.orm.cacher.GetBySql(table_name, query_str, where_clause_params)
+		res_ids := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
 		if len(res_ids) < 1 {
 			lRes, err := self.query(query_str, where_clause_params...)
 			if err != nil {
@@ -1893,7 +1890,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 			res_ids = []interface{}{lRes.FieldByName("count").AsInterface()}
 
 			// #存入缓存
-			self.orm.cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
+			self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
 		}
 
 		return res_ids, nil
@@ -1915,7 +1912,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 	//	web.Debug("_search", query_str, where_clause_params)
 
 	// #调用缓存
-	res_ids := self.orm.cacher.GetBySql(table_name, query_str, where_clause_params)
+	res_ids := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
 	if len(res_ids) < 1 {
 		res, err := self.query(query_str, where_clause_params...)
 		if err != nil {
@@ -1924,7 +1921,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 		res_ids = res.Keys(self.Statement.IdKey)
 		//logger.Dbg("_search", res.KeyField, res.Count(), res.Keys(), res_ids)
 
-		self.orm.cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
+		self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
 	}
 
 	return res_ids, nil
@@ -1932,7 +1929,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 
 //# ids_less 缺少的ID
 func (self *TSession) readFromCache(ids []interface{}) (res []*dataset.TRecordSet, ids_less []interface{}) {
-	res, ids_less = self.orm.cacher.GetByIds(self.Statement.TableName(), ids...)
+	res, ids_less = self.orm.Cacher.GetByIds(self.Statement.TableName(), ids...)
 	return
 }
 
@@ -1986,13 +1983,13 @@ func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited
 			fields := make([]IField, 0)
 			fields_pre := make([]IField, 0)
 			for _, name := range field_names {
-				if f := self.model.FieldByName(name); f != nil {
+				if f := self.model.obj.GetFieldByName(name); f != nil {
 					fields = append(fields, f)
 				}
 			}
 
 			for _, name := range inherited_field_names {
-				if f := self.model.FieldByName(name); f != nil {
+				if f := self.model.obj.GetFieldByName(name); f != nil {
 					fields = append(fields, f)
 				}
 			}
@@ -2052,7 +2049,7 @@ func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited
 		for !res_ds.Eof() {
 			rec := res_ds.Record()
 			// # 添加进入缓存
-			self.orm.cacher.PutById(table_name, rec.FieldByName(self.Statement.IdKey).AsString(), rec)
+			self.orm.Cacher.PutById(table_name, rec.FieldByName(self.Statement.IdKey).AsString(), rec)
 			res_ds.Next()
 		}
 
@@ -2077,7 +2074,7 @@ func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited
 				}
 
 				// # 添加进入缓存
-				self.orm.cacher.PutById(table_name, id, rec)
+				self.orm.Cacher.PutById(table_name, id, rec)
 			}
 		*/
 	} else {
@@ -2207,7 +2204,7 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 		}
 
 		// 字段必须在数据库里
-		if fld := self.model.FieldByName(lName); fld == nil {
+		if fld := self.model.obj.GetFieldByName(lName); fld == nil {
 			continue
 		} else {
 			lCol = fld.Base().column

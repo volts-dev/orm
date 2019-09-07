@@ -59,9 +59,9 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 	//logger.Dbg(arg)
 	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
-	//logger.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base()._cls_value, ctx.Model.Base()._cls_value.MethodByName(lStr))
+	//logger.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base().modelValue, ctx.Model.Base().modelValue.MethodByName(lStr))
 	//if m := model.MethodByName(lStr); m != nil {
-	if m := ctx.Model.GetBase()._cls_value.MethodByName(lStr); m.IsValid() {
+	if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
 		fld.Base()._compute = lStr
 	} else {
 		m := make(map[string]string)
@@ -114,10 +114,10 @@ func (self *TSelectionField) _setup_related_full(model IModel) {
 // 配置字段内容
 func (self *TSelectionField) setup_full(model IModel) {
 	if self._setup_done != "full" {
-/*		if !self.IsRelated() {
-		} else {
+		/*		if !self.IsRelated() {
+				} else {
 
-		}
+				}
 		*/
 		self._setup_done = "full"
 	}
@@ -128,10 +128,10 @@ func (self *TSelectionField) GetAttributes(ctx *TFieldContext) map[string]interf
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 
 	if lMehodName := self.Compute(); lMehodName != "" {
-		//logger.Dbg("selection:", lMehodName, self.model._cls_value.MethodByName(lMehodName))
+		//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 		if m := model_val.MethodByName(lMehodName); m.IsValid() {
-			//logger.Dbg("selection:", m, self.model._cls_value)
-			//results := m.Call([]reflect.Value{model.Base()._cls_value}) //
+			//logger.Dbg("selection:", m, self.model.modelValue)
+			//results := m.Call([]reflect.Value{model.Base().modelValue}) //
 			results := m.Call(nil) //
 			//logger.Dbg("selection:", results)
 			if len(results) == 1 {
@@ -153,10 +153,10 @@ func (self *TSelectionField) OnRead(ctx *TFieldEventContext) error {
 		field := self
 
 		if lMehodName := field.Func(); lMehodName != "" {
-			//logger.Dbg("selection:", lMehodName, self.model._cls_value.MethodByName(lMehodName))
-			if m := model._cls_value.MethodByName(lMehodName); m.IsValid() {
-				//logger.Dbg("selection:", m, self.model._cls_value)
-				results := m.Call([]reflect.Value{self.model._cls_value}) //
+			//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+			if m := model.modelValue.MethodByName(lMehodName); m.IsValid() {
+				//logger.Dbg("selection:", m, self.model.modelValue)
+				results := m.Call([]reflect.Value{self.model.modelValue}) //
 				//logger.Dbg("selection:", results)
 				if len(results) == 1 {
 					//fld.Selection, _ = results[0].Interface().([][]string)

@@ -14,16 +14,17 @@ type (
 )
 
 const (
-	//******* common ********
+	//******* common tag ********
 	TAG_NAME     = "name"    // #字段名称
 	TAG_OLD_NANE = "oldname" // #将被更换的名称
 
-	//******* table ********
+	//******* table tags ********
 	TAG_TABLE_NAME        = "table_name"
 	TAG_TABLE_DESCRIPTION = "table_description"
 	TAG_TABLE_ORDER       = "table_order"
-	//******* field ********
-	// #attr
+
+	//******* field tags********
+	// attr
 	TAG_IGNORE = "-" // 忽略某些继承者成员
 	//TAG_READ_ONLY     = "<-"
 	TAG_WRITE_ONLY = "->"
@@ -58,7 +59,7 @@ const (
 	TAG_COMPUTE       = "compute"    // # 函数赋值
 	TAG_INVERSE       = "inverse"    // # 函数赋值相反
 
-	// # type
+	// type
 	TAG_INT       = "int"
 	TAG_BIGINT    = "bigint"
 	TAG_FLOAT     = "float"
@@ -76,9 +77,9 @@ const (
 	TAG_MANY2MANY = "many2many"
 	TAG_RELATION  = "relation"
 
-	// # rel
-	TAG_RELATED   = "related" //废弃
-	TAG_EXTENDS   = "extends"
+	// rel
+	//TAG_RELATED   = "related" //废弃
+	TAG_EXTENDS   = "extends" // TODO
 	TAG_RELATE    = "relate"
 	TAG_INHERITS  = "inherits"  // #postgres 的继承功能
 	TAG_INHERITED = "inherited" // #该字段继承来自X表X字段名称 //name = openerp.fields.Char(related='partner_id.name', inherited=True)
@@ -167,15 +168,17 @@ func RegisterTagController(name string, ctrl ITagController) {
 	if tag_ctrl == nil {
 		panic("logs: Register provide is nil")
 	}
+
 	if _, dup := tag_ctrl[name]; dup {
 		panic("logs: Register called twice for provider " + name)
 	}
+
 	tag_ctrl[name] = ctrl
 }
 
 func GetTagControllerByName(name string) ITagController {
-	ctrl, ok := tag_ctrl[name]
-	if !ok {
+	ctrl, has := tag_ctrl[name]
+	if !has {
 		fmt.Errorf("cache: unknown adapter name %q (forgot to import?)", name)
 		return nil
 	}
@@ -207,7 +210,7 @@ func tag_compute(ctx *TFieldContext) {
 		fld.Base()._compute = "" // 初始化
 		lStr := strings.Trim(params[0], "'")
 		lStr = strings.Replace(lStr, "''", "'", -1)
-		if m := ctx.Model.GetBase()._cls_value.MethodByName(lStr); m.IsValid() {
+		if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
 			fld.Base()._compute = lStr
 		}
 	} else {
@@ -279,11 +282,12 @@ func tag_extends(ctx *TFieldContext) {
 
 		object_name := utils.Obj2Name(fld_val.Interface())
 		model_name := fmtModelName(object_name)
+
 		// 现在成员名是关联的Model名,Tag 为关联的字段
 		model.Obj().SetRelationByName(model_name, params[0])
 
 		parentModel := ctx.Orm.mapping("", fld_val.Interface())
-		for _, fld := range parentModel._fields {
+		for _, fld := range parentModel.obj.GetFields() {
 			// #限制某些字段
 			// @ 当参数多余1个时判断为限制字段　例如：`field:"extends(PartnerId,Name)"`
 			if lRelFieldsCnt > 1 && utils.InStrings(fld.Name(), lRelFields...) == -1 {
@@ -292,7 +296,7 @@ func tag_extends(ctx *TFieldContext) {
 
 			lNewFld := utils.Clone(fld).(IField) // 复制关联字段
 			lNewFld.SetBase(fld.Base())
-			if f := model.FieldByName(fld.Name()); f == nil {
+			if f := model.GetFieldByName(fld.Name()); f == nil {
 				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
 
 				// db:读写锁
@@ -309,7 +313,7 @@ func tag_extends(ctx *TFieldContext) {
 					//logger.Dbg("RecordField", fld.Name())
 				}
 
-				model.GetBase()._fields[fld.Name()] = lNewFld
+				model.GetBase().obj.SetFieldByName(fld.Name(), lNewFld)
 			}
 		}
 	}
@@ -332,13 +336,13 @@ func tag_relate(ctx *TFieldContext) {
 		//
 		object_name := utils.Obj2Name(fld_val.Interface())
 		model_name := fmtModelName(object_name)
+
 		// 现在成员名是关联的Model名,Tag 为关联的字段
 		model.Obj().SetRelationByName(model_name, fmtFieldName(params[0]))
 
 		parentModel, err := ctx.Orm.GetModel(model_name)
 		if err != nil || parentModel == nil {
 			parentModel = ctx.Orm.mapping("", fld_val.Interface())
-			logger.Dbg("parentModel ", model_name)
 		}
 
 		for _, fld := range parentModel.GetFields() {
@@ -350,9 +354,7 @@ func tag_relate(ctx *TFieldContext) {
 
 			new_field := utils.Clone(fld).(IField) // 复制关联字段
 			new_field.SetBase(fld.Base())
-			if f := model.FieldByName(fld.Name()); f == nil {
-				//logger.Dbg("FFF", parentModel.GetModelName(), fld.Name(), fld, new_field)
-
+			if f := model.GetFieldByName(fld.Name()); f == nil {
 				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
 				new_field.Base().isInheritedField = true
 
@@ -364,12 +366,11 @@ func tag_relate(ctx *TFieldContext) {
 				if new_field.Base().primary_key && new_field.Base().auto_increment {
 					model.GetBase().idField = new_field.Name()
 				}
-				model.GetBase()._fields[fld.Name()] = new_field
+				model.GetBase().obj.SetFieldByName(fld.Name(), new_field)
 
 			} else {
-				model.GetBase().SetCommonFieldByName(fld.Name(), parentModel.GetTableName(), new_field)
-				model.GetBase().SetCommonFieldByName(fld.Name(), f.Base().model_name, f)
-				//logger.Dbg("_common_fields2", fld.Name, parentModel.name, f.model_name, &lNewFld)
+				model.GetBase().obj.SetCommonFieldByName(fld.Name(), parentModel.GetTableName(), new_field)
+				model.GetBase().obj.SetCommonFieldByName(fld.Name(), f.Base().model_name, f)
 			}
 		}
 	}

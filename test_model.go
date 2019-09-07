@@ -41,6 +41,7 @@ type (
                  test help 2''
                  test help 3''''
                  test help 4.')"`
+		Int        int           `field:"int() default(1)"`    // --
 		Bool       bool          `field:"bool default(true)"`  // --
 		Text       string        `field:"text"`                //
 		Float      float32       `field:"float"`               //

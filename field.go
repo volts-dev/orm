@@ -704,13 +704,6 @@ func (self *TField) IsInheritedField(arg ...bool) bool {
 	return self.isInheritedField
 }
 
-func (self *TField) ___IsCommonField(arg ...bool) bool {
-	if len(arg) > 0 {
-		self.___common_field = arg[0]
-	}
-	return self.___common_field
-}
-
 func (self *TField) UseAttachment() bool {
 	return self.attachment
 }
