@@ -1,13 +1,11 @@
-package postgres
+package orm
 
 import (
-	"volts-dev/orm"
-
-	_ "github.com/lib/pq"
+	"testing"
 )
 
-func init() {
-	src := &orm.TDataSource{
+func TestConn(t *testing.T) {
+	src := &orm.DataSource{
 		DbType:   "postgres",
 		DbName:   orm.TEST_DB_NAME,
 		UserName: "postgres",
@@ -15,8 +13,10 @@ func init() {
 		SSLMode:  "disable",
 	}
 
-	err := orm.TestInit(src, true)
+	err := TestInit(src, true)
 	if err != nil {
 		panic(err.Error())
 	}
+
+	orm.TestConn("", t)
 }

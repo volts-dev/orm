@@ -3,7 +3,6 @@ package orm
 import (
 	//"github.com/rs/xid"
 	"github.com/bwmarrin/snowflake"
-	"github.com/go-xorm/core"
 )
 
 type (
@@ -16,7 +15,7 @@ type (
 var uuid *snowflake.Node
 
 func init() {
-	RegisterField("id", NewIdField)
+	RegisterField("id", newIdField)
 
 	var err error
 	uuid, err = snowflake.NewNode(1)
@@ -25,18 +24,16 @@ func init() {
 	}
 }
 
-func NewIdField() IField {
+func newIdField() IField {
 	return new(TIdField)
 }
 
 func (self *TIdField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	model := ctx.Model
 
 	// set type for field
-	col.SQLType = core.SQLType{core.BigInt, 0, 0}
-	fld.Base()._column_type = core.BigInt
+	fld.Base().SqlType = SQLType{BigInt, 0, 0}
 	fld.Base()._attr_type = "int"
 
 	// set the id field for model

@@ -1,9 +1,5 @@
 package orm
 
-import (
-	"github.com/go-xorm/core"
-)
-
 type (
 	TBinField struct {
 		TField
@@ -16,24 +12,22 @@ type (
 )
 
 func init() {
-	RegisterField("binary", NewBinField)
-	RegisterField("html", NewHtmlField)
+	RegisterField("binary", newBinField)
+	RegisterField("html", newHtmlField)
 }
 
-func NewBinField() IField {
+func newBinField() IField {
 	return new(TBinField)
 }
 
-func NewHtmlField() IField {
+func newHtmlField() IField {
 	return new(THtmlField)
 }
 
 func (self *TBinField) Init(ctx *TFieldContext) {
-	col := ctx.Column
-	//fld := ctx.Field
+	fld := ctx.Field
 
-	col.SQLType = core.SQLType{core.Binary, 0, 0}
-	self.Base()._column_type = core.Binary
+	fld.Base().SqlType = SQLType{Binary, 0, 0}
 	//fld._classic_read = false
 	//fld._classic_write = false
 	self.Base()._attr_type = "binary"

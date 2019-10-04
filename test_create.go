@@ -9,7 +9,7 @@ import (
 //TODO 带条件和字段
 func TestCreate(title string, t *testing.T) {
 	PrintSubject(title, "Create()")
-	test_create(test_orm, t, 10)
+	test_create(test_orm, t)
 
 	PrintSubject(title, "Create Relate")
 	test_create_relate(test_orm, t)
@@ -18,13 +18,18 @@ func TestCreate(title string, t *testing.T) {
 	test_create_m2m(test_orm, t)
 }
 
+func TestCreate10(title string, t *testing.T) {
+	PrintSubject(title, "Create() 10 records")
+	test_create(test_orm, t)
+}
+
 // Test the model create a record by an object
-func test_create(o *TOrm, t *testing.T, count int) (ids []interface{}) {
+func test_create(o *TOrm, t *testing.T) {
 	data := new(UserModel)
 	*data = *user
 	ss := o.NewSession()
 	ss.Begin()
-	for i := 0; i < count; i++ {
+	for i := 0; i < 10; i++ {
 		data.Name = "Create" + utils.IntToStr(i)
 
 		// Call the API Create()
@@ -37,21 +42,19 @@ func test_create(o *TOrm, t *testing.T, count int) (ids []interface{}) {
 			t.Fatal("created not returned id")
 			return
 		}
-
-		ids = append(ids, id)
 	}
 
 	err := ss.Commit()
 	if err != nil {
+		t.Log(err)
+
 		e := ss.Rollback()
 		if e != nil {
 			t.Fatal(e)
 		}
-
-		t.Fatal(err)
 	}
 
-	return
+	ss.Close()
 }
 
 func test_create_relate(o *TOrm, t *testing.T) {
@@ -92,7 +95,7 @@ func test_create_relate(o *TOrm, t *testing.T) {
 
 func test_create_m2m(o *TOrm, t *testing.T) {
 	model, _ := o.GetModel("user_model")
-	ds, err := model.Records().Ids("1").Read()
+	ds, err := model.Records().Read()
 	if err != nil {
 		t.Fatalf("manyTomany read fail %v", err)
 		return

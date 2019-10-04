@@ -34,6 +34,8 @@ func test_read(o *TOrm, t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Logf("id312 %v", ds.FieldByName("help").AsInterface())
+
 	if ds.Count() == 0 {
 		t.Fatalf("the action Read() return %d!", ds.Count())
 	}

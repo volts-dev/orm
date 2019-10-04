@@ -1,9 +1,5 @@
 package orm
 
-import (
-	"github.com/go-xorm/core"
-)
-
 type (
 	TDateField struct {
 		TField
@@ -15,32 +11,30 @@ type (
 )
 
 func init() {
-	RegisterField("date", NewDateField)
-	RegisterField("datetime", NewDateTimeField)
+	RegisterField("date", newDateField)
+	RegisterField("datetime", newDateTimeField)
 }
 
-func NewDateField() IField {
+func newDateField() IField {
 	return new(TDateField)
 }
 
-func NewDateTimeField() IField {
+func newDateTimeField() IField {
 	return new(TDateTimeField)
 }
 
 func (self *TDateField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.SQLType = core.SQLType{core.Date, 0, 0}
-	fld.Base()._column_type = core.Date
+	fld.Base().SqlType = SQLType{Date, 0, 0}
+	//	fld.Base()._column_type = Date
 	fld.Base()._attr_type = "date"
 }
 
 func (self *TDateTimeField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.SQLType = core.SQLType{core.DateTime, 0, 0}
-	fld.Base()._column_type = core.DateTime
+	fld.Base().SqlType = SQLType{DateTime, 0, 0}
+	//	fld.Base()._column_type = DateTime
 	fld.Base()._attr_type = "datetime"
 }

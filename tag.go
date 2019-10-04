@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
 
@@ -25,10 +24,9 @@ const (
 
 	//******* field tags********
 	// attr
-	TAG_IGNORE = "-" // 忽略某些继承者成员
-	//TAG_READ_ONLY     = "<-"
-	TAG_WRITE_ONLY = "->"
-
+	TAG_IGNORE        = "-" // 忽略某些继承者成员
+	TAG_READ_ONLY     = "<-"
+	TAG_WRITE_ONLY    = "->"
 	TAG_ID            = "id"
 	TAG_PK            = "pk"
 	TAG_AUTO          = "autoincr"
@@ -42,7 +40,6 @@ const (
 	TAG_DEFAULT       = "default"
 	TAG_IDX           = "index"  // #索引字段
 	TAG_UNIQUE        = "unique" // #保持唯一
-	TAG_READ_ONLY     = "readonly"
 	TAG_STATES        = "states"
 	TAG_PRIORITY      = "priority"   // TODO
 	TAG_ON_DELETE     = "ondelete"   // TODO
@@ -98,24 +95,23 @@ func init() {
 
 		// #attr
 		//tag_ctrl[TAG_IGNORE] = "-" // 忽略某些继承者成员
-		//tag_ctrl[TAG_READ_ONLY] = "<-"
-		//tag_ctrl[TAG_WRITE_ONLY] = "->"
-		TAG_NAME:     tag_name,
-		TAG_OLD_NANE: tag_old_name,
-		TAG_ID:       tag_id,
-		TAG_PK:       tag_pk,
-		TAG_AUTO:     tag_auto,
-		TAG_TYPE:     tag_type,
-		TAG_SIZE:     tag_size,
-		TAG_TITLE:    tag_title,
-		TAG_HELP:     tag_help,
-		TAG_CREATED:  tag_created,
-		TAG_UPDATED:  tag_updated,
-		TAG_REQUIRED: tag_required,
-		TAG_DEFAULT:  tag_default,
-		//TAG_IDX] =
-		//TAG_UNIQUE] =
-		TAG_READ_ONLY: tag_read_only,
+		TAG_READ_ONLY:  tag_read_only,
+		TAG_WRITE_ONLY: tag_write_only,
+		TAG_NAME:       tag_name,
+		TAG_OLD_NANE:   tag_old_name,
+		TAG_ID:         tag_id,
+		TAG_PK:         tag_pk,
+		TAG_AUTO:       tag_auto,
+		TAG_TYPE:       tag_type,
+		TAG_SIZE:       tag_size,
+		TAG_TITLE:      tag_title,
+		TAG_HELP:       tag_help,
+		TAG_CREATED:    tag_created,
+		TAG_UPDATED:    tag_updated,
+		TAG_REQUIRED:   tag_required,
+		TAG_DEFAULT:    tag_default,
+		TAG_IDX:        tag_index,
+		TAG_UNIQUE:     tag_unique,
 		//TAG_STATES:tag_s
 		//TAG_PRIORITY] = "priority"     // TODO
 		TAG_ON_DELETE: tag_ondelete,
@@ -236,31 +232,26 @@ func tag_id(ctx *TFieldContext) {
 }
 
 func tag_pk(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.IsPrimaryKey = true
-	col.Nullable = false
-	fld.Base().primary_key = true
+	fld.Base().isPrimaryKey = true
+	fld.Base()._attr_required = true
 }
 
 func tag_auto(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.IsAutoIncrement = true
-	fld.Base().auto_increment = true
+	fld.Base().isAutoIncrement = true
 }
 
 // TODO test
 func tag_default(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 	model := ctx.Model
 
 	if len(params) > 0 {
-		col.Default = params[0]
+		//fld.Base()._attr_size = params[0]
 		model.Obj().SetDefaultByName(fld.Name(), params[0]) // save to model object
 	}
 }
@@ -271,6 +262,7 @@ func tag_extends(ctx *TFieldContext) {
 	model := ctx.Model
 	params := ctx.Params
 
+	ctx.Field.Base()._attr_store = false // 忽略某些继承者成员
 	switch fld_val.Kind() {
 	case reflect.Ptr:
 		logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
@@ -300,15 +292,16 @@ func tag_extends(ctx *TFieldContext) {
 				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
 
 				// db:读写锁
-				model.GetBase().table.AddColumn(lNewFld.Column())
+				//model.GetBase().table.AddColumn(lNewFld.Column())
+				model.GetBase().AddField(lNewFld)
 
-				if lNewFld.Base().auto_increment {
-					model.GetBase().table.AutoIncrement = lNewFld.Name()
+				if lNewFld.IsAutoIncrement() {
+					model.Obj().AutoIncrementField = lNewFld.Name()
 				}
 
 				//# 以下因为使用postgres 的继承方法时Model部分字段是由Parent继承来的
 				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
-				if lNewFld.Base().primary_key && lNewFld.Base().auto_increment {
+				if lNewFld.Base().isPrimaryKey && lNewFld.Base().isAutoIncrement {
 					model.GetBase().idField = lNewFld.Name()
 					//logger.Dbg("RecordField", fld.Name())
 				}
@@ -323,6 +316,8 @@ func tag_relate(ctx *TFieldContext) {
 	fld_val := ctx.FieldTypeValue
 	model := ctx.Model
 	params := ctx.Params
+
+	ctx.Field.Base()._attr_store = false // 忽略某些继承者成员
 
 	switch fld_val.Kind() {
 	case reflect.Ptr:
@@ -354,22 +349,25 @@ func tag_relate(ctx *TFieldContext) {
 
 			new_field := utils.Clone(fld).(IField) // 复制关联字段
 			new_field.SetBase(fld.Base())
+
 			if f := model.GetFieldByName(fld.Name()); f == nil {
 				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
 				new_field.Base().isInheritedField = true
 
-				if new_field.Base().auto_increment {
-					model.GetBase().table.AutoIncrement = new_field.Name()
+				if new_field.IsAutoIncrement() {
+					//model.GetBase().table.AutoIncrement = new_field.Name()
+					model.Obj().AutoIncrementField = new_field.Name()
+
 				}
 
 				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
-				if new_field.Base().primary_key && new_field.Base().auto_increment {
+				if new_field.Base().isPrimaryKey && new_field.Base().isAutoIncrement {
 					model.GetBase().idField = new_field.Name()
 				}
 				model.GetBase().obj.SetFieldByName(fld.Name(), new_field)
 
 			} else {
-				model.GetBase().obj.SetCommonFieldByName(fld.Name(), parentModel.GetTableName(), new_field)
+				model.GetBase().obj.SetCommonFieldByName(fld.Name(), parentModel.GetName(), new_field)
 				model.GetBase().obj.SetCommonFieldByName(fld.Name(), f.Base().model_name, f)
 			}
 		}
@@ -377,35 +375,32 @@ func tag_relate(ctx *TFieldContext) {
 }
 
 func tag_created(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.IsCreated = true
+	fld.Base().isCreated = true
 	fld.Base().isCreated = true
 }
 
 func tag_updated(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.IsUpdated = true
+	fld.Base().isUpdated = true
 	fld.Base().isUpdated = true
 }
 
 func tag_deleted(ctx *TFieldContext) {
-	col := ctx.Column
-	col.IsDeleted = true
+	fld := ctx.Field
+	fld.Base().isDeleted = true
 }
 
 func tag_ver(ctx *TFieldContext) {
-	col := ctx.Column
-	col.IsVersion = true
-	col.Default = "1"
+	fld := ctx.Field
+	fld.Base().isVersion = true
+	fld.Base()._attr_default = 1
 }
 
 func tag_name(ctx *TFieldContext) {
 	model := ctx.Model
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 	cnt := len(params)
@@ -422,7 +417,7 @@ func tag_name(ctx *TFieldContext) {
 		}
 
 		// 完成修改
-		col.Name = name
+		//col.Name = name
 		fld.Base()._attr_name = name
 	}
 
@@ -448,20 +443,54 @@ func tag_title(ctx *TFieldContext) {
 }
 
 func tag_help(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 
 	if len(params) > 0 {
 		help := strings.Trim(params[0], "'")
 		help = strings.Replace(help, "''", "'", -1)
-		col.Comment = help
+		fld.Base().Comment = help
 		fld.Base()._attr_help = help
 	}
 }
 
+func tag_unique(ctx *TFieldContext) {
+	fld := ctx.Field
+	model := ctx.Model
+	field_name := fld.Name()
+	var index *TIndex
+	var ok bool
+
+	if index, ok = model.Obj().indexes[field_name]; ok {
+		index.AddColumn(field_name)
+	} else {
+		index = NewIndex(field_name, UniqueType)
+		index.AddColumn(field_name)
+		model.Obj().AddIndex(index)
+	}
+
+	//	fld.Base().Indexes[index.Name] = UniqueType
+}
+
+func tag_index(ctx *TFieldContext) {
+	fld := ctx.Field
+	model := ctx.Model
+	field_name := fld.Name()
+	var index *TIndex
+	var ok bool
+
+	if index, ok = model.Obj().indexes[field_name]; ok {
+		index.AddColumn(field_name)
+	} else {
+		index := NewIndex(field_name, IndexType)
+		index.AddColumn(field_name)
+		model.Obj().AddIndex(index)
+	}
+
+	//	fld.Base().Indexes[index.Name] = IndexType
+}
+
 func tag_required(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -469,30 +498,36 @@ func tag_required(ctx *TFieldContext) {
 	if len(params) > 0 {
 		fld.Base()._attr_required = utils.StrToBool(params[0])
 	}
-
-	col.Nullable = !fld.Base()._attr_required
 }
 
 func tag_read_only(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 
 	fld.Base()._attr_readonly = true
-	col.MapType = core.ONLYFROMDB
+	fld.Base().MapType = ONLYFROMDB
 	if len(params) > 0 {
 		fld.Base()._attr_readonly = utils.StrToBool(params[0])
 	}
 }
 
+func tag_write_only(ctx *TFieldContext) {
+	fld := ctx.Field
+	params := ctx.Params
+
+	fld.Base()._attr_writeonly = true
+	fld.Base().MapType = ONLYTODB
+	if len(params) > 0 {
+		fld.Base()._attr_writeonly = utils.StrToBool(params[0])
+	}
+}
+
 func tag_size(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 
 	if len(params) > 0 {
-		col.Length = int(utils.StrToInt64(params[0]))
-		fld.Base()._attr_size = utils.StrToInt64(params[0])
+		fld.Base()._attr_size = utils.StrToInt(params[0])
 	}
 }
 
@@ -545,7 +580,7 @@ func tag_table_name(ctx *TFieldContext) {
 
 		if name != "" { // 检测合法不为空
 			model.GetBase().name = fmtModelName(name)
-			model.GetBase().table.Name = fmtModelName(name) //strings.Replace(name, ".", "_", -1)
+			//model.GetBase().table.Name = fmtModelName(name) //strings.Replace(name, ".", "_", -1)
 			//logger.Dbg("tag_table_name", params, name, model.GetBase().name, model.GetBase().table.Name)
 		}
 	}
@@ -560,7 +595,6 @@ func tag_table_description(ctx *TFieldContext) {
 		description := strings.Trim(params[0], "'")
 		description = strings.Replace(description, "''", "'", -1)
 		model.GetBase()._description = description
-		model.GetBase().table.Comment = description
 	}
 }
 

@@ -1,7 +1,3 @@
-// Copyright 2015 The Xorm Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 package orm
 
 import (
@@ -10,14 +6,20 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-
-	"github.com/go-xorm/core"
 )
 
 type pqDriver struct {
 }
 
 type values map[string]string
+
+func init() {
+	RegisterDriver("postgres", postgresDriver)
+}
+
+func postgresDriver() IDriver {
+	return &pqDriver{}
+}
 
 func (vs values) Set(k, v string) {
 	vs[k] = v
@@ -95,8 +97,8 @@ func parseOpts(name string, o values) {
 	}
 }
 
-func (p *pqDriver) Parse(driverName, dataSourceName string) (*core.Uri, error) {
-	db := &core.Uri{DbType: core.POSTGRES}
+func (p *pqDriver) Parse(driverName, dataSourceName string) (*TDataSource, error) {
+	db := &TDataSource{DbType: POSTGRES}
 	o := make(values)
 	var err error
 	if strings.HasPrefix(dataSourceName, "postgresql://") || strings.HasPrefix(dataSourceName, "postgres://") {

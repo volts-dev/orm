@@ -1,9 +1,5 @@
 package orm
 
-import (
-	"github.com/go-xorm/core"
-)
-
 type (
 	TIntField struct {
 		TField
@@ -24,75 +20,64 @@ type (
 
 func init() {
 	// int(size)
-	RegisterField("int", NewIntField)
-	RegisterField("bigint", NewBigIntField)
-	RegisterField("float", NewFloatField)
-	RegisterField("double", NewDoubleField)
+	RegisterField("int", newIntField)
+	RegisterField("bigint", newBigIntField)
+	RegisterField("float", newFloatField)
+	RegisterField("double", newDoubleField)
 }
 
-func NewIntField() IField {
+func newIntField() IField {
 	return new(TIntField)
 }
 
-func NewBigIntField() IField {
+func newBigIntField() IField {
 	return new(TBigIntField)
 }
 
-func NewFloatField() IField {
+func newFloatField() IField {
 	return new(TFloatField)
 }
 
-func NewDoubleField() IField {
+func newDoubleField() IField {
 	return new(TDoubleField)
 }
 
 func (self *TIntField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	vals := ctx.Params
 
 	if len(vals) > 0 {
 		switch vals[0] {
 		case "64":
-			col.SQLType = core.SQLType{core.BigInt, 0, 0}
-			fld.Base()._column_type = core.BigInt
+			fld.Base().SqlType = SQLType{BigInt, 0, 0}
 			fld.Base()._attr_type = "bigint"
 		default:
-			col.SQLType = core.SQLType{core.Int, 0, 0}
-			fld.Base()._column_type = core.Int
+			fld.Base().SqlType = SQLType{Int, 0, 0}
 			fld.Base()._attr_type = "int"
 		}
 	} else {
-		col.SQLType = core.SQLType{core.Int, 0, 0}
-		fld.Base()._column_type = core.Int
+		fld.Base().SqlType = SQLType{Int, 0, 0}
 		fld.Base()._attr_type = "int"
 	}
 }
 
 func (self *TBigIntField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.SQLType = core.SQLType{core.BigInt, 0, 0}
-	fld.Base()._column_type = core.BigInt
+	fld.Base().SqlType = SQLType{BigInt, 0, 0}
 	fld.Base()._attr_type = "bigint"
 }
 
 func (self *TFloatField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.SQLType = core.SQLType{core.Float, 0, 0}
-	fld.Base()._column_type = core.Float
-	//fld._type = core.Float
+	fld.Base().SqlType = SQLType{Float, 0, 0}
 	fld.Base()._attr_type = "float"
 }
 
 func (self *TDoubleField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.SQLType = core.SQLType{core.Double, 0, 0}
-	fld.Base()._column_type = core.Double
+	fld.Base().SqlType = SQLType{Double, 0, 0}
 	fld.Base()._attr_type = "double"
 }

@@ -57,10 +57,10 @@ func (UserModel) TestSelection(str string) {
 	fmt.Println("Arg is ", str)
 }
 
-func (self UserModel) etLang() [][]string {
+func (self UserModel) SetLang() [][]string {
 	result := make([][]string, 0)
 	result = append(result, []string{"name", "Vectors"})
-	result = append(result, []string{"Mode", self.GetModelName()})
+	result = append(result, []string{"Mode", self.GetName()})
 	return result
 }
 
@@ -75,11 +75,11 @@ var (
 	}
 
 	user *UserModel = &UserModel{
-		Name:      "Admin",
-		Title:     "Admin",
-		Help:      "",
-		Bool:      true,
-		Text:      "",
+		Name:  "Admin",
+		Title: "Admin",
+		//Help:      "",
+		//Bool: true,
+		//Text:      "",
 		Float:     0.00001,
 		Bin:       []byte("aa"),
 		Selection: "",

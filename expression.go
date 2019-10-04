@@ -181,10 +181,10 @@ func (self *TExtendedLeaf) generate_alias() string {
 	//links = [(context[1]._table, context[4]) for context in self.join_context]
 	var links [][]string
 	for _, context := range self.join_context {
-		links = append(links, []string{context.DestModel.GetTableName(), context.Link})
+		links = append(links, []string{context.DestModel.GetName(), context.Link})
 	}
 
-	alias, _ /* alias_statement*/ := generate_table_alias(self.models[0].GetTableName(), links)
+	alias, _ /* alias_statement*/ := generate_table_alias(self.models[0].GetName(), links)
 	//logger.Dbg("generate_alias", alias)
 	return alias
 }
@@ -242,8 +242,8 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 	tables := utils.NewStringList()
 	links := make([][]string, 0)
 	for _, context := range self.join_context {
-		links = append(links, []string{context.DestModel.GetTableName(), context.Link})
-		_, alias_statement := generate_table_alias(self.models[0].GetTableName(), links)
+		links = append(links, []string{context.DestModel.GetName(), context.Link})
+		_, alias_statement := generate_table_alias(self.models[0].GetName(), links)
 		tables.PushString(alias_statement)
 	}
 
@@ -252,7 +252,7 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 
 func (self *TExtendedLeaf) get_join_conditions() (conditions []string) {
 	conditions = make([]string, 0) //utils.NewStringList()
-	alias := self.models[0].GetTableName()
+	alias := self.models[0].GetName()
 	for _, context := range self.join_context {
 		previous_alias := alias
 		alias += "__" + context.Link
@@ -917,7 +917,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 			logger.Dbg("ttt", next_model, related_field)
 			//logger.Dbg("IsRelatedField>>", lFieldName, next_model.GetModelName())
-			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.GetModelName()), "id", model.obj.GetRelationByName(next_model.GetModelName()))
+			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.GetName()), "id", model.obj.GetRelationByName(next_model.GetName()))
 			self.push(ex_leaf)
 
 		} else if left.String() == self.root_model.idField && utils.InStrings(operator.String(), "child_of", "parent_of") != -1 {
@@ -1355,7 +1355,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			}
 
 			//unaccent = self._unaccent if sql_operator.endswith('like') else lambda x: x
-			column := fmt.Sprintf("%s.%s", table_alias, self.orm.Quote(left.String()))
+			column := fmt.Sprintf("%s.%s", table_alias, self.orm.dialect.Quote(left.String()))
 			res_query = fmt.Sprintf("(%s %s %s)", column+cast, sql_operator, format)
 
 		} else if left.In(MAGIC_COLUMNS) {
@@ -1450,7 +1450,7 @@ func (self *TExpression) get_tables() *utils.TStringList {
 		}
 	}
 
-	table_name := _quote(self.root_model.GetTableName())
+	table_name := _quote(self.root_model.GetName())
 	if !tables.Has(table_name) {
 		tables.PushString(table_name)
 	}

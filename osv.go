@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 	"github.com/volts-dev/volts/server"
 )
@@ -34,7 +33,26 @@ type (
 	// TObj 是一个多个同名不同体Model集合，这些不同体(结构体/继承结构)的MOdel最终只是同一个数据表的表现
 	// fields：存储所有结构体的字段，即这个对象表的所有字段
 	TObj struct {
-		name              string // model 名称
+		// 相同参数
+		name               string // model 名称
+		Charset            string
+		Comment            string
+		PrimaryKeys        []string
+		indexes            map[string]*TIndex
+		CreatedField       map[string]bool
+		UpdatedField       string
+		DeletedField       string
+		VersionField       string
+		AutoIncrementField string
+
+		// SQL 参数
+		columnsSeq []string //TODO 存储COl名称考虑Remove
+		//columnsMap  map[string][]*Column
+		//columns     []*Column
+		//Cacher      Cacher
+		//StoreEngine string
+
+		// object 属性
 		uidFieldName      string
 		fields            map[string]IField                  // map[field]
 		relations         map[string]string                  // many2many many2one... 等关联表
@@ -43,22 +61,38 @@ type (
 		methods           map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
 		object_val        map[reflect.Type]*TModel           // map[Model] 备份对象
 		object_types      map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
-		object_table      map[reflect.Type]*core.Table
-		defaultValues     map[string]interface{} // store the default values of model
+		defaultValues     map[string]interface{}             // store the default values of model
 		fieldsLock        sync.RWMutex
 		relationsLock     sync.RWMutex
 		defaultValuesLock sync.RWMutex
 		relatedFieldsLock sync.RWMutex
 		commonFieldsLock  sync.RWMutex
+		indexesLock       sync.RWMutex
 	}
 
 	TOsv struct {
-		orm    *TOrm
-		models map[string]*TObj // 为每个Model存储BaseModel // TODO 名称或许为Objects
+		orm        *TOrm
+		models     map[string]*TObj // 为每个Model存储BaseModel // TODO 名称或许为Objects
+		modelsLock sync.RWMutex
+
 		//_models_pool   map[string]sync.Pool // model 对象池
 		//_models_fields map[string]map[string]*TField
 	}
 )
+
+// add an index or an unique to table
+func (self *TObj) AddIndex(index *TIndex) {
+	self.indexesLock.Lock()
+	self.indexes[index.Name] = index
+	self.indexesLock.Unlock()
+}
+
+// add an index or an unique to table
+func (self *TObj) AddField(filed IField) {
+	self.fieldsLock.Lock()
+	self.fields[filed.Name()] = filed
+	self.fieldsLock.Unlock()
+}
 
 func (self *TObj) GetRelations() map[string]string {
 	self.relationsLock.RLock()
@@ -88,9 +122,8 @@ func (self *TObj) GetFields() map[string]IField {
 
 func (self *TObj) GetFieldByName(name string) IField {
 	self.fieldsLock.RLock()
-	field := self.fields[name]
-	self.fieldsLock.RUnlock()
-	return field
+	defer self.fieldsLock.RUnlock()
+	return self.fields[name]
 }
 
 func (self *TObj) SetFieldByName(name string, field IField) {
@@ -158,18 +191,15 @@ func (self *TObj) SetCommonFieldByName(fieldName string, tableName string, field
 }
 
 // 创建一个Objects Services
-func NewOsv(orm *TOrm) (res *TOsv) {
-	res = &TOsv{
+func newOsv(orm *TOrm) (osv *TOsv) {
+	osv = &TOsv{
 		models: make(map[string]*TObj),
 		orm:    orm,
 		//	_models_types: make(map[string]map[string]reflect.Type), // 存储Models的Type
 		//	_models_pool:  make(map[string]sync.Pool),               //@@@ 改进改为接口 String
-
-		//Registry: aRegistry,
 	}
-	//utils.Dbg("NewOsv", res)
-	//res.Orm = NewOrm()
-	return
+
+	return osv
 }
 
 //TODO 重命名函数
@@ -181,7 +211,7 @@ func NewOsv(orm *TOrm) (res *TOsv) {
 ///
 //     :param partial: ``True`` if all models have not been loaded yet.
 //
-func (self *TOsv) SetupModels() {
+func (self *TOsv) ___SetupModels() {
 	/*	var lNew *TField
 
 		for _, obj := range self.models {
@@ -231,10 +261,11 @@ func (self *TOsv) newObject(name string) *TObj {
 		methods:       make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
 		object_val:    make(map[reflect.Type]*TModel),           // map[Model] 备份对象
 		object_types:  make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
-		object_table:  make(map[reflect.Type]*core.Table),
 		defaultValues: make(map[string]interface{}),
-		//id_caches:  cache.NewMemoryCache(),
-		//sql_caches: cache.NewMemoryCache(),
+
+		CreatedField: make(map[string]bool),
+		indexes:      make(map[string]*TIndex),
+		columnsSeq:   make([]string, 0),
 	}
 	/*obj := self.models[name]
 	if obj == nil {
@@ -247,15 +278,55 @@ func (self *TOsv) newObject(name string) *TObj {
 
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, model *TModel) {
-	var lMethod reflect.Method
-
-	//logger.Dbg("RegisterModel:", region, model.name, model.modelType, model.modelType.PkgPath())
 	//获得Object 检查是否存在，不存在则创建
+	self.modelsLock.RLock()
 	obj := self.models[model.name]
-	if obj == nil {
+	self.modelsLock.RUnlock()
+
+	if obj == nil && model.obj != nil {
 		obj = model.obj
 	} else {
 		new_obj := model.obj
+
+		// # 复制 Indx
+		for _, idx := range new_obj.indexes {
+			if _, has := obj.indexes[idx.Name]; !has {
+				obj.AddIndex(idx)
+			}
+		}
+
+		// # 复制 Key
+		for _, key := range new_obj.PrimaryKeys {
+			if utils.InStrings(key, obj.PrimaryKeys...) == -1 {
+				obj.PrimaryKeys = append(obj.PrimaryKeys, key)
+			}
+		}
+
+		for field, on := range new_obj.CreatedField {
+			if _, has := obj.CreatedField[field]; !has {
+				obj.CreatedField[field] = on
+			}
+		}
+
+		if obj.DeletedField == "" && new_obj.DeletedField != "" {
+			obj.DeletedField = new_obj.DeletedField
+		}
+
+		if obj.UpdatedField == "" && new_obj.UpdatedField != "" {
+			obj.UpdatedField = new_obj.UpdatedField
+		}
+
+		if obj.AutoIncrementField == "" && new_obj.AutoIncrementField != "" {
+			obj.AutoIncrementField = new_obj.AutoIncrementField
+		}
+
+		if obj.UpdatedField == "" && new_obj.UpdatedField != "" {
+			obj.UpdatedField = new_obj.UpdatedField
+		}
+
+		if obj.VersionField == "" && new_obj.VersionField != "" {
+			obj.VersionField = new_obj.VersionField
+		}
 
 		// 覆盖默认值
 		obj.defaultValuesLock.Lock()
@@ -287,7 +358,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) {
 	}
 
 	// 为该Model对应的Table
-	obj.object_table[model.modelType] = model.table
+	//	obj.object_table[model.modelType] = model.table
 
 	// 赋值
 	if _, has := obj.object_types[region]; !has {
@@ -297,26 +368,35 @@ func (self *TOsv) RegisterModel(region string, model *TModel) {
 	//STEP 添加Model 类型
 	obj.object_types[region][model.name] = model.modelType
 
+	// 原型Tmodel已经不再需要
+	if region != "" {
+		delete(obj.object_types, "")
+	}
+
 	//utils.Dbg("RegisterModel Method", aType, aType.NumField(), aType.NumMethod())
 	// @添加方法映射到对象里
+	var method reflect.Method
 	for i := 0; i < model.modelType.NumMethod(); i++ {
-		lMethod = model.modelType.Method(i)
+		method = model.modelType.Method(i)
 		//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
 		// 参数验证func(self,handler)
 		//lMethod.Type.In(1).Elem().String() == handlerType.String()
 		//logger.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
 
 		//if lMethod.Type.NumIn() == 2 {
-		obj.methods[lMethod.Name] = model.modelType // 添加方法对应的Object
+		obj.methods[method.Name] = model.modelType // 添加方法对应的Object
 		//}
 	}
 
 	obj.uidFieldName = model.idField
+
+	self.modelsLock.Lock()
 	self.models[model.name] = obj
+	self.modelsLock.Unlock()
 }
 
 // New an object for restore
-func (self *TOsv) newObj(name string) (obj *TObj) {
+func (self *TOsv) ___newObj(name string) (obj *TObj) {
 	//获得Object 检查是否存在，不存在则创建
 	obj, has := self.models[name]
 	if !has {
@@ -330,10 +410,10 @@ func (self *TOsv) newObj(name string) (obj *TObj) {
 			methods:       make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
 			object_val:    make(map[reflect.Type]*TModel),           // map[Model] 备份对象
 			object_types:  make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
-			object_table:  make(map[reflect.Type]*core.Table),
 			defaultValues: make(map[string]interface{}),
 			//id_caches:  cache.NewMemoryCache(),
 			//sql_caches: cache.NewMemoryCache(),
+			indexes: make(map[string]*TIndex),
 		}
 
 		self.models[name] = obj
@@ -345,38 +425,32 @@ func (self *TOsv) newObj(name string) (obj *TObj) {
 
 // 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
-func (self *TOsv) GetMethod(model, name string) (res_md *TMethod) {
-	lModel := self.getModelByMethod(model, name)
+func (self *TOsv) GetMethod(model, name string) (method *TMethod) {
+	mod := self.getModelByMethod(model, name)
 
-	//web.Debug("CallModelHandler", utils.TitleCasedName(name))
-	//web.Debug("CallModelHandler", lM.IsNil())
-	//web.Debug("CallModelHandler", lM == reflect.Zero(lM.Type()))
-	//logger.Dbg("GetMethod", lModel)
-	if lModel.IsValid() { //|| !lM.IsNil()
+	if mod.IsValid() { //|| !lM.IsNil()
 		// 转换method
 		// #必须使用Type才能获取到方法原型已经参数
-		method, ok := lModel.Type().MethodByName(utils.TitleCasedName(name))
+		method, ok := mod.Type().MethodByName(utils.TitleCasedName(name))
 		if ok && method.Func.IsValid() {
-			//logger.Dbg("GetMethod", name, lModel.MethodByName(utils.TitleCasedName(name)), method.Func, method)
-
-			res_md = NewMethod(name, method.Func)
-			return
+			return NewMethod(name, method.Func)
 		}
 	}
-	return
+
+	return nil
 }
 
-func (self *TOsv) HasModel(name string) (res bool) {
-	_, res = self.models[name]
+func (self *TOsv) HasModel(name string) (has bool) {
+	_, has = self.models[name]
 	return
 }
 
 //TODO  TEST 测试是否正确使用路劲作为Modul
-func (self *TOsv) GetModel(model string, module ...string) (IModel, error) {
-	lModule := "" // "web" // 默认取Web模块注册的Models
+func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
+	module_name := "" // "web" // 默认取Web模块注册的Models
 	//logger.Dbg("getmodel", model, lModule, module)
 	if len(module) > 0 && utils.Trim(module[0]) != "" {
-		lModule = utils.Trim(module[0])
+		module_name = utils.Trim(module[0])
 	} else {
 		//TODO 实现智能选
 		/*
@@ -397,16 +471,22 @@ func (self *TOsv) GetModel(model string, module ...string) (IModel, error) {
 		*/
 	}
 
-	ml, err := self.GetModelByModule(lModule, model)
+	model, err := self.GetModelByModule(module_name, name)
 	if err != nil {
 		return nil, err
 	}
 
-	if m, ok := ml.(IModel); ok {
+	if m, ok := model.(IModel); ok {
 		return m, nil
 	}
 
 	return nil, errors.New("Model is a interface of IModel")
+}
+
+func (self *TOsv) RemoveModel(name string) {
+	self.modelsLock.Lock()
+	delete(self.models, name)
+	self.modelsLock.RUnlock()
 }
 
 //
@@ -425,8 +505,8 @@ func (self *TOsv) GetModels() (models []string) {
 // @ name
 // @ Session
 // @ Registry
-func (self *TOsv) NewModel(name string) (mdl *TModel) {
-	mdl = &TModel{
+func (self *TOsv) NewModel(name string) (model *TModel) {
+	model = &TModel{
 		name: name,
 		//_table:  strings.Replace(name, ".", "_", -1),
 		//_fields: make(map[string]IField),
@@ -439,57 +519,44 @@ func (self *TOsv) NewModel(name string) (mdl *TModel) {
 
 //TODO　优化更简洁
 // 每次GetModel都会激活初始化对象
-func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TObj, model string) {
+func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TObj, modelName string) {
 	if m, ok := val.Interface().(IModel); ok {
-		// <以下代码严格遵守执行顺序>
-		lModel := NewModel(model, val, atype) //self.newModel(sess, model)
-		lModel.idField = obj.uidFieldName
-		lModel.obj = obj
-		lModel.osv = self
-		lModel.orm = self.orm
-		//logger.Dbg("_initObject", len(obj.object_table), obj.object_table[atype])
-		lModel.table = obj.object_table[atype]
-
-		lModel.relations_reload()
-
-		//lModel.modelType = atype
-		m.setBaseModel(lModel)
-		//m.SetName(name)
-		//m.SetRegistry(self)
-		//web.Warn("使用接口对TModel进行赋值", m, lVal)
-
-		//return m
+		// NOTED <以下代码严格遵守执行顺序>
+		model := NewModel(modelName, val, atype) //self.newModel(sess, model)
+		model.idField = obj.uidFieldName
+		model.obj = obj
+		model.osv = self
+		model.orm = self.orm
+		model.relations_reload()
+		m.setBaseModel(model)
 	}
 }
 
 // #module 可以为空取默认
 func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 	var (
-		has         bool
-		obj         *TObj
-		module_name string
+		region_name string
 		module_map  map[string]reflect.Type
 		model_type  reflect.Type
 	)
 
 	//获取Model的Object对象
-	if obj, has = self.models[model]; has {
+	if obj, has := self.models[model]; has {
 		//logger.Dbg("getModelByModule1", obj, len(self.models), region, model)
 
 		// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
-		for module_name, module_map = range obj.object_types {
-			if module_name == region {
+		for region_name, module_map = range obj.object_types {
+			if region_name == region {
 				break
 			}
 		}
-		//logger.Dbg("_getModelByModule2", module_name, module_map)
+
+		//logger.Dbg("_getModelByModule2", region_name, module_map)
 
 		if model_type, has = module_map[model]; has {
 			// 创建对象
 			val = reflect.New(model_type)
-			//logger.Dbg("_getModelByModule3", val, model_type)
-			//web.Warn("使用接口对TModel进行赋值", module, model, val)
-			self._initObject(val, model_type, obj, model)
+			self.initObject(val, model_type, obj, model)
 			/*
 				// 使用接口对TModel进行赋值
 				if m, ok := val.Interface().(IModel); ok {
@@ -512,17 +579,11 @@ func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 
 // TODO 继承类Model 的方法调用顺序提取
 func (self *TOsv) getModelByMethod(model string, method string) (val reflect.Value) {
-	var (
-		has   bool
-		obj   *TObj
-		lType reflect.Type
-	)
-
-	if obj, has = self.models[model]; has {
-		//web.Debug("_getModelByMethod", model, method, utils.TitleCasedName(method), obj.methods)
-		if lType, has = obj.methods[utils.TitleCasedName(method)]; has {
-			val = reflect.New(lType)
-			self._initObject(val, lType, obj, model)
+	if obj, has := self.models[model]; has {
+		if typ, has := obj.methods[utils.TitleCasedName(method)]; has {
+			val = reflect.New(typ)
+			self.initObject(val, typ, obj, model)
+			return
 		}
 	}
 
@@ -538,9 +599,9 @@ func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error)
 		return nil, errors.New("Must enter a model name!")
 	}
 
-	lM := self.getModelByModule(region, model)
-	if lM.IsValid() && !lM.IsNil() {
-		if m, ok := lM.Interface().(IModel); ok {
+	mod := self.getModelByModule(region, model)
+	if mod.IsValid() && !mod.IsNil() {
+		if m, ok := mod.Interface().(IModel); ok {
 			return m, nil
 		}
 
@@ -549,12 +610,6 @@ func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error)
 	}
 
 	return nil, fmt.Errorf("Model %s@%s is not a standard model type of this system", model, region)
-}
-
-// NOTUSE
-func (self *TOsv) ContainsModel(m string) (has bool) {
-	_, has = self.models[m]
-	return
 }
 
 // 废弃 根据Model和Action 执行方法

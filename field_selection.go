@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
-
-	"github.com/go-xorm/core"
 )
 
 type (
@@ -21,25 +19,24 @@ type (
 )
 
 func init() {
-	RegisterField("bool", NewBooleanField)
-	RegisterField("selection", NewSelectionField)
+	RegisterField("bool", newBooleanField)
+	RegisterField("selection", newSelectionField)
 }
 
-func NewBooleanField() IField {
+func newBooleanField() IField {
 	return new(TBooleanField)
 }
 
-func NewSelectionField() IField {
+func newSelectionField() IField {
 	return new(TSelectionField)
 }
 
 func (self *TBooleanField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 
-	col.SQLType = core.SQLType{core.Bool, 0, 0}
+	fld.Base().SqlType = SQLType{Bool, 0, 0}
 	fld.Base()._attr_type = FIELD_TYPE_BOOL
-	fld.Base()._column_type = core.Bool
+	//	fld.Base()._column_type = Bool
 }
 
 //###########################################################################

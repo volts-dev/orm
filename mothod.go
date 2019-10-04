@@ -86,7 +86,7 @@ func (self *TMethodsSet) get(methodName string) (*TMethod, bool) {
 func (self *TMethodsSet) MustGet(methodName string) *TMethod {
 	methInfo, exists := self.get(methodName)
 	if !exists {
-		log.Panic("Unknown method in model", "model", self.model.GetModelName(), "method", methodName)
+		log.Panic("Unknown method in model", "model", self.model.GetName(), "method", methodName)
 	}
 	return methInfo
 }

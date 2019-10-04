@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
 
@@ -16,52 +15,48 @@ type (
 )
 
 func init() {
-	RegisterField("char", NewCharField)
-	RegisterField("text", NewTextField)
+	RegisterField("char", newCharField)
+	RegisterField("text", newTextField)
 }
 
-func NewCharField() IField {
+func newCharField() IField {
 	return new(TCharField)
 }
 
-func NewTextField() IField {
+func newTextField() IField {
 	return new(TTextField)
 }
 
 // TODO 限制长度
 func (self *TCharField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 
 	if len(params) > 0 {
-		length := utils.StrToInt(params[0])
-		if length != 0 {
-			col.Length = length
+		size := utils.StrToInt(params[0])
+		if size != 0 {
+			fld.Base()._attr_size = size
 		}
 	}
 
-	col.SQLType = core.SQLType{core.Varchar, 0, 0}
-	fld.Base()._column_type = core.Varchar
+	fld.Base().SqlType = SQLType{Varchar, 0, 0}
 	fld.Base()._attr_type = "char"
 	fld.Base()._symbol_c = `'%s'`
 	fld.Base()._symbol_f = _CharFormat
 }
 
 func (self *TTextField) Init(ctx *TFieldContext) {
-	col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 
 	if len(params) > 0 {
-		length := utils.StrToInt(params[0])
-		if length != 0 {
-			col.Length = length
+		size := utils.StrToInt(params[0])
+		if size != 0 {
+			fld.Base()._attr_size = size
 		}
 	}
 
-	col.SQLType = core.SQLType{core.Text, 0, 0}
-	fld.Base()._column_type = core.Text
+	fld.Base().SqlType = SQLType{Text, 0, 0}
 	fld.Base()._attr_type = "text"
 	fld.Base()._symbol_c = `'%s'`
 	fld.Base()._symbol_f = _CharFormat

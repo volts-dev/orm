@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type (
 	// provide to connect source
-	DataSource struct {
+	TDataSource struct {
 		DbType   string
 		DbName   string
 		Host     string
@@ -16,10 +17,18 @@ type (
 		SSLMode  string
 		UserName string
 		Password string
+
+		// 待定
+		Proto   string
+		Charset string
+		Laddr   string
+		Raddr   string
+		Timeout time.Duration
+		Schema  string
 	}
 )
 
-func (self *DataSource) validate() {
+func (self *TDataSource) validate() {
 	if self.Host == "" {
 		self.Host = "127.0.0.1"
 	}
@@ -53,7 +62,7 @@ func (self *DataSource) validate() {
 
 }
 
-func (self *DataSource) toString() string {
+func (self *TDataSource) toString() string {
 	self.validate()
 
 	var s string

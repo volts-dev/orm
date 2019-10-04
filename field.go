@@ -1,246 +1,34 @@
 package orm
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
-	"sync"
-
-	//	"time"
-
+	"time"
 	"volts-dev/dataset"
 
-	"github.com/go-xorm/core"
+	"github.com/volts-dev/utils"
 )
 
 const (
-	FIELD_TYPE_BOOL = "bool"
+	// Index
+	IndexType = iota + 1
+	UniqueType
 
-	// Types for model fields
-	NoType    Type = ""
-	Binary    Type = "binary"
-	Boolean   Type = "boolean"
-	Char      Type = "char"
-	Date      Type = "date"
-	DateTime  Type = "datetime"
-	Float     Type = "float"
-	HTML      Type = "html"
-	Integer   Type = "integer"
-	Many2Many Type = "many2many"
-	Many2One  Type = "many2one"
-	One2Many  Type = "one2many"
-	One2One   Type = "one2one"
-	Rev2One   Type = "rev2one"
-	Reference Type = "reference"
-	Selection Type = "selection"
-	Text      Type = "text"
+	// 字段读写模式
+	TWOSIDES = iota + 1
+	ONLYTODB
+	ONLYFROMDB
+
+	FIELD_TYPE_BOOL = "bool"
 )
 
 var (
 	// 注册的Writer类型函数接口
 	field_creators = make(map[string]func() IField)
-
-	FieldTypes = map[string]string{
-		// 布尔
-		"BOOL": "boolean",
-		// 整数
-		"INT":     "integer",
-		"INTEGER": "integer",
-		"BIGINT":  "integer",
-
-		"CHAR":     "char",
-		"VARCHAR":  "char",
-		"NVARCHAR": "char",
-		"TEXT":     "text",
-
-		"MEDIUMTEXT": "text",
-		"LONGTEXT":   "text",
-
-		"DATE":       "date",
-		"DATETIME":   "datetime",
-		"TIME":       "datetime",
-		"TIMESTAMP":  "datetime",
-		"TIMESTAMPZ": "datetime",
-
-		//Decimal = "DECIMAL"
-		//Numeric = "NUMERIC"
-		"REAL":   "float",
-		"FLOAT":  "float",
-		"DOUBLE": "float",
-
-		"VARBINARY":  "binary",
-		"TINYBLOB":   "binary",
-		"BLOB":       "binary",
-		"MEDIUMBLOB": "binary",
-		"LONGBLOB":   "binary",
-		"JSON":       "json",
-		"reference":  "reference",
-	}
 )
 
 type (
-	// A Type defines a type of a model's field
-	Type string
-
-	/* The field descriptor contains the field definition, and manages accesses
-	   and assignments of the corresponding field on records. The following
-	   attributes may be provided when instanciating a field:
-
-	   :param string: the label of the field seen by users (string); if not
-	       set, the ORM takes the field name in the class (capitalized).
-
-	   :param help: the tooltip of the field seen by users (string)
-
-	   :param readonly: whether the field is readonly (boolean, by default ``False``)
-
-	   :param required: whether the value of the field is required (boolean, by
-	       default ``False``)
-
-	   :param index: whether the field is indexed in database (boolean, by
-	       default ``False``)
-
-	   :param default: the default value for the field; this is either a static
-	       value, or a function taking a recordset and returning a value
-
-	   :param states: a dictionary mapping state values to lists of UI attribute-value
-	       pairs; possible attributes are: 'readonly', 'required', 'invisible'.
-	       Note: Any state-based condition requires the ``state`` field value to be
-	       available on the client-side UI. This is typically done by including it in
-	       the relevant views, possibly made invisible if not relevant for the
-	       end-user.
-
-	   :param groups: comma-separated list of group xml ids (string); this
-	       restricts the field access to the users of the given groups only
-
-	   :param bool copy: whether the field value should be copied when the record
-	       is duplicated (default: ``True`` for normal fields, ``False`` for
-	       ``one2many`` and computed fields, including property fields and
-	       related fields)
-
-	   :param string oldname: the previous name of this field, so that ORM can rename
-	       it automatically at migration
-
-	   .. _field-computed:
-
-	   .. rubric:: Computed fields
-
-	   One can define a field whose value is computed instead of simply being
-	   read from the database. The attributes that are specific to computed
-	   fields are given below. To define such a field, simply provide a value
-	   for the attribute ``compute``.
-
-	   :param compute: name of a method that computes the field
-
-	   :param inverse: name of a method that inverses the field (optional)
-
-	   :param search: name of a method that implement search on the field (optional)
-
-	   :param store: whether the field is stored in database (boolean, by
-	       default ``False`` on computed fields)
-
-	   :param compute_sudo: whether the field should be recomputed as superuser
-	       to bypass access rights (boolean, by default ``False``)
-
-	   The methods given for ``compute``, ``inverse`` and ``search`` are model
-	   methods. Their signature is shown in the following example::
-
-	       upper = fields.Char(compute='_compute_upper',
-	                           inverse='_inverse_upper',
-	                           search='_search_upper')
-
-	       @api.depends('name')
-	       def _compute_upper(self):
-	           for rec in self:
-	               rec.upper = rec.name.upper() if rec.name else False
-
-	       def _inverse_upper(self):
-	           for rec in self:
-	               rec.name = rec.upper.lower() if rec.upper else False
-
-	       def _search_upper(self, operator, value):
-	           if operator == 'like':
-	               operator = 'ilike'
-	           return [('name', operator, value)]
-
-	   The compute method has to assign the field on all records of the invoked
-	   recordset. The decorator :meth:`openerp.api.depends` must be applied on
-	   the compute method to specify the field dependencies; those dependencies
-	   are used to determine when to recompute the field; recomputation is
-	   automatic and guarantees cache/database consistency. Note that the same
-	   method can be used for several fields, you simply have to assign all the
-	   given fields in the method; the method will be invoked once for all
-	   those fields.
-
-	   By default, a computed field is not stored to the database, and is
-	   computed on-the-fly. Adding the attribute ``store=True`` will store the
-	   field's values in the database. The advantage of a stored field is that
-	   searching on that field is done by the database itself. The disadvantage
-	   is that it requires database updates when the field must be recomputed.
-
-	   The inverse method, as its name says, does the inverse of the compute
-	   method: the invoked records have a value for the field, and you must
-	   apply the necessary changes on the field dependencies such that the
-	   computation gives the expected value. Note that a computed field without
-	   an inverse method is readonly by default.
-
-	   The search method is invoked when processing domains before doing an
-	   actual search on the model. It must return a domain equivalent to the
-	   condition: ``field operator value``.
-
-	   .. _field-related:
-
-	   .. rubric:: Related fields
-
-	   The value of a related field is given by following a sequence of
-	   relational fields and reading a field on the reached model. The complete
-	   sequence of fields to traverse is specified by the attribute
-
-	   :param related: sequence of field names
-
-	   Some field attributes are automatically copied from the source field if
-	   they are not redefined: ``string``, ``help``, ``readonly``, ``required`` (only
-	   if all fields in the sequence are required), ``groups``, ``digits``, ``size``,
-	   ``translate``, ``sanitize``, ``selection``, ``comodel_name``, ``domain``,
-	   ``context``. All semantic-free attributes are copied from the source
-	   field.
-
-	   By default, the values of related fields are not stored to the database.
-	   Add the attribute ``store=True`` to make it stored, just like computed
-	   fields. Related fields are automatically recomputed when their
-	   dependencies are modified.
-
-	   .. _field-company-dependent:
-
-	   .. rubric:: Company-dependent fields
-
-	   Formerly known as 'property' fields, the value of those fields depends
-	   on the company. In other words, users that belong to different companies
-	   may see different values for the field on a given record.
-
-	   :param company_dependent: whether the field is company-dependent (boolean)
-
-	   .. _field-incremental-definition:
-
-	   .. rubric:: Incremental definition
-
-	   A field is defined as class attribute on a model class. If the model
-	   is extended (see :class:`~openerp.models.Model`), one can also extend
-	   the field definition by redefining a field with the same name and same
-	   type on the subclass. In that case, the attributes of the field are
-	   taken from the parent class and overridden by the ones given in
-	   subclasses.
-
-	   For instance, the second class below only adds a tooltip on the field
-	   ``state``::
-
-	       class First(models.Model):
-	           _name = 'foo'
-	           state = fields.Selection([...], required=True)
-
-	       class Second(models.Model):
-	           _inherit = 'foo'
-	           state = fields.Selection(help="Blah blah blah")
-
-	*/
 	/*
 		// 废弃
 		IFieldCtrl interface {
@@ -248,6 +36,13 @@ type (
 			Read(session *TSession, field *TField, dataset *dataset.TDataSet, rel_context map[string]interface{}) interface{}         // (res map[string]map[string]interface{})         // 字段数据获取
 		}
 	*/
+	// database index
+	TIndex struct {
+		IsRegular bool
+		Name      string
+		Type      int
+		Cols      []string
+	}
 
 	// The context for Tag
 	TFieldContext struct {
@@ -255,7 +50,6 @@ type (
 		Model          IModel // required
 		Field          IField // required
 		FieldTypeValue reflect.Value
-		Column         *core.Column
 		Params         []string // 属性参数 int(<params>)
 	}
 
@@ -263,7 +57,6 @@ type (
 		Session *TSession
 		Model   IModel
 		//FieldTypeValue reflect.Value
-		//Column         *core.Column
 		Field IField
 		// the current id of current record
 		Id interface{}
@@ -274,6 +67,16 @@ type (
 	}
 
 	IField interface {
+		String(d IDialect) string
+		StringNoPk(d IDialect) string
+		IsPrimaryKey() bool
+		IsAutoIncrement() bool
+		IsCreated() bool
+		IsDeleted() bool
+		IsUpdated() bool
+		IsCascade() bool
+		IsVersion() bool
+		SQLType() *SQLType
 		Init(ctx *TFieldContext) // call when parse the field tag
 		Base() *TField           // return itself
 
@@ -285,6 +88,8 @@ type (
 		Required(val ...bool) bool
 		Searchable(val ...bool) bool
 		Store(val ...bool) bool
+		Size(val ...int) int
+		Default(val ...interface{}) interface{}
 		States(val ...map[string]interface{}) map[string]interface{}
 		Domain() string
 		Translatable() bool
@@ -297,8 +102,7 @@ type (
 		SetName(name string)
 		SetModel(name string)
 		SetBase(field *TField)
-		Column() *core.Column
-		ColumnType() string // the sql type
+		//ColumnType() string // the sql type
 		Compute() string
 		SymbolChar() string
 		SymbolFunc() func(string) string
@@ -333,40 +137,65 @@ type (
 	}
 
 	TField struct {
+		// 共同属性
+		isPrimaryKey    bool //
+		isAutoIncrement bool
+		isColumn        bool
+		isCreated       bool //# 时间字段自动更新日期
+		isUpdated       bool //
+		isDeleted       bool
+		isCascade       bool
+		isVersion       bool
+
+		defaultIsEmpty bool
+		Comment        string
+		//Default        string
+		//Length         int
+		//Length2        int
+		//Nullable       bool
+
+		// SQL属性
+		SqlType SQLType
+		MapType int
+		//Name            string
+		//TableName       string
+		//FieldName       string
+		IsJSON bool
+		//Indexes         map[string]int //#
+		EnumOptions     map[string]int
+		SetOptions      map[string]int
+		DisableTimeZone bool
+		TimeZone        *time.Location // column specified time zone
+
 		_symbol_c         string              // Format 符号 "%s,%d..."
 		_symbol_f         func(string) string // Format 自定义函数
 		_auto_join        bool                //
 		_inherit          bool                // 是否继承该字段指向的Model的多有字段
 		_args             map[string]string   // [Tag]val 里的参数
 		_setup_done       string              // 字段安装完成步骤 Base,full
-		isCreated         bool                //# 时间字段自动更新日期
-		isUpdated         bool                //
 		isInheritedField  bool                // 该字段是否关联表的字段 relate
 		isRelatedField    bool                // 该字段是否关联表的外键字段
-		___common_field   bool                // 废弃 所有表共有的字段
-		___related        bool                //
 		automatic         bool                // 是否是自动创建的字段 ("magic" field)
 		model_name        string              // 字段所在的模型名称
 		comodel_name      string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
 		relmodel_name     string              // 关系表数据模型 字段关联的Model和字段的many2many关系表Model
 		cokey_field_name  string              // 关联字段所在的表的主键
 		relkey_field_name string              // M2M 表示被关联表的主键字段
-		primary_key       bool                //
-		auto_increment    bool                //
 		index             bool                // whether the field is indexed in database
 		search            bool                // allow searching on self only if the related field is searchable
 		translate         bool                //???
 
 		// published exportable
 		_attr_name              string                 // name of the field
-		_attr_store             bool                   // 字段值是否保存到数据库
+		_attr_store             bool                   // # 字段值是否保存到数据库
 		_attr_manual            bool                   //
 		_attr_depends           []string               //
 		_attr_readonly          bool                   // 只读
+		_attr_writeonly         bool                   // 只读
 		_attr_required          bool                   // 字段不为空
 		_attr_help              string                 //
 		_attr_title             string                 // 字段的Title
-		_attr_size              int64                  // 长度大小
+		_attr_size              int                    // 长度大小
 		_attr_sortable          bool                   // 可排序
 		_attr_searchable        bool                   //
 		_attr_type              string                 // view 字段类型
@@ -384,10 +213,7 @@ type (
 		ondelete     string // 当这个字段指向的资源删除时将发生。预定义值：cascade，set null，restrict，no action，set default。默认值：set null
 
 		//# Tag标记变量
-		column       *core.Column
-		_column_type string // #存储 column 类型 当该字段值非空时数据将直接存入数据库,而非计算值
-		//_classic_read  bool   //废弃 # 默认true 是否常规直接从数据库读取 相反使用et()处理
-		//_classic_write bool   //废弃 # 默认true 是否常规直接写入数据库 相反使用Set()处理
+		//_column_type string // #存储 column 类型 当该字段值非空时数据将直接存入数据库,而非计算值
 		//_func          string      //是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
 		_func_inv     interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
 		_func_multi   string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
@@ -425,77 +251,54 @@ type (
 		RelateField       IField //idx:2
 		RelateTopestTable string //idx:3 //关联字段由那个表产生
 	}
-
-	// FieldsCollection is a collection of Field instances in a model.
-	// 字段集合
-	TFieldsSet struct {
-		sync.RWMutex
-		model                *TModel
-		registryByName       map[string]*IField
-		registryByJSON       map[string]*IField
-		computedFields       []*IField
-		computedStoredFields []*IField
-		relatedFields        []*IField
-		bootstrapped         bool
-	}
 )
 
-// IsRelationType returns true if this type is a relation.
-func (t Type) IsRelationType() bool {
-	return t == Many2Many || t == Many2One || t == One2Many || t == One2One || t == Rev2One
-}
-
-// IsFKRelationType returns true for relation types
-// that are stored in the model's table (i.e. M2O and O2O)
-func (t Type) IsFKRelationType() bool {
-	return t == Many2One || t == One2One
-}
-
-// IsNonStoredRelationType returns true for relation types
-// that are not stored in the model's table (i.e. M2M, O2M and R2O)
-func (t Type) IsNonStoredRelationType() bool {
-	return t == Many2Many || t == One2Many || t == Rev2One
-}
-
-// IsReverseRelationType returns true for relation types
-// that are stored in the comodel's table (i.e. O2M and R2O)
-func (t Type) IsReverseRelationType() bool {
-	return t == One2Many || t == Rev2One
-}
-
-// Is2OneRelationType returns true for relation types
-// that point to a single comodel record (i.e. M2O, O2O and R2O)
-func (t Type) Is2OneRelationType() bool {
-	return t == Many2One || t == One2One || t == Rev2One
-}
-
-// Is2ManyRelationType returns true for relation types
-// that point to multiple comodel records (i.e. M2M and O2M)
-func (t Type) Is2ManyRelationType() bool {
-	return t == Many2Many || t == One2Many
-}
-
-// DefaultGoType returns this Type's default Go type
-func (t Type) DefaultGoType() reflect.Type {
-	switch t {
-	case NoType:
-		return reflect.TypeOf(nil)
-	case Binary, Char, Text, HTML, Selection:
-		return reflect.TypeOf(*new(string))
-	case Boolean:
-		return reflect.TypeOf(true)
-	case Date:
-	//	return reflect.TypeOf(*new(time.Date))
-	case DateTime:
-	//	return reflect.TypeOf(*new(time.DateTime))
-	case Float:
-		return reflect.TypeOf(*new(float64))
-	case Integer, Many2One, One2One, Rev2One:
-		return reflect.TypeOf(*new(int64))
-	case One2Many, Many2Many:
-		return reflect.TypeOf(*new([]int64))
+func (index *TIndex) XName(tableName string) string {
+	if !strings.HasPrefix(index.Name, "UQE_") &&
+		!strings.HasPrefix(index.Name, "IDX_") {
+		tableName = strings.Replace(tableName, `"`, "", -1)
+		tableName = strings.Replace(tableName, `.`, "_", -1)
+		if index.Type == UniqueType {
+			return fmt.Sprintf("UQE_%v_%v", tableName, index.Name)
+		}
+		return fmt.Sprintf("IDX_%v_%v", tableName, index.Name)
 	}
-	return reflect.TypeOf(nil)
+	return index.Name
+}
+
+// add columns which will be composite index
+func (index *TIndex) AddColumn(cols ...string) {
+	for _, col := range cols {
+		index.Cols = append(index.Cols, col)
+	}
+}
+
+func (index *TIndex) Equal(dst *TIndex) bool {
+	if index.Type != dst.Type {
+		return false
+	}
+	if len(index.Cols) != len(dst.Cols) {
+		return false
+	}
+
+	for i := 0; i < len(index.Cols); i++ {
+		var found bool
+		for j := 0; j < len(dst.Cols); j++ {
+			if index.Cols[i] == dst.Cols[j] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// new an index
+func NewIndex(name string, indexType int) *TIndex {
+	return &TIndex{true, name, indexType, make([]string, 0)}
 }
 
 // Register makes a log provide available by the provided name.
@@ -514,16 +317,17 @@ func RegisterField(type_name string, creator func() IField) {
 
 func newBaseField(name, field_type string) *TField {
 	return &TField{
+		//		Indexes:   make(map[string]int),
 		_symbol_c: "%s",
 		_symbol_f: _FieldFormat,
 		// _deprecated: false,
 		//_classic_read:  true,
 		//_classic_write: true,
 		// model_name:     model_name,
-		_column_type: field_type,
-		_attr_name:   name,
-		_attr_type:   field_type,
-		_attr_store:  true,
+		//		_column_type: field_type,
+		_attr_name:  name,
+		_attr_type:  field_type,
+		_attr_store: true,
 	}
 }
 
@@ -532,14 +336,58 @@ func IsFieldType(type_name string) (res bool) {
 	return
 }
 
-func NewField(name, type_name string) IField {
+// sqlType:接受数据类型SQLType/string
+func NewField(name string, sqlType interface{}) IField {
+	var type_name string
+	var new_field *TField
+
+	if typ, ok := sqlType.(string); ok {
+		type_name = typ
+		new_field = newBaseField(name, typ)
+	}
+
+	if typ, ok := sqlType.(SQLType); ok {
+		switch typ.Name {
+		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
+			type_name = "int"
+		case BigInt, BigSerial:
+			type_name = "bigint"
+		case Float, Real:
+			type_name = "float"
+		case Double:
+			type_name = "double"
+		case Char, Varchar, NVarchar, TinyText, Enum, Set, Uuid, Clob:
+			type_name = "char"
+		case Text, MediumText, LongText:
+			type_name = "text"
+		case Decimal, Numeric:
+			type_name = "char"
+		case Bool:
+			type_name = "bool"
+		case DateTime, Date, Time, TimeStamp, TimeStampz:
+			type_name = "datetime"
+		case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary:
+			type_name = "binary"
+		}
+
+		new_field = newBaseField(name, type_name)
+		new_field.SqlType = sqlType.(SQLType)
+
+	}
+
+	if type_name == "" {
+		logger.Errf("the sqltype %v is not supported!", sqlType)
+		return nil
+	}
+
 	creator, ok := field_creators[type_name]
 	if !ok {
 		//fmt.Errorf("cache: unknown adapter name %q (forgot to import?)", name)
 		return nil
 	}
+
 	fld := creator()
-	fld.SetBase(newBaseField(name, type_name))
+	fld.SetBase(new_field)
 	return fld
 }
 
@@ -560,6 +408,55 @@ func _FieldFormat(str string) string {
 
 func _CharFormat(str string) string {
 	return str //`'` + str + `'`
+}
+
+// String generate column description string according dialect
+func (self *TField) String(d IDialect) string {
+	sql := d.QuoteStr() + self.Name() + d.QuoteStr() + " "
+
+	sql += d.GenSqlType(self) + " "
+
+	if self.isPrimaryKey {
+		sql += "PRIMARY KEY "
+		if self.isAutoIncrement {
+			sql += d.AutoIncrStr() + " "
+		}
+	}
+
+	if self._attr_size != 0 {
+		sql += "DEFAULT " + utils.IntToStr(self._attr_size) + " "
+	}
+
+	if d.ShowCreateNull() {
+		if self._attr_required {
+			sql += "NOT NULL "
+		} else {
+			sql += "NULL "
+		}
+	}
+
+	return sql
+}
+
+// StringNoPk generate column description string according dialect without primary keys
+func (self *TField) StringNoPk(d IDialect) string {
+	sql := d.QuoteStr() + self.Name() + d.QuoteStr() + " "
+
+	sql += d.GenSqlType(self) + " "
+
+	if self._attr_size != 0 {
+		sql += "DEFAULT " + utils.IntToStr(self._attr_size) + " "
+	}
+
+	if d.ShowCreateNull() {
+		if self._attr_required {
+			sql += "NOT NULL "
+		} else {
+			sql += "NULL "
+		}
+	}
+
+	return sql
 }
 
 func (self *TField) Compute() string {
@@ -613,12 +510,14 @@ func (self *TField) Searchable(val ...bool) bool {
 	return self._attr_searchable
 }
 
+// orm field type
 func (self *TField) Type() string {
 	return self._attr_type
 }
 
-func (self *TField) ColumnType() string {
-	return self._column_type
+// database sql field type
+func (self *TField) SQLType() *SQLType {
+	return &self.SqlType
 }
 
 func (self *TField) FieldsId() string {
@@ -645,7 +544,23 @@ func (self *TField) Store(val ...bool) bool {
 	if len(val) > 0 {
 		self._attr_store = val[0]
 	}
+
 	return self._attr_store
+}
+
+func (self *TField) Default(val ...interface{}) interface{} {
+	if len(val) > 0 {
+		self._attr_default = val[0]
+	}
+
+	return self._attr_default
+}
+
+func (self *TField) Size(val ...int) int {
+	if len(val) > 0 {
+		self._attr_size = val[0]
+	}
+	return self._attr_size
 }
 
 func (self *TField) States(val ...map[string]interface{}) map[string]interface{} {
@@ -684,16 +599,40 @@ func (self *TField) Fnct_inv() interface{} {
 	return self._func_inv
 }
 
-func (self *TField) Column() *core.Column {
-	return self.column
-}
-
 // 该字段是不是指向其他model的id
 func (self *TField) IsRelatedField(arg ...bool) bool {
 	if len(arg) > 0 {
 		self.isRelatedField = arg[0]
 	}
 	return self.isRelatedField
+}
+
+func (self *TField) IsPrimaryKey() bool {
+	return self.isPrimaryKey
+}
+
+func (self *TField) IsAutoIncrement() bool {
+	return self.isAutoIncrement
+}
+
+func (self *TField) IsCreated() bool {
+	return self.isCreated
+}
+
+func (self *TField) IsDeleted() bool {
+	return self.isDeleted
+}
+
+func (self *TField) IsUpdated() bool {
+	return self.isUpdated
+}
+
+func (self *TField) IsCascade() bool {
+	return self.isCascade
+}
+
+func (self *TField) IsVersion() bool {
+	return self.isVersion
 }
 
 //
@@ -722,6 +661,7 @@ func (self *TField) Init(ctx *TFieldContext) {
 
 }
 
+// 返回原型
 func (self *TField) Base() *TField {
 	return self
 }
@@ -808,10 +748,6 @@ func (self *TField) __OnRead(ctx *TFieldEventContext) interface{} {
    """
 */
 func (self *TField) OnRead(ctx *TFieldEventContext) error {
-	if ctx.Dataset != nil {
-		return nil
-	}
-
 	return nil
 }
 

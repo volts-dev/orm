@@ -9,37 +9,36 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
 
 type (
 	// TODO 添加错误信息使整个statement 无法执行错误不合法查询
 	TStatement struct {
-		domain             *TDomainNode // 查询条件
-		session            *TSession
-		Table              *core.Table
-		Params             []interface{} // 储存有序值
-		IdKey              string        // 开发者决定的数据表主键
-		IdParam            []interface{}
-		Sets               map[string]interface{} // 预存数据值 供更新
-		Fields             map[string]bool        // show which fields will be list out
-		NullableFields     map[string]bool
-		TableNameClause    string
-		AltTableNameClause string // 当无Objet实例时使用字符串表名称
-		AliasTableName     string
-		JoinClause         string
-		FromClause         string
-		OmitClause         string
-		GroupBySClause     string
-		OrderByClause      string
-		LimitClause        int64
-		OffsetClause       int64
-		IsCount            bool
-		IsForUpdate        bool
-		UseCascade         bool
-		Charset            string //???
-		StoreEngine        string //???
+		session        *TSession
+		model          *TModel
+		domain         *TDomainNode  // 查询条件
+		Params         []interface{} // 储存有序值
+		IdKey          string        // 开发者决定的数据表主键
+		IdParam        []interface{}
+		Sets           map[string]interface{} // 预存数据值 供更新
+		Fields         map[string]bool        // show which fields will be list out
+		NullableFields map[string]bool
+		//TableNameClause    string
+		//AltTableNameClause string // 当无Objet实例时使用字符串表名称
+		AliasTableName string
+		JoinClause     string
+		FromClause     string
+		OmitClause     string
+		GroupBySClause string
+		OrderByClause  string
+		LimitClause    int64
+		OffsetClause   int64
+		IsCount        bool
+		IsForUpdate    bool
+		UseCascade     bool
+		Charset        string //???
+		StoreEngine    string //???
 	}
 )
 
@@ -58,19 +57,6 @@ func (self *TStatement) Init() {
 	self.Params = make([]interface{}, 0)
 }
 
-// TableName return current tableName
-func (self *TStatement) TableName() string {
-	if self.AltTableNameClause != "" {
-		return self.AltTableNameClause
-	}
-
-	if self.TableNameClause == "" {
-
-	}
-
-	return self.TableNameClause
-}
-
 // Id generate "where id = ? " statment or for composite key "where key1 = ? and key2 = ?"
 func (self *TStatement) Ids(ids ...interface{}) *TStatement {
 	self.IdParam = append(self.IdParam, ids...)
@@ -86,7 +72,7 @@ func (self *TStatement) Select(fields ...string) *TStatement {
 		}
 
 		// 安全代码应该由开发者自己检查
-		if field := self.session.model.obj.GetFieldByName(name); field != nil {
+		if field := self.session.Statement.model.obj.GetFieldByName(name); field != nil {
 			self.Fields[name] = true
 		}
 	}
@@ -252,7 +238,7 @@ func (self *TStatement) Omit(fields ...string) {
 	for _, field := range fields {
 		self.Fields[strings.ToLower(field)] = false
 	}
-	self.OmitClause = self.session.orm.Quote(strings.Join(fields, self.session.orm.Quote(", ")))
+	self.OmitClause = self.session.orm.dialect.Quote(strings.Join(fields, self.session.orm.dialect.Quote(", ")))
 }
 
 // Limit generate LIMIT start, limit statement
@@ -265,8 +251,7 @@ func (self *TStatement) Limit(limit int64, offset ...int64) *TStatement {
 }
 
 func (self *TStatement) generate_create_table() string {
-	return self.session.orm.dialect.CreateTableSql(self.Table, self.AltTableNameClause,
-		self.StoreEngine, self.Charset)
+	return self.session.orm.dialect.CreateTableSql(self.session.Statement.model, self.StoreEngine, self.Charset)
 }
 
 func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, error) {
@@ -296,34 +281,40 @@ func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, 
 
 func (self *TStatement) generate_unique() []string {
 	var sqls []string = make([]string, 0)
-	for _, index := range self.Table.Indexes {
-		if index.Type == core.UniqueType {
-			sql := self.session.orm.dialect.CreateIndexSql(self.Table.Name, index)
+	for _, index := range self.session.Statement.model.obj.indexes {
+		if index.Type == UniqueType {
+			sql := self.session.orm.dialect.CreateIndexSql(self.session.Statement.model.GetName(), index)
 			sqls = append(sqls, sql)
 		}
 	}
 	return sqls
 }
 
-func (self *TStatement) generate_add_column(col *core.Column) (string, []interface{}) {
-	quote := self.session.orm.Quote
-	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.TableName()), col.String(self.session.orm.dialect))
+func (self *TStatement) generate_add_column(col IField) (string, []interface{}) {
+	quote := self.session.orm.dialect.Quote
+	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.session.Statement.model.GetName()), col.String(self.session.orm.dialect))
 	return sql, []interface{}{}
 }
 
 func (self *TStatement) generate_index() []string {
 	var sqls []string = make([]string, 0)
-	quote := self.session.orm.fmtQuote
+	quote := self.session.orm.dialect.Quote
 
-	for idxName, index := range self.Table.Indexes {
-		lIdxName := fmt.Sprintf("IDX_%v_%v", self.Table.Name, idxName)
-		if index.Type == core.IndexType {
+	for idxName, index := range self.session.Statement.model.obj.indexes {
+		lIdxName := fmt.Sprintf("IDX_%v_%v", self.session.Statement.model.GetName(), idxName)
+		if index.Type == IndexType {
 			sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);", quote(lIdxName),
-				quote(self.Table.Name), quote(strings.Join(index.Cols, quote(","))))
+				quote(self.session.Statement.model.GetName()), quote(strings.Join(index.Cols, quote(","))))
 			sqls = append(sqls, sql)
 		}
 	}
 	return sqls
+}
+
+func (self *TStatement) generate_insert(fields []string) (query string, isQuery bool) {
+	id_field := self.model.idField
+	sqlStr, isQuery := self.session.orm.dialect.GenInsertSql(self.model.GetName(), fields, id_field)
+	return sqlStr, isQuery
 }
 
 // Auto generating conditions according a struct
@@ -335,7 +326,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 
 	var (
 		//		field                *TField
-		col *core.Column
+		col IField
 		//left, oprator, right string
 
 		lIsRequiredField bool
@@ -346,27 +337,27 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 	for name, val := range vals {
 
 		//field = self.session.model.FieldByName(name)
-		col = self.Table.GetColumn(name) // field.column
+		col = self.model.GetFieldByName(name) // field.column
 		if col == nil {
 			continue
 		}
 
-		if !includeVersion && col.IsVersion {
+		if !includeVersion && col.IsVersion() {
 			continue
 		}
 
-		if !includeUpdated && col.IsUpdated {
+		if !includeUpdated && col.IsUpdated() {
 			continue
 		}
 
-		if !includeAutoIncr && col.IsAutoIncrement {
+		if !includeAutoIncr && col.IsAutoIncrement() {
 			continue
 		}
 
-		if self.Session.orm.dialect.DBType() == core.MSSQL && col.SQLType.Name == core.Text {
+		if self.session.orm.dialect.DBType() == MSSQL && col.SQLType().Name == Text {
 			continue
 		}
-		if col.SQLType.IsJson() {
+		if col.SQLType().IsJson() {
 			continue
 		}
 
@@ -378,7 +369,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 		lFieldVal = reflect.ValueOf(val)
 		lIsRequiredField = useAllCols
 		// 强制过滤已经设定的字段是否作为Query使用
-		if b, ok := mustColumnMap[strings.ToLower(col.Name)]; ok {
+		if b, ok := mustColumnMap[strings.ToLower(col.Name())]; ok {
 			if b {
 				lIsRequiredField = true
 			} else {
@@ -440,13 +431,13 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 			t := int64(fieldValue.Uint())
 			val = reflect.ValueOf(&t).Interface()*/
 		case reflect.Struct:
-			if lFieldType.ConvertibleTo(core.TimeType) {
-				t := lFieldVal.Convert(core.TimeType).Interface().(time.Time)
+			if lFieldType.ConvertibleTo(TimeType) {
+				t := lFieldVal.Convert(TimeType).Interface().(time.Time)
 				if !lIsRequiredField && (t.IsZero() || !lFieldVal.IsValid()) {
 					continue
 				}
-				val = self.session.orm.FormatTime(col.SQLType.Name, t)
-			} else if _, ok := reflect.New(lFieldType).Interface().(core.Conversion); ok {
+				val = self.session.orm.FormatTime(col.SQLType().Name, t)
+			} else if _, ok := reflect.New(lFieldType).Interface().(Conversion); ok {
 				continue
 
 				/*} else if valNul, ok := fieldValue.Interface().(driver.Valuer); ok {
@@ -455,15 +446,15 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 					continue
 				}*/
 			} else {
-				if col.SQLType.IsJson() {
-					if col.SQLType.IsText() {
+				if col.SQLType().IsJson() {
+					if col.SQLType().IsText() {
 						bytes, err := json.Marshal(val)
 						if err != nil {
 							logger.Err("adas", err)
 							continue
 						}
 						val = string(bytes)
-					} else if col.SQLType.IsBlob() {
+					} else if col.SQLType().IsBlob() {
 						var bytes []byte
 						var err error
 						bytes, err = json.Marshal(val)
@@ -485,14 +476,14 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 				continue
 			}
 
-			if col.SQLType.IsText() {
+			if col.SQLType().IsText() {
 				bytes, err := json.Marshal(lFieldVal.Interface())
 				if err != nil {
 					logger.Errf("generate_query:", err)
 					continue
 				}
 				val = string(bytes)
-			} else if col.SQLType.IsBlob() {
+			} else if col.SQLType().IsBlob() {
 				var bytes []byte
 				var err error
 				if (lFieldType.Kind() == reflect.Array || lFieldType.Kind() == reflect.Slice) &&
@@ -518,7 +509,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 		}
 
 		var Clause string
-		if col.IsPrimaryKey && self.session.orm.dialect.DBType() == "ql" {
+		if col.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
 			//condi = "id() == ?"
 			Clause = "id() == ?"
 			//left = "id()"
@@ -573,7 +564,7 @@ func (self *TStatement) inherits_join_calc(alias string, fieldName string, query
 	       return '"%s"."%s"' % (alias, field)
 	*/
 	var model IModel
-	model = self.session.model
+	model = self.session.Statement.model
 
 	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
 		//for name, _ := range self._relate_fields {
@@ -591,7 +582,7 @@ func (self *TStatement) inherits_join_calc(alias string, fieldName string, query
 			parent_alias, _ := query.add_join(
 				[]string{
 					alias, parent_field,
-					parent_model.GetTableName(), parent_model.IdField(),
+					parent_model.GetName(), parent_model.IdField(),
 					parent_field},
 				true,
 				false,
@@ -631,7 +622,7 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 	// domain = domain[:]
 	// if the object has a field named 'active', filter out all inactive
 	// records unless they were explicitely asked for
-	if has := self.session.model.obj.GetFieldByName("active"); has != nil && active_test {
+	if has := self.session.Statement.model.obj.GetFieldByName("active"); has != nil && active_test {
 		if domain != nil {
 			// the item[0] trick below works for domain items and '&'/'|'/'!'
 			// operators too
@@ -664,7 +655,7 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 	var where_clause []string
 	var where_params []interface{}
 	if domain != nil && domain.Count() > 0 {
-		exp, err := NewExpression(self.session.orm, self.session.model, domain, context)
+		exp, err := NewExpression(self.session.orm, self.session.Statement.model, domain, context)
 		if err != nil {
 			return nil, err
 		}
@@ -673,7 +664,7 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 		where_clause, where_params = exp.to_sql(self.Params...)
 
 	} else {
-		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.TableName())
+		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.model.GetName())
 
 	}
 
@@ -729,10 +720,10 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 			order_by_elements = append(order_by_elements, lStr)
 
 		} else {
-			field := self.session.model.obj.GetFieldByName(order_field)
+			field := self.session.Statement.model.obj.GetFieldByName(order_field)
 			if field == nil {
 				//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-				logger.Warnf("Sorting field %s not found on model %s", order_field, self.Table.Name)
+				logger.Warnf("Sorting field %s not found on model %s", order_field, self.model.GetName())
 				continue
 			}
 
@@ -746,7 +737,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				//     seen.add(key)
 				//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 				//	}
-			} else if field.Store() && field.ColumnType() != "" {
+			} else if field.Store() && field.SQLType().Name != "" {
 				qualifield_name := self.inherits_join_calc(alias, order_field, query)
 				if field.Type() == "boolean" {
 					qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
@@ -880,7 +871,7 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 	order_by_clause := ""
 
 	if self.OrderByClause != "" {
-		order_by_elements := self.generate_order_by_inner(self.session.Statement.TableName(), self.OrderByClause, query, false, nil)
+		order_by_elements := self.generate_order_by_inner(self.session.Statement.model.GetName(), self.OrderByClause, query, false, nil)
 		if len(order_by_elements) > 0 {
 			order_by_clause = strings.Join(order_by_elements, ",")
 		}
@@ -894,35 +885,35 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 }
 
 func (self *TStatement) generate_fields() []string {
-	table := self.Table
+	table := self.model
 	var fields []string
-	for _, col := range table.Columns() {
+	for _, col := range table.GetFields() {
 		if self.OmitClause != "" {
-			if _, ok := self.Fields[strings.ToLower(col.Name)]; ok {
+			if _, ok := self.Fields[strings.ToLower(col.Name())]; ok {
 				continue
 			}
 		}
 
-		if col.MapType == core.ONLYTODB {
+		if col.Base().MapType == ONLYTODB {
 			continue
 		}
 
 		if self.JoinClause != "" {
 			var name string
 			if self.AliasTableName != "" {
-				name = self.session.orm.Quote(self.AliasTableName)
+				name = self.session.orm.dialect.Quote(self.AliasTableName)
 			} else {
-				name = self.session.orm.Quote(self.TableName())
+				name = self.session.orm.dialect.Quote(self.model.GetName())
 			}
-			name += "." + self.session.orm.Quote(col.Name)
-			if col.IsPrimaryKey && self.session.orm.dialect.DBType() == "ql" {
+			name += "." + self.session.orm.dialect.Quote(col.Name())
+			if col.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
 				fields = append(fields, "id() AS "+name)
 			} else {
 				fields = append(fields, name)
 			}
 		} else {
-			name := self.session.orm.Quote(col.Name)
-			if col.IsPrimaryKey && self.session.orm.dialect.DBType() == "ql" {
+			name := self.session.orm.dialect.Quote(col.Name())
+			if col.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
 				fields = append(fields, "id() AS "+name)
 			} else {
 				fields = append(fields, name)

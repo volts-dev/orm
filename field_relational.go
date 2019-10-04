@@ -5,7 +5,6 @@ import (
 	"strings"
 	"volts-dev/dataset"
 
-	//"github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
 
@@ -49,21 +48,26 @@ type (
 )
 
 func init() {
-	RegisterField("many2one", NewMany2OneField)
-	RegisterField("many2many", NewMany2ManyField)
-	RegisterField("one2many", NewOne2ManyField)
+	RegisterField("one2one", newOne2OneField)
+	RegisterField("many2one", newMany2OneField)
+	RegisterField("many2many", newMany2ManyField)
+	RegisterField("one2many", newOne2ManyField)
 }
 
-func NewMany2OneField() IField {
+func newOne2OneField() IField {
+	return new(TOne2OneField)
+}
+
+func newMany2OneField() IField {
 	return new(TMany2OneField)
 }
 
 // difine many2many(relate.model,ref.model,base_id,relate_id)
-func NewMany2ManyField() IField {
+func newMany2ManyField() IField {
 	return new(TMany2ManyField)
 }
 
-func NewOne2ManyField() IField {
+func newOne2ManyField() IField {
 	return new(TOne2ManyField)
 }
 
@@ -73,11 +77,18 @@ func (self *TRelational) GetAttributes(ctx *TFieldContext) map[string]interface{
 	return attrs
 }
 
+func (self *TOne2OneField) Init(ctx *TFieldContext) { //comodel_name string, inverse_name string
+	field_Value := ctx.FieldTypeValue
+	field := ctx.Field
+	field.Base().SqlType = Type2SQLType(field_Value.Type())
+	field.Base()._attr_store = true
+}
+
 func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	fld.Base()._column_type = "" //* not a store field
+	//	fld.Base()._column_type = "" //* not a store field
 	fld.Base()._attr_store = false
 	cnt := len(params)
 	if cnt == 3 {
@@ -122,7 +133,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 
 	if !has {
 		field := model.GetFieldByName(model.IdField())
-		sqlType := field.ColumnType()
+		sqlType := field.SQLType().Name
 		id1 := fld.RelateFieldName()
 		id2 := fld.MiddleFieldName()
 		query := fmt.Sprintf(`
@@ -308,41 +319,42 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 // # beware of duplicates when inserting
 func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldEventContext) error {
 	orm := ctx.Session.Orm()
+	dialect := ctx.Session.Orm().dialect
 	field := ctx.Field
 	rec_id := ctx.Id // 字段所在记录的ID
 	session := orm.NewSession()
-	session.Begin()
+	{
+		session.Begin()
 
-	middle_table_name := strings.Replace(field.MiddleModelName(), ".", "_", -1)
-	for _, relate_id := range ids {
-		query := fmt.Sprintf(
-			`INSERT INTO %v (%s, %s) VALUES (%v,%v) ON CONFLICT DO NOTHING`,
-			middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
-			relate_id, rec_id,
-		)
+		middle_table_name := dialect.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
+		for _, relate_id := range ids {
+			query := fmt.Sprintf(
+				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
+				middle_table_name, dialect.Quote(field.RelateFieldName()), dialect.Quote(field.MiddleFieldName()),
+			)
 
-		/*
-		   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
-		                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
-		                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
-		   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
-		   		rec_id, strings.Join(ids, ","),
-		   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
-		   	)
-		*/
-		_, err := session.Exec(query)
+			/*
+			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
+			                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
+			                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
+			   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
+			   		rec_id, strings.Join(ids, ","),
+			   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
+			   	)
+			*/
+			_, err := session.Exec(query, relate_id, rec_id)
+			if err != nil {
+				session.Rollback()
+				return err
+			}
+		}
+
+		err := session.Commit()
 		if err != nil {
 			session.Rollback()
 			return err
 		}
 	}
-
-	err := session.Commit()
-	if err != nil {
-		session.Rollback()
-		return err
-	}
-
 	session.Close()
 	return nil
 }
@@ -351,35 +363,40 @@ func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldEventContext) er
 //# remove all records for which user has access rights
 func (self *TMany2ManyField) unlink_all(ids []interface{}, ctx *TFieldEventContext) error {
 	orm := ctx.Session.Orm()
+	dialect := ctx.Session.Orm().dialect
 	field := ctx.Field
-	model := ctx.Model
-	model_name := field.ModelName()
-	middle_table_name := strings.Replace(field.MiddleModelName(), ".", "_", -1)
+	//	model := ctx.Model
+	//	model_name := field.ModelName()
+	middle_table_name := dialect.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
 	in_sql := strings.Repeat("?,", len(ids)-1) + "?"
-	query := fmt.Sprintf(
-		`DELETE FROM %s WHERE %s.%s IN (%s) AND %s.%s=%s.%s`,
+	query := fmt.Sprintf(`DELETE FROM %s WHERE %s.%s IN (%s) AND %s.%s= ?`,
 		middle_table_name,
-		middle_table_name, field.RelateFieldName(), // Where
-		in_sql,                                     // In
-		middle_table_name, field.MiddleFieldName(), // And
-		model_name, model.IdField(),
+		middle_table_name, dialect.Quote(field.RelateFieldName()), // Where
+		in_sql,                                                    // In
+		middle_table_name, dialect.Quote(field.MiddleFieldName()), // And
+		//model_name, model.IdField(),
 	)
+
+	arg := append(ids, ctx.Id)
 
 	// 提交修改
 	session := orm.NewSession()
-	session.Begin()
-	_, err := session.Exec(query, ids...)
-	if err != nil {
-		session.Rollback()
-		return err
-	}
+	{
+		session.Begin()
+		_, err := session.Exec(query, arg...)
+		if err != nil {
+			session.Rollback()
+			return err
+		}
 
-	session.Commit()
-	if err != nil {
-		session.Rollback()
-		return err
-	}
+		session.Commit()
+		if err != nil {
+			session.Rollback()
+			return err
+		}
 
+	}
+	session.Close()
 	return nil
 }
 
@@ -450,19 +467,14 @@ func (self *TMany2OneField) Init(ctx *TFieldContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
-	//* 不手动分配类型
-	//* col.SQLType = core.SQLType{core.Int, 0, 0}
-	//* fld.Base()._column_type = core.Int
-
 	// 不直接指定 采用以下tag写法
 	// field:"many2one() int()"
-	//col.SQLType = core.Type2SQLType(lFieldType)
 	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
 	//fld.Base()._classic_write = true
 	logger.Assert(len(params) > 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
 	fld.Base()._attr_relation = fld.Base().comodel_name
-	fld.Base()._attr_type = "many2one" //core.Int
+	fld.Base()._attr_type = "many2one"
 }
 
 func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
@@ -548,7 +560,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 func (self *TOne2ManyField) Init(ctx *TFieldContext) { //comodel_name string, inverse_name string
 	field := ctx.Field
 	params := ctx.Params
-	self.Base()._column_type = ""
+	//	self.Base()._column_type = ""
 	field.Base()._attr_store = false
 
 	//Field.Base()._classic_read = false
@@ -576,14 +588,14 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
 	}
 
 	rel_filed := rel_model.GetFieldByName(relkey_field_name)
-	if rel_filed.ColumnType() != "many2one" {
+	if rel_filed.SQLType().Name != "many2one" {
 		return logger.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
 	}
 
 	ids := ds.Keys()
 	sds, err := rel_model.Records().In(field.Name(), ids).Read()
 	if err != nil {
-		logger.Dbgf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetModelName())
+		logger.Dbgf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
 		return err
 	}
 

@@ -151,7 +151,6 @@ func (self *TQuery) add_join(connection []string, implicit bool, outer bool, ext
 		if utils.InStrings(alias_statement, self.tables...) == -1 {
 			self.tables = append(self.tables, alias_statement)
 			condition := fmt.Sprintf(`("%s"."%s" = "%s"."%s")`, lhs, lhs_col, alias, col)
-			logger.Dbg("aa", condition)
 			self.where_clause = append(self.where_clause, condition)
 		} else {
 			//# already joined

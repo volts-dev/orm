@@ -24,7 +24,7 @@ type (
 	}
 )
 
-func NewCacher() *TCacher {
+func newCacher() *TCacher {
 	cacher := &TCacher{
 		status:              make(map[string]bool),
 		table_id_key_index:  make(map[string]map[string]bool),

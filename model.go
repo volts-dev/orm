@@ -3,26 +3,25 @@ package orm
 import (
 	"fmt"
 	"reflect"
-	"strings"
-
-	//"sync"
 	"volts-dev/dataset"
 
-	core "github.com/go-xorm/core"
 	"github.com/volts-dev/utils"
 )
 
 type (
 	// BaseModel 接口
 	IModel interface {
+		GetColumnsSeq() []string
+		GetPrimaryKeys() []string
 		// private
 		setBaseModel(model *TModel) //赋值初始化BaseModel
 		relations_reload()
 
 		//fields_get(allfields map[string]*TField, attributes []string, context map[string]string) (fields map[string]interface{})
 		//check_access_rights(operation string) bool
-
+		GetIndexes() map[string]*TIndex
 		// public
+		GetName() string
 		GetBase() *TModel // get the base model object
 
 		// 对象被创建时
@@ -32,9 +31,10 @@ type (
 		One2many(ids, model string, fieldKey string) (*dataset.TDataSet, error)
 		Many2many(detail_model, ref_model string, key_id, ref_id string) (*dataset.TDataSet, error)
 
+		AddField(field IField)
 		// return the model name
-		GetModelName() string
-		GetTableName() string
+		//GetModelName() string
+		//GetTableName() string
 		GetTableDescription() string
 		SetRecordName(n string)
 		SetName(n string)
@@ -69,7 +69,6 @@ type (
 	// ???
 	IModelPretected interface {
 		IModel
-		db_ref_table() *core.Table
 	}
 
 	// 所有成员都是Unexportable 小写,避免映射JSON,XML,ORM等时发生错误
@@ -78,16 +77,14 @@ type (
 	* 	方法命名规格 ："GetXXX","SetXXX","XXByXX"
 	 */
 	TModel struct {
-		// # common fields for all table
-		//Id         int64     `field:"pk autoincr"`
-		//CreateId   int64     `field:"int"`
-		//CreateTime time.Time `field:"datetime created"` //-- Created on
-		//WriteId    int64     `field:"int"`
-		//WriteTime  time.Time `field:"datetime updated"`
-
+		name string // # xx.xx 映射在OSV的名称
+		// # 核心对象
 		modelType  reflect.Type  // # Model 反射类
 		modelValue reflect.Value // # Model 反射值 供某些程序调用方法
-		name       string        // # xx.xx 映射在OSV的名称
+		orm        *TOrm
+		osv        *TOsv
+		obj        *TObj
+
 		//_fields       map[string]IField // # model的所有字段
 		_parent_name  string // #! 父表中的字段名称
 		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
@@ -99,25 +96,15 @@ type (
 		_transient    bool   // # 暂时的
 		_description  string // # 描述
 		is_base       bool   // #该Model是否是基Model,并非扩展Model
-		// # 核心对象
-		orm           *TOrm
-		osv           *TOsv
-		obj           *TObj
-		statement     *TStatement
-		session       *TSession
-		table         *core.Table // TODO 大写 传送给Core包使用
-		__RecordField IField      //TODO 废弃 改名称RecordIdKeyField 表的唯一主键字段 自增/主键/唯一 如：Id
-
 		// TODO　a object
 		idField string // the field name of UID
 
-		// # 锁
-		//_fields_lock sync.RWMutex
-		//_relations_lock sync.RWMutex
-
-		// TODO
-		fields  *TFieldsSet
-		methods *TMethodsSet
+		// # common fields for all table
+		//Id         int64     `field:"pk autoincr"`
+		//CreateId   int64     `field:"int"`
+		//CreateTime time.Time `field:"datetime created"` //-- Created on
+		//WriteId    int64     `field:"int"`
+		//WriteTime  time.Time `field:"datetime updated"`
 	}
 )
 
@@ -130,7 +117,6 @@ const (
 )
 
 var (
-
 	// special columns automatically created by the ORM
 	LOG_ACCESS_COLUMNS = []string{"create_id", "create_date", "write_id", "write_date"}
 	MAGIC_COLUMNS      = append(LOG_ACCESS_COLUMNS, "id")
@@ -139,34 +125,24 @@ var (
 // @ name Sys.View
 // @ Session
 // @ Registry
-func NewModel(name string, model_value reflect.Value, model_type reflect.Type) (mdl *TModel) {
-	mdl = &TModel{
-		modelType:  model_type,
-		modelValue: model_value,
+func NewModel(name string, modelValue reflect.Value, modelType reflect.Type) (model *TModel) {
+	model = &TModel{
+		modelType:  modelType,
+		modelValue: modelValue,
 		name:       name,
-		//_table:         strings.Replace(name, ".", "_", -1),
-		//_fields: make(map[string]IField),
-		//		_relate_fields: make(map[string]*TRelatedField),
-		_order: "id",
-		_auto:  true,
-
-		//registry:        session.Registry,
-		//session:         session,
+		_order:     "id",
+		_auto:      true,
 	}
 
 	//mdl._sequence = mdl._table + "_id_seq"
 
-	return
+	return model
 }
 
 func (self *TModel) setBaseModel(model *TModel) {
 	*self = *model
-}
+	self._sequence = self.name + "_id_seq"
 
-// 设置初始化Table变更后的信息
-func (self *TModel) setBaseTable(table *core.Table) {
-	self.table = table
-	self._sequence = self.table.Name + "_id_seq"
 }
 
 func (self *TModel) SetRecordName(n string) {
@@ -188,21 +164,35 @@ func (self *TModel) GetRecordName() string {
 	return self.idField
 }
 
+// TODO 优化
+func (self *TModel) GetColumnsSeq() []string {
+	return self.obj.columnsSeq
+}
+
+// TODO 优化
+func (self *TModel) GetPrimaryKeys() []string {
+	return self.obj.PrimaryKeys
+}
+
 // pravite
 func (self *TModel) SetName(n string) {
 	self.name = n
 	//self._table = strings.Replace(n, ".", "_", -1)
-	self.table.Name = strings.Replace(n, ".", "_", -1)
+	//	self.table.Name = strings.Replace(n, ".", "_", -1)
 }
 
 // 获取Model名称
-func (self *TModel) GetModelName() string {
+func (self *TModel) ___GetModelName() string {
 	return self.name
 }
 
 // 返回Model的描述字符串
 func (self *TModel) GetTableDescription() string {
 	return self._description
+}
+
+func (self *TModel) GetIndexes() map[string]*TIndex {
+	return self.obj.indexes
 }
 
 // 实际注册的model原型
@@ -220,7 +210,7 @@ func (self *TModel) Module() string {
 
 // return the method object of model by name
 func (self *TModel) MethodByName(method string) (res_method *TMethod) {
-	res_method = self.osv.GetMethod(self.GetModelName(), method)
+	res_method = self.osv.GetMethod(self.GetName(), method)
 	return
 }
 
@@ -476,13 +466,13 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 	} else {
 		ds := dataset.NewDataSet()
 		for _, id := range ids {
-			ds.NewRecord(map[string]interface{}{id_field: id, name: self.GetModelName()})
+			ds.NewRecord(map[string]interface{}{id_field: id, name: self.GetName()})
 		}
 
 		return ds, nil
 	}
 
-	return nil, fmt.Errorf("%s Call NameGet() failure! Arg: %v", self.GetModelName(), ids)
+	return nil, fmt.Errorf("%s Call NameGet() failure! Arg: %v", self.GetName(), ids)
 }
 
 func (self *TModel) SearchName(name string, domain string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet) {
@@ -556,13 +546,12 @@ func (self *TModel) __WriteField(id int64, field *TField, value string, rel_cont
 func (self *TModel) Unlink(ids ...string) bool {
 	return self._unlink(ids...)
 }*/
-
-func (self *TModel) GetTableName() string {
-	return self.table.Name
+func (self *TModel) GetName() string {
+	return self.name
 }
 
-func (self *TModel) db_ref_table() *core.Table {
-	return self.table
+func (self *TModel) ___db_ref_table() *TModel {
+	return self
 }
 
 /*
@@ -626,6 +615,10 @@ func (self *TModel) GetFields() map[string]IField {
 	return self.obj.GetFields()
 }
 
+func (self *TModel) AddField(field IField) {
+	self.obj.AddField(field)
+}
+
 func (self *TModel) IdField(field ...string) string {
 	if len(field) > 0 {
 		self.idField = field[0]
@@ -635,7 +628,8 @@ func (self *TModel) IdField(field ...string) string {
 
 // Methods returns the methods collection of this model
 func (self *TModel) GetMethods() *TMethodsSet {
-	return self.methods
+	//TODO
+	return nil // self.methods
 }
 
 // TODO 废除因为继承的一致性冲突
@@ -655,16 +649,15 @@ func (self *TModel) Orm() *TOrm {
 // Provide api to query records from cache or database
 func (self *TModel) Records() *TSession {
 	lSession := self.orm.NewSession()
-	lSession.model = self
 	lSession.IsClassic = true
 
-	return lSession.Model(self.GetModelName())
+	return lSession.Model(self.GetName())
 }
 
 // Provide api to query records from cache or database
 func (self *TModel) Db() *TSession {
 	lSession := self.orm.NewSession()
-	lSession.model = self
+	lSession.Statement.model = self
 	return lSession
 }
 
@@ -693,7 +686,7 @@ func (self *TModel) relations_reload() {
 		//logger.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
 		rel_model, err := self.osv.GetModel(tbl) // #i //TableByName(tbl)
 		if err != nil {
-			logger.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetTableName())
+			logger.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetName())
 		}
 
 		rel_model.relations_reload()
@@ -826,7 +819,7 @@ func (self *TModel) __select_column_data() *dataset.TDataSet {
            FROM pg_class c,pg_attribute a,pg_type t
            WHERE c.relname=%s 
            AND c.oid=a.attrelid
-           AND a.atttypid=t.oid`, self.GetTableName())
+           AND a.atttypid=t.oid`, self.GetName())
 	logger.Err(err)
 
 	return lDs

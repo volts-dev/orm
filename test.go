@@ -17,7 +17,7 @@ func Orm() *TOrm {
 }
 
 // init the test ORM object by the driver data source
-func TestInit(dataSource *DataSource, show_sql bool) error {
+func TestInit(dataSource *TDataSource, show_sql bool) error {
 	var err error
 
 	if test_orm == nil {
@@ -27,7 +27,6 @@ func TestInit(dataSource *DataSource, show_sql bool) error {
 		}
 
 		test_orm.ShowSql(show_sql)
-		//test_orm.logger.SetLevel()
 	}
 
 	if !test_orm.IsExist(dataSource.DbName) {
@@ -36,12 +35,14 @@ func TestInit(dataSource *DataSource, show_sql bool) error {
 
 	// drop all table
 	var table_Names []string
-	for _, table := range test_orm.Tables() {
-		table_Names = append(table_Names, table.Name)
+	for _, table := range test_orm.GetModels() {
+		table_Names = append(table_Names, table)
 	}
 
-	if err = test_orm.DropTables(table_Names...); err != nil {
-		return err
+	if len(table_Names) > 0 {
+		if err = test_orm.DropTables(table_Names...); err != nil {
+			return err
+		}
 	}
 
 	_, err = test_orm.SyncModel("test",
@@ -51,7 +52,6 @@ func TestInit(dataSource *DataSource, show_sql bool) error {
 	)
 
 	if err != nil {
-		//t.Fatalf("test SyncModel() failure: %v", err)
 		return err
 	}
 
