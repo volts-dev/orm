@@ -35,7 +35,7 @@ func (self *TBooleanField) Init(ctx *TFieldContext) {
 	fld := ctx.Field
 
 	fld.Base().SqlType = SQLType{Bool, 0, 0}
-	fld.Base()._attr_type = FIELD_TYPE_BOOL
+	fld.Base()._attr_type = Bool
 	//	fld.Base()._column_type = Bool
 }
 

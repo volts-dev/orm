@@ -523,21 +523,6 @@ func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
 
 	return nil
 }
-func (self *TMany2OneField) OnConvertToWrite(ctx *TFieldEventContext) (interface{}, error) {
-	switch ctx.Value.(type) {
-	case []interface{}:
-		//logger.Dbg("TMany2OneField", ctx.Value)
-		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
-			ctx.Value = lst[0]
-		}
-
-	default:
-		//logger.Warnf("many2one field %s Convert To Write fail with value %v", self.Name(), ctx.Value)
-		return ctx.Value, nil
-	}
-
-	return ctx.Value, nil
-}
 
 func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 	field := ctx.Field

@@ -29,7 +29,7 @@ type (
 		TModel       `table:""`
 		PartnerModel `field:"relate(PartnerId)"`
 		PartnerId    int64     `field:"one2one(partner_model)"`
-		Id           int64     `field:"pk autoincr title('ID') index"`
+		Id           int64     `field:"pk autoincr type(char) title('ID') index"`
 		Uid          int64     `field:"Id() pk  title('ID') index"`
 		CreateTime   time.Time `field:"datetime() created"`
 		WriteTime    time.Time `field:"datetime() updated"`

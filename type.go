@@ -2,17 +2,76 @@ package orm
 
 import (
 	"reflect"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/volts-dev/utils"
 )
 
-// TODO remove
-const (
-	SQLITE = "sqlite3"
-	MYSQL  = "mysql"
-	MSSQL  = "mssql"
-	ORACLE = "oracle"
+var (
+	// !NOTE! GOLANG BASE DATATYPE treat following var as interal const values, these are used for reflect.TypeOf comparison
+	g_DATATYPE_STRING_DEFAULT     string
+	g_DATATYPE_BOOL_DEFAULT       bool
+	g_DATATYPE_BYTE_DEFAULT       byte
+	g_DATATYPE_COMPLEX64_DEFAULT  complex64
+	g_DATATYPE_COMPLEX128_DEFAULT complex128
+	g_DATATYPE_FLOAT32_DEFAULT    float32
+	g_DATATYPE_FLOAT64_DEFAULT    float64
+	g_DATATYPE_INT64_DEFAULT      int64
+	g_DATATYPE_UINT64_DEFAULT     uint64
+	g_DATATYPE_INT32_DEFAULT      int32
+	g_DATATYPE_UINT32_DEFAULT     uint32
+	g_DATATYPE_INT16_DEFAULT      int16
+	g_DATATYPE_UINT16_DEFAULT     uint16
+	g_DATATYPE_INT8_DEFAULT       int8
+	g_DATATYPE_UINT8_DEFAULT      uint8
+	g_DATATYPE_INT_DEFAULT        int
+	g_DATATYPE_UINT_DEFAULT       uint
+	g_DATATYPE_TIME_DEFAULT       time.Time
+
+	// GOLANG DATATYPE TYPE
+	IntType        = reflect.TypeOf(g_DATATYPE_INT_DEFAULT)
+	Int8Type       = reflect.TypeOf(g_DATATYPE_INT8_DEFAULT)
+	Int16Type      = reflect.TypeOf(g_DATATYPE_INT16_DEFAULT)
+	Int32Type      = reflect.TypeOf(g_DATATYPE_INT32_DEFAULT)
+	Int64Type      = reflect.TypeOf(g_DATATYPE_INT64_DEFAULT)
+	UintType       = reflect.TypeOf(g_DATATYPE_UINT_DEFAULT)
+	Uint8Type      = reflect.TypeOf(g_DATATYPE_UINT8_DEFAULT)
+	Uint16Type     = reflect.TypeOf(g_DATATYPE_UINT16_DEFAULT)
+	Uint32Type     = reflect.TypeOf(g_DATATYPE_UINT32_DEFAULT)
+	Uint64Type     = reflect.TypeOf(g_DATATYPE_UINT64_DEFAULT)
+	Float32Type    = reflect.TypeOf(g_DATATYPE_FLOAT32_DEFAULT)
+	Float64Type    = reflect.TypeOf(g_DATATYPE_FLOAT64_DEFAULT)
+	Complex64Type  = reflect.TypeOf(g_DATATYPE_COMPLEX64_DEFAULT)
+	Complex128Type = reflect.TypeOf(g_DATATYPE_COMPLEX128_DEFAULT)
+	StringType     = reflect.TypeOf(g_DATATYPE_STRING_DEFAULT)
+	BoolType       = reflect.TypeOf(g_DATATYPE_BOOL_DEFAULT)
+	ByteType       = reflect.TypeOf(g_DATATYPE_BYTE_DEFAULT)
+	BytesType      = reflect.SliceOf(ByteType)
+	TimeType       = reflect.TypeOf(g_DATATYPE_TIME_DEFAULT)
+
+	// GOLANG DATATYPE TYPE PTR
+	PtrIntType        = reflect.PtrTo(IntType)
+	PtrInt8Type       = reflect.PtrTo(Int8Type)
+	PtrInt16Type      = reflect.PtrTo(Int16Type)
+	PtrInt32Type      = reflect.PtrTo(Int32Type)
+	PtrInt64Type      = reflect.PtrTo(Int64Type)
+	PtrUintType       = reflect.PtrTo(UintType)
+	PtrUint8Type      = reflect.PtrTo(Uint8Type)
+	PtrUint16Type     = reflect.PtrTo(Uint16Type)
+	PtrUint32Type     = reflect.PtrTo(Uint32Type)
+	PtrUint64Type     = reflect.PtrTo(Uint64Type)
+	PtrFloat32Type    = reflect.PtrTo(Float32Type)
+	PtrFloat64Type    = reflect.PtrTo(Float64Type)
+	PtrComplex64Type  = reflect.PtrTo(Complex64Type)
+	PtrComplex128Type = reflect.PtrTo(Complex128Type)
+	PtrStringType     = reflect.PtrTo(StringType)
+	PtrBoolType       = reflect.PtrTo(BoolType)
+	PtrByteType       = reflect.PtrTo(ByteType)
+	PtrTimeType       = reflect.PtrTo(TimeType)
+
+	// ITF_TYPE 作为Scan从数据库扫描存储的数据容器
+	ITF_TYPE = reflect.ValueOf(new(interface{})).Type().Elem()
 )
 
 // SQL types
@@ -23,6 +82,12 @@ type SQLType struct {
 }
 
 const (
+	// TODO remove
+	SQLITE = "sqlite3"
+	MYSQL  = "mysql"
+	MSSQL  = "mssql"
+	ORACLE = "oracle"
+
 	UNKNOW_TYPE = iota
 	TEXT_TYPE
 	BLOB_TYPE
@@ -31,23 +96,22 @@ const (
 )
 
 var (
-	Bit       = "BIT"
-	TinyInt   = "TINYINT"
-	SmallInt  = "SMALLINT"
-	MediumInt = "MEDIUMINT"
-	Int       = "INT"
-	Integer   = "INTEGER" //#
-	BigInt    = "BIGINT"
-
-	Enum = "ENUM"
-	Set  = "SET"
-
-	Char             = "CHAR" //#
+	// 各数据库数据类型
+	Bit              = "BIT"
+	TinyInt          = "TINYINT"
+	SmallInt         = "SMALLINT"
+	MediumInt        = "MEDIUMINT"
+	Int              = "INT"     // ORM
+	Integer          = "INTEGER" //#
+	BigInt           = "BIGINT"  // ORM
+	Enum             = "ENUM"
+	Set              = "SET"
+	Char             = "CHAR" // ORM
 	Varchar          = "VARCHAR"
 	NChar            = "NCHAR"
 	NVarchar         = "NVARCHAR"
 	TinyText         = "TINYTEXT"
-	Text             = "TEXT" //#
+	Text             = "TEXT" // ORM
 	NText            = "NTEXT"
 	Clob             = "CLOB"
 	MediumText       = "MEDIUMTEXT"
@@ -55,39 +119,32 @@ var (
 	Uuid             = "UUID"
 	UniqueIdentifier = "UNIQUEIDENTIFIER"
 	SysName          = "SYSNAME"
-
-	Date          = "DATE"     //#
-	DateTime      = "DATETIME" //#
-	SmallDateTime = "SMALLDATETIME"
-	Time          = "TIME"
-	TimeStamp     = "TIMESTAMP"
-	TimeStampz    = "TIMESTAMPZ"
-
-	Decimal    = "DECIMAL"
-	Numeric    = "NUMERIC"
-	Money      = "MONEY"
-	SmallMoney = "SMALLMONEY"
-
-	Real   = "REAL"
-	Float  = "FLOAT" //#
-	Double = "DOUBLE"
-
-	Binary     = "BINARY" //#
-	VarBinary  = "VARBINARY"
-	TinyBlob   = "TINYBLOB"
-	Blob       = "BLOB"
-	MediumBlob = "MEDIUMBLOB"
-	LongBlob   = "LONGBLOB"
-	Bytea      = "BYTEA"
-
-	Bool    = "BOOL"
-	Boolean = "BOOLEAN" //#
-
-	Serial    = "SERIAL"
-	BigSerial = "BIGSERIAL"
-
-	Json  = "JSON"
-	Jsonb = "JSONB"
+	Date             = "DATE"     // ORM
+	DateTime         = "DATETIME" // ORM
+	SmallDateTime    = "SMALLDATETIME"
+	Time             = "TIME"
+	TimeStamp        = "TIMESTAMP"
+	TimeStampz       = "TIMESTAMPZ"
+	Decimal          = "DECIMAL"
+	Numeric          = "NUMERIC"
+	Money            = "MONEY"
+	SmallMoney       = "SMALLMONEY"
+	Real             = "REAL"
+	Float            = "FLOAT" // ORM
+	Double           = "DOUBLE"
+	Binary           = "BINARY"
+	VarBinary        = "VARBINARY"
+	TinyBlob         = "TINYBLOB"
+	Blob             = "BLOB" // ORM
+	MediumBlob       = "MEDIUMBLOB"
+	LongBlob         = "LONGBLOB"
+	Bytea            = "BYTEA"
+	Bool             = "BOOL"    // ORM
+	Boolean          = "BOOLEAN" //#
+	Serial           = "SERIAL"
+	BigSerial        = "BIGSERIAL"
+	Json             = "JSON" // ORM
+	Jsonb            = "JSONB"
 
 	SqlTypes = map[string]int{
 		Bool: NUMERIC_TYPE,
@@ -147,9 +204,7 @@ var (
 		UniqueIdentifier: BLOB_TYPE,
 	}
 
-	intTypes  = sort.StringSlice{"*int", "*int16", "*int32", "*int8"}
-	uintTypes = sort.StringSlice{"*uint", "*uint16", "*uint32", "*uint8"}
-
+	// TODO remove
 	FieldTypes = map[string]string{
 		// 布尔
 		"BOOL": "boolean",
@@ -188,83 +243,54 @@ var (
 	}
 )
 
-// !nashtsai! treat following var as interal const values, these are used for reflect.TypeOf comparison
-var (
-	c_EMPTY_STRING       string
-	c_BOOL_DEFAULT       bool
-	c_BYTE_DEFAULT       byte
-	c_COMPLEX64_DEFAULT  complex64
-	c_COMPLEX128_DEFAULT complex128
-	c_FLOAT32_DEFAULT    float32
-	c_FLOAT64_DEFAULT    float64
-	c_INT64_DEFAULT      int64
-	c_UINT64_DEFAULT     uint64
-	c_INT32_DEFAULT      int32
-	c_UINT32_DEFAULT     uint32
-	c_INT16_DEFAULT      int16
-	c_UINT16_DEFAULT     uint16
-	c_INT8_DEFAULT       int8
-	c_UINT8_DEFAULT      uint8
-	c_INT_DEFAULT        int
-	c_UINT_DEFAULT       uint
-	c_TIME_DEFAULT       time.Time
-)
+// 转换值到字段输出数据类型
+func Value2FieldTypeValue(field IField, value interface{}) interface{} {
+	type_name := strings.ToUpper(field.Type())
+	switch type_name {
+	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
+		return utils.Itf2Int(value)
+	case BigInt, BigSerial:
+		return utils.Itf2Int64(value)
+	case Float, Real:
+		return utils.Itf2Float32(value)
+	case Double:
+		return utils.Itf2Float(value)
+	case Char, NChar, Varchar, NVarchar, TinyText, Text, NText, MediumText, LongText, Enum, Set, Uuid, Clob, SysName:
+		return utils.Itf2Str(value)
+	case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary, UniqueIdentifier:
+		return value // TODO 1
+	case Bool:
+		return utils.Itf2Bool(value)
+	case DateTime, Date, Time, TimeStamp, TimeStampz, SmallDateTime:
+		return utils.Itf2Time(value)
+	case Decimal, Numeric, Money, SmallMoney:
+		return value // TODO 2
+	default:
+		return value
+	}
+}
 
-var (
-	IntType   = reflect.TypeOf(c_INT_DEFAULT)
-	Int8Type  = reflect.TypeOf(c_INT8_DEFAULT)
-	Int16Type = reflect.TypeOf(c_INT16_DEFAULT)
-	Int32Type = reflect.TypeOf(c_INT32_DEFAULT)
-	Int64Type = reflect.TypeOf(c_INT64_DEFAULT)
+// 转换值到字段数据库类型
+func Value2SqlTypeValue(field IField, value interface{}) interface{} {
+	type_name := strings.ToUpper(field.SQLType().Name)
+	switch type_name {
+	case Bool:
+		return utils.Itf2Bool(value)
+	case Int, BigInt:
+		return utils.Itf2Int64(value)
+	case Char, Text:
+		return utils.Itf2Str(value)
+	//case Blob: // TODO Blob
+	case Time:
+		return utils.Itf2Time(value)
+	case Json: // TODO Json
 
-	UintType   = reflect.TypeOf(c_UINT_DEFAULT)
-	Uint8Type  = reflect.TypeOf(c_UINT8_DEFAULT)
-	Uint16Type = reflect.TypeOf(c_UINT16_DEFAULT)
-	Uint32Type = reflect.TypeOf(c_UINT32_DEFAULT)
-	Uint64Type = reflect.TypeOf(c_UINT64_DEFAULT)
+	default:
+		return value
+	}
 
-	Float32Type = reflect.TypeOf(c_FLOAT32_DEFAULT)
-	Float64Type = reflect.TypeOf(c_FLOAT64_DEFAULT)
-
-	Complex64Type  = reflect.TypeOf(c_COMPLEX64_DEFAULT)
-	Complex128Type = reflect.TypeOf(c_COMPLEX128_DEFAULT)
-
-	StringType = reflect.TypeOf(c_EMPTY_STRING)
-	BoolType   = reflect.TypeOf(c_BOOL_DEFAULT)
-	ByteType   = reflect.TypeOf(c_BYTE_DEFAULT)
-	BytesType  = reflect.SliceOf(ByteType)
-
-	TimeType = reflect.TypeOf(c_TIME_DEFAULT)
-)
-
-var (
-	// ITF_TYPE 作为Scan从数据库扫描存储的数据容器
-	ITF_TYPE = reflect.ValueOf(new(interface{})).Type().Elem()
-
-	PtrIntType   = reflect.PtrTo(IntType)
-	PtrInt8Type  = reflect.PtrTo(Int8Type)
-	PtrInt16Type = reflect.PtrTo(Int16Type)
-	PtrInt32Type = reflect.PtrTo(Int32Type)
-	PtrInt64Type = reflect.PtrTo(Int64Type)
-
-	PtrUintType   = reflect.PtrTo(UintType)
-	PtrUint8Type  = reflect.PtrTo(Uint8Type)
-	PtrUint16Type = reflect.PtrTo(Uint16Type)
-	PtrUint32Type = reflect.PtrTo(Uint32Type)
-	PtrUint64Type = reflect.PtrTo(Uint64Type)
-
-	PtrFloat32Type = reflect.PtrTo(Float32Type)
-	PtrFloat64Type = reflect.PtrTo(Float64Type)
-
-	PtrComplex64Type  = reflect.PtrTo(Complex64Type)
-	PtrComplex128Type = reflect.PtrTo(Complex128Type)
-
-	PtrStringType = reflect.PtrTo(StringType)
-	PtrBoolType   = reflect.PtrTo(BoolType)
-	PtrByteType   = reflect.PtrTo(ByteType)
-
-	PtrTimeType = reflect.PtrTo(TimeType)
-)
+	return value
+}
 
 // Type2SQLType generate SQLType acorrding Go's type
 func Type2SQLType(t reflect.Type) (st SQLType) {
@@ -281,7 +307,7 @@ func Type2SQLType(t reflect.Type) (st SQLType) {
 		case reflect.Complex64, reflect.Complex128:
 			st = SQLType{Varchar, 64, 0}
 		case reflect.Array, reflect.Slice, reflect.Map:
-			if t.Elem() == reflect.TypeOf(c_BYTE_DEFAULT) {
+			if t.Elem() == reflect.TypeOf(g_DATATYPE_BYTE_DEFAULT) {
 				st = SQLType{Blob, 0, 0}
 			} else {
 				st = SQLType{Text, 0, 0}
@@ -326,7 +352,7 @@ func SQLType2Type(st SQLType) reflect.Type {
 	case Bool:
 		return reflect.TypeOf(true)
 	case DateTime, Date, Time, TimeStamp, TimeStampz, SmallDateTime:
-		return reflect.TypeOf(c_TIME_DEFAULT)
+		return reflect.TypeOf(g_DATATYPE_TIME_DEFAULT)
 	case Decimal, Numeric, Money, SmallMoney:
 		return reflect.TypeOf("")
 	default:

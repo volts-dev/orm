@@ -7,7 +7,11 @@ import (
 
 	"github.com/volts-dev/utils"
 )
+/**
+  字段Tag
 
+
+**/
 type (
 	ITagController func(hd *TFieldContext)
 )
@@ -217,9 +221,15 @@ func tag_compute(ctx *TFieldContext) {
 func tag_inverse(ctx *TFieldContext) {
 }
 
-// 废弃
+// dataset 数据类型
 func tag_type(ctx *TFieldContext) {
+	params := ctx.Params
+	fld := ctx.Field
 
+	if len(params) > 0 {
+		logger.Dbg("type ", params[0])
+		fld.Base()._attr_type = params[0]
+	}
 }
 
 //

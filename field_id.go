@@ -3,6 +3,7 @@ package orm
 import (
 	//"github.com/rs/xid"
 	"github.com/bwmarrin/snowflake"
+	//"github.com/google/uuid"
 )
 
 type (
@@ -34,7 +35,7 @@ func (self *TIdField) Init(ctx *TFieldContext) {
 
 	// set type for field
 	fld.Base().SqlType = SQLType{BigInt, 0, 0}
-	fld.Base()._attr_type = "int"
+	fld.Base()._attr_type = Int
 
 	// set the id field for model
 	model.IdField(fld.Name())

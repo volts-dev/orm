@@ -19,8 +19,6 @@ const (
 	TWOSIDES = iota + 1
 	ONLYTODB
 	ONLYFROMDB
-
-	FIELD_TYPE_BOOL = "bool"
 )
 
 var (
@@ -132,8 +130,8 @@ type (
 		// classic I/O event of the field. It will be call when using classic query. READ/WRITE the relate data FROM/TO its relation table
 		// the RETURN value is the value of field.
 		//[经典数据] 从原始数据转换提供Classical数据读法,数据修剪,Many2One显示Names表等
-		//OnConvertToRead(ctx *TFieldEventContext) interface{}  // TODO compute
-		OnConvertToWrite(ctx *TFieldEventContext) (interface{}, error) // TODO 不返回或者返回错误
+		onConvertToRead(session *TSession, value interface{}) interface{}  // TODO compute
+		onConvertToWrite(session *TSession, value interface{}) interface{} // TODO 不返回或者返回错误
 	}
 
 	TField struct {
@@ -198,7 +196,7 @@ type (
 		_attr_size              int                    // 长度大小
 		_attr_sortable          bool                   // 可排序
 		_attr_searchable        bool                   //
-		_attr_type              string                 // view 字段类型
+		_attr_type              string                 // #字段类型 最终存于dataset数据类型view
 		_attr_default           interface{}            // default(recs) returns the default value
 		_attr_related           string                 // ???
 		_attr_relation          string                 // 关系表
@@ -724,19 +722,15 @@ func (self *TField) SetAttributes(name string) {
 
 }
 
-// 设置字段值
-func (self *TField) __OnWrite(ctx *TFieldEventContext) interface{} {
-	//ctx.Session.orm.Exec(fmt.Sprintf("UPDATE "+ctx.Session.model.TableName()+" SET "+ctx.Field.Name()+"="+ctx.Field.SymbolChar()+" WHERE id=%v", ctx.Field.SymbolFunc()(utils.Itf2Str(ctx.Value)), ctx.Id))
-	return nil
+// 转换值到字段输出数据类型
+func (self *TField) onConvertToRead(session *TSession, value interface{}) interface{} {
+	return Value2FieldTypeValue(self, value)
+
 }
 
-// 设置字段获得的值
-// TODO:session *TSession, 某些地方无法提供session或者没有必要用到
-// """ Read the value of ``self`` on ``records``, and store it in cache. """
-func (self *TField) __OnRead(ctx *TFieldEventContext) interface{} {
-	//logger.Warn("undefined filed Read method !")
-	//ctx.Dataset.FieldByName(ctx.Field.Name()).AsInterface()
-	return nil
+// 转换值到字段数据库类型
+func (self *TField) onConvertToWrite(session *TSession, value interface{}) interface{} {
+	return Value2SqlTypeValue(self, value)
 }
 
 /*
@@ -758,8 +752,4 @@ func (self *TField) OnRead(ctx *TFieldEventContext) error {
 */
 func (self *TField) OnWrite(ctx *TFieldEventContext) error {
 	return nil
-}
-
-func (self *TField) OnConvertToWrite(ctx *TFieldEventContext) (interface{}, error) {
-	return ctx.Value, nil
 }

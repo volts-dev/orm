@@ -1283,7 +1283,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			res_params = append(res_params, vals[0])
 
 		}
-	} else if is_field && (field.Type() == FIELD_TYPE_BOOL) &&
+	} else if is_field && (field.Type() == Bool) &&
 		((operator.String() == "=" && utils.Itf2Bool(vals[0]) == false) || (operator.String() == "!=" && utils.Itf2Bool(vals[0]) == true)) {
 		// 字段是否Bool类型
 		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, table_alias, left.String(), table_alias, left.String())
@@ -1293,7 +1293,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		res_query = fmt.Sprintf(`%s."%s" IS NULL `, table_alias, left.String())
 		res_params = nil
 
-	} else if is_field && field.Type() == FIELD_TYPE_BOOL &&
+	} else if is_field && field.Type() == Bool &&
 		((operator.String() == "!=" && utils.Itf2Bool(vals[0]) == false) || (operator.String() == "==" && utils.Itf2Bool(vals[0]) == true)) {
 		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, table_alias, left.String(), table_alias, left.String())
 		res_params = nil

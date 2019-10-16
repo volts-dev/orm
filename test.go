@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const TEST_DB_NAME = "test_orm"
+const TEST_DB_NAME = "orm_test"
 
 var (
 	test_orm *TOrm

@@ -78,6 +78,8 @@ func NewOrm(dataSource *TDataSource) (*TOrm, error) {
 		return nil, err
 	}
 
+	logger.Infof("Connected database %s", dataSource.DbName)
+
 	orm := &TOrm{
 		db:              db,
 		dialect:         dialect,

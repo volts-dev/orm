@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-
 	"volts-dev/dataset"
 
 	"github.com/volts-dev/utils"
@@ -141,10 +140,10 @@ func (self *TSession) doPrepare(sql string) (*sql.Stmt, error) {
 }
 
 // scan data to a slice's pointer, slice's length should equal to columns' number
-func (self *TSession) scanSlice(rows *sql.Rows) (res_dataset *dataset.TDataSet, err error) {
+func (self *TSession) scanRows(rows *sql.Rows) (res_dataset *dataset.TDataSet, err error) {
 	// #无论如何都会返回一个Dataset
 	res_dataset = dataset.NewDataSet()
-	// #提供必要的IdKey
+	// #提供必要的IdKey/
 	if self.Statement.IdKey != "" {
 		res_dataset.KeyField = self.Statement.IdKey //设置主键
 	}
@@ -158,6 +157,8 @@ func (self *TSession) scanSlice(rows *sql.Rows) (res_dataset *dataset.TDataSet, 
 		length := len(cols)
 		vals := make([]interface{}, length)
 
+		var value interface{}
+		var field IField
 		defer rows.Close()
 		for rows.Next() {
 			// TODO 优化不使用MAP
@@ -177,7 +178,15 @@ func (self *TSession) scanSlice(rows *sql.Rows) (res_dataset *dataset.TDataSet, 
 
 			// 存储到数据集
 			for idx, name := range cols {
-				if !rec.SetByName(name, reflect.ValueOf(vals[idx]).Elem().Interface(), false) {
+				// !NOTE! 转换数据类型输出
+				if self.Statement.model != nil { // TODO exec,query 的SQL不包含Model
+					field = self.Statement.model.GetFieldByName(name)
+					if field != nil {
+						value = field.onConvertToRead(self, reflect.ValueOf(vals[idx]).Elem().Interface())
+					}
+				}
+
+				if !rec.SetByName(name, value, false) {
 					return nil, fmt.Errorf("add %s value to recordset fail.", name)
 				}
 			}
@@ -212,7 +221,7 @@ func (self *TSession) queryWithOrg(sql_str string, args ...interface{}) (res_dat
 		}
 	}
 
-	return self.scanSlice(rows)
+	return self.scanRows(rows)
 }
 
 func (self *TSession) queryWithTx(query string, params ...interface{}) (res_dataset *dataset.TDataSet, res_err error) {
@@ -223,7 +232,7 @@ func (self *TSession) queryWithTx(query string, params ...interface{}) (res_data
 		return
 	}
 
-	return self.scanSlice(rows)
+	return self.scanRows(rows)
 }
 
 // Exec raw sql
@@ -717,20 +726,9 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 
 	// 解析数据
 	var vals map[string]interface{}
-	if src != nil {
-		vals = self.itf_to_itfmap(src)
-		if len(vals) == 0 {
-			return nil, fmt.Errorf("can't support this type of values: %v", src)
-		}
-
-		vals = utils.MergeMaps(self.Statement.Sets, vals)
-
-	} else {
-		if len(self.Statement.Sets) == 0 {
-			return 0, fmt.Errorf("must submit the values for update")
-		}
-
-		vals = self.Statement.Sets
+	vals, res_err = self.validateValues(src)
+	if res_err != nil {
+		return nil, res_err
 	}
 
 	// 拆分数据
@@ -854,6 +852,29 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 	return res_id, nil
 }
 
+// TODO
+// 验证输入的数据
+func (self *TSession) validateValues(values interface{}) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if values != nil {
+		result = self.convertItf2ItfMap(values)
+		if len(result) == 0 {
+			return nil, fmt.Errorf("can't support this type of values: %v", values)
+		}
+
+		result = utils.MergeMaps(self.Statement.Sets, result)
+
+	} else {
+		if len(self.Statement.Sets) == 0 {
+			return nil, fmt.Errorf("must submit the values for update")
+		}
+
+		result = self.Statement.Sets
+	}
+
+	return result, nil
+}
+
 // TODO FN
 // 分配值并补全ID,Update,Create字段值
 // separate data for difference type of update
@@ -872,7 +893,6 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 	      # Those tuples will be used by the string formatting for the INSERT
 	      # statement below.
 	      ('id', "nextval('%s')" % self._sequence),*/
-	var err error
 	new_vals := make(map[string]interface{})
 	rel_vals := make(map[string]map[string]interface{})
 	upd_todo := make([]string, 0) // function 字段组 采用其他存储方式
@@ -928,6 +948,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			vals[name] = lTimeItfVal
 		}
 
+		// 以下处理非强字段
 		is_must_field := mustFields[name]
 		lNullableField := nullableFields[name]
 		if val, has := vals[name]; has {
@@ -944,6 +965,9 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 					continue
 				}
 			}
+
+			// TODO 优化确认代码位置  !NOTE! 转换值为数据库类型
+			val = field.onConvertToWrite(self, val)
 
 			// #相同名称的字段分配给对应表
 			comm_tables := self.Statement.model.obj.GetCommonFieldByName(name) // 获得拥有该字段的所有表
@@ -976,25 +1000,12 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			} else {
 				if field.Store() && field.SQLType().Name != "" {
 					// TODO 格式化值 区分Classic
-					val, err = field.OnConvertToWrite(&TFieldEventContext{
-						Session: self,
-						Model:   self.Statement.model,
-						//Id:      lIds[0],
-						Field: field,
-						Value: val,
-					})
-
-					if err != nil {
-						return nil, nil, nil, err
-					}
-
 					new_vals[name] = val // field.SymbolFunc()(utils.Itf2Str(val))
-
 				} else {
 					//# 大型复杂计算字段
 					upd_todo = append(upd_todo, name)
 				}
-				//utils.Dbg("write:", key)
+
 				/*
 					if field.IsClassicWrite() && field.Base().Fnct_inv() == nil {
 						if !field.Translatable() { //TODO totranslate &&
@@ -1024,28 +1035,15 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 	}
 
 	var (
-		ids            []interface{}
-		vals, lNewVals map[string]interface{}
-		lRefVals       map[string]map[string]interface{}
-		lNewTodo       []string
+		ids      []interface{}
+		lRefVals map[string]map[string]interface{}
+		lNewTodo []string
 	)
 
-	if src != nil {
-		//self._check_model()
-		vals = self.itf_to_itfmap(src)
-		if len(vals) == 0 { // 检查合法
-			return 0, fmt.Errorf("can't support this type of values")
-		}
-
-		// add SETS to values
-		lNewVals = utils.MergeMaps(self.Statement.Sets, vals)
-	} else {
-		// add values from conditon Set()
-		if len(self.Statement.Sets) == 0 {
-			return 0, fmt.Errorf("must submit the values for update")
-		}
-
-		lNewVals = self.Statement.Sets
+	var lNewVals map[string]interface{}
+	lNewVals, res_err = self.validateValues(src)
+	if res_err != nil {
+		return 0, res_err
 	}
 
 	// #获取Ids
@@ -1200,7 +1198,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 				Model:   self.Statement.model,
 				Id:      ids[0], // TODO 修改获得更合理
 				Field:   lField,
-				Value:   vals[name],
+				Value:   lNewVals[name],
 			})
 			if err != nil {
 				logger.Err(err)
@@ -2014,7 +2012,7 @@ func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited
 	return res_ds, res_sql, nil
 }
 
-func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]interface{}) {
+func (self *TSession) convertStruct2Itfmap(src interface{}) (res_map map[string]interface{}) {
 	var (
 		lField           reflect.StructField
 		lFieldType       reflect.Type
@@ -2089,7 +2087,7 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 				//				IsStruct = true
 				if (lFieldValue.Kind() == reflect.Ptr && lFieldValue.Elem().Kind() == reflect.Struct) ||
 					lFieldValue.Kind() == reflect.Struct {
-					m := self.struct_to_itfmap(lFieldValue.Interface())
+					m := self.convertStruct2Itfmap(lFieldValue.Interface())
 
 					for col, val := range m {
 						res_map[col] = val
@@ -2158,32 +2156,27 @@ func (self *TSession) struct_to_itfmap(src interface{}) (res_map map[string]inte
 
 // # transfer struct to Itf map and record model name if could
 // #1 限制字段使用 2.添加Model
-func (self *TSession) itf_to_itfmap(src interface{}) map[string]interface{} {
-	if src == nil {
+func (self *TSession) convertItf2ItfMap(value interface{}) map[string]interface{} {
+	if value == nil {
 		return nil
 	}
-	// 创建 Map
-	lSrcType := reflect.TypeOf(src)
 
-	if lSrcType.Kind() == reflect.Ptr || lSrcType.Kind() == reflect.Struct {
-		//logger.Dbg("itf_to_itfmap", lSrcType.Kind(), self.model.GetModelName())
-		//res_map = utils.Map(src)
+	// 创建 Map
+	value_type := reflect.TypeOf(value)
+	if value_type.Kind() == reflect.Ptr || value_type.Kind() == reflect.Struct {
 		// # change model of the session
 		if self.Statement.model == nil {
-			model_name := fmtModelName(utils.Obj2Name(src))
-			//logger.Dbg("itf_to_itfmap model_name", model_name)
+			model_name := fmtModelName(utils.Obj2Name(value))
 			if model_name != "" {
 				self.Model(model_name)
 			}
 		}
 
-		return self.struct_to_itfmap(src)
-
-	} else if lSrcType.Kind() == reflect.Map {
-		if m, ok := src.(map[string]interface{}); ok {
+		return self.convertStruct2Itfmap(value)
+	} else if value_type.Kind() == reflect.Map {
+		if m, ok := value.(map[string]interface{}); ok {
 			return m
-
-		} else if m, ok := src.(map[string]string); ok {
+		} else if m, ok := value.(map[string]string); ok {
 			res_map := make(map[string]interface{})
 
 			for key, val := range m {
