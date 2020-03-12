@@ -40,7 +40,8 @@ func (self *TMethod) Result() []reflect.Value {
 	return self.result
 }
 
-func (self *TMethod) SetArgs(args ...interface{}) bool {
+//废弃
+func (self *TMethod) ___SetArgs(args ...interface{}) bool {
 	self.args = make([]reflect.Value, 0)
 
 	for _, arg := range args {
@@ -53,7 +54,14 @@ func (self *TMethod) AsInterface() interface{} {
 	return self.method.Interface()
 }
 
-func (self *TMethod) Call() bool {
+func (self *TMethod) Call(model interface{}, args ...interface{}) bool {
+	self.args = make([]reflect.Value, 0)
+	self.args = append(self.args, reflect.ValueOf(model))
+	
+	for _, arg := range args {
+		self.args = append(self.args, reflect.ValueOf(arg))
+	}
+
 	if self.method.IsValid() {
 		self.result = self.method.Call(self.args)
 		return true

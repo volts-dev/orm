@@ -7,6 +7,7 @@ import (
 
 	"github.com/volts-dev/utils"
 )
+
 /**
   字段Tag
 
@@ -44,6 +45,7 @@ const (
 	TAG_DEFAULT       = "default"
 	TAG_IDX           = "index"  // #索引字段
 	TAG_UNIQUE        = "unique" // #保持唯一
+	TAG_AS            = "as"
 	TAG_STATES        = "states"
 	TAG_PRIORITY      = "priority"   // TODO
 	TAG_ON_DELETE     = "ondelete"   // TODO
@@ -116,6 +118,7 @@ func init() {
 		TAG_DEFAULT:    tag_default,
 		TAG_IDX:        tag_index,
 		TAG_UNIQUE:     tag_unique,
+		TAG_AS:         tag_as,
 		//TAG_STATES:tag_s
 		//TAG_PRIORITY] = "priority"     // TODO
 		TAG_ON_DELETE: tag_ondelete,
@@ -227,8 +230,16 @@ func tag_type(ctx *TFieldContext) {
 	fld := ctx.Field
 
 	if len(params) > 0 {
-		logger.Dbg("type ", params[0])
 		fld.Base()._attr_type = params[0]
+	}
+}
+
+func tag_as(ctx *TFieldContext) {
+	params := ctx.Params
+	fld := ctx.Field
+
+	if len(params) > 0 {
+		fld.Base().as = params[0]
 	}
 }
 

@@ -1257,9 +1257,8 @@ func (self *TSession) Read(classic_read ...bool) (*dataset.TDataSet, error) {
 		return nil, ErrInvalidSession
 	}
 
-	var classic bool
 	if len(classic_read) > 0 {
-		self.IsClassic = classic
+		self.IsClassic = classic_read[0]
 	}
 
 	return self.read()

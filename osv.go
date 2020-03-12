@@ -425,15 +425,14 @@ func (self *TOsv) ___newObj(name string) (obj *TObj) {
 
 // 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
-func (self *TOsv) GetMethod(model, name string) (method *TMethod) {
-	mod := self.getModelByMethod(model, name)
-
-	if mod.IsValid() { //|| !lM.IsNil()
+func (self *TOsv) GetMethod(modelName, methodName string) (method *TMethod) {
+	modelVal := self.getModelByMethod(modelName, methodName)
+	if modelVal.IsValid() { //|| !lM.IsNil()
 		// 转换method
 		// #必须使用Type才能获取到方法原型已经参数
-		method, ok := mod.Type().MethodByName(utils.TitleCasedName(name))
+		method, ok := modelVal.Type().MethodByName(utils.TitleCasedName(methodName))
 		if ok && method.Func.IsValid() {
-			return NewMethod(name, method.Func)
+			return NewMethod(methodName, method.Func)
 		}
 	}
 
@@ -614,7 +613,7 @@ func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error)
 
 // 废弃 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
-func (self *TOsv) CallModelHandler(handler *server.TWebHandler, model, method string) bool {
+func (self *TOsv) ___CallModelHandler(handler *server.TWebHandler, model, method string) bool {
 	lM := self.getModelByMethod(model, method)
 
 	if lM.IsValid() { //|| !lM.IsNil()

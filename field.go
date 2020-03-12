@@ -93,7 +93,7 @@ type (
 		Translatable() bool
 		Search() bool
 		Title() string
-
+		As() string // return the type of the value format as
 		// 获取Field所有属性值
 		UpdateDb(ctx *TFieldContext)
 		GetAttributes(ctx *TFieldContext) map[string]interface{}
@@ -151,7 +151,6 @@ type (
 		//Length         int
 		//Length2        int
 		//Nullable       bool
-
 		// SQL属性
 		SqlType SQLType
 		MapType int
@@ -182,6 +181,7 @@ type (
 		index             bool                // whether the field is indexed in database
 		search            bool                // allow searching on self only if the related field is searchable
 		translate         bool                //???
+		as                string              //值将作为[char,int,bool]被转换
 
 		// published exportable
 		_attr_name              string                 // name of the field
@@ -513,6 +513,10 @@ func (self *TField) Type() string {
 	return self._attr_type
 }
 
+func (self *TField) As() string {
+	return self.as
+}
+
 // database sql field type
 func (self *TField) SQLType() *SQLType {
 	return &self.SqlType
@@ -724,13 +728,13 @@ func (self *TField) SetAttributes(name string) {
 
 // 转换值到字段输出数据类型
 func (self *TField) onConvertToRead(session *TSession, value interface{}) interface{} {
-	return Value2FieldTypeValue(self, value)
+	return value2FieldTypeValue(self, value)
 
 }
 
 // 转换值到字段数据库类型
 func (self *TField) onConvertToWrite(session *TSession, value interface{}) interface{} {
-	return Value2SqlTypeValue(self, value)
+	return value2SqlTypeValue(self, value)
 }
 
 /*

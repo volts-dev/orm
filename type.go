@@ -244,9 +244,12 @@ var (
 )
 
 // 转换值到字段输出数据类型
-func Value2FieldTypeValue(field IField, value interface{}) interface{} {
-	type_name := strings.ToUpper(field.Type())
-	switch type_name {
+func value2FieldTypeValue(field IField, value interface{}) interface{} {
+	type_name := field.As()
+	if type_name == "" {
+		type_name = field.Type()
+	}
+	switch strings.ToUpper(type_name) {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
 		return utils.Itf2Int(value)
 	case BigInt, BigSerial:
@@ -271,7 +274,7 @@ func Value2FieldTypeValue(field IField, value interface{}) interface{} {
 }
 
 // 转换值到字段数据库类型
-func Value2SqlTypeValue(field IField, value interface{}) interface{} {
+func value2SqlTypeValue(field IField, value interface{}) interface{} {
 	type_name := strings.ToUpper(field.SQLType().Name)
 	switch type_name {
 	case Bool:

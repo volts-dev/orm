@@ -82,6 +82,50 @@ func (self *TOne2OneField) Init(ctx *TFieldContext) { //comodel_name string, inv
 	field := ctx.Field
 	field.Base().SqlType = Type2SQLType(field_Value.Type())
 	field.Base()._attr_store = true
+	field.Base()._attr_type = "one2one"
+	params := ctx.Params
+	if len(params) > 0 {
+		field.Base().comodel_name = params[0]
+		field.Base()._attr_relation = params[0]
+	}
+}
+
+func (self *TOne2OneField) OnRead(ctx *TFieldEventContext) error {
+	model, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
+	if err != nil {
+		// # Should not happen, unless the foreign key is missing.
+		return err
+	}
+
+	ds := ctx.Dataset
+	if ds != nil {
+		ds.First()
+		for !ds.Eof() {
+			// 获取关联表主键
+			rel_id := ds.FieldByName(self.Name()).AsInterface()
+
+			// igonre blank value
+			if utils.IsBlank(rel_id) {
+				if self._attr_required {
+					return fmt.Errorf("the Many2One field %s:%s is required!", self.model_name, self.Name())
+				}
+
+				ds.Next()
+				continue
+			}
+
+			//logger.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
+			rel_ds, err := model.NameGet([]interface{}{rel_id})
+			if err != nil {
+				return err
+			}
+
+			ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(model.IdField()).AsInterface(), rel_ds.FieldByName(model.GetRecordName()).AsInterface()})
+			ds.Next()
+		}
+	}
+
+	return nil
 }
 
 func (self *TMany2ManyField) Init(ctx *TFieldContext) {
@@ -515,7 +559,7 @@ func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
 			}
 
 			id_field := model.IdField() // get the id field name
-			ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(id_field).AsInterface(), rel_ds.FieldByName("name").AsString()})
+			ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(id_field).AsInterface(), rel_ds.FieldByName("name").AsInterface()})
 
 			ds.Next()
 		}

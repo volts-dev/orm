@@ -37,6 +37,7 @@ type (
 		//GetTableName() string
 		GetTableDescription() string
 		SetRecordName(n string)
+		GetRecordName() string
 		SetName(n string)
 		//		SetRegistry(reg *TRegistry)
 		//		Session() *TSession
@@ -62,7 +63,7 @@ type (
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
-		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) *dataset.TDataSet
+		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
 	}
 
@@ -149,19 +150,25 @@ func (self *TModel) SetRecordName(n string) {
 	self._rec_name = n
 }
 
-//TODO 废除 获取主键字段名称
-func (self *TModel) GetKeyName() string {
-	return self.GetRecordName()
-}
-
-//_rec_name_fallback(self):
+// return the field name of record's name field
 func (self *TModel) GetRecordName() string {
 	// # if self._rec_name is set, it belongs to self._fields
-	if self._rec_name != "" {
-		return self._rec_name
+	if fld := self.GetFieldByName(self._rec_name); fld == nil {
+		if self._rec_name == "" {
+			if fld := self.GetFieldByName("name"); fld != nil {
+				self._rec_name = "name"
+			} else {
+				self._rec_name = self.idField
+			}
+		}
 	}
 
-	return self.idField
+	return self._rec_name
+}
+
+//TODO 废除 获取主键字段名称
+func (self *TModel) ___GetKeyName() string {
+	return self.GetRecordName()
 }
 
 // TODO 优化
@@ -453,7 +460,7 @@ func (self *TModel) __name_get(ids []interface{}, fields []string) (result *data
 }
 
 func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
-	name := self._rec_name
+	name := self.GetRecordName()
 	id_field := self.idField
 	if f := self.GetFieldByName(name); f != nil {
 		ds, err := self.Records().Select(id_field, name).Ids(ids...).Read()
@@ -462,7 +469,6 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 		}
 
 		return ds, nil
-
 	} else {
 		ds := dataset.NewDataSet()
 		for _, id := range ids {
@@ -475,7 +481,8 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 	return nil, fmt.Errorf("%s Call NameGet() failure! Arg: %v", self.GetName(), ids)
 }
 
-func (self *TModel) SearchName(name string, domain string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet) {
+// search record by name field only
+func (self *TModel) SearchName(name string, domain string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
 	if operator == "" {
 		operator = "ilike"
 	}
@@ -488,45 +495,33 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 		//	access_rights_uid = self.session.AuthInfo("id")
 	}
 
-	lDomain, err := Query2Domain(domain)
+	_domain, err := Query2Domain(domain)
 	if err != nil {
-		logger.Err(err)
+		return nil, err
 	}
 
 	// 使用默认 name 字段
-	if self._rec_name == "" {
-		if fld := self.GetFieldByName("name"); fld != nil {
-			self._rec_name = "name"
-		}
-	}
-	// 检测name 字段
-	if self._rec_name == "" {
-		logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self.name)
-		//logger.Dbg("SearchName:", name, domain, lDomain.String())
-		return nil
+	rec_name_field := self.GetRecordName()
+	if rec_name_field == "" {
+		return nil, logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self.name)
 	}
 
 	if name == "" && operator != "ilike" {
 		lNew := utils.NewStringList()
-		lNew.PushString(self._rec_name, operator, name)
-		lDomain.Push(lNew)
-	}
-
-	lNameField := ""
-	if fld := self.GetFieldByName(self._rec_name); fld != nil {
-		lNameField = self._rec_name
-	} else {
-		lNameField = self.name
+		lNew.PushString(rec_name_field, operator, name)
+		_domain.Push(lNew)
 	}
 
 	//logger.Dbg("SearchName:", lNameField, lDomain.String())
 	//access_rights_uid = name_get_uid or user
 	// 获取匹配的Ids
 	//lIds := self._search(lDomain, nil, 0, limit, "", false, access_rights_uid, context)
-	lDs, _ := self.Records().Domain(lDomain.String()).Limit(limit).Read()
-	lIds := lDs.Keys()
-	result, _ = self.Records().Select(self.idField, lNameField).Ids(lIds...).Read()
-	return result //self.name_get(lIds, []string{"id", lNameField}) //self.SearchRead(lDomain.String(), []string{"id", lNameField}, 0, limit, "", context)
+	result, err = self.Records().Select(self.idField, rec_name_field).Domain(_domain.String()).Limit(limit).Read()
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil //self.name_get(lIds, []string{"id", lNameField}) //self.SearchRead(lDomain.String(), []string{"id", lNameField}, 0, limit, "", context)
 }
 
 // 更新单一字段

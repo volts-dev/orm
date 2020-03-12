@@ -768,7 +768,7 @@ func (self *TExpression) to_ids(value *TDomainNode, comodel *TModel, context map
 		var name_get_list []string // 存放IDs
 		//  name_get_list = [name_get[0] for name in names for name_get in comodel.name_search(cr, uid, name, [], 'ilike', context=context, limit=limit)]
 		//for _, name := range names.Items() {
-		lRecords := comodel.SearchName(strings.Join(value.Strings(), ","), "", "ilike", limit, "", context)
+		lRecords, _ := comodel.SearchName(strings.Join(value.Strings(), ","), "", "ilike", limit, "", context)
 		for _, rec := range lRecords.Data {
 			name_get_list = append(name_get_list, rec.FieldByName(comodel.idField).AsString()) //ODO: id 可能是Rec_id
 		}
