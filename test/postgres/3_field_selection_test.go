@@ -3,10 +3,10 @@ package postgres
 import (
 	"testing"
 
-	"github.com/github.com/volts-dev/orm"
 	_ "github.com/lib/pq"
+	"github.com/volts-dev/orm"
 )
 
 func TestFieldSelection(t *testing.T) {
-	orm.TestFieldSelection(test.TestOrm, t)
+	orm.TestFieldSelection("", t)
 }

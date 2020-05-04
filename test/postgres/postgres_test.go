@@ -1,16 +1,14 @@
 package postgres
 
 import (
-	//"database/sql"
 	"testing"
 
-	"github.com/volts-dev/orm"
-
 	_ "github.com/lib/pq"
+	"github.com/volts-dev/orm"
 )
 
 func TestPostgres(t *testing.T) {
-	orm.BaseTest(test.Orm(), t)
+	orm.BaseTest(t)
 	//	UserTest1(engine, t)
 	//	BaseTestAllSnakeMapper(engine, t)
 	//	BaseTestAll2(engine, t)
@@ -20,6 +18,6 @@ func TestPostgres(t *testing.T) {
 }
 
 func BenchmarkPostgres(b *testing.B) {
-	orm.DoBenchInsert(test.Orm(), b)
-	orm.DoBenchFind(test.Orm(), b)
+	orm.DoBenchInsert(b)
+	orm.DoBenchFind(b)
 }

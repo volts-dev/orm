@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestOr(title string, orm *TOrm, t *testing.T) {
+func TestOr(title string, t *testing.T) {
 	/*	// 注册Model
 		orm.SyncModel("test", new(Model1))
 

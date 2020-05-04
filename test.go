@@ -63,7 +63,7 @@ func PrintSubject(subject, option string) {
 	fmt.Println(msg)
 }
 
-func BaseTest(orm *TOrm, t *testing.T) {
+func BaseTest(t *testing.T) {
 	fmt.Println("-------------- tag --------------")
 	TestTag("Tag", t)
 
@@ -86,16 +86,16 @@ func BaseTest(orm *TOrm, t *testing.T) {
 	TestCount("Count", t)
 
 	fmt.Println("-------------- Limit --------------")
-	TestLimit("Limit", orm, t)
+	TestLimit("Limit", t)
 
 	fmt.Println("-------------- Sum --------------")
-	TestSum("Limit", orm, t)
+	TestSum("Limit", t)
 
 	fmt.Println("-------------- Custom Table Name --------------")
-	custom_table_name("Table", orm, t)
+	custom_table_name("Table", t)
 
 	fmt.Println("-------------- Dump --------------")
-	TestDump("Dump", orm, t)
+	TestDump("Dump", t)
 	/*	fmt.Println("-------------- insertAutoIncr --------------")
 		insertAutoIncr(orm, t)
 		fmt.Println("-------------- insertMulti --------------")
@@ -135,7 +135,7 @@ func BaseTest(orm *TOrm, t *testing.T) {
 	*/
 }
 
-func ClassicTest(orm *TOrm, t *testing.T) {
+func ClassicTest(t *testing.T) {
 	fmt.Println("-------------- Method --------------")
-	TestMethod(orm, t)
+	TestMethod(t)
 }

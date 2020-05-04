@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestFieldSelection(o *TOrm, t *testing.T) {
+func TestFieldSelection(title string, t *testing.T) {
 	/*	err := o.SyncModel("test", new(Model1))
 		if err != nil {
 			panic(err.Error())

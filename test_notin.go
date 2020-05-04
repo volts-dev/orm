@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestNotIn(title string, orm *TOrm, t *testing.T) {
+func TestNotIn(title string, t *testing.T) {
 	// 注册Model
 	/*	orm.SyncModel("test", new(Model1))
 

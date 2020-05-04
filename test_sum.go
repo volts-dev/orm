@@ -4,6 +4,6 @@ import (
 	"testing"
 )
 
-func TestSum(title string, orm *TOrm, t *testing.T) {
+func TestSum(title string, t *testing.T) {
 
 }

@@ -78,7 +78,7 @@ func DoBenchDriver(newdriver func() (*sql.DB, error), createTableSql,
 	}
 }*/
 
-func DoBenchInsert(orm *TOrm, b *testing.B) {
+func DoBenchInsert(b *testing.B) {
 	b.StopTimer()
 	/*	lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
 		//err := orm.CreateTables(bs)
@@ -105,7 +105,7 @@ func DoBenchInsert(orm *TOrm, b *testing.B) {
 		}*/
 }
 
-func DoBenchFind(orm *TOrm, b *testing.B) {
+func DoBenchFind(b *testing.B) {
 	b.StopTimer()
 	/*lUserData := &ResUser{Passport: "create", Password: "create", CompanyId: 1}
 	/*	err := engine.CreateTables(bs)

@@ -1,7 +1,6 @@
 package orm
 
 import (
-	//"fmt"
 	"testing"
 )
 

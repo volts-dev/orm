@@ -5,6 +5,6 @@ import (
 	"testing"
 )
 
-func TestLimit(title string, orm *TOrm, t *testing.T) {
+func TestLimit(title string, t *testing.T) {
 
 }

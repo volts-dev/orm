@@ -6,6 +6,6 @@ import (
 	"github.com/volts-dev/orm"
 )
 
-func TestRead(t *testing.T) {
+func TestCreate(t *testing.T) {
 	orm.TestCreate("", t)
 }

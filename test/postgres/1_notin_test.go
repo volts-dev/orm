@@ -7,5 +7,5 @@ import (
 )
 
 func TestNotIn(t *testing.T) {
-	orm.TestNotIn(test.TestOrm, t)
+	orm.TestNotIn("", t)
 }

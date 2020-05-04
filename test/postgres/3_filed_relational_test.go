@@ -7,5 +7,5 @@ import (
 )
 
 func TestFieldMany2Many(t *testing.T) {
-	orm.TestFieldMany2Many(test.TestOrm, t)
+	orm.TestFieldMany2Many("", t)
 }
