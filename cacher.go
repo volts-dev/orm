@@ -3,7 +3,8 @@ package orm
 import (
 	"fmt"
 	"sync"
-	"volts-dev/dataset"
+
+	"github.com/volts-dev/dataset"
 
 	"github.com/volts-dev/cacher"
 )

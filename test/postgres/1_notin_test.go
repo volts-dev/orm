@@ -2,7 +2,8 @@ package postgres
 
 import (
 	"testing"
-	"volts-dev/orm"
+
+	"github.com/volts-dev/orm"
 )
 
 func TestNotIn(t *testing.T) {

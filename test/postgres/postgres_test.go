@@ -3,7 +3,8 @@ package postgres
 import (
 	//"database/sql"
 	"testing"
-	"volts-dev/orm"
+
+	"github.com/volts-dev/orm"
 
 	_ "github.com/lib/pq"
 )

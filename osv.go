@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/volts-dev/utils"
-	"github.com/volts-dev/volts/server"
+	//"github.com/volts-dev/volts/server"
 )
 
 type flag uintptr
@@ -250,6 +250,7 @@ func (self *TOsv) ___SetupModels() {
 	//	}
 }
 
+// New an object for restore
 func (self *TOsv) newObject(name string) *TObj {
 	obj := &TObj{
 		name:          name,                    // model 名称
@@ -393,34 +394,6 @@ func (self *TOsv) RegisterModel(region string, model *TModel) {
 	self.modelsLock.Lock()
 	self.models[model.name] = obj
 	self.modelsLock.Unlock()
-}
-
-// New an object for restore
-func (self *TOsv) ___newObj(name string) (obj *TObj) {
-	//获得Object 检查是否存在，不存在则创建
-	obj, has := self.models[name]
-	if !has {
-		obj = &TObj{
-			name:          name,                    // model 名称
-			fields:        make(map[string]IField), // map[field]
-			relations:     make(map[string]string),
-			relatedFields: make(map[string]*TRelatedField),
-			commonFields:  make(map[string]map[string]IField),
-			//common_fields :make(map[string]*TRelatedField)
-			methods:       make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
-			object_val:    make(map[reflect.Type]*TModel),           // map[Model] 备份对象
-			object_types:  make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
-			defaultValues: make(map[string]interface{}),
-			//id_caches:  cache.NewMemoryCache(),
-			//sql_caches: cache.NewMemoryCache(),
-			indexes: make(map[string]*TIndex),
-		}
-
-		self.models[name] = obj
-		//logger.Dbg("!has", region, model.name)
-	}
-
-	return obj
 }
 
 // 根据Model和Action 执行方法
@@ -609,26 +582,4 @@ func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error)
 	}
 
 	return nil, fmt.Errorf("Model %s@%s is not a standard model type of this system", model, region)
-}
-
-// 废弃 根据Model和Action 执行方法
-// Action 必须是XxxXxxx格式
-func (self *TOsv) ___CallModelHandler(handler *server.TWebHandler, model, method string) bool {
-	lM := self.getModelByMethod(model, method)
-
-	if lM.IsValid() { //|| !lM.IsNil()
-		// 转换method
-		lMothod := lM.MethodByName(utils.TitleCasedName(method))
-
-		if lMothod.IsValid() {
-			//lMothod = reflect.ValueOf(lMothod.Interface())
-			//TODO: 验证是否Handler func(handler *web.THandler)
-			//TODO: 返回失败
-
-			// call
-			lMothod.Call([]reflect.Value{reflect.ValueOf(handler)})
-			return true
-		}
-	}
-	return false
 }

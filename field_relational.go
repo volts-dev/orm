@@ -3,8 +3,8 @@ package orm
 import (
 	"fmt"
 	"strings"
-	"volts-dev/dataset"
 
+	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/utils"
 )
 
