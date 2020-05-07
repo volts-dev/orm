@@ -1,7 +1,9 @@
-package orm
+package test
 
 import (
 	"testing"
+
+	"github.com/volts-dev/orm"
 )
 
 func TestSearch(title string, t *testing.T) {
@@ -9,7 +11,7 @@ func TestSearch(title string, t *testing.T) {
 	test_search(test_orm, t)
 }
 
-func test_search(o *TOrm, t *testing.T) {
+func test_search(o *orm.TOrm, t *testing.T) {
 	model, _ := o.GetModel("user_model")
 	ids, err := model.Records().Select("*").Search()
 	if err != nil {

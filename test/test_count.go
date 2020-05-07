@@ -1,8 +1,10 @@
-package orm
+package test
 
 import (
 	"fmt"
 	"testing"
+
+	"github.com/volts-dev/orm"
 )
 
 func TestCount(title string, t *testing.T) {
@@ -11,7 +13,7 @@ func TestCount(title string, t *testing.T) {
 
 }
 
-func test_count(orm *TOrm, t *testing.T) {
+func test_count(orm *orm.TOrm, t *testing.T) {
 	lUserMdl, _ := orm.GetModel("res.user")
 	lCount, err := lUserMdl.Records().Count()
 	if err != nil {

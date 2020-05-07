@@ -1,8 +1,9 @@
-package orm
+package test
 
 import (
 	"testing"
 
+	"github.com/volts-dev/orm"
 	"github.com/volts-dev/utils"
 )
 
@@ -35,7 +36,7 @@ func TestWrite(title string, t *testing.T) {
 	test_write_by_id(test_orm, t)
 }
 
-func test_write(o *TOrm, t *testing.T) {
+func test_write(o *orm.TOrm, t *testing.T) {
 	title := "Write Tested"
 
 	// query data
@@ -68,7 +69,7 @@ func test_write(o *TOrm, t *testing.T) {
 	}
 }
 
-func test_write_by_id(o *TOrm, t *testing.T) {
+func test_write_by_id(o *orm.TOrm, t *testing.T) {
 	title := "Write Tested"
 
 	model, err := o.GetModel("user_model")

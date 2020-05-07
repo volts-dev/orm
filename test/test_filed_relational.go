@@ -1,12 +1,13 @@
-package orm
+package test
 
 import (
 	//"fmt"
 	"testing"
-	//"github.com/volts-dev/utils"
+
+	"github.com/volts-dev/orm"
 )
 
-func TestFieldMany2Many(o *TOrm, t *testing.T) {
+func TestFieldMany2Many(o *orm.TOrm, t *testing.T) {
 	/*	err := o.SyncModel("test",
 			new(Model1),
 			new(Model2),

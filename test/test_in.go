@@ -1,8 +1,9 @@
-package orm
+package test
 
 import (
-	//"fmt"
 	"testing"
+
+	"github.com/volts-dev/orm"
 )
 
 func TestIn(title string, t *testing.T) {
@@ -11,7 +12,7 @@ func TestIn(title string, t *testing.T) {
 
 }
 
-func test_in(o *TOrm, t *testing.T) {
+func test_in(o *orm.TOrm, t *testing.T) {
 	model, err := o.GetModel("user_model")
 	if err != nil {
 		t.Fatal(err)

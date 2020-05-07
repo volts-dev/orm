@@ -1,9 +1,10 @@
-package orm
+package test
 
 import (
 	"fmt"
 	"testing"
-	//	"github.com/volts-dev/utils"
+
+	"github.com/volts-dev/orm"
 )
 
 func TestAnd(title string, t *testing.T) {
@@ -11,7 +12,7 @@ func TestAnd(title string, t *testing.T) {
 	test_and(test_orm, t)
 }
 
-func test_and(o *TOrm, t *testing.T) {
+func test_and(o *orm.TOrm, t *testing.T) {
 	model, err := o.GetModel("user_model")
 	if err != nil {
 		t.Fatal(err)

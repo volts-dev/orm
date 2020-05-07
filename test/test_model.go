@@ -1,23 +1,25 @@
-package orm
+package test
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/volts-dev/orm"
 )
 
 type (
 	// PartnerModel save all the records about a company/person/group
 	PartnerModel struct {
-		TModel   `table:"name('partner_model')"`
-		Id       int64  `field:"pk autoincr title('ID') index"`
-		Name     string `field:"char() unique index required"`
-		Homepage string `field:"char() size(25)"`
+		orm.TModel `table:"name('partner_model')"`
+		Id         int64  `field:"pk autoincr title('ID') index"`
+		Name       string `field:"char() unique index required"`
+		Homepage   string `field:"char() size(25)"`
 	}
 
 	// CompanyModel save all the records about a shop/subcompany,
 	// main details will relate to PartnerModel and mapping all field of PartnerModel
 	CompanyModel struct {
-		TModel       `table:"name('company_model')"`
+		orm.TModel   `table:"name('company_model')"`
 		PartnerModel `field:"relate(PartnerId)"`
 		PartnerId    int64         `field:"one2one(partner_model)"`
 		Id           int64         `field:"pk autoincr title('ID') index"`
@@ -26,7 +28,7 @@ type (
 	}
 
 	UserModel struct {
-		TModel       `table:""`
+		orm.TModel   `table:""`
 		PartnerModel `field:"relate(PartnerId)"`
 		PartnerId    int64     `field:"one2one(partner_model)"`
 		Id           int64     `field:"pk autoincr type(char) title('ID') index"`

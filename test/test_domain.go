@@ -1,17 +1,18 @@
-package orm
+package test
 
 import (
-	//"fmt"
 	"testing"
+
+	"github.com/volts-dev/orm"
 )
 
-func TestDomain(title string, o *TOrm, t *testing.T) {
+func TestDomain(title string, o *orm.TOrm, t *testing.T) {
 	PrintSubject(title, "Read By Domain")
 	test_read_by_domain(o, t)
 }
 
 //# test domain to find out data
-func test_read_by_domain(o *TOrm, t *testing.T) {
+func test_read_by_domain(o *orm.TOrm, t *testing.T) {
 	domain := `[('id', 'in', [1,6])]`
 
 	model, _ := o.GetModel("user_model")

@@ -1,27 +1,29 @@
-package orm
+package test
 
 import (
 	"fmt"
 	"testing"
+
+	"github.com/volts-dev/orm"
 )
 
 const TEST_DB_NAME = "orm_test"
 
 var (
-	test_orm *TOrm
+	test_orm *orm.TOrm
 )
 
 // get the test ORM object
-func Orm() *TOrm {
+func Orm() *orm.TOrm {
 	return test_orm
 }
 
 // init the test ORM object by the driver data source
-func TestInit(dataSource *TDataSource, show_sql bool) error {
+func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 	var err error
 
 	if test_orm == nil {
-		test_orm, err = NewOrm(dataSource)
+		test_orm, err = orm.NewOrm(dataSource)
 		if err != nil {
 			return err
 		}

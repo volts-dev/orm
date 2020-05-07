@@ -1,13 +1,13 @@
-package orm
+package test
 
 import (
 	//"fmt"
 	"testing"
 )
 
-func TestNotIn(title string, t *testing.T) {
-	// 注册Model
-	/*	orm.SyncModel("test", new(Model1))
+func TestOr(title string, t *testing.T) {
+	/*	// 注册Model
+		orm.SyncModel("test", new(Model1))
 
 		model, _ := orm.GetModel("model1")
 		session := model.Records()
@@ -27,11 +27,10 @@ func TestNotIn(title string, t *testing.T) {
 		}
 		session.Commit()
 
-		dataset, err := model.Records().NotIn("create_id", 1, 3).Read()
+		dataset, err := model.Records().Where("create_id=?", 1).Or("write_id=?", 3).Read()
 		if err != nil {
 			panic(err.Error())
 		}
 
-		t.Log(dataset.Keys())
-	*/
+		t.Log(dataset.Keys())*/
 }

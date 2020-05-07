@@ -1,7 +1,9 @@
-package orm
+package test
 
 import (
 	"testing"
+
+	"github.com/volts-dev/orm"
 )
 
 func TestTag(title string, t *testing.T) {
@@ -28,30 +30,30 @@ func TestTag(title string, t *testing.T) {
 
 }
 
-func test_tag_table_name(o *TOrm, t *testing.T) {
+func test_tag_table_name(o *orm.TOrm, t *testing.T) {
 
 }
 
-func test_tag_auto(o *TOrm, t *testing.T) {
+func test_tag_auto(o *orm.TOrm, t *testing.T) {
 
 }
 
-func test_tag_pk(o *TOrm, t *testing.T) {
+func test_tag_pk(o *orm.TOrm, t *testing.T) {
 
 }
 
-func test_tag_name(o *TOrm, t *testing.T) {
+func test_tag_name(o *orm.TOrm, t *testing.T) {
 
 }
 
-func test_tag_store(o *TOrm, t *testing.T) {
+func test_tag_store(o *orm.TOrm, t *testing.T) {
 
 }
 
-func test_tag_domain(o *TOrm, t *testing.T) {
+func test_tag_domain(o *orm.TOrm, t *testing.T) {
 
 }
 
-func test_tag_ver(o *TOrm, t *testing.T) {
+func test_tag_ver(o *orm.TOrm, t *testing.T) {
 
 }

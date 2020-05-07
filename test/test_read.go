@@ -1,7 +1,9 @@
-package orm
+package test
 
 import (
 	"testing"
+
+	"github.com/volts-dev/orm"
 )
 
 func TestRead(title string, t *testing.T) {
@@ -12,7 +14,7 @@ func TestRead(title string, t *testing.T) {
 	test_read_and_convert(test_orm, t)
 }
 
-func test_read(o *TOrm, t *testing.T) {
+func test_read(o *orm.TOrm, t *testing.T) {
 	model, err := o.GetModel("user_model")
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +44,7 @@ func test_read(o *TOrm, t *testing.T) {
 	}
 }
 
-func test_read_and_convert(o *TOrm, t *testing.T) {
+func test_read_and_convert(o *orm.TOrm, t *testing.T) {
 	model, _ := o.GetModel("user_model")
 	ds, err := model.Records().Read()
 	if err != nil {

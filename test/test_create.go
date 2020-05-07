@@ -1,8 +1,9 @@
-package orm
+package test
 
 import (
 	"testing"
 
+	"github.com/volts-dev/orm"
 	"github.com/volts-dev/utils"
 )
 
@@ -25,7 +26,7 @@ func TestCreate10(title string, t *testing.T) {
 }
 
 // Test the model create a record by an object
-func test_create(o *TOrm, t *testing.T) {
+func test_create(o *orm.TOrm, t *testing.T) {
 	data := new(UserModel)
 	*data = *user
 	ss := o.NewSession()
@@ -58,7 +59,7 @@ func test_create(o *TOrm, t *testing.T) {
 	ss.Close()
 }
 
-func test_create_relate(o *TOrm, t *testing.T) {
+func test_create_relate(o *orm.TOrm, t *testing.T) {
 	data := new(CompanyModel)
 	*data = *company
 
@@ -94,7 +95,7 @@ func test_create_relate(o *TOrm, t *testing.T) {
 	//	}
 }
 
-func test_create_m2m(o *TOrm, t *testing.T) {
+func test_create_m2m(o *orm.TOrm, t *testing.T) {
 	model, _ := o.GetModel("user_model")
 	ds, err := model.Records().Read()
 	if err != nil {
