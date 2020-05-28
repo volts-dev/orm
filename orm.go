@@ -52,9 +52,9 @@ type (
 		connected   bool
 
 		// public
-		Cacher          *TCacher // TODO 大写
-		FieldIdentifier string   // 字段 tag 标记
-		TableIdentifier string   // 表 tag 标记
+		Cacher          *TCacher
+		FieldIdentifier string // 字段 tag 标记
+		TableIdentifier string // 表 tag 标记
 		TimeZone        *time.Location
 	}
 )
