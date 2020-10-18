@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-
-	log "github.com/volts-dev/logger"
 )
 
 type (
@@ -13,7 +11,6 @@ type (
 
 	// a dialect is a driver's wrapper
 	IDialect interface {
-		SetLogger(logger log.ILogger)
 		Init(*sql.DB, *TDataSource) error
 		DataSource() *TDataSource
 		DB() *sql.DB
@@ -73,7 +70,6 @@ type (
 		*TDataSource
 		db      *sql.DB
 		dialect IDialect
-		logger  log.ILogger
 	}
 )
 
@@ -105,10 +101,6 @@ func QueryDialect(dbName string) IDialect {
 
 func (b *TDialect) DB() *sql.DB {
 	return b.db
-}
-
-func (b *TDialect) SetLogger(logger log.ILogger) {
-	b.logger = logger
 }
 
 func (b *TDialect) Init(db *sql.DB, dialect IDialect, datasource *TDataSource) error {

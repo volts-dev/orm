@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -182,7 +183,7 @@ func (self *TSession) scanRows(rows *sql.Rows) (res_dataset *dataset.TDataSet, e
 				if self.Statement.model != nil { // TODO exec,query 的SQL不包含Model
 					field = self.Statement.model.GetFieldByName(name)
 					if field != nil {
-						value = field.onConvertToRead(self, reflect.ValueOf(vals[idx]).Elem().Interface())
+						value = field.onConvertToRead(self, cols, vals, idx)
 					}
 				}
 
@@ -646,6 +647,12 @@ func (self *TSession) Where(clause string, args ...interface{}) *TSession {
 	return self
 }
 
+func (self *TSession) New() *TSession {
+	session := self.orm.NewSession()
+	session.IsClassic = true
+	return session.Model(self.Statement.model.GetName())
+}
+
 // And provides custom query condition.
 func (self *TSession) And(clause string, args ...interface{}) *TSession {
 	self.Statement.And(clause, args...)
@@ -1036,11 +1043,15 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 
 	var (
 		ids      []interface{}
+		lNewVals map[string]interface{}
 		lRefVals map[string]map[string]interface{}
 		lNewTodo []string
+
+		query                     *TQuery
+		from_clause, where_clause string
+		where_clause_params       []interface{}
 	)
 
-	var lNewVals map[string]interface{}
 	lNewVals, res_err = self.validateValues(src)
 	if res_err != nil {
 		return 0, res_err
@@ -1051,28 +1062,37 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		ids = self.Statement.IdParam
 	} else {
 		idField := self.Statement.model.idField
-		if id, has := lNewVals[idField]; has {
-			ids = []interface{}{id}
-
-		} else if self.Statement.domain.Count() > 0 {
-			var err error
-			ids, err = self.search("", nil)
-			if err != nil {
-				return 0, err
+		if _, has := lNewVals[idField]; has {
+			//  必须不是 Set 语句值
+			if id, has := self.Statement.Sets[idField]; !has {
+				ids = []interface{}{id}
 			}
-
-			if len(ids) == 0 {
-				return 0, fmt.Errorf("no records matched")
-			}
-
-		} else {
-			return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 		}
+	}
+
+	// 组合查询语句
+	if len(ids) > 0 {
+		from_clause = self.Statement.model.GetName()
+		where_clause = fmt.Sprintf(`%s IN (%s)`,
+			self.Statement.IdKey,
+			strings.Repeat("?,", len(ids)-1)+"?")
+		where_clause_params = ids
+
+	} else if self.Statement.domain.Count() > 0 {
+		query, res_err = self.Statement.where_calc(self.Statement.domain, false, nil)
+		if res_err != nil {
+			return 0, res_err
+		}
+
+		// # determine the actual query to execute
+		from_clause, where_clause, where_clause_params = query.get_sql()
+	} else {
+		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}
 
 	// the PK condition status
 	includePkey := len(ids) > 0
-	if !includePkey {
+	if !includePkey && where_clause == "" {
 		return 0, fmt.Errorf("must have ids or qury clause")
 	}
 
@@ -1104,31 +1124,35 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		//self.check_access_rule(cr, user, ids, 'write', context=context)
 
 		params := make([]interface{}, 0)
-		values := ""
+		set_clause := ""
 
 		// TODO 验证数据类型
 		//self._validate(lNewVals)
 
 		// 拼SQL
 		for k, v := range lNewVals {
-			if values != "" {
-				values += ","
+			if set_clause != "" {
+				set_clause += ","
 			}
 
-			values += self.orm.dialect.Quote(k) + "=?"
+			set_clause += self.orm.dialect.Quote(k) + "=?"
 			params = append(params, v)
 		}
 
-		if values == "" {
+		if set_clause == "" {
 			return 0, fmt.Errorf("must have values")
 		}
 
 		// add in ids data
-		in_vals := strings.Repeat("?,", len(ids)-1) + "?"
-		params = append(params, ids...)
+		params = append(params, where_clause_params...)
 
 		// format sql
-		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s IN (%s)`, self.Statement.model.GetName(), values, self.Statement.IdKey, in_vals)
+		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s `,
+			from_clause,
+			set_clause,
+			where_clause,
+		)
+
 		res, err := self.exec(sql, params...)
 		if err != nil {
 			return 0, err
@@ -1282,22 +1306,23 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 	inherited := make([]string, 0)
 	computed := make([]string, 0) // 数据库没有的字段
 
-	// get data ids with query
-	var ids []interface{}
-	if len(self.Statement.IdParam) > 0 {
-		ids = self.Statement.IdParam
-	} else {
-		var err error
-		ids, err = self.search("", nil)
-		if err != nil {
-			return nil, err
-		}
+	/*
+		// get data ids with query
+		var ids []interface{}
+		if len(self.Statement.IdParam) > 0 {
+			ids = self.Statement.IdParam
+		} else {
+			var err error
+			ids, err = self.search("", nil)
+			if err != nil {
+				return nil, err
+			}
 
-		if len(ids) == 0 {
-			return dataset.NewDataSet(), nil
+			if len(ids) == 0 {
+				return dataset.NewDataSet(), nil
+			}
 		}
-	}
-
+	*/
 	// 字段分类
 	// 验证Select * From
 	if len(self.Statement.Fields) > 0 {
@@ -1333,7 +1358,7 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 
 	// 获取数据库数据
 	//# fetch stored fields from the database to the cache
-	dataset, _, err := self.readFromDatabase(ids, stored, inherited)
+	dataset, _, err := self.readFromDatabase(stored, inherited)
 	if err != nil {
 		return nil, err
 	}
@@ -1723,7 +1748,7 @@ func (self *TSession) Search() ([]interface{}, error) {
 // 查询所有符合条件的主键/索引值
 // :param access_rights_uid: optional user ID to use when checking access rights
 // (not for ir.rules, this is only for ir.model.access)
-func (self *TSession) search(access_rights_uid string, context map[string]interface{}) ([]interface{}, error) {
+func (self *TSession) search(access_rights_uid string, context map[string]interface{}) (res_ids []interface{}, err error) {
 	var (
 		//fields_str string
 		//where_str    string
@@ -1751,7 +1776,6 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 	//}
 
 	//logger.Dbg("_search", self.Statement.Domain, StringList2Domain(self.Statement.Domain))
-	var err error
 	query, err = self.Statement.where_calc(self.Statement.domain, false, context)
 	if err != nil {
 		return nil, err
@@ -1777,18 +1801,17 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 		// Ignore order, limit and offset when just counting, they don't make sense and could
 		// hurt performance
 		query_str = `SELECT count(1) FROM ` + from_clause + where_clause
-
-		res_ids := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
-		if len(res_ids) < 1 {
+		res_ds := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
+		if res_ds == nil {
 			lRes, err := self.query(query_str, where_clause_params...)
 			if err != nil {
 				return nil, err
 			}
-
 			res_ids = []interface{}{lRes.FieldByName("count").AsInterface()}
-
 			// #存入缓存
-			self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
+			self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, lRes)
+		} else {
+			res_ids = res_ds.Keys(self.Statement.IdKey)
 		}
 
 		return res_ids, nil
@@ -1810,16 +1833,16 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 	//	web.Debug("_search", query_str, where_clause_params)
 
 	// #调用缓存
-	res_ids := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
-	if len(res_ids) < 1 {
+	res_ds := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
+	if res_ds == nil {
 		res, err := self.query(query_str, where_clause_params...)
 		if err != nil {
 			return nil, err
 		}
 		res_ids = res.Keys(self.Statement.IdKey)
-		//logger.Dbg("_search", res.KeyField, res.Count(), res.Keys(), res_ids)
-
-		self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res_ids...)
+		self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res)
+	} else {
+		res_ids = res_ds.Keys(self.Statement.IdKey)
 	}
 
 	return res_ids, nil
@@ -1844,37 +1867,37 @@ func (self *TSession) readFromCache(ids []interface{}) (res []*dataset.TRecordSe
 // 从数据库读取记录并保存到缓存中
 // :param field_names: Model的所有字段
 // :param inherited_field_names:关联父表的所有字段
-func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string, err error) {
+func (self *TSession) readFromDatabase(field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string, err error) {
 	// # 从缓存里获得数据
-	records, less_ids := self.readFromCache(ids)
+	//records, less_ids := self.readFromCache(ids)
 
-	// # 补缺缓存没有的数据
-	if len(less_ids) > 0 {
-		table_name := self.Statement.model.GetName()
-		//# make a query object for selecting ids, and apply security rules to it
-		//占位符先提供固定预置值，后面根据值获得Idx并修改值到正确实时值
-		//param_ids := "idholder" //占位符先提供固定预置值，后面根据值获得Idx并修改值到正确实时值
-		//query(['"%s"' % self._table], ['"%s".id IN %%s' % self._table], [param_ids])
-		//query := NewQuery([]string{self.model.TableName()},
-		//	[]string{fmt.Sprintf(`"%s".id IN (?)`, self.model.TableName())},
-		//	[]interface{}{param_ids}, nil, nil) //占位符先提供固定预置值，后面根据值获得Idx并修改值到正确实时值                                                                                  // object()
-		query := NewQuery(
-			[]string{table_name},
-			[]string{fmt.Sprintf(
-				`%s.%s IN (%s)`,
-				self.orm.dialect.Quote(table_name),
-				self.orm.dialect.Quote(self.Statement.IdKey),
-				idsToSqlHolder(ids...))},
-			ids,
-			nil,
-			nil,
-		)
+	var (
+		query *TQuery
+		select_clause, from_clause, where_clause,
+		order_clause, limit_clause, offset_clause string
+		where_clause_params []interface{}
+	)
+	{ // 生成查询条件
+		query, err = self.Statement.where_calc(self.Statement.domain, false, nil)
+		if err != nil {
+			return nil, "", err
+		}
 
-		order_str := self.Statement.generate_order_by(query, nil)
+		// orderby clause
+		order_clause = self.Statement.generate_order_by(query, nil) // TODO 未完成
 
-		//qual_names = map(qualify, set(fields_pre + [self._fields['id']]))
+		// limit clause
+		if self.Statement.LimitClause > 0 {
+			limit_clause = fmt.Sprintf(` limit %d`, self.Statement.LimitClause)
+		}
+
+		// offset clause
+		if self.Statement.OffsetClause > 0 {
+			offset_clause = fmt.Sprintf(` offset %d`, self.Statement.OffsetClause)
+		}
+
+		// 生成字段名列表
 		qual_names := make([]string, 0)
-
 		if self.IsClassic {
 			//对可迭代函数'iterable'中的每一个元素应用‘function’方法，将结果作为list返回
 			//# determine the fields that are stored as columns in tables;
@@ -1901,113 +1924,46 @@ func (self *TSession) readFromDatabase(ids []interface{}, field_names, inherited
 			}
 
 			for _, f := range fields_pre {
-				qual_names = append(qual_names, self.qualify(f, query))
+				qual_names = append(qual_names, query.qualify(f, self.Statement.model))
 			}
-
 		} else {
 			qual_names = self.Statement.generate_fields()
 		}
 
+		select_clause = strings.Join(qual_names, ",")
 		// # determine the actual query to execute
-		from_clause, where_clause, params := query.get_sql()
-		//logger.Dbg("from_clause ", from_clause)
-		//logger.Dbg("where_clause ", where_clause)
-		//logger.Dbg("params ", params)
-		res_sql = fmt.Sprintf(`SELECT %s FROM %s WHERE %s %s`,
-			strings.Join(qual_names, ","),
-			from_clause,
-			where_clause,
-			order_str,
-		)
+		from_clause, where_clause, where_clause_params = query.get_sql()
 
-		// 获得Id占位符索引
-		id_len := len(self.Statement.IdParam)
-		res_ds, err = self.Query(res_sql, params...) //cr.execute(res_sql, params)
-		if err != nil {
-			return nil, "", err
-		}
-
-		// NOTE 当非IDS()读取时报告错误
-		if id_len == 0 && res_ds.Count() != len(less_ids) {
-			//# if not you need
-			return nil, "", logger.Errf(`query result including %v records are not what you expectd! %v`, res_ds.Count(), len(less_ids))
-		}
-
-		// TODO 带优化或者简去
-		//if !dataset.SetKeyField(self.Statement.IdKey) {
-		//	logger.Err(`set key_field fail when call RecordByKey(key_field:%v)!`, res_ds.KeyField)
-		//}
-
-		for !res_ds.Eof() {
-			rec := res_ds.Record()
-			// # 添加进入缓存
-			self.orm.Cacher.PutById(table_name, rec.FieldByName(self.Statement.IdKey).AsString(), rec)
-			res_ds.Next()
-		}
-
-		//# 必须是合法位置上
-		res_ds.First()
-
-		// #添加进入数据集
-		res_ds.AppendRecord(records...)
-		/*
-			for _, id := range less_ids {
-				rec := dataset.RecordByKey(id)
-
-				// # 报告缺失记录
-				if rec == nil {
-					logger.Err(`query result didn't including record (%v)!`, id)
-				}
-
-				// #添加进入数据集
-				err = res_ds.AppendRecord(rec)
-				if err != nil {
-					logger.Err(err.Error())
-				}
-
-				// # 添加进入缓存
-				self.orm.Cacher.PutById(table_name, id, rec)
-			}
-		*/
-	} else {
-		// # init dataset
-		res_ds = dataset.NewDataSet()
-		//res_ds.KeyField = self.Statement.IdKey //#重要配Key置
-		//res_ds.SetKeyField(self.Statement.IdKey)//# 废除因为无效果
-		res_ds.AppendRecord(records...)
 	}
 
-	if res_ds != nil {
-		ids = res_ds.Keys(self.Statement.IdKey)
+	//logger.Dbg("from_clause ", from_clause)
+	//logger.Dbg("where_clause ", where_clause)
+	logger.Dbg("params ", where_clause_params)
+	res_sql = fmt.Sprintf(`SELECT %s FROM %s WHERE %s %s %s %s`,
+		select_clause,
+		from_clause,
+		where_clause,
+		order_clause,
+		limit_clause,
+		offset_clause,
+	)
+
+	// 获得Id占位符索引
+	res_ds, err = self.Query(res_sql, where_clause_params...) //cr.execute(res_sql, params)
+	if err != nil {
+		return nil, "", err
 	}
 
-	// TODO:BELOW 下面进行而外的数据格式化和补充 可部分ORM里实现180180
-	if len(ids) > 0 {
-		/*   # translate the fields if necessary
-		     if context.get('lang'):
-		         for field in fields_pre:
-		             if not field.inherited and callable(field.column.translate):
-		                 f = field.name
-		                 translate = field.get_trans_func(fetched)
-		                 for vals in res_ds:
-		                     vals[f] = translate(vals['id'], vals[f])
+	// TODO 带优化或者简去
+	//if !dataset.SetKeyField(self.Statement.IdKey) {
+	//	logger.Err(`set key_field fail when call RecordByKey(key_field:%v)!`, res_ds.KeyField)
+	//}
 
+	//# 添加进入缓存
+	self.orm.Cacher.PutBySql(self.Statement.model.GetName(), res_sql, where_clause_params, res_ds)
 
-		*/
-
-		// 激活[字段原始数据]Ready事件
-		/*var field IField
-		for _, name := range field_names {
-			field = self.model.FieldByName(name)
-			field.OnRead(&TFieldEventContext{
-				Session: self,
-				Model:   self.model,
-				Field:   field,
-				Dataset: res_ds})
-		}
-		*/
-	}
-
+	//# 必须是合法位置上
+	res_ds.First()
 	return res_ds, res_sql, nil
 }
 
@@ -2189,16 +2145,9 @@ func (self *TSession) convertItf2ItfMap(value interface{}) map[string]interface{
 	return nil
 }
 
-//# the query may involve several tables: we need fully-qualified names
-func (self *TSession) qualify(field IField, query *TQuery) string {
-	res := self.Statement.inherits_join_calc(self.Statement.model.GetName(), field.Name(), query)
-	/*
-		if field.Type == "binary" { // && (context.get('bin_size') or context.get('bin_size_' + col)):
-			//# PG 9.2 introduces conflicting pg_size_pretty(numeric) -> need ::cast
-			res = fmt.Sprintf(`pg_size_pretty(length(%s)::bigint)`, res)
-		}*/
-	//utils.Dbg("qualify:", field.Name)
-	return fmt.Sprintf(`%s as "%s"`, res, field.Name())
+// TODO 缓存方式
+func (self *TSession) Cache() *TSession {
+	return self
 }
 
 // TODO 缓存

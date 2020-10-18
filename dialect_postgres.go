@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 

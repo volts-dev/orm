@@ -1,12 +1,11 @@
-package orm
+package cacher
 
 import (
 	"fmt"
 	"sync"
 
-	"github.com/volts-dev/dataset"
-
 	"github.com/volts-dev/cacher"
+	"github.com/volts-dev/dataset"
 )
 
 type (
@@ -25,7 +24,7 @@ type (
 	}
 )
 
-func newCacher() *TCacher {
+func NewCacher() *TCacher {
 	cacher := &TCacher{
 		status:              make(map[string]bool),
 		table_id_key_index:  make(map[string]map[string]bool),
@@ -120,7 +119,14 @@ func (self *TCacher) SetStatus(sw bool, table_name string) {
 }
 
 //#缓存Sql查询结果ID集
-func (self *TCacher) PutBySql(table string, sql string, arg interface{}, record_ids ...interface{}) {
+func (self *TCacher) PutBySql(table string, sql string, arg interface{}, data *dataset.TDataSet) {
+	if open, has := self.status[table]; has && open {
+		key := self.genSqlKey(table, sql, arg, false)
+		self.sql_caches.Put(key, data)
+	}
+}
+
+func (self *TCacher) ___PutBySql(table string, sql string, arg interface{}, record_ids ...interface{}) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
 		self.sql_caches.Put(key, record_ids)
@@ -129,7 +135,19 @@ func (self *TCacher) PutBySql(table string, sql string, arg interface{}, record_
 
 //#通过Sql获取查询结果ID集
 // result =nil or 空[]string
-func (self *TCacher) GetBySql(table string, sql string, arg interface{}) (res_ids []interface{}) {
+func (self *TCacher) GetBySql(table string, sql string, arg interface{}) *dataset.TDataSet {
+	//逻辑可能有问题	if open, has := self.status[table]; !has || (has && open) {
+	if open, has := self.status[table]; has && open {
+		key := self.genSqlKey(table, sql, arg, false)
+		if ids, ok := self.sql_caches.Get(key).(*dataset.TDataSet); ok {
+			return ids
+		}
+	}
+
+	return nil
+}
+
+func (self *TCacher) ___GetBySql(table string, sql string, arg interface{}) (res_ids []interface{}) {
 	//逻辑可能有问题	if open, has := self.status[table]; !has || (has && open) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)

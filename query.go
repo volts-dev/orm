@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/volts-dev/orm/logger"
+
 	"github.com/volts-dev/utils"
 )
 
@@ -212,6 +214,91 @@ func (self *TQuery) add_joins_for_table(lhs string, tables_to_process, from_clau
 			self.add_joins_for_table(rhs, tables_to_process, from_clause, from_params)
 		}
 	}
+}
+
+// 验证字段并添加关系表到from
+//# the query may involve several tables: we need fully-qualified names
+func (self *TQuery) qualify(field IField, model IModel) string {
+	res := self.inherits_join_calc(field.Name(), model)
+	/*
+		if field.Type == "binary" { // && (context.get('bin_size') or context.get('bin_size_' + col)):
+			//# PG 9.2 introduces conflicting pg_size_pretty(numeric) -> need ::cast
+			res = fmt.Sprintf(`pg_size_pretty(length(%s)::bigint)`, res)
+		}*/
+	//utils.Dbg("qualify:", field.Name)
+	return fmt.Sprintf(`%s as "%s"`, res, field.Name())
+}
+
+/* """
+   Adds missing table select and join clause(s) to ``query`` for reaching
+   the field coming from an '_inherits' parent table (no duplicates).
+
+   :param alias: name of the initial SQL alias
+   :param field: name of inherited field to reach
+   :param query: query object on which the JOIN should be added
+   :return: qualified name of field, to be used in SELECT clause
+   """*/
+func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result string) {
+	/*
+	   # INVARIANT: alias is the SQL alias of model._table in query
+	   model = self
+	   while field in model._inherit_fields and field not in model._columns:
+	       # retrieve the parent model where field is inherited from
+	       parent_model_name = model._inherit_fields[field][0]
+	       parent_model = self.env[parent_model_name]
+	       parent_field = model._inherits[parent_model_name]
+	       # JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
+	       parent_alias, _ = query.add_join(
+	           (alias, parent_model._table, parent_field, 'id', parent_field),
+	           implicit=True,
+	       )
+	       model, alias = parent_model, parent_alias
+	   # handle the case where the field is translated
+	   translate = model._columns[field].translate
+	   if translate and not callable(translate):
+	       return model.generate_translated_field(alias, field, query)
+	   else:
+	       return '"%s"."%s"' % (alias, field)
+	*/
+	alias := model.GetName()
+	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
+		//for name, _ := range self._relate_fields {
+		if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInheritedField() {
+			// # retrieve the parent model where field is inherited from
+			parent_model_name := rel.RelateTableName
+			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
+			if err != nil {
+				logger.Err(err, "@inherits_join_calc")
+				//Dbg("inherits_join_calc:", field, alias, parent_model_name)
+			}
+
+			//NOTE JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
+			parent_field := model.Obj().GetRelationByName(parent_model_name)
+			parent_alias, _ := self.add_join(
+				[]string{
+					alias, parent_field,
+					parent_model.GetName(), parent_model.IdField(),
+					parent_field},
+				true,
+				false,
+				nil,
+				nil)
+			model, alias = parent_model, parent_alias
+
+		} else {
+			//logger.Dbg("inherits_join_calc:", field, alias, fld)
+		}
+	}
+	//# handle the case where the field is translated
+	field := model.GetFieldByName(fieldName)
+	if field != nil && field.Translatable() { //  if translate and not callable(translate):
+		// return model.generate_translated_field(alias, field, query)
+		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
+	} else {
+		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
+	}
+
+	return
 }
 
 func (self *TQuery) _get_table_aliases() (aliases []string) {

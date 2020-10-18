@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
+
+	"github.com/volts-dev/orm/logger"
 )
 
 type (

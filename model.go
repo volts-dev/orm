@@ -5,6 +5,8 @@ import (
 	"reflect"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/domain"
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -482,7 +484,7 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 }
 
 // search record by name field only
-func (self *TModel) SearchName(name string, domain string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
+func (self *TModel) SearchName(name string, domain_str string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
 	if operator == "" {
 		operator = "ilike"
 	}
@@ -495,7 +497,7 @@ func (self *TModel) SearchName(name string, domain string, operator string, limi
 		//	access_rights_uid = self.session.AuthInfo("id")
 	}
 
-	_domain, err := Query2Domain(domain)
+	_domain, err := domain.String2Domain(domain_str)
 	if err != nil {
 		return nil, err
 	}

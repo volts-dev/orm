@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/volts-dev/orm/domain"
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -17,9 +19,9 @@ type (
 	TStatement struct {
 		session        *TSession
 		model          *TModel
-		domain         *TDomainNode  // 查询条件
-		Params         []interface{} // 储存有序值
-		IdKey          string        // 开发者决定的数据表主键
+		domain         *domain.TDomainNode // 查询条件
+		Params         []interface{}       // 储存有序值
+		IdKey          string              // 开发者决定的数据表主键
 		IdParam        []interface{}
 		Sets           map[string]interface{} // 预存数据值 供更新
 		Fields         map[string]bool        // show which fields will be list out
@@ -44,7 +46,7 @@ type (
 
 // Init reset all the statment's fields
 func (self *TStatement) Init() {
-	self.domain = NewDomainNode()
+	self.domain = domain.NewDomainNode()
 	self.Sets = nil // 不预先创建添加GC负担
 	self.IdParam = make([]interface{}, 0)
 	self.Fields = make(map[string]bool)         // TODO 优化
@@ -86,84 +88,48 @@ func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
 		query = strings.Replace(query, "=", self.session.orm.dialect.EqStr(), -1)
 	}
 
-	self.Op(AND_OPERATOR, query, args...)
+	self.Op(domain.AND_OPERATOR, query, args...)
 
 	return self
 }
 
-func (self *TStatement) Domain(domain interface{}, args ...interface{}) *TStatement {
-	self.Op(AND_OPERATOR, domain, args...)
+func (self *TStatement) Domain(dom interface{}, args ...interface{}) *TStatement {
+	self.Op(domain.AND_OPERATOR, dom, args...)
 
 	return self
 }
 
-func (self *TStatement) Op(op string, query interface{}, args ...interface{}) {
-	var new_cond *TDomainNode
+func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) {
+	var new_cond *domain.TDomainNode
 	var err error
-	switch query.(type) {
+	switch cond.(type) {
 	case string:
 		// 添加信的条件
-		new_cond, err = Query2Domain(query.(string))
+		new_cond, err = domain.String2Domain(cond.(string))
 		if err != nil {
 			logger.Err(err)
 		}
-
-	case *TDomainNode:
-		new_cond = query.(*TDomainNode)
-
+	case *domain.TDomainNode:
+		new_cond = cond.(*domain.TDomainNode)
 	default:
-		logger.Errf("op not support this query %v", query)
+		logger.Errf("op not support this query %v", cond)
 	}
 
-	if self.domain == nil || self.domain.Count() == 0 {
-		self.domain = new_cond
-		self.Params = args
-
-	} else {
-		if isLeaf(self.domain) {
-			if isLeaf(new_cond) {
-				// 合并两个Leaf
-				qry := NewDomainNode()
-				qry.Insert(0, op)     // 添加操作符
-				qry.Push(self.domain) // 第一条件
-				qry.Push(new_cond)    // 第二条件
-				self.domain = qry
-			} else {
-				qry := NewDomainNode()
-				qry.Insert(0, op)                  // 添加操作符
-				qry.Push(self.domain)              // 第一条件
-				qry.PushNode(new_cond.children...) // 第二条件
-				self.domain = qry
-			}
-
-		} else if self.domain.Item(0).IsDomainOperator() {
-			if isLeaf(new_cond) {
-				// 添加单叶新条件
-				self.domain.Insert(0, op)  // 添加操作符
-				self.domain.Push(new_cond) // 第二条件
-			} else {
-				// 添加多叶新条件
-				self.domain.Insert(0, op)                  // 添加操作符
-				self.domain.PushNode(new_cond.children...) // 第二条件
-			}
-		}
-
-		if args != nil {
-			self.Params = append(self.Params, args...)
-		}
-
+	self.domain.OP(op, new_cond)
+	if args != nil {
+		self.Params = append(self.Params, args...)
 	}
 }
 
 // And add Where & and statment
 func (self *TStatement) And(query string, args ...interface{}) *TStatement {
-	self.Op(AND_OPERATOR, query, args...)
+	self.Op(domain.AND_OPERATOR, query, args...)
 	return self
 }
 
 // Or add Where & Or statment
 func (self *TStatement) Or(query string, args ...interface{}) *TStatement {
-	self.Op(OR_OPERATOR, query, args...)
+	self.Op(domain.OR_OPERATOR, query, args...)
 	return self
 }
 
@@ -174,22 +140,22 @@ func (self *TStatement) In(field string, args ...interface{}) *TStatement {
 		return self
 	}
 
-	keys := NewDomainNode(args...)
-	new_cond := NewDomainNode()
+	keys := domain.NewDomainNode(args...)
+	new_cond := domain.NewDomainNode()
 	new_cond.Push(field)
 	new_cond.Push("IN")
 	new_cond.Push(keys)
-	self.Op(AND_OPERATOR, new_cond)
+	self.Op(domain.AND_OPERATOR, new_cond)
 	return self
 }
 
 func (self *TStatement) NotIn(field string, args ...interface{}) *TStatement {
-	keys := NewDomainNode(args...)
-	new_cond := NewDomainNode()
+	keys := domain.NewDomainNode(args...)
+	new_cond := domain.NewDomainNode()
 	new_cond.Push(field)
 	new_cond.Push("NOT IN")
 	new_cond.Push(keys)
-	self.Op(AND_OPERATOR, new_cond)
+	self.Op(domain.AND_OPERATOR, new_cond)
 	return self
 }
 
@@ -532,80 +498,6 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 	return
 }
 
-/* """
-   Adds missing table select and join clause(s) to ``query`` for reaching
-   the field coming from an '_inherits' parent table (no duplicates).
-
-   :param alias: name of the initial SQL alias
-   :param field: name of inherited field to reach
-   :param query: query object on which the JOIN should be added
-   :return: qualified name of field, to be used in SELECT clause
-   """*/
-func (self *TStatement) inherits_join_calc(alias string, fieldName string, query *TQuery) (result string) {
-	/*
-	   # INVARIANT: alias is the SQL alias of model._table in query
-	   model = self
-	   while field in model._inherit_fields and field not in model._columns:
-	       # retrieve the parent model where field is inherited from
-	       parent_model_name = model._inherit_fields[field][0]
-	       parent_model = self.env[parent_model_name]
-	       parent_field = model._inherits[parent_model_name]
-	       # JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
-	       parent_alias, _ = query.add_join(
-	           (alias, parent_model._table, parent_field, 'id', parent_field),
-	           implicit=True,
-	       )
-	       model, alias = parent_model, parent_alias
-	   # handle the case where the field is translated
-	   translate = model._columns[field].translate
-	   if translate and not callable(translate):
-	       return model.generate_translated_field(alias, field, query)
-	   else:
-	       return '"%s"."%s"' % (alias, field)
-	*/
-	var model IModel
-	model = self.session.Statement.model
-
-	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
-		//for name, _ := range self._relate_fields {
-		if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInheritedField() {
-			// # retrieve the parent model where field is inherited from
-			parent_model_name := rel.RelateTableName
-			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
-			if err != nil {
-				logger.Err(err, "@inherits_join_calc")
-				//Dbg("inherits_join_calc:", field, alias, parent_model_name)
-			}
-
-			//NOTE JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
-			parent_field := model.Obj().GetRelationByName(parent_model_name)
-			parent_alias, _ := query.add_join(
-				[]string{
-					alias, parent_field,
-					parent_model.GetName(), parent_model.IdField(),
-					parent_field},
-				true,
-				false,
-				nil,
-				nil)
-			model, alias = parent_model, parent_alias
-
-		} else {
-			//logger.Dbg("inherits_join_calc:", field, alias, fld)
-		}
-	}
-	//# handle the case where the field is translated
-	field := model.GetFieldByName(fieldName)
-	if field != nil && field.Translatable() { //  if translate and not callable(translate):
-		// return model.generate_translated_field(alias, field, query)
-		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
-	} else {
-		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
-	}
-
-	return
-}
-
 /*Computes the WHERE clause needed to implement an OpenERP domain.
   :param domain: the domain to compute
   :type domain: list
@@ -614,7 +506,7 @@ func (self *TStatement) inherits_join_calc(alias string, fieldName string, query
   :return: the query expressing the given domain as provided in domain
   :rtype: osv.query.Query
 */
-func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, context map[string]interface{}) (*TQuery, error) {
+func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, context map[string]interface{}) (*TQuery, error) {
 	if context == nil {
 		context = make(map[string]interface{})
 	}
@@ -623,27 +515,27 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 	// if the object has a field named 'active', filter out all inactive
 	// records unless they were explicitely asked for
 	if has := self.session.Statement.model.obj.GetFieldByName("active"); has != nil && active_test {
-		if domain != nil {
+		if node != nil {
 			// the item[0] trick below works for domain items and '&'/'|'/'!'
 			// operators too
 			var hasfield bool
-			for _, node := range domain.Nodes() {
+			for _, node := range node.Nodes() {
 				if node.String(0) == "active" {
 					hasfield = true
 				}
 			}
 			if !hasfield {
 				//domain.Insert(0, Query2StringList(`('active', '=', 1)`))
-				node, err := String2Domain(`[('active', '=', 1)]`)
+				node, err := domain.String2Domain(`[('active', '=', 1)]`)
 				if err != nil {
 					logger.Err(err)
 				}
-				domain.Insert(0, node)
+				node.Insert(0, node)
 			}
 		} else {
 			//domain = Query2StringList(`[('active', '=', 1)]`)
 			var err error
-			domain, err = String2Domain(`[('active', '=', 1)]`)
+			node, err = domain.String2Domain(`[('active', '=', 1)]`)
 			if err != nil {
 				logger.Err(err)
 			}
@@ -654,8 +546,8 @@ func (self *TStatement) where_calc(domain *TDomainNode, active_test bool, contex
 	tables := make([]string, 0)
 	var where_clause []string
 	var where_params []interface{}
-	if domain != nil && domain.Count() > 0 {
-		exp, err := NewExpression(self.session.orm, self.session.Statement.model, domain, context)
+	if node != nil && node.Count() > 0 {
+		exp, err := NewExpression(self.session.orm, self.session.Statement.model, node, context)
 		if err != nil {
 			return nil, err
 		}
@@ -738,7 +630,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 				//	}
 			} else if field.Store() && field.SQLType().Name != "" {
-				qualifield_name := self.inherits_join_calc(alias, order_field, query)
+				qualifield_name := query.inherits_join_calc(order_field, self.session.Statement.model)
 				if field.Type() == "boolean" {
 					qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 				}

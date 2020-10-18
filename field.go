@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -115,7 +116,7 @@ type (
 		IsRelatedField(arg ...bool) bool
 		IsInheritedField(arg ...bool) bool
 		//IsCommonField(arg ...bool) bool
-		IsAutoJoin() bool
+		IsAutoJoin() bool // 自动Join
 		//IsClassicRead() bool
 		//IsClassicWrite() bool
 
@@ -130,8 +131,8 @@ type (
 		// classic I/O event of the field. It will be call when using classic query. READ/WRITE the relate data FROM/TO its relation table
 		// the RETURN value is the value of field.
 		//[经典数据] 从原始数据转换提供Classical数据读法,数据修剪,Many2One显示Names表等
-		onConvertToRead(session *TSession, value interface{}) interface{}  // TODO compute
-		onConvertToWrite(session *TSession, value interface{}) interface{} // TODO 不返回或者返回错误
+		onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} // TODO compute
+		onConvertToWrite(session *TSession, value interface{}) interface{}                                // TODO 不返回或者返回错误
 	}
 
 	TField struct {
@@ -295,7 +296,7 @@ func (index *TIndex) Equal(dst *TIndex) bool {
 }
 
 // new an index
-func NewIndex(name string, indexType int) *TIndex {
+func newIndex(name string, indexType int) *TIndex {
 	return &TIndex{true, name, indexType, make([]string, 0)}
 }
 
@@ -727,7 +728,8 @@ func (self *TField) SetAttributes(name string) {
 }
 
 // 转换值到字段输出数据类型
-func (self *TField) onConvertToRead(session *TSession, value interface{}) interface{} {
+func (self *TField) onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} {
+	value := reflect.ValueOf(record[colIndex]).Elem().Interface()
 	return value2FieldTypeValue(self, value)
 
 }

@@ -3,6 +3,8 @@ package orm
 import (
 	"fmt"
 	"testing"
+
+	"github.com/volts-dev/orm/domain"
 )
 
 func TestExpression(t *testing.T) {
@@ -14,18 +16,18 @@ func test_leaf_1(t *testing.T) {
 	qry := `[('id', 'in', [1])]`
 	fmt.Println(qry)
 
-	domain, err := String2Domain(qry)
+	node, err := domain.String2Domain(qry)
 	if err != nil {
 		t.Fatal(err)
 	}
-	PrintDomain(domain)
+	domain.PrintDomain(node)
 
-	domain, err = normalize_domain(domain)
+	node, err = normalize_domain(node)
 	if err != nil {
 		t.Fatal(err)
 	}
-	PrintDomain(domain)
+	domain.PrintDomain(node)
 
-	domain = distribute_not(domain)
-	PrintDomain(domain)
+	node = distribute_not(node)
+	domain.PrintDomain(node)
 }

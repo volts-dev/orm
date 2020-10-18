@@ -49,8 +49,8 @@ func test_and(o *orm.TOrm, t *testing.T) {
 	*/
 	// 测试Select 所有
 	fmt.Println("check domain combie domain")
-	domain := `[&,('help','=','您好!'),('title', '=', ['中国!','aa','bb']]`
-	ds, err := model.Records().Where("id=?", 2).Domain(domain).Read()
+	domain := `[&,('help','=','您好!'),('title', 'in', ['中国','aa','bb']]`
+	ds, err := model.Records().Where("id=?", 1).Domain(domain).Read()
 	if err != nil {
 		t.Fatal(err)
 	}

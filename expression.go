@@ -4,48 +4,21 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/volts-dev/orm/domain"
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
-/*
-const (
-	// Domain operators.
-	NOT_OPERATOR = "!"
-	OR_OPERATOR  = "|"
-	AND_OPERATOR = "&"
-
-	TRUE_LEAF  = "(1, '=', 1)"
-	FALSE_LEAF = "(0, '=', 1)"
-
-	TRUE_DOMAIN  = "[" + TRUE_LEAF + "]"
-	FALSE_DOMAIN = "[" + FALSE_LEAF + "]"
-)
-
-var (
-	DOMAIN_OPERATORS = []string{NOT_OPERATOR, OR_OPERATOR, AND_OPERATOR}
-
-	/*# List of available term operators. It is also possible to use the '<>'
-	# operator, which is strictly the same as '!='; the later should be prefered
-	# for consistency. This list doesn't contain '<>' as it is simpified to '!='
-	# by the normalize_operator() function (so later part of the code deals with
-	# only one representation).
-	# Internals (i.e. not available to the user) 'inselect' and 'not inselect'
-	# operators are also used. In this case its right operand has the form (subselect, params).
-*/
-/*	TERM_OPERATORS = []string{"=", "!=", "<=", "<", ">", ">=", "=?", "=like", "=ilike",
-		"like", "not like", "ilike", "not ilike", "in", "not in", "child_of"}
-)
-*/
 type (
 	/*""" Class wrapping a domain leaf, and giving some services and management
 	    features on it. In particular it managed join contexts to be able to
 	    construct queries through multiple models.
 	"""*/
 	TJoinContext struct {
-		SourceModel *TModel //source (left hand) model
-		DestModel   *TModel //destination (right hand) model
-		SourceFiled string  //source model column for join condition
-		DestFiled   string  //destination model column for join condition
+		SourceModel *TModel // source (left hand) model
+		DestModel   *TModel // destination (right hand) model
+		SourceFiled string  // source model column for join condition
+		DestFiled   string  // destination model column for join condition
 		Link        string
 	}
 
@@ -74,10 +47,9 @@ type (
 				                    compute aliases
 		*/
 		join_context []TJoinContext //join_context
-		leaf         *TDomainNode
+		leaf         *domain.TDomainNode
 		model        *TModel
-
-		models []*TModel
+		models       []*TModel
 	}
 
 	/*""" Parse a domain expression
@@ -86,32 +58,44 @@ type (
 	    For more info: http://christophe-simonis-at-tiny.blogspot.com/2008/08/new-new-domain-notation.html
 	"""*/
 	TExpression struct {
+		Table      string
 		orm        *TOrm
 		root_model *TModel // 本次解析的主要
-		Table      string
-		Expression *TDomainNode
+		Expression *domain.TDomainNode
 		stack      []*TExtendedLeaf
 		result     []*TExtendedLeaf
 		joins      []string //*utils.TStringList
 	}
 )
 
-func NewExpression(orm *TOrm, model *TModel, domain *TDomainNode, context map[string]interface{}) (*TExpression, error) {
+var (
+	op_arity = map[string]int{
+		domain.NOT_OPERATOR: 1,
+		domain.AND_OPERATOR: 2,
+		domain.OR_OPERATOR:  2,
+	}
+
+	hierarchy_funcs = map[string]func(*domain.TDomainNode, *domain.TDomainNode, *TModel, string, string, map[string]interface{}) *domain.TDomainNode{
+		"child_of":  child_of_domain,
+		"parent_of": parent_of_domain}
+)
+
+func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context map[string]interface{}) (*TExpression, error) {
 	exp := &TExpression{
-		//Table: table,
 		orm:        orm,
 		root_model: model,
 		joins:      make([]string, 0),
 	}
 
-	node, err := normalize_domain(domain)
+	node, err := normalize_domain(dom)
 	if err != nil {
 		return nil, err
 	}
+	//domain.PrintDomain(dom) // print domain
 
 	exp.Expression = distribute_not(node)
 
-	//PrintDomain(exp.Expression) // print domain
+	//domain.PrintDomain(exp.Expression) // print domain
 
 	err = exp.parse(context)
 	if err != nil {
@@ -147,7 +131,7 @@ func NewExpression(orm *TOrm, model *TModel, domain *TDomainNode, context map[st
            in the condition (i.e. in many2one); this link is used to
            compute aliases
 */
-func NewExtendedLeaf(leaf *TDomainNode, model *TModel, context []TJoinContext, internal bool) *TExtendedLeaf {
+func NewExtendedLeaf(leaf *domain.TDomainNode, model *TModel, context []TJoinContext, internal bool) *TExtendedLeaf {
 	ex_leaf := &TExtendedLeaf{
 		leaf:         leaf,
 		model:        model,
@@ -171,7 +155,9 @@ func NewExtendedLeaf(leaf *TDomainNode, model *TModel, context []TJoinContext, i
         - left is in MAGIC_COLUMNS
 "*/
 func (self *TExtendedLeaf) check_leaf(internal bool) {
-	if !isOperator(self.leaf) && !isLeaf(self.leaf, internal) {
+	//if !isOperator(self.leaf) && !isLeaf(self.leaf, internal) {
+	if !self.leaf.IsDomainOperator() && !self.leaf.IsLeafNode() {
+
 		//raise ValueError("Invalid leaf %s" % str(self.leaf))
 		//提示错误
 	}
@@ -190,36 +176,58 @@ func (self *TExtendedLeaf) generate_alias() string {
 }
 
 func (self *TExtendedLeaf) is_true_leaf() bool {
-	if isLeaf(self.leaf) {
-		return parseDomain(self.leaf) == TRUE_LEAF
+	if self.leaf.IsLeafNode() {
+		return domain.Domain2String(self.leaf) == domain.TRUE_LEAF
 	}
 
 	return false
 }
 
 func (self *TExtendedLeaf) is_false_leaf() bool {
-	if isLeaf(self.leaf) {
-		return parseDomain(self.leaf) == FALSE_LEAF
+	if self.leaf.IsLeafNode() {
+		return domain.Domain2String(self.leaf) == domain.FALSE_LEAF
 	}
 
 	return false
-}
-
-/*""" Test whether an object is a valid domain operator. """*/
-func isOperator(op *TDomainNode) bool {
-	if op.IsList() {
-		return false
-	}
-
-	return utils.InStrings(op.String(), DOMAIN_OPERATORS...) != -1
 }
 
 //
 func idsToSqlHolder(ids ...interface{}) string {
 	return strings.Repeat("?,", len(ids)-1) + "?"
 }
+
+// 格式化 操作符 统一使用 字母in,not in 或者字符 "=", "!="
+// 确保 操作符为小写
+//""" Change a term's operator to some canonical form, simplifying later processing. """
 func (self *TExtendedLeaf) normalize_leaf() bool {
-	self.leaf = normalize_leaf(self.leaf)
+	if !self.leaf.IsLeafNode() {
+		return true
+	}
+
+	original := strings.ToLower(self.leaf.String(1))
+	operator := original
+	if operator == "<>" {
+		operator = "!="
+	}
+	if utils.IsBoolItf(self.leaf.Item(2)) && utils.InStrings(operator, "in", "not in") != -1 {
+		//   _logger.warning("The domain term '%s' should use the '=' or '!=' operator." % ((left, original, right),))
+		if operator == "in" {
+			operator = "="
+		} else {
+			operator = "!="
+		}
+	}
+	if self.leaf.Item(2).IsListNode() && utils.InStrings(operator, "=", "!=") != -1 {
+		//  _logger.warning("The domain term '%s' should use the 'in' or 'not in' operator." % ((left, original, right),))
+		if operator == "=" {
+			operator = "in"
+		} else {
+			operator = "not in"
+		}
+	}
+
+	self.leaf.Item(1).Value = operator
+
 	return true
 }
 
@@ -227,7 +235,8 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 //        ``(lhs, model, lhs_col, col, link)``
 // After adding the join, the model of the current leaf is updated.
 func (self *TExtendedLeaf) add_join_context(model *TModel, lhs_col, table_col, link string) {
-	self.join_context = append(self.join_context,
+	self.join_context = append(
+		self.join_context,
 		TJoinContext{
 			SourceModel: self.model,
 			DestModel:   model,
@@ -241,9 +250,12 @@ func (self *TExtendedLeaf) add_join_context(model *TModel, lhs_col, table_col, l
 func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 	tables := utils.NewStringList()
 	links := make([][]string, 0)
+
 	for _, context := range self.join_context {
 		links = append(links, []string{context.DestModel.GetName(), context.Link})
 		_, alias_statement := generate_table_alias(self.models[0].GetName(), links)
+		logger.Dbg("get_tables ", alias_statement)
+
 		tables.PushString(alias_statement)
 	}
 
@@ -324,48 +336,14 @@ def get_alias_from_query(from_query):
 
 */
 
-// 格式化 操作符 统一使用 字母in,not in 或者字符 "=", "!="
-// 确保 操作符为小写
-//""" Change a term's operator to some canonical form, simplifying later processing. """
-func normalize_leaf(leaf *TDomainNode) *TDomainNode {
-	if !isLeaf(leaf) {
-		return leaf
-	}
-
-	original := strings.ToLower(leaf.String(1))
-	operator := original
-	if operator == "<>" {
-		operator = "!="
-	}
-	if utils.IsBoolItf(leaf.Item(2)) && utils.InStrings(operator, "in", "not in") != -1 {
-		//   _logger.warning("The domain term '%s' should use the '=' or '!=' operator." % ((left, original, right),))
-		if operator == "in" {
-			operator = "="
-		} else {
-			operator = "!="
-		}
-	}
-	if leaf.Item(2).IsList() && utils.InStrings(operator, "=", "!=") != -1 {
-		//  _logger.warning("The domain term '%s' should use the 'in' or 'not in' operator." % ((left, original, right),))
-		if operator == "=" {
-			operator = "in"
-		} else {
-			operator = "not in"
-		}
-	}
-
-	leaf.Item(1).Value = operator
-	return leaf
-}
-
 //    """AND([D1,D2,...]) returns a domain representing D1 and D2 and ... """
-func AND(domains ...string) *utils.TStringList {
-	return combine(AND_OPERATOR, TRUE_DOMAIN, FALSE_DOMAIN, domains)
+func ___AND(domains ...string) *utils.TStringList {
+	return combine(domain.AND_OPERATOR, domain.TRUE_DOMAIN, domain.FALSE_DOMAIN, domains)
 }
 
 //    """OR([D1,D2,...]) returns a domain representing D1 or D2 or ... """
-func OR(domains ...string) *utils.TStringList {
-	return combine(OR_OPERATOR, FALSE_DOMAIN, TRUE_DOMAIN, domains)
+func ___OR(domains ...string) *utils.TStringList {
+	return combine(domain.OR_OPERATOR, domain.FALSE_DOMAIN, domain.TRUE_DOMAIN, domains)
 }
 
 /*Returns a new domain expression where all domain components from ``domains``
@@ -408,43 +386,6 @@ func combine(operator, unit, zero string, domains []string) (result *utils.TStri
 	return
 }
 
-/*""" Test whether an object is a valid domain term:
-    - is a list or tuple
-    - with 3 elements
-    - second element if a valid op
-
-    :param tuple element: a leaf in form (left, operator, right)
-    :param boolean internal: allow or not the 'inselect' internal operator
-        in the term. This should be always left to False.
-
-    Note: OLD TODO change the share wizard to use this function.
-"""*/ /*
-func isLeaf(element *utils.TStringList, internal ...bool) bool {
-	INTERNAL_OPS := append(TERM_OPERATORS, "<>")
-	if internal != nil && internal[0] {
-		INTERNAL_OPS = append(INTERNAL_OPS, "inselect")
-		INTERNAL_OPS = append(INTERNAL_OPS, "not inselect")
-	}
-
-	//??? 出现过==Nil还是继续执行之下的代码
-	return (element != nil && element.IsList()) &&
-		(element.Len() == 3) &&
-		utils.InStrings(element.String(1), INTERNAL_OPS...) != -1 ||
-		utils.InStrings(element.String(), TRUE_LEAF, FALSE_LEAF) != -1
-
-	/*
-	   def isLeaf(element, internal=False):
-
-	       INTERNAL_OPS = TERM_OPERATORS + ('<>',)
-	       if internal:
-	           INTERNAL_OPS += ('inselect', 'not inselect')
-	       return (isinstance(element, tuple) or isinstance(element, list)) \
-	           and len(element) == 3 \
-	           and element[1] in INTERNAL_OPS \
-	           and ((isinstance(element[0], basestring) and element[0]) or tuple(element) in (TRUE_LEAF, FALSE_LEAF))
-*/
-//}
-
 /*
 # --------------------------------------------------
 # Generic domain manipulation
@@ -454,51 +395,44 @@ func isLeaf(element *utils.TStringList, internal ...bool) bool {
     can be easily combined together as if they were single domain components.
  """
 */
-func normalize_domain(domain *TDomainNode) (*TDomainNode, error) {
-	if domain == nil {
-		logger.Err("Invaild domain")
-		return String2Domain(TRUE_DOMAIN)
+func normalize_domain(node *domain.TDomainNode) (*domain.TDomainNode, error) {
+	if node == nil {
+		logger.Warnf("The domain is Invaild!")
+		return domain.String2Domain(domain.TRUE_DOMAIN)
 	}
 
 	// must be including Terms
-	if !domain.IsList() {
+	if node.IsValueNode() {
 		return nil, fmt.Errorf("Domains to normalize must have a 'domain' form: a list or tuple of domain components")
 	}
 
 	// 将LEAF封装成完整Domain
-	if isLeaf(domain) {
-		shell := NewDomainNode()
-		shell.Push(domain)
-		domain = shell
+	if node.IsLeafNode() {
+		shell := domain.NewDomainNode()
+		shell.Push(node)
+		node = shell
 	}
 
-	op_arity := map[string]int{
-		NOT_OPERATOR: 1,
-		AND_OPERATOR: 2,
-		OR_OPERATOR:  2,
-	}
-
-	result := NewDomainNode()
+	result := domain.NewDomainNode()
 	var expected int = 1
-	for _, node := range domain.Nodes() {
+	for _, n := range node.Nodes() {
 		if expected == 0 { // more than expected, like in [A, B]
-			result.Insert(0, AND_OPERATOR) //put an extra '&' in front
+			result.Insert(0, domain.AND_OPERATOR) //put an extra '&' in front
 			expected = 1
 		}
 
-		result.Push(node) //添加
-		if isLeaf(node) { //domain term
+		result.Push(n) //添加
+
+		if !n.IsValueNode() { // domain term
 			expected -= 1
 		} else {
-			//logger.Dbg("op_arity", op_arity[item.Text])
 			// 如果不是Term而是操作符
-			expected += op_arity[node.String()] - 1
+			expected += op_arity[n.String()] - 1
 		}
 	}
 
-	// 错误提示
 	if expected != 0 {
-		logger.Errf("This domain is syntactically not correct: %s", Domain2String(domain))
+		logger.Errf("This domain is syntactically not correct: %s", domain.Domain2String(node))
 	}
 
 	return result, nil
@@ -507,13 +441,68 @@ func normalize_domain(domain *TDomainNode) (*TDomainNode, error) {
 // From a leaf, create a new leaf (based on the new_elements tuple
 // and new_model), that will have the same join context. Used to
 // insert equivalent leafs in the processing stack. """
-func create_substitution_leaf(leaf *TExtendedLeaf, new_elements *TDomainNode, new_model *TModel, internal bool) *TExtendedLeaf {
+func create_substitution_leaf(leaf *TExtendedLeaf, new_elements *domain.TDomainNode, new_model *TModel, internal bool) *TExtendedLeaf {
 	if new_model == nil {
 		new_model = leaf.model
 	}
 	var new_join_context []TJoinContext
 	new_join_context = leaf.join_context //复制
 	return NewExtendedLeaf(new_elements, new_model, new_join_context, internal)
+}
+
+func child_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]interface{}) *domain.TDomainNode {
+	//""" Return a domain implementing the child_of operator for [(left,child_of,ids)],
+	//    either as a range using the parent_path tree lookup field
+	//    (when available), or as an expanded [(left,in,child_ids)] """
+
+	/* if not ids:
+	       return [FALSE_LEAF]
+	   if left_model._parent_store:
+	       doms = OR([
+	           [('parent_path', '=like', rec.parent_path + '%')]
+	           for rec in left_model.browse(ids)
+	       ])
+	       if prefix:
+	           return [(left, 'in', left_model.search(doms).ids)]
+	       return doms
+	   else:
+	       parent_name = parent or left_model._parent_name
+	       child_ids = set(ids)
+	       while ids:
+	           ids = left_model.search([(parent_name, 'in', ids)]).ids
+	           child_ids.update(ids)
+	       return [(left, 'in', list(child_ids))]
+
+	*/
+	return nil
+}
+
+func parent_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]interface{}) *domain.TDomainNode {
+	/*
+	   // Return a domain implementing the parent_of operator for [(left,parent_of,ids)],
+	   // either as a range using the parent_path tree lookup field
+	   // (when available), or as an expanded [(left,in,parent_ids)]
+
+	              if left_model._parent_store:
+	                  parent_ids = [
+	                      int(label)
+	                      for rec in left_model.browse(ids)
+	                      for label in rec.parent_path.split('/')[:-1]
+	                  ]
+	                  if prefix:
+	                      return [(left, 'in', parent_ids)]
+	                  return [('id', 'in', parent_ids)]
+	              else:
+	                  parent_name = parent or left_model._parent_name
+	                  parent_ids = set()
+	                  for record in left_model.browse(ids):
+	                      while record:
+	                          parent_ids.add(record.id)
+	                          record = record[parent_name]
+	                  return [(left, 'in', list(parent_ids))]
+	*/
+	return nil
+
 }
 
 /*" Distribute any '!' domain operators found inside a normalized domain.
@@ -533,59 +522,60 @@ func create_substitution_leaf(leaf *TExtendedLeaf, new_elements *TDomainNode, ne
        ['|',('user_id','!=',4),('partner_id','not in',[1,2])]
 
   "*/
-func distribute_not(domain *TDomainNode) *TDomainNode {
-	if domain == nil {
-		return NewDomainNode() //返回空白确保循环不会出现==nil
+func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
+	if node == nil {
+		return domain.NewDomainNode() //返回空白确保循环不会出现==nil
 	}
 
-	stack := NewDomainNode()
+	stack := domain.NewDomainNode()
 	stack.Push("false")
-	result := NewDomainNode()
+	result := domain.NewDomainNode()
 
-	for _, node := range domain.Nodes() {
+	for _, n := range node.Nodes() {
 		is_negate := false
 		negate := stack.Pop()
 		if negate != nil {
 			is_negate = utils.StrToBool(negate.String())
 		}
 
-		//logger.Dbg("opop", isLeaf(node), node.Count(), parseDomain(node.Item(1)), node.String(0))
-		// # negate tells whether the subdomain starting with token must be negated
-		if isLeaf(node) {
-			// (...)
-			if is_negate {
-				left, operator, right := node.String(0), node.String(1), node.Item(2)
-				if _, has := TERM_OPERATORS_NEGATION[operator]; has {
-					result.Push(left, TERM_OPERATORS_NEGATION[operator], right)
-				} else {
-					result.Push(NOT_OPERATOR)
-					result.Push(node)
-				}
-			} else {
-				result.Push(node)
-			}
+		if n.IsValueNode() {
+			if op := n.String(); op != "" {
+				if op == domain.NOT_OPERATOR {
+					stack.Push(utils.BoolToStr(!is_negate))
+				} else if _, has := domain.DOMAIN_OPERATORS_NEGATION[op]; has {
+					if is_negate {
+						result.Push(domain.DOMAIN_OPERATORS_NEGATION[op])
+					} else {
+						result.Push(op)
+					}
 
-		} else if node.Count() > 1 && node.Item(0).IsDomainOperator() {
-			// [&,(...),(...)]
-			result.Push(node)
+					stack.Push(utils.BoolToStr(is_negate))
+					stack.Push(utils.BoolToStr(is_negate))
 
-		} else if op := node.String(); op != "" {
-			if op == NOT_OPERATOR {
-				stack.Push(utils.BoolToStr(!is_negate))
-			} else if _, has := DOMAIN_OPERATORS_NEGATION[op]; has {
-				if is_negate {
-					result.Push(DOMAIN_OPERATORS_NEGATION[op])
 				} else {
 					result.Push(op)
 				}
+			}
+		} else {
 
-				stack.Push(utils.BoolToStr(is_negate))
-				stack.Push(utils.BoolToStr(is_negate))
+			// (...)
+			// # negate tells whether the subdomain starting with token must be negated
 
+			if n.IsLeafNode() && is_negate {
+				left, operator, right := n.String(0), n.String(1), n.Item(2)
+				logger.Dbg("left, operator, right", left, operator, right)
+				if _, has := domain.TERM_OPERATORS_NEGATION[operator]; has {
+					result.Push(left, domain.TERM_OPERATORS_NEGATION[operator], right)
+				} else {
+					result.Push(domain.NOT_OPERATOR)
+					result.Push(n)
+				}
 			} else {
-				result.Push(op)
+				// [&,(...),(...)]
+				result.Push(n)
 			}
 		}
+
 	}
 
 	return result
@@ -622,7 +612,7 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 	}
 
 	if len(alias) > 64 {
-		logger.Warnf("Table alias name %s is longer than the 64 characters size accepted by default in postgresql.", alias)
+		logger.Errf("Table alias name %s is longer than the 64 characters size accepted by default in postgresql.", alias)
 	}
 
 	return alias, fmt.Sprintf("%s as %s", _quote(joined_tables[0][0]), _quote(alias))
@@ -641,8 +631,8 @@ func get_alias_from_query(from_query string) (string, string) {
 	}
 }
 
-func (self *TExpression) recursive_children(ids []interface{}, model *TModel, parent_field string, context map[string]interface{}) (*TDomainNode, error) {
-	result := NewDomainNode()
+func (self *TExpression) recursive_children(ids []interface{}, model *TModel, parent_field string, context map[string]interface{}) (*domain.TDomainNode, error) {
+	result := domain.NewDomainNode()
 	if ids == nil {
 		return result, nil
 	}
@@ -668,35 +658,6 @@ func (self *TExpression) recursive_children(ids []interface{}, model *TModel, pa
 	return result, nil // ids + recursive_children(ids2, model, parent_field)
 }
 
-// Return a domain implementing the child_of operator for [(left,child_of,ids)],
-// either as a range using the parent_left/right tree lookup fields
-// (when available), or as an expanded [(left,in,child_ids)]
-func (self *TExpression) child_of_domain(left *TDomainNode, ids *TDomainNode, left_model *TModel, parent string, prefix string, context map[string]interface{}) *TDomainNode {
-	result := NewDomainNode()
-	if left_model._parent_store {
-		/*    if left_model._parent_store and (not left_model.pool._init):
-		      # TODO: Improve where joins are implemented for many with '.', replace by:
-		      # doms += ['&',(prefix+'.parent_left','<',o.parent_right),(prefix+'.parent_left','>=',o.parent_left)]
-		      doms = []
-		      for o in left_model.browse(cr, uid, ids, context=context):
-		          if doms:
-		              doms.insert(0, OR_OPERATOR)
-		          doms += [AND_OPERATOR, ('parent_left', '<', o.parent_right), ('parent_left', '>=', o.parent_left)]
-		      if prefix:
-		          return [(left, 'in', left_model.search(cr, uid, doms, context=context))]
-		      return doms
-		  else:*/
-
-	} else {
-		result.Push(left)
-		result.Push("in")
-		result.Push(self.recursive_children(ids.Flatten(), left_model, parent, context))
-		return result
-	}
-
-	return result
-}
-
 // Pop a leaf to process.
 func (self *TExpression) pop() (eleaf *TExtendedLeaf) {
 	cnt := len(self.stack)
@@ -715,12 +676,12 @@ func (self *TExpression) push(eleaf *TExtendedLeaf) {
 
 //反转
 func (self *TExpression) reverse(lst []*TExtendedLeaf) {
-	var lTmp []*TExtendedLeaf
+	var tmp []*TExtendedLeaf
 	lCnt := len(lst)
 	for i := lCnt - 1; i >= 0; i-- {
-		lTmp = append(lTmp, lst[i])
+		tmp = append(tmp, lst[i])
 	}
-	copy(lst, lTmp)
+	copy(lst, tmp)
 }
 
 // Push a leaf to the results. This leaf has been fully processed and validated.
@@ -737,16 +698,16 @@ func (self *TExpression) push_result(leaf *TExtendedLeaf) {
 //   perform a name_search on comodel for each name
 //       return the list of related ids
 // 获得Ids
-func (self *TExpression) to_ids(value *TDomainNode, comodel *TModel, context map[string]interface{}, limit int64) *TDomainNode {
+func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, context map[string]interface{}, limit int64) *domain.TDomainNode {
 	var names []string
 
 	// 分类 id 直接返回 Name 则需要查询获得其Id
 	if value != nil {
 		// 如果是字符
-		if !value.IsList() && value.String() != "" {
+		if !value.IsListNode() && value.String() != "" {
 			names = append(names, value.String())
 
-		} else if value.IsList() && value.IsStringLeaf() {
+		} else if value.IsListNode() && value.IsStringList() {
 			// 如果传入的是字符则可能是名称
 			names = append(names, value.Strings()...)
 
@@ -759,7 +720,7 @@ func (self *TExpression) to_ids(value *TDomainNode, comodel *TModel, context map
 
 		}
 	} else {
-		logger.Warnf("Unexpected domain [%s], interpreted as False", Domain2String(value))
+		logger.Errf("Unexpected domain [%s], interpreted as False", domain.Domain2String(value))
 
 	}
 
@@ -774,7 +735,7 @@ func (self *TExpression) to_ids(value *TDomainNode, comodel *TModel, context map
 		}
 		//}
 
-		result := NewDomainNode()
+		result := domain.NewDomainNode()
 		for _, name := range name_get_list {
 			result.Push(name)
 
@@ -810,7 +771,7 @@ func (self *TExpression) to_ids(value *TDomainNode, comodel *TModel, context map
 func (self *TExpression) parse(context map[string]interface{}) error {
 	var (
 		ex_leaf               *TExtendedLeaf
-		left, operator, right *TDomainNode
+		left, operator, right *domain.TDomainNode
 		path                  []string
 		comodel               IModel
 		err                   error
@@ -824,9 +785,10 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 	self.reverse(self.stack)
 	for len(self.stack) > 0 {
 		ex_leaf = self.pop() // Get the next leaf to process
+		logger.Dbg("pop", ex_leaf.leaf.IsDomainOperator(), ex_leaf.leaf, ex_leaf.leaf.String())
 
 		// 获取各参数 # Get working variables
-		if isOperator(ex_leaf.leaf) {
+		if ex_leaf.leaf.IsDomainOperator() {
 			left = ex_leaf.leaf
 			operator = nil
 			right = nil
@@ -870,7 +832,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		// -> add directly to result
 		// ----------------------------------------
 		// 对操[作符/True/False]的条件直接添加，无需转换
-		if isOperator(ex_leaf.leaf) || ex_leaf.is_true_leaf() || ex_leaf.is_false_leaf() {
+		if ex_leaf.leaf.IsDomainOperator() || ex_leaf.is_true_leaf() || ex_leaf.is_false_leaf() {
 			self.push_result(ex_leaf)
 
 			/*
@@ -887,7 +849,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			*/
 		} else if field == nil {
 			// FIELD NOT FOUND
-			return fmt.Errorf("Invalid field %s in leaf %s", left.String(), Domain2String(ex_leaf.leaf))
+			return logger.Errf("Invalid field %s in leaf %s", left.String(), domain.Domain2String(ex_leaf.leaf))
 
 		} else if field.IsInheritedField() {
 			// ----------------------------------------
@@ -920,24 +882,18 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.GetName()), "id", model.obj.GetRelationByName(next_model.GetName()))
 			self.push(ex_leaf)
 
-		} else if left.String() == self.root_model.idField && utils.InStrings(operator.String(), "child_of", "parent_of") != -1 {
+		} else if fn, has := hierarchy_funcs[operator.String()]; has && left.String() == self.root_model.idField {
+			// 父子关系
 			// TODO check id 必须改为动态
 			ids2 := self.to_ids(right, model, context, 0)
-			var dom *TDomainNode
-
-			if operator.String() == "child_of" {
-				dom = self.child_of_domain(left, ids2, model, "", "", nil)
-			} else if operator.String() == "parent_of" {
-
-			}
-
+			dom := fn(left, ids2, model, "", "", nil)
 			dom = dom.Reversed()
 			for _, dom_leaf := range dom.Nodes() {
 				new_leaf := create_substitution_leaf(ex_leaf, dom_leaf, model, false)
 				self.push(new_leaf)
 			}
 
-		} else if field != nil && utils.InStrings(path[0], MAGIC_COLUMNS...) != -1 {
+		} else if utils.InStrings(path[0], MAGIC_COLUMNS...) != -1 {
 			self.push_result(ex_leaf)
 
 		} else if len(path) > 1 && field.Type() == "many2one" && field.IsAutoJoin() {
@@ -957,28 +913,28 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			//logger.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			// # res_partner.state_id = res_partner__state_id.id
 			ex_leaf.add_join_context(comodel.GetBase(), lFieldName, "id", lFieldName)
-			self.push(create_substitution_leaf(ex_leaf, NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
+			self.push(create_substitution_leaf(ex_leaf, domain.NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
 
 		} else if len(path) > 1 && field.Store() && field.Type() == "one2many" && field.IsAutoJoin() {
 			//logger.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			//  # res_partner.id = res_partner__bank_ids.partner_id
 			ex_leaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), lFieldName)
-			domain, err := Query2Domain(field.Domain()) //column._domain(model) if callable(column._domain) else column._domain
+			node, err := domain.String2Domain(field.Domain()) //column._domain(model) if callable(column._domain) else column._domain
 			if err != nil {
 				logger.Err(err)
 			}
-			self.push(create_substitution_leaf(ex_leaf, NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
-			if domain != nil {
-				domain, err = normalize_domain(domain)
+			self.push(create_substitution_leaf(ex_leaf, domain.NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
+			if node != nil {
+				node, err = normalize_domain(node)
 				if err != nil {
 					logger.Err(err)
 				}
-				domain = domain.Reversed()
-				for _, elem := range domain.Nodes() {
+				node = node.Reversed()
+				for _, elem := range node.Nodes() {
 					self.push(create_substitution_leaf(ex_leaf, elem, comodel.GetBase(), false))
 				}
 
-				op, err := Query2Domain(AND_OPERATOR)
+				op, err := domain.String2Domain(domain.AND_OPERATOR)
 				if err != nil {
 					logger.Err(err)
 				}
@@ -990,38 +946,38 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 
 		} else if len(path) > 1 && field.Store() && field.Type() == "many2one" {
 			//logger.Dbg(`if len(path) > 1 && field.Type == 'many2one'`)
-			domain := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
-			lDs, _ := comodel.Records().Domain(domain).Read() //search(cr, uid, [(path[1], operator, right)], context=dict(context, active_test=False))
+			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
+			lDs, _ := comodel.Records().Domain(domain_str).Read() //search(cr, uid, [(path[1], operator, right)], context=dict(context, active_test=False))
 			right_ids := lDs.Keys()
-			ex_leaf.leaf = NewDomainNode()
+			ex_leaf.leaf = domain.NewDomainNode()
 			ex_leaf.leaf.Push(path[0], "in")
 			ex_leaf.leaf.Push(right_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
 		} else if len(path) > 1 && field.Store() && utils.InStrings(field.Type(), "many2many", "one2many") != -1 {
 			// Making search easier when there is a left operand as column.o2m or column.m2m
-			domain := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
-			lDs, _ := comodel.Records().Domain(domain).Read()
+			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
+			lDs, _ := comodel.Records().Domain(domain_str).Read()
 			right_ids := lDs.Keys()
 
-			domain = fmt.Sprintf(`[('%s', 'in', [%s])]`, path[0], idsToSqlHolder(right_ids))
-			lDs, _ = model.Records().Domain(domain, right_ids...).Read()
+			domain_str = fmt.Sprintf(`[('%s', 'in', [%s])]`, path[0], idsToSqlHolder(right_ids))
+			lDs, _ = model.Records().Domain(domain_str, right_ids...).Read()
 			table_ids := lDs.Keys()
-			ex_leaf.leaf = NewDomainNode()
+			ex_leaf.leaf = domain.NewDomainNode()
 			ex_leaf.leaf.Push("id", "in")
 			ex_leaf.leaf.Push(table_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
 		} else if !field.Store() {
 			//# Non-stored field should provide an implementation of search.
-			var domain *TDomainNode
+			var node *domain.TDomainNode
 			if !field.Search() {
 				//# field does not support search!
 				logger.Errf("Non-stored field %s cannot be searched.", field.Name)
 				// if _logger.isEnabledFor(logging.DEBUG):
 				//     _logger.debug(''.join(traceback.format_stack()))
 				//# Ignore it: generate a dummy leaf.
-				domain = NewDomainNode()
+				node = domain.NewDomainNode()
 			} else {
 				//# Let the field generate a domain.
 				if len(path) > 1 {
@@ -1037,15 +993,15 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				//domain = field.determine_domain(recs, operator, right)
 			}
 
-			if domain == nil {
-				ex_leaf.leaf, err = Query2Domain(TRUE_LEAF)
+			if node == nil {
+				ex_leaf.leaf, err = domain.String2Domain(domain.TRUE_LEAF)
 				if err != nil {
 					logger.Err(err)
 				}
 				self.push(ex_leaf)
 			} else {
-				domain = domain.Reversed()
-				for _, elem := range domain.Nodes() {
+				node = node.Reversed()
+				for _, elem := range node.Nodes() {
 					self.push(create_substitution_leaf(ex_leaf, elem, model, true))
 				}
 			}
@@ -1072,30 +1028,30 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			// -------------------------------------------------
 
 			if field.Type() == "datetime" && right != nil && right.Count() == 10 {
-				if operator.In(">", "<=") {
+				if operator.ValueIn(">", "<=") {
 					//  right += ' 23:59:59'
 				} else {
 					//  right += ' 00:00:00'
 				}
-				ltemp := NewDomainNode()
+				ltemp := domain.NewDomainNode()
 				ltemp.Push(left, operator, right)
 				self.push(create_substitution_leaf(ex_leaf, ltemp, model, false))
 
 			} else if field.Translatable() && right != nil { //column.translate and not callable(column.translate) and right:
-
+				// 翻译
 			} else {
-				//logger.Dbg(`_push_result`)
 				self.push_result(ex_leaf)
 			}
 		}
 
 	} // end of for
+
 	// ----------------------------------------
 	// END OF PARSING FULL DOMAIN
 	// -> generate joins
 	// ----------------------------------------
 	var joins, conditions []string
-	joins = make([]string, 0) // NewDomainNode()
+	joins = make([]string, 0) // domain.NewDomainNode()
 	for _, eleaf := range self.result {
 		conditions = eleaf.get_join_conditions()
 		joins = append(joins, conditions...)
@@ -1115,7 +1071,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	//first_right_value interface{}   // 提供最终值以供条件判断
 	)
 	var vals []interface{}              // 该Term 的值 每个Or,And等条件都有自己相当数量的值
-	res_params = make([]interface{}, 0) //NewDomainNode()
+	res_params = make([]interface{}, 0) //domain.NewDomainNode()
 	res_arg = params                    // 初始化剩余参数
 
 	model := eleaf.model
@@ -1132,20 +1088,20 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	//logger.Dbg("_leaf_to_sql", is_field, left.String(), operator.String(), right.String(), right.IsList())
 
 	// 重新检查合法性 不行final sanity checks - should never fail
-	if utils.InStrings(operator.String(), append(TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
-		logger.Warnf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
+	if utils.InStrings(operator.String(), append(domain.TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
+		logger.Errf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
 	}
 
-	if !(left.In(TRUE_LEAF, FALSE_LEAF) || model.GetFieldByName(left.String()) != nil || left.In(MAGIC_COLUMNS)) { //
-		logger.Warnf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
+	if !(left.ValueIn(domain.TRUE_LEAF, domain.FALSE_LEAF) || model.GetFieldByName(left.String()) != nil || left.ValueIn(MAGIC_COLUMNS)) { //
+		logger.Errf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 	}
 	//        assert not isinstance(right, BaseModel), \
 	//            "Invalid value %r in domain term %r" % (right, leaf)
 
 	table_alias := eleaf.generate_alias()
 	holder_count := 0
-	if right.IsList() {
-		for _, node := range right.children {
+	if right.IsListNode() {
+		for _, node := range right.Nodes() {
 			// 识别SQL占位符并切取值
 			if utils.InStrings(node.String(), "?", "%s") != -1 {
 				vals = append(vals, params[holder_count:1]...)
@@ -1188,11 +1144,11 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		}
 	*/
 
-	if leaf.String() == TRUE_LEAF {
+	if leaf.String() == domain.TRUE_LEAF {
 		res_query = "TRUE"
 		res_params = nil
 
-	} else if leaf.String() == FALSE_LEAF {
+	} else if leaf.String() == domain.FALSE_LEAF {
 		res_query = "FALSE"
 		res_params = nil
 
@@ -1206,8 +1162,8 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		res_query = fmt.Sprintf(`%s."%s" not in (%s))`, table_alias, left.String(), holders)
 		res_params = append(res_params, vals...)
 
-	} else if operator.In("in", "not in") { //# 数组值
-		if right.IsList() {
+	} else if operator.ValueIn("in", "not in") { //# 数组值
+		if right.IsListNode() {
 			res_params = append(res_params, vals...)
 
 			check_nulls := false
@@ -1219,7 +1175,6 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 				}
 			}
 
-			//logger.Dbg("res_params", res_params)
 			// In 值操作
 			if len(vals) > 0 {
 				holders := ""
@@ -1259,7 +1214,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 
 		} else if utils.IsBoolItf(vals[0]) { // Must not happen
 			r := ""
-			logger.Warnf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
+			logger.Errf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
 			if operator.String() == "in" {
 				if utils.Itf2Bool(vals[0]) {
 					r = "NOT NULL"
@@ -1309,7 +1264,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			res_params = nil
 		} else {
 			// '=?' behaves like '=' in other cases
-			lDomain, err := Query2Domain(fmt.Sprintf(`[('%s','=','%s')]`, left.String(), right.String()))
+			lDomain, err := domain.String2Domain(fmt.Sprintf(`[('%s','=','%s')]`, left.String(), right.String()))
 			if err != nil {
 				logger.Err(err)
 			}
@@ -1323,7 +1278,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	} else {
 		// TODO 字段值格式化
 		// 是否需要添加“%%”
-		need_wildcard := operator.In("like", "ilike", "not like", "not ilike")
+		need_wildcard := operator.ValueIn("like", "ilike", "not like", "not ilike")
 		add_null := right.String() == ""
 
 		// 兼容 =like 和 =ilike
@@ -1358,7 +1313,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			column := fmt.Sprintf("%s.%s", table_alias, self.orm.dialect.Quote(left.String()))
 			res_query = fmt.Sprintf("(%s %s %s)", column+cast, sql_operator, format)
 
-		} else if left.In(MAGIC_COLUMNS) {
+		} else if left.ValueIn(MAGIC_COLUMNS) {
 			res_query = fmt.Sprintf("(%s.\"%s\"%s %s ?)", table_alias, left.String(), cast, sql_operator)
 
 		} else {
@@ -1381,34 +1336,36 @@ func (self *TExpression) ToSql(params ...interface{}) ([]string, []interface{}) 
 	return self.to_sql(params...)
 }
 
+// 传递domain值并重新生成
 // params sql value
 func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{}) {
 	var (
-		stack  = NewDomainNode()
+		stack  = domain.NewDomainNode()
 		ops    map[string]string
-		q1, q2 *TDomainNode
+		q1, q2 *domain.TDomainNode
 		query  string
 	)
-	res_params := make([]interface{}, 0)
 
 	// 翻转顺序以便递归生成
 	// Process the domain from right to left, using a stack, to generate a SQL expression.
 	self.reverse(self.result)
 	params = utils.ReverseItfs(params...)
+
 	// 遍历并生成
+	res_params := make([]interface{}, 0)
 	for _, eleaf := range self.result {
-		if isLeaf(eleaf.leaf, true) {
+		if eleaf.leaf.IsLeafNode() {
 			query, query_params, other_params := self.leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.
 			params = other_params                                                // 剩余的params参数
 			res_params = utils.SlicInsert(res_params, 0, query_params...)
 			stack.Push(query)
 
-		} else if eleaf.leaf.String() == NOT_OPERATOR {
+		} else if eleaf.leaf.String() == domain.NOT_OPERATOR {
 			stack.Push("(NOT (%s))", stack.Pop().String())
 
 		} else {
 			// domain 操作符
-			ops = map[string]string{AND_OPERATOR: " AND ", OR_OPERATOR: " OR "} //TODO 优化
+			ops = map[string]string{domain.AND_OPERATOR: " AND ", domain.OR_OPERATOR: " OR "} //TODO 优化
 			q1 = stack.Pop()
 			q2 = stack.Pop()
 			if q1 != nil && q2 != nil {
@@ -1418,19 +1375,12 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 		}
 	}
 
-	// TODO 移除
-	//if len(params) > 0 {
-	//	logger.Dbg("ttt2", params)
-	//	res_params = append(res_params, params...)
-	//}
-
-	// #上面Pop取出合并后应该为1
-	if stack.Count() != 1 {
-		res_params = nil
-		logger.Errf("domain to sql error: stack.Len() %d %v", stack.Count(), self.result)
+	// #上面Pop取出合并后应该为单节点query值
+	if !stack.IsValueNode() {
+		logger.Warnf("domain to sql error: stack.Len() %d %v", stack.Count(), self.result)
 	}
 
-	query = stack.String(0)
+	query = stack.String()
 	joins := strings.Join(self.joins, " AND ")
 	if joins != "" {
 		query = fmt.Sprintf("(%s) AND %s", joins, query)
@@ -1444,8 +1394,10 @@ func (self *TExpression) get_tables() *utils.TStringList {
 	tables := utils.NewStringList()
 	for _, leaf := range self.result {
 		for _, table := range leaf.get_tables().Items() {
-			if !tables.Has(table.String()) {
-				tables.PushString(table.String())
+			name := table.String()
+			logger.Dbg("get_tables ", name)
+			if !tables.Has(name) {
+				tables.PushString(name)
 			}
 		}
 	}

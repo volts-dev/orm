@@ -5,6 +5,9 @@ import (
 	"strings"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/domain"
+	"github.com/volts-dev/orm/logger"
+
 	"github.com/volts-dev/utils"
 )
 
@@ -260,7 +263,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 	cotable_name := field.comodel_name   //# 字段关联表名
 	reltable_name := field.relmodel_name //# 字段M2m关系表名
 
-	domain, err := Query2Domain(field.Domain())
+	node, err := domain.String2Domain(field.Domain())
 	if err != nil {
 		return err
 	}
@@ -269,7 +272,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 
 	//table_name := field.comodel_name//sess.Statement.TableName()
 	sess.Model(field.Base().comodel_name)
-	wquery, err := sess.Statement.where_calc(domain, false, nil)
+	wquery, err := sess.Statement.where_calc(node, false, nil)
 	if err != nil {
 		return err
 	}
@@ -299,7 +302,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 	)
 
 	var res_ds *dataset.TDataSet
-	var less_ids []interface{}
+
 	ds.First()
 	for !ds.Eof() {
 		id := ds.FieldByName(id_field).AsInterface()
@@ -308,34 +311,20 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 		params := append(where_params, id)
 
 		// # 获取字段关联表的字符
-		ids := ctx.Session.Orm().Cacher.GetBySql(cacher_table_name, query, params)
-		if len(ids) > 0 {
-			// # 查询 field.Relation 表数据
-			records, less := session.Orm().Cacher.GetByIds(cacher_table_name, ids...)
-			if len(less) == 0 {
-				res_ds = dataset.NewDataSet()
-				res_ds.AppendRecord(records...)
-			} else {
-				less_ids = less
-			}
-		}
+		res_ds = ctx.Session.Orm().Cacher.GetBySql(cacher_table_name, query, params)
+		if res_ds == nil {
+			// TODO 只查询缺的记录不查询所有
+			// # 如果缺省缓存记录重新查询
 
-		// TODO 只查询缺的记录不查询所有
-		// # 如果缺省缓存记录重新查询
-		if ids == nil || len(less_ids) > 0 {
 			ds, err := sess.Query(query, params...)
 			if err != nil {
 				logger.Err(err)
-
 				ds.Next()
 				continue
 			}
 
 			// # store result in cache
-			session.Orm().Cacher.PutBySql(cacher_table_name, query, where_params, ds.Keys()...) // # 添加Sql查询结果
-			for _, id := range ds.Keys() {
-				session.Orm().Cacher.PutById(cacher_table_name, id, ds.RecordByKey(id)) // # 添加记录缓存
-			}
+			session.Orm().Cacher.PutBySql(cacher_table_name, query, where_params, ds) // # 添加Sql查询结果
 
 			res_ds = ds
 		}
@@ -351,9 +340,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
 			res_ds.Next()
 		}
 
-		// 修改数据集
-		ds.FieldByName(field.Name()).AsInterface(list)
-
+		ds.FieldByName(field.Name()).AsInterface(list) // 修改数据集
 		ds.Next()
 	}
 
@@ -579,7 +566,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 		}
 
 	default:
-		logger.Warnf("%s OnWrite many2one fail", field.Name())
+		logger.Errf("%s OnWrite many2one fail", field.Name())
 
 	}
 
@@ -624,7 +611,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
 	ids := ds.Keys()
 	sds, err := rel_model.Records().In(field.Name(), ids).Read()
 	if err != nil {
-		logger.Dbgf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
+		logger.Dbg("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
 		return err
 	}
 

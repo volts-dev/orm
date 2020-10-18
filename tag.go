@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -485,7 +486,7 @@ func tag_unique(ctx *TFieldContext) {
 	if index, ok = model.Obj().indexes[field_name]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index = NewIndex(field_name, UniqueType)
+		index = newIndex(field_name, UniqueType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}
@@ -503,7 +504,7 @@ func tag_index(ctx *TFieldContext) {
 	if index, ok = model.Obj().indexes[field_name]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index := NewIndex(field_name, IndexType)
+		index := newIndex(field_name, IndexType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}

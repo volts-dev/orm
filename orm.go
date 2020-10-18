@@ -20,6 +20,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/cacher"
+	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -52,7 +54,7 @@ type (
 		connected   bool
 
 		// public
-		Cacher          *TCacher
+		Cacher          *cacher.TCacher
 		FieldIdentifier string // 字段 tag 标记
 		TableIdentifier string // 表 tag 标记
 		TimeZone        *time.Location
@@ -91,7 +93,7 @@ func NewOrm(dataSource *TDataSource) (*TOrm, error) {
 	}
 
 	// Cacher
-	orm.Cacher = newCacher()
+	orm.Cacher = cacher.NewCacher()
 
 	// OSV
 	orm.osv = newOsv(orm)
