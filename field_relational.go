@@ -442,17 +442,14 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldEventContext) error {
 		for _, v := range ctx.Value.([]int) {
 			ids = append(ids, v)
 		}
-
 	case []int64:
 		for _, v := range ctx.Value.([]int64) {
 			ids = append(ids, v)
 		}
-
 	case []interface{}:
 		ids = ctx.Value.([]interface{})
-
 	default:
-		logger.Errf("M2M field could not support this type of value %v", ctx.Value)
+		logger.Errf("M2M field name <%s> could not support this type of value %v", ctx.Field.Name(), ctx.Value)
 	}
 
 	if len(ids) > 0 {
@@ -494,7 +491,6 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldEventContext) error {
 }
 
 func (self *TMany2OneField) Init(ctx *TFieldContext) {
-	//col := ctx.Column
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -560,8 +556,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 
 	switch ctx.Value.(type) {
 	case []interface{}:
-		//logger.Dbg("TMany2OneField", ctx.Value)
-		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
+ 		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
 			ctx.Value = lst[0]
 		}
 
@@ -611,7 +606,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
 	ids := ds.Keys()
 	sds, err := rel_model.Records().In(field.Name(), ids).Read()
 	if err != nil {
-		logger.Dbg("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
+		logger.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
 		return err
 	}
 

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/volts-dev/orm/domain"
+
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
@@ -750,8 +752,7 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 			continue // # 关系表无数据更新则忽略
 		}
 
-		//utils.Dbg(" rel table", tbl)
-		// ???删除关联外键
+ 		// ???删除关联外键
 		//if _, has := vals[self.model._relations[tbl]]; has {
 		//	delete(vals, self.model._relations[tbl])
 		//}
@@ -834,14 +835,17 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 		// 更新关联字段
 		for _, name := range lNewTodo {
 			lField := self.Statement.model.GetFieldByName(name)
-			//logger.Dbg("create lNewTodo", name, lField, res_id)
-			if lField != nil {
-				lField.OnWrite(&TFieldEventContext{
+ 			if lField != nil {
+				err = lField.OnWrite(&TFieldEventContext{
 					Session: self,
 					Model:   self.Statement.model,
 					Id:      res_id,
 					Field:   lField,
 					Value:   vals[name]})
+				if err != nil {
+					logger.Err(err)
+
+				}
 			}
 		}
 	}
@@ -1035,6 +1039,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 	return new_vals, rel_vals, upd_todo, nil
 }
 
+// TODO 只更新变更字段值
 // #fix:由于更新可能只对少数字段更新,更新不适合使用缓存
 func (self *TSession) write(src interface{}, context map[string]interface{}) (res_effect int64, res_err error) {
 	if len(self.Statement.model.GetName()) < 1 {
@@ -1042,17 +1047,17 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 	}
 
 	var (
-		ids      []interface{}
-		lNewVals map[string]interface{}
-		lRefVals map[string]map[string]interface{}
-		lNewTodo []string
+		ids              []interface{}
+		values, lNewVals map[string]interface{}
+		lRefVals         map[string]map[string]interface{}
+		lNewTodo         []string
 
 		query                     *TQuery
 		from_clause, where_clause string
 		where_clause_params       []interface{}
 	)
 
-	lNewVals, res_err = self.validateValues(src)
+	values, res_err = self.validateValues(src)
 	if res_err != nil {
 		return 0, res_err
 	}
@@ -1062,7 +1067,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		ids = self.Statement.IdParam
 	} else {
 		idField := self.Statement.model.idField
-		if _, has := lNewVals[idField]; has {
+		if _, has := values[idField]; has {
 			//  必须不是 Set 语句值
 			if id, has := self.Statement.Sets[idField]; !has {
 				ids = []interface{}{id}
@@ -1090,6 +1095,10 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}
 
+	if where_clause != "" {
+		where_clause = "WHERE " + where_clause
+	}
+
 	// the PK condition status
 	includePkey := len(ids) > 0
 	if !includePkey && where_clause == "" {
@@ -1098,7 +1107,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 
 	if self.IsClassic {
 		//???
-		for field, _ := range lNewVals {
+		for field, _ := range values {
 			var fobj IField
 			fobj = self.Statement.model.GetFieldByName(field)
 			if fobj == nil {
@@ -1113,7 +1122,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 			}
 		}
 
-		lNewVals, lRefVals, lNewTodo, res_err = self.separateValues(lNewVals, self.Statement.Fields, self.Statement.NullableFields, false, !includePkey)
+		lNewVals, lRefVals, lNewTodo, res_err = self.separateValues(values, self.Statement.Fields, self.Statement.NullableFields, false, !includePkey)
 		if res_err != nil {
 			return 0, res_err
 		}
@@ -1147,7 +1156,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		params = append(params, where_clause_params...)
 
 		// format sql
-		sql := fmt.Sprintf(`UPDATE "%s" SET %s WHERE %s `,
+		sql := fmt.Sprintf(`UPDATE "%s" SET %s %s `,
 			from_clause,
 			set_clause,
 			where_clause,
@@ -1212,9 +1221,9 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 	}
 
+	// TODO 计算字段预先计算好值更新到记录里而不单一更新
 	// 更新计算字段
 	for _, name := range lNewTodo {
-		//logger.Dbg(name)
 		lField := self.Statement.model.GetFieldByName(name)
 		if lField != nil {
 			err := lField.OnWrite(&TFieldEventContext{
@@ -1222,12 +1231,14 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 				Model:   self.Statement.model,
 				Id:      ids[0], // TODO 修改获得更合理
 				Field:   lField,
-				Value:   lNewVals[name],
+				Value:   values[name],
 			})
 			if err != nil {
 				logger.Err(err)
 
 			}
+
+			res_effect++
 		}
 	}
 
@@ -1306,23 +1317,6 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 	inherited := make([]string, 0)
 	computed := make([]string, 0) // 数据库没有的字段
 
-	/*
-		// get data ids with query
-		var ids []interface{}
-		if len(self.Statement.IdParam) > 0 {
-			ids = self.Statement.IdParam
-		} else {
-			var err error
-			ids, err = self.search("", nil)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(ids) == 0 {
-				return dataset.NewDataSet(), nil
-			}
-		}
-	*/
 	// 字段分类
 	// 验证Select * From
 	if len(self.Statement.Fields) > 0 {
@@ -1783,15 +1777,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 
 	order_by = self.Statement.generate_order_by(query, context) // TODO 未完成
 	from_clause, where_clause, where_clause_params = query.get_sql()
-	//logger.Dbg("from_clause", from_clause)
-	//logger.Dbg("where_clause", where_clause)
-	//logger.Dbg("where_clause_params", where_clause_params)
-	//} else {
-	//	from_clause = self.Statement.model.GetName()
-	//	//where_clause, where_clause_params = self.Statement.WhereClause, self.Statement.Params //self.Statement.generate_query(context, true, true, false, true, true, true, true, nil)
-	//	where_clause, where_clause_params = self.Statement.WhereClause, self.Statement.Params //self.Statement.generate_query(context, true, true, false, true, true, true, true, nil)
-	//}
-
+ 
 	if where_clause != "" {
 		where_clause = fmt.Sprintf(` WHERE %s`, where_clause)
 	}
@@ -1878,6 +1864,12 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 		where_clause_params []interface{}
 	)
 	{ // 生成查询条件
+		// 当指定了主键其他查询条件将失效
+		if len(self.Statement.IdParam) != 0 {
+			self.Statement.domain.Clear() // 清楚其他查询条件
+			self.Statement.domain.IN(self.Statement.model.idField, self.Statement.IdParam...)
+		}
+		domain.PrintDomain(self.Statement.domain)
 		query, err = self.Statement.where_calc(self.Statement.domain, false, nil)
 		if err != nil {
 			return nil, "", err
@@ -1934,12 +1926,15 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 		// # determine the actual query to execute
 		from_clause, where_clause, where_clause_params = query.get_sql()
 
+		if where_clause != "" {
+			where_clause = "WHERE " + where_clause
+		}
 	}
 
 	//logger.Dbg("from_clause ", from_clause)
 	//logger.Dbg("where_clause ", where_clause)
 	logger.Dbg("params ", where_clause_params)
-	res_sql = fmt.Sprintf(`SELECT %s FROM %s WHERE %s %s %s %s`,
+	res_sql = fmt.Sprintf(`SELECT %s FROM %s %s %s %s %s`,
 		select_clause,
 		from_clause,
 		where_clause,

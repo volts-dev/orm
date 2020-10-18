@@ -57,15 +57,13 @@ func (self *TIdField) onConvertToRead(session *TSession, cols []string, record [
 		node := domain.NewDomainNode()
 
 		for I := 0; I < len(cols); I++ {
-			//logger.Dbg(len(cols), cols[I], "=", value2FieldTypeValue(self, reflect.ValueOf(record[I]).Elem().Interface()))
-			cond := domain.NewDomainNode(cols[I], "=", value2FieldTypeValue(self, reflect.ValueOf(record[I]).Elem().Interface()))
+ 			cond := domain.NewDomainNode(cols[I], "=", value2FieldTypeValue(self, reflect.ValueOf(record[I]).Elem().Interface()))
 			node.AND(cond)
 		}
 
 		id := uuid.Generate().Int64()
 		session.New().Set("id", id).Domain(node).Write(nil) // 无需额外数据写入
-		logger.Dbg(id, domain.Domain2String(node))
-		return id
+ 		return id
 	} else {
 		return value2FieldTypeValue(self, value)
 	}

@@ -64,12 +64,10 @@ func parseDomain(node *TDomainNode) string {
 				IsList = true
 				str_lst = append(str_lst, item.Text)
 			} else*/if item.IsListNode() {
-				//utils.Dbg("IsList", item.text)
-				str := parseDomain(item)
+ 				str := parseDomain(item)
 				str_lst = append(str_lst, str)
 			} else {
-				//logger.Dbg("_update val ", item.Value)
-				//str_lst = append(str_lst, node.Quote(item.Text))
+ 				//str_lst = append(str_lst, node.Quote(item.Text))
 				str_lst = append(str_lst, item.String())
 			}
 		}

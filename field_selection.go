@@ -55,8 +55,7 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 	logger.Assert(len(params) > 0, "Selection(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 
 	fld.Base()._compute = "" //初始化
-	//logger.Dbg(arg)
-	lStr := strings.Trim(params[0], "'")
+ 	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
 	//logger.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base().modelValue, ctx.Model.Base().modelValue.MethodByName(lStr))
 	//if m := model.MethodByName(lStr); m != nil {

@@ -565,8 +565,10 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 
 func (self *TStatement) _check_qorder(word string) (result bool) {
 	re, err := regexp.Compile(`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+$`) //`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+(?<!,)$`
-	logger.Err(err)
-	//logger.Dbg("_check_qorder", word, re)
+	if err != nil {
+		logger.Err(err)
+	}
+
 	//matches := re.FindAllStringSubmatch(word, -1)
 	if re.Match([]byte(word)) {
 		//  raise UserError(_('Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)'))

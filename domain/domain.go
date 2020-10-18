@@ -200,15 +200,12 @@ func (self *TDomainNode) IN(name string, args ...interface{}) *TDomainNode {
 		return self
 	}
 
-	keys := NewDomainNode(args...)
-	if keys.nodeType == VALUE_NODE || keys.nodeType == LIST_NODE {
-		cond := NewDomainNode()
-		cond.Push(name)
-		cond.Push("IN")
-		cond.Push(keys)
-		cond.nodeType = LEAF_NODE
-		self.OP(AND_OPERATOR, cond)
-	}
+	cond := NewDomainNode()
+	cond.Push(name)
+	cond.Push("IN")
+	cond.Push(NewDomainNode(args...))
+	cond.nodeType = LEAF_NODE
+	self.OP(AND_OPERATOR, cond)
 
 	return self
 }
@@ -230,10 +227,9 @@ func (self *TDomainNode) String(idx ...int) string {
 	}
 
 	if !self.IsValueNode() {
-		//logger.Dbg("!IsValueNode")
-		return parseDomain(self)
+ 		return parseDomain(self)
 	}
-	//logger.Dbg("IsValueNode", self.Value)
+ 
 	return utils.Itf2Str(self.Value)
 }
 

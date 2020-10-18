@@ -40,13 +40,13 @@ func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 	for _, table := range test_orm.GetModels() {
 		table_Names = append(table_Names, table)
 	}
-	/*
-		if len(table_Names) > 0 {
-			if err = test_orm.DropTables(table_Names...); err != nil {
-				return err
-			}
+
+	if len(table_Names) > 0 {
+		if err = test_orm.DropTables(table_Names...); err != nil {
+			return err
 		}
-	*/
+	}
+
 	_, err = test_orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),

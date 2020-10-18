@@ -171,8 +171,7 @@ func (self *TExtendedLeaf) generate_alias() string {
 	}
 
 	alias, _ /* alias_statement*/ := generate_table_alias(self.models[0].GetName(), links)
-	//logger.Dbg("generate_alias", alias)
-	return alias
+ 	return alias
 }
 
 func (self *TExtendedLeaf) is_true_leaf() bool {
@@ -254,8 +253,7 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 	for _, context := range self.join_context {
 		links = append(links, []string{context.DestModel.GetName(), context.Link})
 		_, alias_statement := generate_table_alias(self.models[0].GetName(), links)
-		logger.Dbg("get_tables ", alias_statement)
-
+ 
 		tables.PushString(alias_statement)
 	}
 
@@ -269,8 +267,7 @@ func (self *TExtendedLeaf) get_join_conditions() (conditions []string) {
 		previous_alias := alias
 		alias += "__" + context.Link
 		condition := fmt.Sprintf(`"%s"."%s"="%s"."%s"`, previous_alias, context.SourceFiled, alias, context.DestFiled)
-		//logger.Dbg("condition", condition)
-		conditions = append(conditions, condition)
+ 		conditions = append(conditions, condition)
 	}
 
 	return conditions
@@ -563,8 +560,7 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 
 			if n.IsLeafNode() && is_negate {
 				left, operator, right := n.String(0), n.String(1), n.Item(2)
-				logger.Dbg("left, operator, right", left, operator, right)
-				if _, has := domain.TERM_OPERATORS_NEGATION[operator]; has {
+ 				if _, has := domain.TERM_OPERATORS_NEGATION[operator]; has {
 					result.Push(left, domain.TERM_OPERATORS_NEGATION[operator], right)
 				} else {
 					result.Push(domain.NOT_OPERATOR)
@@ -785,8 +781,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 	self.reverse(self.stack)
 	for len(self.stack) > 0 {
 		ex_leaf = self.pop() // Get the next leaf to process
-		logger.Dbg("pop", ex_leaf.leaf.IsDomainOperator(), ex_leaf.leaf, ex_leaf.leaf.String())
-
+ 
 		// 获取各参数 # Get working variables
 		if ex_leaf.leaf.IsDomainOperator() {
 			left = ex_leaf.leaf
@@ -820,8 +815,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 		}
 
-		//logger.Dbg("Leaf>", path, model, field, IsInheritField)
-		// ########################################
+ 		// ########################################
 		// 			解析修改leaf 兼容字段
 		// ########################################
 

@@ -325,7 +325,6 @@ func tag_extends(ctx *TFieldContext) {
 				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
 				if lNewFld.Base().isPrimaryKey && lNewFld.Base().isAutoIncrement {
 					model.GetBase().idField = lNewFld.Name()
-					//logger.Dbg("RecordField", fld.Name())
 				}
 
 				model.GetBase().obj.SetFieldByName(fld.Name(), lNewFld)
@@ -607,7 +606,6 @@ func tag_table_name(ctx *TFieldContext) {
 		if name != "" { // 检测合法不为空
 			model.GetBase().name = fmtModelName(name)
 			//model.GetBase().table.Name = fmtModelName(name) //strings.Replace(name, ".", "_", -1)
-			//logger.Dbg("tag_table_name", params, name, model.GetBase().name, model.GetBase().table.Name)
 		}
 	}
 }

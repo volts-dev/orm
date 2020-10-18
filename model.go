@@ -168,11 +168,6 @@ func (self *TModel) GetRecordName() string {
 	return self._rec_name
 }
 
-//TODO 废除 获取主键字段名称
-func (self *TModel) ___GetKeyName() string {
-	return self.GetRecordName()
-}
-
 // TODO 优化
 func (self *TModel) GetColumnsSeq() []string {
 	return self.obj.columnsSeq
@@ -188,11 +183,6 @@ func (self *TModel) SetName(n string) {
 	self.name = n
 	//self._table = strings.Replace(n, ".", "_", -1)
 	//	self.table.Name = strings.Replace(n, ".", "_", -1)
-}
-
-// 获取Model名称
-func (self *TModel) ___GetModelName() string {
-	return self.name
 }
 
 // 返回Model的描述字符串
@@ -366,89 +356,6 @@ func (self *TModel) __search_name(name string, args *utils.TStringList, operator
 	return
 }
 
-/*
-   convert ``value`` from the cache to a value as returned by method
-   :meth:`BaseModel.read`
-
-   :param bool use_name_get: when True, value's diplay name will
-       be computed using :meth:`BaseModel.name_get`, if relevant
-       for the field
-*/
-func (self *TModel) __convert_to_read(field IField, value interface{}, use_name_get bool) (result interface{}) {
-	switch field.Type() {
-	case "selection":
-		lMehodName := field.Compute()
-		//logger.Dbg("selection:", lMehodName, self.modelValue.MethodByName(lMehodName))
-		if m := self.MethodByName(lMehodName); m != nil {
-			/*		//if m := self.modelValue.MethodByName(lMehodName); m.IsValid() {
-					//logger.Dbg("selection:", m, self.modelValue)
-					m.SetArgs(self.modelValue)
-					if m.Call() {
-						if res, ok := m.AsInterface().([][]string); ok {
-							field.Selections(res...)
-						}
-					}
-
-					/*results := m.Call([]reflect.Value{self.modelValue}) //
-					//logger.Dbg("selection:", results)
-					if len(results) == 1 {
-						//fld.Selection, _ = results[0].Interface().([][]string)
-						if res, ok := results[0].Interface().([][]string); ok {
-							field.Selections(res...)
-						}
-
-					}*/
-		}
-	case "one2many":
-		break
-	case "many2one":
-		if use_name_get && value != nil && value != BlankNumItf && value != BlankStrItf {
-			//# evaluate name_get() as superuser, because the visibility of a
-			//# many2one field value (id and name) depends on the current record's
-			//# access rights, and not the value's access rights.
-
-			//   value_sudo = value.sudo()
-			//# performance trick: make sure that all records of the same
-			//# model as value in value.env will be prefetched in value_sudo.env
-			// value_sudo.env.prefetch[value.name].update(value.env.prefetch[value.name])
-			lModel, err := self.osv.GetModel(field.Base().RelateModelName()) // #i
-			if err != nil {
-				logger.Err(err, "@convert_to_read")
-			}
-
-			if lModel != nil {
-				//logger.Dbg("CTR:", field.RelateModelName(), lModel, value, lId)
-				// 验证返回Id,Name 或者 空
-				//id_name := lModel.NameGet([]string{lId})
-				ds, err := lModel.NameGet([]interface{}{value})
-				if err != nil {
-					return nil
-
-				}
-
-				if ds.Count() > 0 {
-					//return id_name[0]
-					return []string{ds.FieldByName("id").AsString(), ds.FieldByName("name").AsString()}
-				} else {
-					return nil
-				}
-
-			} else {
-				// # Should not happen, unless the foreign key is missing.
-			}
-
-		}
-		return value
-	default:
-		if value != nil {
-			return value
-		} else {
-			return nil
-		}
-	}
-	return
-}
-
 //根据名称创建简约记录
 func (self *TModel) name_create() {
 
@@ -545,10 +452,6 @@ func (self *TModel) Unlink(ids ...string) bool {
 }*/
 func (self *TModel) GetName() string {
 	return self.name
-}
-
-func (self *TModel) ___db_ref_table() *TModel {
-	return self
 }
 
 /*
