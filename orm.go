@@ -9,15 +9,12 @@ import (
 	"bufio"
 	"bytes"
 	"database/sql"
-	"errors"
 	"fmt"
 	"go/ast"
 	"io"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/cacher"
@@ -55,9 +52,9 @@ type (
 
 		// public
 		Cacher          *cacher.TCacher
+		TimeZone        *time.Location
 		FieldIdentifier string // 字段 tag 标记
 		TableIdentifier string // 表 tag 标记
-		TimeZone        *time.Location
 	}
 )
 
@@ -162,7 +159,7 @@ func (self *TOrm) Ping() error {
 
 // close the entire orm engine
 func (self *TOrm) Close() error {
-	// TODO
+	// TODO more
 	return self.db.Close()
 }
 
@@ -202,11 +199,7 @@ func (self *TOrm) QuoteStr() string {
 	return self.dialect.QuoteStr()
 }
 
-func (self *TOrm) ___Quote(keyName string) string {
-	return self.___fmtQuote(keyName)
-}
-
-func (self *TOrm) log_exec_sql(sql string, args []interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
+func (self *TOrm) logExecSql(sql string, args []interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
 	if self.showSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
@@ -222,7 +215,7 @@ func (self *TOrm) log_exec_sql(sql string, args []interface{}, executionBlock fu
 	}
 }
 
-func (self *TOrm) log_query_sql(sql string, args []interface{}, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
+func (self *TOrm) logQuerySql(sql string, args []interface{}, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
 	if self.showSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
@@ -236,230 +229,6 @@ func (self *TOrm) log_query_sql(sql string, args []interface{}, executionBlock f
 	} else {
 		return executionBlock()
 	}
-}
-
-// format the model name to the same
-func fmtModelName(name string) string {
-	return utils.SnakeCasedName(utils.Trim(name))
-}
-
-// format the field name to the same
-func fmtFieldName(name string) string {
-	return utils.SnakeCasedName(utils.Trim(name))
-}
-
-// contains reports whether the string contains the byte c.
-func contains(s string, c byte) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return true
-		}
-	}
-	return false
-}
-
-// #修改支持多行的Tag
-// Unquote interprets s as a single-quoted, double-quoted,
-// or backquoted Go string literal, returning the string value
-// that s quotes.  (If s is single-quoted, it would be a Go
-// character literal; Unquote returns the corresponding
-// one-character string.)
-func unquote(s string) (string, error) {
-	n := len(s)
-	if n < 2 {
-		return "", errors.New("invalid quoted string")
-	}
-	quote := s[0]
-	if quote != s[n-1] {
-		return "", errors.New("lost the quote symbol on the end")
-	}
-	s = s[1 : n-1]
-
-	if quote == '`' {
-		if contains(s, '`') {
-			return "", errors.New("the '`' symbol is found on the content")
-		}
-		return s, nil
-	}
-
-	if quote != '"' && quote != '\'' {
-		return "", errors.New("lost the quote symbol on the begin")
-	}
-
-	//if contains(s, '\n') {
-	//	//Println("contains(s, '\n')")
-	//	return "contains(s, '\n')", strconv.ErrSyntax
-	//}
-
-	// Is it trivial?  Avoid allocation.
-	if !contains(s, '\\') && !contains(s, quote) {
-		switch quote {
-		case '"':
-			return s, nil
-		case '\'':
-			r, size := utf8.DecodeRuneInString(s)
-			if size == len(s) && (r != utf8.RuneError || size != 1) {
-				return s, nil
-			}
-		}
-	}
-
-	var runeTmp [utf8.UTFMax]byte
-	buf := make([]byte, 0, 3*len(s)/2) // Try to avoid more allocations.
-	for len(s) > 0 {
-		c, multibyte, ss, err := strconv.UnquoteChar(s, quote)
-		if err != nil {
-			return "", err
-		}
-		s = ss
-		if c < utf8.RuneSelf || !multibyte {
-			buf = append(buf, byte(c))
-		} else {
-			n := utf8.EncodeRune(runeTmp[:], c)
-			buf = append(buf, runeTmp[:n]...)
-		}
-		if quote == '\'' && len(s) != 0 {
-			// single-quoted must be single character
-			return "", strconv.ErrSyntax
-		}
-	}
-	return string(buf), nil
-}
-
-func lookup(tag string, key ...string) (value string) {
-	// When modifying this code, also update the validateStructTag code
-	// in golang.org/x/tools/cmd/vet/structtag.go.
-
-	for tag != "" {
-		// Skip leading space.
-		i := 0
-		for i < len(tag) && tag[i] == ' ' {
-			i++
-		}
-		tag = tag[i:]
-		if tag == "" {
-			break
-		}
-
-		// Scan to colon. A space, a quote or a control character is a syntax error.
-		// Strictly speaking, control chars include the range [0x7f, 0x9f], not just
-		// [0x00, 0x1f], but in practice, we ignore the multi-byte control characters
-		// as it is simpler to inspect the tag's bytes than the tag's runes.
-		i = 0
-		for i < len(tag) && tag[i] > ' ' && tag[i] != ':' && tag[i] != '"' && tag[i] != 0x7f {
-			i++
-		}
-		if i == 0 || i+1 >= len(tag) || tag[i] != ':' || tag[i+1] != '"' {
-			break
-		}
-		name := string(tag[:i])
-		tag = tag[i+1:]
-		//fmt.Println("tag", tag)
-		// Scan quoted string to find value.
-		i = 1
-		for i < len(tag) && (tag[i] != '"' || (i+1 < len(tag) && tag[i+1] != ' ' && tag[i] == '"')) {
-			if tag[i] == '\\' {
-				i++
-			}
-			i++
-		}
-		if i >= len(tag) {
-			break
-		}
-		//fmt.Println("tag", tag)
-		qvalue := string(tag[:i+1])
-		tag = tag[i+1:]
-		//fmt.Println("key", key, name, qvalue)
-		if utils.InStrings(name, key...) != -1 {
-			value, err := unquote(qvalue)
-			if err != nil {
-				logger.Errf("parse Tag error: %s, %s : %s", qvalue, value, err.Error())
-				break
-			}
-			return value
-		}
-	}
-	return ""
-}
-
-func splitTag(tag string) (tags []string) {
-	tag = strings.TrimSpace(tag)
-	var hasQuote = false
-	var lastIdx = 0
-	for i, t := range tag {
-		if t == '\'' { // #  t == '(' || t == ')' { //
-			hasQuote = !hasQuote
-		} else if t == ' ' {
-			if lastIdx < i && !hasQuote {
-				newtag := strings.TrimSpace(tag[lastIdx:i])
-
-				// #去除换行缩进的空格
-				if newtag != "" {
-					tags = append(tags, newtag)
-				}
-
-				lastIdx = i + 1
-			}
-		}
-	}
-	if lastIdx < len(tag) {
-		tags = append(tags, strings.TrimSpace(tag[lastIdx:len(tag)]))
-	}
-	return
-}
-
-// TODO 支持Vals 包含空格 one2many(product.attribute.price,空格value_id)
-// #　解析 'Tag(vals)' 整个字符串
-func parseTag(tag string) (tags []string) {
-	tag = strings.TrimSpace(tag)
-	var (
-		hasQuote          = false
-		hasSquareBrackets = false
-		//Bracket           = false
-		lastIdx = 0
-		l       = len(tag)
-	)
-	for i, t := range tag {
-		if t == '\'' {
-			hasQuote = !hasQuote
-		}
-		//fmt.Println(t,i)
-		if t == '[' || t == ']' {
-			hasSquareBrackets = !hasSquareBrackets
-		} else if t == '(' || t == ',' || t == ')' { //处理 Tag(xxx)类型
-			//if t == '(' && !Bracket {
-			//	Bracket = true
-			//}
-
-			if lastIdx < i && !hasQuote && !hasSquareBrackets {
-				//tags = append(tags, strings.Trim(strings.TrimSpace(tag[lastIdx:i]), "'"))
-				tags = append(tags, strings.TrimSpace(tag[lastIdx:i]))
-				lastIdx = i + 1
-			}
-		} else if i+1 == l { // 处理无括号类型的Tag
-			tags = append(tags, strings.TrimSpace(tag[lastIdx:l]))
-		}
-
-	}
-	//if lastIdx < len(tag) {
-	//	tags = append(tags, strings.TrimSpace(tag[lastIdx:len(tag)]))
-	//}
-	return
-}
-
-func (self *TOrm) ___fmtQuote(keyName string) string {
-	keyName = strings.TrimSpace(keyName)
-	if len(keyName) == 0 {
-		return keyName
-	}
-
-	if string(keyName[0]) == self.dialect.QuoteStr() || keyName[0] == '`' {
-		return keyName
-	}
-
-	keyName = strings.Replace(keyName, ".", self.dialect.QuoteStr()+"."+self.dialect.QuoteStr(), -1)
-
-	return self.dialect.QuoteStr() + keyName + self.dialect.QuoteStr()
 }
 
 // TODO
@@ -654,9 +423,9 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				model_alt_name = res_model.GetName()
 			}
 		} else {
-
 			//if column = model_object.GetFieldByName(lColName); column == nil {
-			if field = res_model.GetFieldByName(field_name); field == nil {
+			field = res_model.GetFieldByName(field_name)
+			if field == nil {
 				sql_type = Type2SQLType(field_type)
 				field = NewField(field_name, sql_type)
 
@@ -676,6 +445,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					// 添加model表共同字段
 					new_fld.Base().model_name = model_alt_name
 					new_fld.Base().isInheritedField = false                                      // # 共同字段非外键字段
+					new_fld.Base()._attr_store = true                                            // # 存储共同字段非外键字段
 					res_model.obj.SetCommonFieldByName(field_name, new_fld.ModelName(), new_fld) // 将现有表字段添加进重叠字段
 					field = new_fld
 				}
@@ -871,7 +641,7 @@ func (self *TOrm) ShowSql(sw ...bool) {
 	}
 }
 
-// is the orm connected database
+// Is the orm connected database
 func (self *TOrm) Connected() bool {
 	return self.connected
 }
@@ -890,33 +660,9 @@ func (self *TOrm) IsTableExist(model string) (bool, error) {
 	return session.IsExist(model)
 }
 
-// If a table is exist
+// If a database is exist
 func (self *TOrm) IsExist(name string) bool {
 	return self.dialect.IsDatabaseExist(name)
-	/*
-		ds := &DataSource{}
-		*ds = *self.dataSource
-		switch ds.DbType {
-		case "postgres":
-			ds.DbName = "postgres"
-			o, e := NewOrm(ds)
-			if e != nil {
-				logger.Errf("IsExsit() raise an error:%s", db, e)
-				return false
-			}
-
-			ds, e := o.Query("SELECT datname FROM pg_database WHERE datname = '" + db + "'")
-			if e != nil {
-				logger.Errf("IsExsit() raise an error:%s", db, e)
-				return false
-			}
-
-			return ds.Count() > 0
-
-		case "mysql":
-		}
-	*/
-	return false
 }
 
 // 删除表
@@ -956,6 +702,7 @@ func (self *TOrm) CreateTables(name ...string) error {
 			return err
 		}
 	}
+
 	return session.Commit()
 }
 
@@ -1040,7 +787,7 @@ func (self *TOrm) Query(sql string, params ...interface{}) (ds *dataset.TDataSet
 	return session.Query(sql, params...)
 }
 
-// exec raw sql directly
+// Exec raw sql directly
 func (self *TOrm) Exec(sql string, params ...interface{}) (sql.Result, error) {
 	session := self.NewSession()
 	defer session.Close()

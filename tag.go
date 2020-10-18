@@ -362,35 +362,39 @@ func tag_relate(ctx *TFieldContext) {
 			parentModel = ctx.Orm.mapping("", fld_val.Interface())
 		}
 
-		for _, fld := range parentModel.GetFields() {
+		var (
+			parent_field, new_field IField
+			field_name              string
+		)
+		for _, parent_field = range parentModel.GetFields() {
 			// #限制某些字段
 			// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
-			if lRelFieldsCnt > 1 && utils.InStrings(fld.Name(), lRelFields...) == -1 {
+			if lRelFieldsCnt > 1 && utils.InStrings(parent_field.Name(), lRelFields...) == -1 {
 				continue
 			}
+			field_name = parent_field.Name()
+			new_field = utils.Clone(parent_field).(IField) // 复制关联字段
+			new_field.SetBase(parent_field.Base())
 
-			new_field := utils.Clone(fld).(IField) // 复制关联字段
-			new_field.SetBase(fld.Base())
+			if f := model.GetFieldByName(field_name); f != nil {
+				model.GetBase().obj.SetCommonFieldByName(field_name, parentModel.GetName(), new_field)
+				model.GetBase().obj.SetCommonFieldByName(field_name, f.Base().model_name, f)
 
-			if f := model.GetFieldByName(fld.Name()); f == nil {
+			} else {
 				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
 				new_field.Base().isInheritedField = true
+				new_field.Base()._attr_store = false // 关系字段不存储
 
 				if new_field.IsAutoIncrement() {
-					//model.GetBase().table.AutoIncrement = new_field.Name()
-					model.Obj().AutoIncrementField = new_field.Name()
-
+					//model.GetBase().table.AutoIncrement = field_name
+					model.Obj().AutoIncrementField = field_name
 				}
 
 				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
 				if new_field.Base().isPrimaryKey && new_field.Base().isAutoIncrement {
-					model.GetBase().idField = new_field.Name()
+					model.GetBase().idField = field_name
 				}
-				model.GetBase().obj.SetFieldByName(fld.Name(), new_field)
-
-			} else {
-				model.GetBase().obj.SetCommonFieldByName(fld.Name(), parentModel.GetName(), new_field)
-				model.GetBase().obj.SetCommonFieldByName(fld.Name(), f.Base().model_name, f)
+				model.GetBase().obj.SetFieldByName(field_name, new_field)
 			}
 		}
 	}
