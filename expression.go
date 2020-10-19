@@ -171,7 +171,7 @@ func (self *TExtendedLeaf) generate_alias() string {
 	}
 
 	alias, _ /* alias_statement*/ := generate_table_alias(self.models[0].GetName(), links)
- 	return alias
+	return alias
 }
 
 func (self *TExtendedLeaf) is_true_leaf() bool {
@@ -253,7 +253,7 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 	for _, context := range self.join_context {
 		links = append(links, []string{context.DestModel.GetName(), context.Link})
 		_, alias_statement := generate_table_alias(self.models[0].GetName(), links)
- 
+
 		tables.PushString(alias_statement)
 	}
 
@@ -267,7 +267,7 @@ func (self *TExtendedLeaf) get_join_conditions() (conditions []string) {
 		previous_alias := alias
 		alias += "__" + context.Link
 		condition := fmt.Sprintf(`"%s"."%s"="%s"."%s"`, previous_alias, context.SourceFiled, alias, context.DestFiled)
- 		conditions = append(conditions, condition)
+		conditions = append(conditions, condition)
 	}
 
 	return conditions
@@ -560,7 +560,7 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 
 			if n.IsLeafNode() && is_negate {
 				left, operator, right := n.String(0), n.String(1), n.Item(2)
- 				if _, has := domain.TERM_OPERATORS_NEGATION[operator]; has {
+				if _, has := domain.TERM_OPERATORS_NEGATION[operator]; has {
 					result.Push(left, domain.TERM_OPERATORS_NEGATION[operator], right)
 				} else {
 					result.Push(domain.NOT_OPERATOR)
@@ -781,7 +781,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 	self.reverse(self.stack)
 	for len(self.stack) > 0 {
 		ex_leaf = self.pop() // Get the next leaf to process
- 
+
 		// 获取各参数 # Get working variables
 		if ex_leaf.leaf.IsDomainOperator() {
 			left = ex_leaf.leaf
@@ -815,7 +815,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 		}
 
- 		// ########################################
+		// ########################################
 		// 			解析修改leaf 兼容字段
 		// ########################################
 
@@ -1335,7 +1335,6 @@ func (self *TExpression) ToSql(params ...interface{}) ([]string, []interface{}) 
 func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{}) {
 	var (
 		stack  = domain.NewDomainNode()
-		ops    map[string]string
 		q1, q2 *domain.TDomainNode
 		query  string
 	)
@@ -1359,11 +1358,10 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 
 		} else {
 			// domain 操作符
-			ops = map[string]string{domain.AND_OPERATOR: " AND ", domain.OR_OPERATOR: " OR "} //TODO 优化
 			q1 = stack.Pop()
 			q2 = stack.Pop()
 			if q1 != nil && q2 != nil {
-				lStr := fmt.Sprintf("(%s %s %s)", q1.String(), ops[eleaf.leaf.String()], q2.String())
+				lStr := fmt.Sprintf("(%s %s %s)", q1.String(), domain.DOMAIN_OPERATORS_KEYWORDS[eleaf.leaf.String()], q2.String())
 				stack.Push(lStr)
 			}
 		}

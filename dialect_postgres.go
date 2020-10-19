@@ -817,8 +817,7 @@ func (db *postgres) GenSqlType(field IField) string {
 	c := field.Base()
 	switch t := c.SqlType.Name; t {
 	case TinyInt:
-		res = SmallInt
-		return res
+		return SmallInt
 	case MediumInt, Int, Integer:
 		if c.isAutoIncrement {
 			return Serial

@@ -187,6 +187,8 @@ func (self *TSession) scanRows(rows *sql.Rows) (res_dataset *dataset.TDataSet, e
 					if field != nil {
 						value = field.onConvertToRead(self, cols, vals, idx)
 					}
+				} else {
+					value = *vals[idx].(*interface{})
 				}
 
 				if !rec.SetByName(name, value, false) {
@@ -357,148 +359,140 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 	orm := self.orm
 	lTableName := newModel.GetName()
 
-	var cur_field IField
-	for _, field := range newModel.GetFields() {
-		cur_field = nil
+	{ // 字段修改
+		var cur_field IField
+		for _, field := range newModel.GetFields() {
+			cur_field = oldModel.GetFieldByName(field.Name())
 
-		for _, col2 := range oldModel.GetFields() {
-			if strings.ToLower(field.Name()) == strings.ToLower(col2.Name()) {
-				cur_field = col2
-				break
-			}
-		}
-
-		if cur_field != nil {
-			expectedType := orm.dialect.GenSqlType(field)
-			curType := orm.dialect.GenSqlType(cur_field)
-			if expectedType != curType {
-				// 修改数据类型
-				// 如果是修改字符串到
-				if expectedType == Text && strings.HasPrefix(curType, Varchar) {
-					// currently only support mysql & postgres
-					//if orm.dialect.DBType() == MYSQL ||
-					//	orm.dialect.DBType() == POSTGRES {
-					logger.Infof("Table %s column %s change type from %s to %s\n", lTableName, field.Name(), curType, expectedType)
-					_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
-					//} else {
-					//	logger.Warnf("Table %s column %s db type is %s, struct type is %s\n", lTableName, field.Name(), curType, expectedType)
-					//}
-
-					// 如果是同是字符串 则检查长度变化 for mysql
-				} else if strings.HasPrefix(curType, Varchar) && strings.HasPrefix(expectedType, Varchar) {
-					//if orm.dialect.DBType() == MYSQL {
-					if cur_field.Size() < field.Size() {
-						logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n", lTableName, field.Name(), cur_field.Size(), field.Size())
+			if cur_field != nil {
+				expectedType := orm.dialect.GenSqlType(field)
+				curType := orm.dialect.GenSqlType(cur_field)
+				if expectedType != curType {
+					//TODO 修改数据类型
+					// 如果是修改字符串到
+					if expectedType == Text && strings.HasPrefix(curType, Varchar) {
+						logger.Infof("Table <%s> column <%s> change type from %s to %s\n", lTableName, field.Name(), curType, expectedType)
 						_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
+
+					} else if strings.HasPrefix(curType, Varchar) && strings.HasPrefix(expectedType, Varchar) {
+						// 如果是同是字符串 则检查长度变化 for mysql
+
+						if cur_field.Size() < field.Size() {
+							logger.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", lTableName, field.Name(), cur_field.Size(), field.Size())
+							_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
+						}
+						//}
+						//其他
+					} else {
+						if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
+							logger.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", lTableName, field.Name(), curType, expectedType)
+						}
 					}
-					//}
-					//其他
-				} else {
-					if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
-						logger.Warnf("Table %s column %s db type is %s, struct type is %s", lTableName, field.Name(), curType, expectedType)
-					}
+
 				}
 				// 如果是同是字符串 则检查长度变化 for mysql
-			} else if expectedType == Varchar {
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() < field.Size() {
-					logger.Infof("Table %s column %s change type from varchar(%d) to varchar(%d)\n",
+					logger.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n",
 						lTableName, field.Name(), cur_field.Size(), field.Size())
 					_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
 				}
 				//}
-			}
 
-			//
-			if field.Default() != cur_field.Default() {
-				logger.Warnf("Table %s Column %s db default is %s, struct default is %s",
-					lTableName, field.Name(), cur_field.Default(), field.Default())
-			}
-
-			if field.Required() != cur_field.Required() {
-				logger.Warnf("Table %s Column %s db required is %v, struct required is %v",
-					lTableName, field.Name(), cur_field.Required(), field.Required())
-			}
-
-			// 如果现在表无该字段则添加
-		} else {
-			lSession := orm.NewSession()
-			lSession.Model(newModel.GetName())
-			//TODO # 修正上面指向错误Model
-			lSession.Statement.model = newModel
-			err = lSession.addColumn(field.Name())
-		}
-
-		if err != nil {
-			return err
-		}
-	}
-
-	var foundIndexNames = make(map[string]bool)
-	var addedNames = make(map[string]*TIndex)
-
-	// 检查更新索引 先取消索引载添加需要的
-	// 取消Idex
-	for name, index := range newModel.GetIndexes() {
-		var cur_index *TIndex
-		for name2, index2 := range oldModel.GetIndexes() {
-			if index.Equal(index2) {
-				cur_index = index2
-				foundIndexNames[name2] = true
-				break
-			}
-		}
-
-		// 现有的idex
-		if cur_index != nil {
-			if cur_index.Type != index.Type { // 类型不同则清除
-				sql := orm.dialect.DropIndexSql(lTableName, cur_index)
-				_, err = orm.Exec(sql)
-				if err != nil {
-					return err
+				//
+				if field.Default() != cur_field.Default() {
+					logger.Warnf("Table <%s> Column <%s> db default is <%s>, model default is <%s>",
+						lTableName, field.Name(), cur_field.Default(), field.Default())
 				}
-				cur_index = nil
-			}
-		} else {
-			addedNames[name] = index // 加入列表稍后再添加
-		}
-	}
 
-	// 清除已经作删除的索引
-	for name2, index2 := range oldModel.GetIndexes() {
-		if _, ok := foundIndexNames[name2]; !ok { // 在当前数据表且不再新数据表里的索引都要清除
-			sql := orm.dialect.DropIndexSql(lTableName, index2)
-			_, err = orm.Exec(sql)
+				if field.Required() != cur_field.Required() {
+					logger.Warnf("Table <%s> Column <%s> db required is <%v>, model required is <%v>",
+						lTableName, field.Name(), cur_field.Required(), field.Required())
+				}
+
+				// 如果现在表无该字段则添加
+			} else {
+				lSession := orm.NewSession()
+				lSession.Model(newModel.GetName())
+				//TODO # 修正上面指向错误Model
+				lSession.Statement.model = newModel
+				err = lSession.addColumn(field.Name())
+			}
+
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	// 重新添加索引
-	for name, index := range addedNames {
-		if index.Type == UniqueType {
-			lSession := orm.NewSession()
-			lSession.Model(newModel.GetName())
-			//TODO # 修正上面指向错误Model
-			//			lSession.model = newModel
-			lSession.Statement.model = newModel
-			defer lSession.Close()
-			err = lSession.addUnique(lTableName, name)
+	{ // 表修改
+		var foundIndexNames = make(map[string]bool)
+		var addedNames = make(map[string]*TIndex)
 
-		} else if index.Type == IndexType {
-			lSession := orm.NewSession()
-			lSession.Model(newModel.GetName())
-			//TODO # 修正上面指向错误Model
-			//			lSession.model = newModel
-			lSession.Statement.model = newModel
-			defer lSession.Close()
-			err = lSession.addIndex(lTableName, name)
+		// 检查更新索引 先取消索引载添加需要的
+		// 取消Idex
+		for name, index := range newModel.GetIndexes() {
+			var cur_index *TIndex
+			for name2, index2 := range oldModel.GetIndexes() {
+				if index.Equal(index2) {
+					cur_index = index2
+					foundIndexNames[name2] = true
+					break
+				}
+			}
+
+			// 现有的idex
+			if cur_index != nil {
+				if cur_index.Type != index.Type { // 类型不同则清除
+					sql := orm.dialect.DropIndexSql(lTableName, cur_index)
+					_, err = orm.Exec(sql)
+					if err != nil {
+						return err
+					}
+					cur_index = nil
+				}
+			} else {
+				addedNames[name] = index // 加入列表稍后再添加
+			}
 		}
 
-		if err != nil {
-			return err
+		// 清除已经作删除的索引
+		for name2, index2 := range oldModel.GetIndexes() {
+			if _, ok := foundIndexNames[name2]; !ok { // 在当前数据表且不再新数据表里的索引都要清除
+				sql := orm.dialect.DropIndexSql(lTableName, index2)
+				_, err = orm.Exec(sql)
+				if err != nil {
+					return err
+				}
+			}
 		}
+
+		// 重新添加索引
+		for name, index := range addedNames {
+			if index.Type == UniqueType {
+				lSession := orm.NewSession()
+				lSession.Model(newModel.GetName())
+				//TODO # 修正上面指向错误Model
+				//			lSession.model = newModel
+				lSession.Statement.model = newModel
+				defer lSession.Close()
+				err = lSession.addUnique(lTableName, name)
+
+			} else if index.Type == IndexType {
+				lSession := orm.NewSession()
+				lSession.Model(newModel.GetName())
+				//TODO # 修正上面指向错误Model
+				//			lSession.model = newModel
+				lSession.Statement.model = newModel
+				defer lSession.Close()
+				err = lSession.addIndex(lTableName, name)
+			}
+
+			if err != nil {
+				return err
+			}
+		}
+
 	}
 	return
 }
@@ -752,7 +746,7 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 			continue // # 关系表无数据更新则忽略
 		}
 
- 		// ???删除关联外键
+		// ???删除关联外键
 		//if _, has := vals[self.model._relations[tbl]]; has {
 		//	delete(vals, self.model._relations[tbl])
 		//}
@@ -835,7 +829,7 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 		// 更新关联字段
 		for _, name := range lNewTodo {
 			lField := self.Statement.model.GetFieldByName(name)
- 			if lField != nil {
+			if lField != nil {
 				err = lField.OnWrite(&TFieldEventContext{
 					Session: self,
 					Model:   self.Statement.model,
@@ -1156,7 +1150,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		params = append(params, where_clause_params...)
 
 		// format sql
-		sql := fmt.Sprintf(`UPDATE "%s" SET %s %s `,
+		sql := fmt.Sprintf(`UPDATE %s SET %s %s `,
 			from_clause,
 			set_clause,
 			where_clause,
@@ -1189,8 +1183,11 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 
 	// 更新关联表
 	for tbl, ref_vals := range lRefVals {
-		lFldName := self.Statement.model.obj.GetRelationByName(tbl)
+		if len(ref_vals) == 0 {
+			continue
+		}
 
+		lFldName := self.Statement.model.obj.GetRelationByName(tbl)
 		nids := make([]interface{}, 0)
 		// for sub_ids in cr.split_for_in_conditions(ids):
 		//     cr.execute('select distinct "'+col+'" from "'+self._table+'" ' \
@@ -1777,7 +1774,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 
 	order_by = self.Statement.generate_order_by(query, context) // TODO 未完成
 	from_clause, where_clause, where_clause_params = query.get_sql()
- 
+
 	if where_clause != "" {
 		where_clause = fmt.Sprintf(` WHERE %s`, where_clause)
 	}

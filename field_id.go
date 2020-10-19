@@ -1,12 +1,12 @@
 package orm
 
 import (
-	"reflect"
-	//"github.com/rs/xid"
 	"github.com/bwmarrin/snowflake"
 	"github.com/volts-dev/orm/domain"
 	"github.com/volts-dev/orm/logger"
+	"github.com/volts-dev/utils"
 	//"github.com/google/uuid"
+	//"github.com/rs/xid"
 )
 
 type (
@@ -38,7 +38,7 @@ func (self *TIdField) Init(ctx *TFieldContext) {
 
 	// set type for field
 	fld.Base().SqlType = SQLType{BigInt, 0, 0}
-	fld.Base()._attr_type = Int
+	fld.Base()._attr_type = "bigint"
 
 	// set the id field for model
 	model.IdField(fld.Name())
@@ -51,19 +51,24 @@ func (self *TIdField) OnCreate(ctx *TFieldEventContext) interface{} {
 
 // 转换值到字段输出数据类型
 func (self *TIdField) onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} {
-	value := reflect.ValueOf(record[colIndex]).Elem().Interface()
+	value := *record[colIndex].(*interface{})
 	l := len(cols)
 	if value == nil && l > 1 {
 		node := domain.NewDomainNode()
-
-		for I := 0; I < len(cols); I++ {
- 			cond := domain.NewDomainNode(cols[I], "=", value2FieldTypeValue(self, reflect.ValueOf(record[I]).Elem().Interface()))
-			node.AND(cond)
+		for I, name := range cols {
+			if name != self.Name() {
+				fieldValue := *record[I].(*interface{})
+				if !utils.IsBlank(fieldValue) {
+					// only use those not null value as condition for where clause
+					cond := domain.NewDomainNode(name, "=", fieldValue)
+					node.AND(cond)
+				}
+			}
 		}
 
 		id := uuid.Generate().Int64()
-		session.New().Set("id", id).Domain(node).Write(nil) // 无需额外数据写入
- 		return id
+		session.New().Set("id", id).Domain(node).Limit(1).Write(nil) // 无需额外数据写入
+		return id
 	} else {
 		return value2FieldTypeValue(self, value)
 	}

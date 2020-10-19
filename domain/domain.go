@@ -31,6 +31,11 @@ var (
 		OR_OPERATOR:  AND_OPERATOR,
 	}
 
+	DOMAIN_OPERATORS_KEYWORDS = map[string]string{
+		OR_OPERATOR:  " OR ",
+		AND_OPERATOR: " AND ",
+	}
+
 	/*# List of available term operators. It is also possible to use the '<>'
 	# operator, which is strictly the same as '!='; the later should be prefered
 	# for consistency. This list doesn't contain '<>' as it is simpified to '!='
@@ -227,9 +232,9 @@ func (self *TDomainNode) String(idx ...int) string {
 	}
 
 	if !self.IsValueNode() {
- 		return parseDomain(self)
+		return parseDomain(self)
 	}
- 
+
 	return utils.Itf2Str(self.Value)
 }
 

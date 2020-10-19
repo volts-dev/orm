@@ -3,10 +3,11 @@ package postgres
 import (
 	"testing"
 
-	"github.com/volts-dev/orm"
+	"github.com/volts-dev/orm/test"
 )
 
 func TestRead(t *testing.T) {
-	orm.TestCreate10("", t)
-	orm.TestRead("", t)
+	test.ClearDatabase = false
+	//test.TestCreate10("", t)
+	test.TestRead("", t)
 }

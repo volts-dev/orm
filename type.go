@@ -249,6 +249,7 @@ func value2FieldTypeValue(field IField, value interface{}) interface{} {
 	if type_name == "" {
 		type_name = field.Type()
 	}
+
 	switch strings.ToUpper(type_name) {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
 		return utils.Itf2Int(value)

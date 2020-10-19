@@ -51,5 +51,11 @@ func TestDomain2String(t *testing.T) {
 	keys := NewDomainNode("1")
 	sub3.IN("id", keys)
 	PrintDomain(sub3)
+	sub4 := NewDomainNode()
+	for i := 0; i < 5; i++ {
+		sub4.AND(NewDomainNode("f", "=", i))
+	}
+	PrintDomain(sub4)
+	fmt.Println(Domain2String(sub4))
 
 }

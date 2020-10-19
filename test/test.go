@@ -10,7 +10,8 @@ import (
 const TEST_DB_NAME = "orm_test"
 
 var (
-	test_orm *orm.TOrm
+	test_orm      *orm.TOrm
+	ClearDatabase bool
 )
 
 // get the test ORM object
@@ -41,7 +42,7 @@ func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 		table_Names = append(table_Names, table)
 	}
 
-	if len(table_Names) > 0 {
+	if ClearDatabase && len(table_Names) > 0 {
 		if err = test_orm.DropTables(table_Names...); err != nil {
 			return err
 		}
