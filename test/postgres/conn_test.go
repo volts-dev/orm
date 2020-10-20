@@ -3,9 +3,9 @@ package postgres
 import (
 	"testing"
 
-	"github.com/volts-dev/orm"
+	"github.com/volts-dev/orm/test"
 )
 
 func TestConn(t *testing.T) {
-	orm.TestConn("", t)
+	test.NewTest(t).Conn()
 }

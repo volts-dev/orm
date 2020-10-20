@@ -1,11 +1,10 @@
 package test
 
-import (
-	"testing"
-)
-
-func TestConn(title string, t *testing.T) {
-	if !test_orm.IsExist(TEST_DB_NAME) {
-		t.Fatalf("IsExist failed!")
+func (self *Testchain) Conn() *Testchain {
+	self.PrintSubject("Connection")
+	if !self.orm.IsExist(TEST_DB_NAME) {
+		self.Fatalf("IsExist failed!")
 	}
+
+	return self
 }

@@ -56,10 +56,12 @@ func (self *TIdField) onConvertToRead(session *TSession, cols []string, record [
 	if value == nil && l > 1 {
 		node := domain.NewDomainNode()
 		for I, name := range cols {
+			// 过滤某些大内容的字段
 			if name != self.Name() {
 				fieldValue := *record[I].(*interface{})
 				if !utils.IsBlank(fieldValue) {
 					// only use those not null value as condition for where clause
+					// because of null/0/nil maybe the same when read from database
 					cond := domain.NewDomainNode(name, "=", fieldValue)
 					node.AND(cond)
 				}

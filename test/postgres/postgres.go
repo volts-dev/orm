@@ -8,16 +8,12 @@ import (
 )
 
 func init() {
-	src := &orm.TDataSource{
+	// set the connention source
+	test.DataSource = &orm.TDataSource{
 		DbType:   "postgres",
 		DbName:   test.TEST_DB_NAME,
 		UserName: "postgres",
 		Password: "postgres",
 		SSLMode:  "disable",
-	}
-
-	err := test.TestInit(src, true)
-	if err != nil {
-		panic(err.Error())
 	}
 }

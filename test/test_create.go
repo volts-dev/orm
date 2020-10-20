@@ -7,8 +7,41 @@ import (
 	"github.com/volts-dev/utils"
 )
 
-//TODO 无ID
-//TODO 带条件和字段
+func (self *Testchain) Create() *Testchain {
+	self.PrintSubject("Create()")
+	data := new(UserModel)
+	*data = *user
+	ss := self.orm.NewSession()
+	ss.Begin()
+	for i := 0; i < 10; i++ {
+		data.Name = "Create" + utils.IntToStr(i)
+
+		// Call the API Create()
+		id, err := ss.Model("user_model").Create(data)
+		if err != nil {
+			self.Fatalf("create record failure with error < %s >", err.Error())
+		}
+
+		if id == nil {
+			self.Fatal("creation didn't returnning Id!")
+		}
+	}
+
+	err := ss.Commit()
+	if err != nil {
+		self.Log(err)
+
+		e := ss.Rollback()
+		if e != nil {
+			self.Fatal(e)
+		}
+	}
+
+	ss.Close()
+
+	return self
+}
+
 func TestCreate(title string, t *testing.T) {
 	PrintSubject(title, "Create()")
 	test_create(test_orm, t)
@@ -18,6 +51,7 @@ func TestCreate(title string, t *testing.T) {
 
 	PrintSubject(title, "Create ManyToMany")
 	test_create_m2m(test_orm, t)
+	return
 }
 
 func TestCreate10(title string, t *testing.T) {

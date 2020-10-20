@@ -7,5 +7,6 @@ import (
 )
 
 func TestCreate(t *testing.T) {
-	test.TestCreate("", t)
+	test.ShowSql = true
+	test.NewTest(t).Reset().Create()
 }

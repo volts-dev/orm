@@ -12,7 +12,90 @@ const TEST_DB_NAME = "orm_test"
 var (
 	test_orm      *orm.TOrm
 	ClearDatabase bool
+	ShowSql       bool
+	DataSource    *orm.TDataSource
 )
+
+type (
+	Testchain struct {
+		*testing.T
+		orm *orm.TOrm
+	}
+)
+
+func NewTest(t *testing.T) *Testchain {
+	self := &Testchain{
+		T:   t,
+		orm: test_orm,
+	}
+
+	var err error
+	self.orm, err = orm.NewOrm(DataSource)
+	if err != nil {
+		self.Fatal(err)
+	}
+
+	self.orm.ShowSql(ShowSql)
+
+	if !self.orm.IsExist(DataSource.DbName) {
+		self.orm.CreateDatabase(DataSource.DbName)
+	}
+
+	_, err = self.orm.SyncModel("test",
+		new(PartnerModel),
+		new(CompanyModel),
+		new(UserModel),
+	)
+
+	if err != nil {
+		self.Fatal(err)
+	}
+
+	return self
+}
+
+func (self *Testchain) PrintSubject(subject string) *Testchain {
+	msg := fmt.Sprintf("-------------- %s --------------", subject)
+	fmt.Println(msg)
+	return self
+}
+
+func (self *Testchain) ShowSql(show bool) *Testchain {
+	self.orm.ShowSql(show)
+	return self
+}
+
+func (self *Testchain) Reset() *Testchain {
+	// drop all table
+	self.PrintSubject("Reset database")
+
+	self.Log("Loading database...")
+	var table_Names []string
+	for _, table := range self.orm.GetModels() {
+		table_Names = append(table_Names, table)
+		self.Logf("Table < %s > found!", table)
+	}
+
+	self.Log("Dropping tables...")
+	if len(table_Names) > 0 {
+		if err := self.orm.DropTables(table_Names...); err != nil {
+			self.Fatal(err)
+		}
+	}
+
+	self.Logf("Creating Tables...")
+	_, err := self.orm.SyncModel("test",
+		new(PartnerModel),
+		new(CompanyModel),
+		new(UserModel),
+	)
+	if err != nil {
+		self.Fatal(err)
+	}
+
+	self.Logf("Rest database completed!")
+	return self
+}
 
 // get the test ORM object
 func Orm() *orm.TOrm {
