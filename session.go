@@ -299,6 +299,7 @@ func (self *TSession) execWithTx(sql string, args ...interface{}) (sql.Result, e
 
 // synchronize structs to database tables
 func (self *TSession) SyncModel(region string, models ...interface{}) (modelNames []string, err error) {
+	// NOTE [SyncModel] 这里获取到的Model是由数据库信息创建而成.并不包含所有字段继承字段.
 	exits_models, err := self.orm.DBMetas() // 获取基本数据库信息
 	if err != nil {
 		return nil, err
@@ -412,11 +413,15 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 
 				// 如果现在表无该字段则添加
 			} else {
-				lSession := orm.NewSession()
-				lSession.Model(newModel.GetName())
-				//TODO # 修正上面指向错误Model
-				lSession.Statement.model = newModel
-				err = lSession.addColumn(field.Name())
+				// 这里必须过滤掉 NOTE [SyncModel] 里提及的特殊字段
+				if field.Store() && !field.IsInheritedField() {
+					session := self.orm.NewSession()
+					session.Model(newModel.GetName())
+					//TODO # 修正上面指向错误Model
+					session.Statement.model = newModel
+					err = session.addColumn(field.Name())
+				}
+
 			}
 
 			if err != nil {
