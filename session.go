@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/volts-dev/orm/domain"
-
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
@@ -1856,9 +1854,6 @@ func (self *TSession) readFromCache(ids []interface{}) (res []*dataset.TRecordSe
 // :param field_names: Model的所有字段
 // :param inherited_field_names:关联父表的所有字段
 func (self *TSession) readFromDatabase(field_names, inherited_field_names []string) (res_ds *dataset.TDataSet, res_sql string, err error) {
-	// # 从缓存里获得数据
-	//records, less_ids := self.readFromCache(ids)
-
 	var (
 		query *TQuery
 		select_clause, from_clause, where_clause,
@@ -1871,7 +1866,7 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 			self.Statement.domain.Clear() // 清楚其他查询条件
 			self.Statement.domain.IN(self.Statement.model.idField, self.Statement.IdParam...)
 		}
-		domain.PrintDomain(self.Statement.domain)
+
 		query, err = self.Statement.where_calc(self.Statement.domain, false, nil)
 		if err != nil {
 			return nil, "", err
@@ -1933,9 +1928,6 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 		}
 	}
 
-	//logger.Dbg("from_clause ", from_clause)
-	//logger.Dbg("where_clause ", where_clause)
-	logger.Dbg("params ", where_clause_params)
 	res_sql = fmt.Sprintf(`SELECT %s FROM %s %s %s %s %s`,
 		select_clause,
 		from_clause,
@@ -1945,16 +1937,18 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 		offset_clause,
 	)
 
+	// 从缓存里获得数据
+	res_ds = self.orm.Cacher.GetBySql(self.Statement.model.GetName(), res_sql, where_clause_params)
+	if res_ds != nil {
+		res_ds.First()
+		return res_ds, res_sql, nil
+	}
+
 	// 获得Id占位符索引
 	res_ds, err = self.Query(res_sql, where_clause_params...) //cr.execute(res_sql, params)
 	if err != nil {
 		return nil, "", err
 	}
-
-	// TODO 带优化或者简去
-	//if !dataset.SetKeyField(self.Statement.IdKey) {
-	//	logger.Err(`set key_field fail when call RecordByKey(key_field:%v)!`, res_ds.KeyField)
-	//}
 
 	//# 添加进入缓存
 	self.orm.Cacher.PutBySql(self.Statement.model.GetName(), res_sql, where_clause_params, res_ds)

@@ -8,5 +8,5 @@ import (
 
 func TestCreate(t *testing.T) {
 	test.ShowSql = true
-	test.NewTest(t).Reset().Create()
+	test.NewTest(t).Reset().Create().CreateM2m()
 }

@@ -7,8 +7,8 @@ import (
 )
 
 func (self *Testchain) And() *Testchain {
-	self.PrintSubject("And()")
-	model, err := self.orm.GetModel("user_model")
+	self.PrintSubject("And")
+	model, err := self.Orm.GetModel("user_model")
 	if err != nil {
 		self.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/volts-dev/dataset"
 )
 
+// TODO cache name
 type (
 	TCacher struct {
 		active   bool
@@ -134,7 +135,7 @@ func (self *TCacher) ___PutBySql(table string, sql string, arg interface{}, reco
 }
 
 //#通过Sql获取查询结果ID集
-// result =nil or 空[]string
+// @Return:  nil or 空[]string
 func (self *TCacher) GetBySql(table string, sql string, arg interface{}) *dataset.TDataSet {
 	//逻辑可能有问题	if open, has := self.status[table]; !has || (has && open) {
 	if open, has := self.status[table]; has && open {

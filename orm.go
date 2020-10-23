@@ -10,7 +10,7 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"go/ast"
+	"go/token"
 	"io"
 	"reflect"
 	"strings"
@@ -343,7 +343,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		member_name = model_type.Field(i).Name
 
 		// filter out the unexport field
-		if !ast.IsExported(member_name) {
+		if !token.IsExported(member_name) {
 			continue
 		}
 

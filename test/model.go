@@ -31,6 +31,7 @@ type (
 		orm.TModel   `table:""`
 		PartnerModel `field:"relate(PartnerId)"`
 		PartnerId    int64     `field:"one2one(partner_model)"`
+		CompanyId    int64     `field:"many2one(company_model)"` //-- Company
 		Id           int64     `field:"pk autoincr type(char) title('ID') index"`
 		Uid          int64     `field:"Id() pk  title('ID') index"`
 		CreateTime   time.Time `field:"datetime() created"`
@@ -43,6 +44,8 @@ type (
                  test help 2''
                  test help 3''''
                  test help 4.')"`
+
+		// all data types
 		Int        int           `field:"int() default(1)"`    // --
 		Bool       bool          `field:"bool default(true)"`  // --
 		Text       string        `field:"text"`                //
@@ -50,7 +53,6 @@ type (
 		Bin        []byte        `field:"binary() attachment"` //
 		Selection  string        `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
 		Func       string        `field:"selection(TestSelection)"`
-		ManyToOne  int64         `field:"many2one(company_model)"` //-- Company
 		ManyToMany []interface{} `field:"many2many(company_model,company_id,user_id)"`
 	}
 )

@@ -7,41 +7,40 @@ import (
 	"github.com/volts-dev/orm"
 )
 
-const TEST_DB_NAME = "orm_test"
+const TEST_DB_NAME = "test_orm"
 
 var (
-	test_orm      *orm.TOrm
-	ClearDatabase bool
-	ShowSql       bool
-	DataSource    *orm.TDataSource
+	test_orm   *orm.TOrm
+	ShowSql    bool
+	DataSource *orm.TDataSource
 )
 
 type (
 	Testchain struct {
 		*testing.T
-		orm *orm.TOrm
+		Orm *orm.TOrm
 	}
 )
 
 func NewTest(t *testing.T) *Testchain {
 	self := &Testchain{
 		T:   t,
-		orm: test_orm,
+		Orm: test_orm,
 	}
 
 	var err error
-	self.orm, err = orm.NewOrm(DataSource)
+	self.Orm, err = orm.NewOrm(DataSource)
 	if err != nil {
 		self.Fatal(err)
 	}
 
-	self.orm.ShowSql(ShowSql)
+	self.Orm.ShowSql(ShowSql)
 
-	if !self.orm.IsExist(DataSource.DbName) {
-		self.orm.CreateDatabase(DataSource.DbName)
+	if !self.Orm.IsExist(DataSource.DbName) {
+		self.Orm.CreateDatabase(DataSource.DbName)
 	}
 
-	_, err = self.orm.SyncModel("test",
+	_, err = self.Orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),
 		new(UserModel),
@@ -55,13 +54,13 @@ func NewTest(t *testing.T) *Testchain {
 }
 
 func (self *Testchain) PrintSubject(subject string) *Testchain {
-	msg := fmt.Sprintf("-------------- %s --------------", subject)
+	msg := fmt.Sprintf("-------------------- %s --------------------", subject)
 	fmt.Println(msg)
 	return self
 }
 
 func (self *Testchain) ShowSql(show bool) *Testchain {
-	self.orm.ShowSql(show)
+	self.Orm.ShowSql(show)
 	return self
 }
 
@@ -71,20 +70,20 @@ func (self *Testchain) Reset() *Testchain {
 
 	self.Log("Loading database...")
 	var table_Names []string
-	for _, table := range self.orm.GetModels() {
+	for _, table := range self.Orm.GetModels() {
 		table_Names = append(table_Names, table)
 		self.Logf("Table < %s > found!", table)
 	}
 
 	self.Log("Dropping tables...")
 	if len(table_Names) > 0 {
-		if err := self.orm.DropTables(table_Names...); err != nil {
+		if err := self.Orm.DropTables(table_Names...); err != nil {
 			self.Fatal(err)
 		}
 	}
 
 	self.Logf("Creating Tables...")
-	_, err := self.orm.SyncModel("test",
+	_, err := self.Orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),
 		new(UserModel),
@@ -125,12 +124,6 @@ func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 		table_Names = append(table_Names, table)
 	}
 
-	if ClearDatabase && len(table_Names) > 0 {
-		if err = test_orm.DropTables(table_Names...); err != nil {
-			return err
-		}
-	}
-
 	_, err = test_orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),
@@ -152,9 +145,6 @@ func PrintSubject(subject, option string) {
 func BaseTest(t *testing.T) {
 	fmt.Println("-------------- tag --------------")
 	TestTag("Tag", t)
-
-	fmt.Println("-------------- Create --------------")
-	TestCreate("Create", t)
 
 	fmt.Println("-------------- Read --------------")
 	TestRead("Read", t)

@@ -1,7 +1,9 @@
 package orm
 
 import (
+	"encoding/csv"
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/volts-dev/dataset"
@@ -51,8 +53,12 @@ type (
 		//RelateFields() map[string]*TRelatedField
 		//Relations() map[string]string
 		IdField(field ...string) string
+
 		// new a orm records session for query
 		Records() *TSession
+
+		// UTF file only
+		Load(file io.Reader) (map[int]string, error)
 		//Create(values map[string]interface{}) (id int64)
 		//Read(ids []string, fields []string) *dataset.TDataSet
 		//Write(ids []string, values interface{}) (err error)
@@ -494,6 +500,86 @@ func (self *TModel) GetName() string {
 func (self *TModel) import_data() {
 
 }
+
+//
+// @Return map: row index in csv file fail and error message
+func (self *TModel) Load(file io.Reader) (map[int]string, error) {
+	onceInsert := 50000
+	csvFile := csv.NewReader(file)
+	header, err := csvFile.Read()
+	if err != nil {
+		return nil, logger.Err(err)
+	}
+
+	// 建立过滤索引
+	ignoreIdx := make([]int, 0)
+	for idx, name := range header {
+		if self.GetFieldByName(name) == nil {
+			ignoreIdx = append(ignoreIdx, idx)
+		}
+	}
+
+	row := 0 // 当前csv 行
+	errRows := make(map[int]string)
+	var successRows []int
+	rec := dataset.NewRecordSet()
+	isEof := false
+	for !isEof {
+		count := 0
+		rec.Reset()
+		successRows = make([]int, 0)
+
+		session := self.Records()
+		session.Begin()
+		for count < onceInsert {
+			row++
+
+			line, err := csvFile.Read()
+			if err != nil {
+				if err == io.EOF {
+					isEof = true
+					break
+				}
+				errRows[row] = logger.Err(err).Error()
+				break
+			}
+
+			// 写入记录
+			for idx, val := range line {
+				if utils.InInts(idx, ignoreIdx...) == -1 { // 过滤不合法字段
+					rec.FieldByName(header[idx]).AsInterface(val)
+				}
+			}
+
+			id, err := session.Create(rec.AsItfMap())
+			if id == nil || err != nil {
+				errRows[row] = logger.Err(err).Error()
+				break
+			}
+
+			successRows[count] = row
+			count++
+		}
+
+		err = session.Commit()
+		if err != nil {
+			logger.Err(err)
+
+			// 添加提交失败的行
+			for _, r := range successRows {
+				errRows[r] = "Commit fail!"
+			}
+
+			e := session.Rollback()
+			if e != nil {
+				logger.Err(e)
+			}
+		}
+	}
+
+	return errRows, nil
+}
+
 func (self *TModel) GetDefault() map[string]interface{} {
 	return self.obj.GetDefault()
 }

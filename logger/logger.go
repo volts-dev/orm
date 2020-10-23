@@ -49,8 +49,8 @@ func Warnf(fmt string, arg ...interface{}) {
 	logger.Warnf(fmt, arg...)
 }
 
-func Err(err ...interface{}) {
-	logger.Err(err...)
+func Err(err ...interface{}) error {
+	return logger.Err(err...)
 }
 
 func Errf(fmt string, arg ...interface{}) error {
