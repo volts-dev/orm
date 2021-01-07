@@ -82,6 +82,42 @@ type (
 		// todo ...
 	}
 ```
+# 4.数据查询修改
+```
+	dataset, err := model.Records().Read()
+	if err != nil {
+		// todo ...
+	}
+
+	// 获取数据量
+	if dataset.Count() == 0 {
+		self.Fatal("please add some record first!")
+	}
+	
+	// 遍历数据集
+	dataset.Frist()
+	if !dataset.Eof(){
+		name:=dataset.Record().FieldByName("name").AsString("123")
+	   	fmt.Println(name)	
+		
+		dataset.Next()
+	}
+	
+	// 获取当前字段值
+	id:=dataset.FieldByName("id").AsString() // the value is string
+	id:=dataset.FieldByName("id").AsInteger() // the value is int
+	id:=dataset.FieldByName("id").AsInterface() // the value is interface{}
+	
+	// 修改数据
+	dataset.FieldByName("id").AsString("123") // the value is string
+	
+	// 写回数据库
+	model.Records().Write(dataset.Record().AsItfMap())
+	
+	....
+
+```
+# // 更多请查询Test目录测试例子
 
 #自定义字段类型
 #自定义返回TDataset 数据集
