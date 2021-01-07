@@ -1,12 +1,11 @@
-# ORM
-The Volts ORM library for Golang, aims to be developer friendly.
+The Volts'ORM library for Golang, aims to be developer friendly.
 
-# Overview
+#### Overview
 * Domain Parser (String type filter)
 * Dataset (Full data type covert interface)
 * Developer Friendly
 
-# 1.定义数据表模型
+#### 1.定义数据表模型
 ```
 type (
 	// PartnerModel save all the records about a company/person/group
@@ -59,7 +58,7 @@ type (
 )
 ```
 
-# 2.同步映射模型到ORM
+#### 2.同步映射模型到ORM
 这里不需要当心同步模型的顺序,"test"只是区分这些模型在不同包或者文件夹的标志,可以是任何字符串
 ```
 	Orm, err = orm.NewOrm(DataSource)
@@ -74,7 +73,7 @@ type (
 	)
 ```
 
-# 3.获取表模型 
+#### 3.获取表模型 
 这里几乎可以在任何包里调用并获取模型,而不必担心golang包的交叉引用限制.参数"test"可以省略
 ```
 	model, err := Orm.GetModel("user_model","test")
@@ -82,7 +81,7 @@ type (
 		// todo ...
 	}
 ```
-# 4.数据查询修改
+#### 4.数据查询修改
 ```
 	dataset, err := model.Records().Read()
 	if err != nil {
@@ -114,11 +113,51 @@ type (
 	// 写回数据库
 	model.Records().Write(dataset.Record().AsItfMap())
 	
+	更多请查询Test目录测试例子
 	....
 
 ```
-# // 更多请查询Test目录测试例子
+#### 扩展模型方法
+数据表模型可以通过继承IModel(接口)/TModel(实现)达到为每个数据模型扩展方法的基模型
+```
+	IBaseModel interface{}{
+		orm.IModel
+		ReadFrist100()*TDataset,err
+		...
+	}
+	
+	TBaseModel struct{
+		orm.TModel
+		...
+	}
+	
+	func(self *BaseModel)ReadFrist100()*TDataset,err{
+		// todo...
+	}
+	
+	// 新接口获取模型
+	GetModel(name string)IBaseModel{
+		model,_:=orm.GetModel(modelName, module_name)
+		
+		return model.(IBaseModel)
+	}
+```
+#### 数据表模型继承基模型
+```
+	UserModel struct{
+		TBaseModel
+		...
+	}
+	
+	// 映射注册
+	orm.SyncModel("",new(UserModel))
+```
 
+#### 获取模型
+```
+	user:=GetModel("user_model")
+	ds,_:=user.ReadFrist100()
+```
 #自定义字段类型
 #自定义返回TDataset 数据集
 
