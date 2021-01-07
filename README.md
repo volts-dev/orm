@@ -5,6 +5,12 @@ The Volts'ORM library for Golang, aims to be developer friendly.
 * Dataset (Full data type covert interface)
 * Developer Friendly
 
+#### 可扩展定制范围
+* 支持Model扩展 (扩展处理方法和接口等,让model可带有其他中间件等特殊功能)
+* 支持Tag扩展 (id,int,many2many...)
+* 支持数据库扩展 (目前只有postgresql)
+* 支持字段格式转换扩展 (字段读写数据库时格式化)
+
 #### 1.定义数据表模型
 ```
 type (
@@ -131,7 +137,7 @@ type (
 		...
 	}
 	
-	func(self *BaseModel)ReadFrist100()*TDataset,err{
+	func(self *TBaseModel)ReadFrist100()*TDataset,err{
 		// todo...
 	}
 	
