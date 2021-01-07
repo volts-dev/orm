@@ -7,7 +7,7 @@ The Volts ORM library for Golang, aims to be developer friendly.
 * Developer Friendly
 
 # 1.定义数据表模型
-`
+```
 type (
 	// PartnerModel save all the records about a company/person/group
 	PartnerModel struct {
@@ -57,11 +57,11 @@ type (
 		ManyToMany []interface{} `field:"many2many(company_model,company_id,user_id)"`
 	}
 )
-`
+```
 
 # 2.同步映射模型到ORM
 这里不需要当心同步模型的顺序,"test"只是区分这些模型在不同包或者文件夹的标志,可以是任何字符串
-`
+```
 	Orm, err = orm.NewOrm(DataSource)
 	if err != nil {
 		// todo ...
@@ -72,16 +72,16 @@ type (
 		new(CompanyModel),
 		new(UserModel),
 	)
-`
+```
 
 # 3.获取表模型 
 这里几乎可以在任何包里调用并获取模型,而不必担心golang包的交叉引用限制.参数"test"可以省略
-`
+```
 	model, err := Orm.GetModel("user_model","test")
 	if err != nil {
 		// todo ...
 	}
-`
+```
 
 #自定义字段类型
 #自定义返回TDataset 数据集
