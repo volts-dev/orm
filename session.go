@@ -546,6 +546,9 @@ func (self *TSession) Orm() *TOrm {
 	return self.orm
 }
 
+func (self *TSession)Models() *TSession {
+	return self
+}
 //
 func (self *TSession) Model(model string, region ...string) *TSession {
 	var mod IModel

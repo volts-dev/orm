@@ -37,6 +37,7 @@ func (self *TIdField) Init(ctx *TFieldContext) {
 	model := ctx.Model
 
 	// set type for field
+	fld.Base().isPrimaryKey = true
 	fld.Base().SqlType = SQLType{BigInt, 0, 0}
 	fld.Base()._attr_type = "bigint"
 

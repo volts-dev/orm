@@ -357,7 +357,9 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		var tagMap map[string][]string // 记录Tag的
 		if field_tag == "" {
 			// # 忽略无Tag的匿名继承结构
-			if model_type.Field(i).Name == model_type.Field(i).Type.Name() {
+			if model_type.Field(i).Name == field_type.Name() {
+				res_model.super = field_type.Name() // TODO 带路径的类名称
+				// TODO 验证继承的加载合法情况
 				continue
 			}
 		} else {

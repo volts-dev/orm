@@ -85,7 +85,7 @@ func (self *TOne2OneField) Init(ctx *TFieldContext) { //comodel_name string, inv
 	field := ctx.Field
 	field.Base().SqlType = Type2SQLType(field_Value.Type())
 	field.Base()._attr_store = true
-	field.Base()._attr_type = "one2one"
+	field.Base()._attr_type = TYPE_O2O
 	params := ctx.Params
 	if len(params) > 0 {
 		field.Base().comodel_name = params[0]
@@ -147,7 +147,7 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 		fld.Base().cokey_field_name = fmtFieldName(params[1])         //目标表关键字段
 		fld.Base().relkey_field_name = fmtFieldName(params[2])        // 关系表关键字段
 		fld.Base()._attr_relation = fld.Base().comodel_name
-		fld.Base()._attr_type = "many2many"
+		fld.Base()._attr_type = TYPE_M2M
 
 	} else if cnt == 1 {
 		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
@@ -501,7 +501,7 @@ func (self *TMany2OneField) Init(ctx *TFieldContext) {
 	logger.Assert(len(params) > 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
 	fld.Base()._attr_relation = fld.Base().comodel_name
-	fld.Base()._attr_type = "many2one"
+	fld.Base()._attr_type = TYPE_M2O
 }
 
 func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
@@ -556,7 +556,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 
 	switch ctx.Value.(type) {
 	case []interface{}:
- 		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
+		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
 			ctx.Value = lst[0]
 		}
 
@@ -581,32 +581,33 @@ func (self *TOne2ManyField) Init(ctx *TFieldContext) { //comodel_name string, in
 	field.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
 	field.Base().cokey_field_name = fmtFieldName(params[1])                   //目标表关键字段
 	field.Base()._attr_relation = field.Base().comodel_name
-	field.Base()._attr_type = "one2many"
+	field.Base()._attr_type = TYPE_O2M
 }
 
 func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
-	orm := ctx.Session.orm
+	//	orm := ctx.Session.orm
 	ds := ctx.Dataset
 	field := ctx.Field
-	idFieldName := ctx.Model.IdField()
+	//idFieldName := ctx.Model.IdField()
+	model := ctx.Model
+	/*
+		// # retrieve the lines in the comodel
+		relmodel_name := self.relmodel_name
+		relkey_field_name := self.relkey_field_name
+		rel_model, err := orm.GetModel(relmodel_name)
+		if err != nil {
+			return err
+		}
 
-	// # retrieve the lines in the comodel
-	relmodel_name := self.relmodel_name
-	relkey_field_name := self.relkey_field_name
-	rel_model, err := orm.GetModel(relmodel_name)
-	if err != nil {
-		return err
-	}
-
-	rel_filed := rel_model.GetFieldByName(relkey_field_name)
-	if rel_filed.SQLType().Name != "many2one" {
-		return logger.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
-	}
-
+		rel_filed := rel_model.GetFieldByName(relkey_field_name)
+		if rel_filed.SQLType().Name != TYPE_O2M {
+			return logger.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
+		}
+	*/
 	ids := ds.Keys()
-	sds, err := rel_model.Records().In(field.Name(), ids).Read()
+	sds, err := model.One2many(ids, field.Name()) // rel_model.Records().In(field.Name(), ids).Read()
 	if err != nil {
-		logger.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
+		logger.Errf("One2Many field %s search relate model %s faild", field.Name(), field.RelateModelName())
 		return err
 	}
 
@@ -615,7 +616,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
 	// 根据id 分配记录
 	sds.First()
 	for !sds.Eof() {
-		id := sds.FieldByName(idFieldName).AsInterface()
+		id := sds.FieldByName(field.RelateFieldName()).AsInterface()
 		recs := tmap[id] // 记录数组
 		recs = append(recs, sds.Record())
 		sds.Next()

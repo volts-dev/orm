@@ -392,7 +392,8 @@ func (self *TDomainNode) Item(idx int) *TDomainNode {
 		}
 	}
 
-	logger.Panicf("bound idx %d", idx)
+	PrintDomain(self)
+	logger.Panicf("bound index < %d >", idx)
 	return nil
 }
 

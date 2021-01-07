@@ -15,6 +15,9 @@ import (
 type (
 	// BaseModel 接口
 	IModel interface {
+		// 获取继承的模型
+		// 用处:super 用于方便调用不同层级模型的方法/查询等
+		Super() IModel
 		GetColumnsSeq() []string
 		GetPrimaryKeys() []string
 		// private
@@ -32,8 +35,8 @@ type (
 		GetDefault() map[string]interface{}
 		GetDefaultByName(fieldName string) (value interface{})
 		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
-		One2many(ids, model string, fieldKey string) (*dataset.TDataSet, error)
-		Many2many(detail_model, ref_model string, key_id, ref_id string) (*dataset.TDataSet, error)
+		One2many(ids []interface{}, fieldName string) (*dataset.TDataSet, error)
+		Many2many(ids []interface{}, fieldName string) (*dataset.TDataSet, error)
 
 		AddField(field IField)
 		// return the model name
@@ -58,7 +61,7 @@ type (
 		Records() *TSession
 
 		// UTF file only
-		Load(file io.Reader) (map[int]string, error)
+		Load(file io.Reader, breakcount ...int) (map[int]string, error)
 		//Create(values map[string]interface{}) (id int64)
 		//Read(ids []string, fields []string) *dataset.TDataSet
 		//Write(ids []string, values interface{}) (err error)
@@ -93,6 +96,7 @@ type (
 		orm        *TOrm
 		osv        *TOsv
 		obj        *TObj
+		super      string // 继承的Model名称
 
 		//_fields       map[string]IField // # model的所有字段
 		_parent_name  string // #! 父表中的字段名称
@@ -146,6 +150,11 @@ func NewModel(name string, modelValue reflect.Value, modelType reflect.Type) (mo
 	//mdl._sequence = mdl._table + "_id_seq"
 
 	return model
+}
+
+// TODO 包含同步上个下文Session
+func (self *TModel) Super() IModel {
+	return self.Orm().GetModel(self.super)
 }
 
 func (self *TModel) setBaseModel(model *TModel) {
@@ -503,8 +512,12 @@ func (self *TModel) import_data() {
 
 //
 // @Return map: row index in csv file fail and error message
-func (self *TModel) Load(file io.Reader) (map[int]string, error) {
+func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, error) {
 	onceInsert := 50000
+	if breakcount != nil {
+		onceInsert = breakcount[0]
+	}
+
 	csvFile := csv.NewReader(file)
 	header, err := csvFile.Read()
 	if err != nil {
@@ -557,7 +570,7 @@ func (self *TModel) Load(file io.Reader) (map[int]string, error) {
 				break
 			}
 
-			successRows[count] = row
+			successRows = append(successRows, row)
 			count++
 		}
 
@@ -748,19 +761,52 @@ func (self *TModel) _add_inherited_fields() {
 	*/
 }
 
+func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error) {
+	field := self.GetFieldByName(fieldName)
+	if !field.IsRelatedField() || field.Type() != TYPE_O2M {
+		logger.Panicf("could not call model func One2many() from a not One2many field!")
+	}
+
+	// # retrieve the lines in the comodel
+	relmodel_name := field.RelateModelName()
+	relkey_field_name := field.RelateFieldName()
+	rel_model, err := self.orm.GetModel(relmodel_name)
+	if err != nil {
+		return nil, err
+	}
+
+	rel_filed := rel_model.GetFieldByName(relkey_field_name)
+	if rel_filed.SQLType().Name != TYPE_M2O {
+		return nil, logger.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
+	}
+
+	ds, err = rel_model.Records().In(fieldName, ids...).Read()
+	if err != nil {
+		logger.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
+		return nil, err
+	}
+
+	return ds, err
+}
+
 // 获取外键所有Child关联2222222记录
 //TODO ids []string
-func (self *TModel) One2many(ids, modelName string, fieldKey string) (ds *dataset.TDataSet, err error) {
+func (self *TModel) ___One2many(ids []interface{}, modelName string, fieldKey string) (ds *dataset.TDataSet, err error) {
 	if modelName != "" && fieldKey != "" {
 		model, err := self.osv.GetModel(modelName) // #i
 		if err != nil {
 			return nil, err
 		}
 
-		lDomain := fmt.Sprintf(`[('%s', 'in', [%s])]`, fieldKey, ids)
+		//domainNode := domain.NewDomainNode()
+		//domainNode.Push(fieldKey)
+		//domainNode.Push("in")
+		//domainNode.Push(ids...)
+		//lDomain := fmt.Sprintf(`[('%s', 'in', [%s])]`, fieldKey,utils.re ids)
 		//logger.Dbg("One2many", lDomain)
 		//ds = lMOdelObj.SearchRead(lDomain, nil, 0, 0, "", nil)
-		ds, err = model.Records().Domain(lDomain).Read()
+		//ds, err = model.Records().Domain(domainNode).Read()
+		ds, err = model.Records().In(fieldKey, ids...).Read()
 		if err != nil {
 			return nil, err
 		}
@@ -770,7 +816,7 @@ func (self *TModel) One2many(ids, modelName string, fieldKey string) (ds *datase
 }
 
 // TODO Many2many
-func (self *TModel) Many2many(detail_model, ref_model string, key_id, ref_id string) (*dataset.TDataSet, error) {
+func (self *TModel) Many2many(ids []interface{}, fieldName string) (*dataset.TDataSet, error) {
 	return nil, nil
 }
 

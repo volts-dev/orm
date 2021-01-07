@@ -175,8 +175,8 @@ type (
 		isRelatedField    bool                // 该字段是否关联表的外键字段
 		automatic         bool                // 是否是自动创建的字段 ("magic" field)
 		model_name        string              // 字段所在的模型名称
-		comodel_name      string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
-		relmodel_name     string              // 关系表数据模型 字段关联的Model和字段的many2many关系表Model
+		comodel_name      string              //relate_model 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
+		relmodel_name     string              //mapping_model 关系表数据模型 字段关联的Model和字段的many2many关系表Model
 		cokey_field_name  string              // 关联字段所在的表的主键
 		relkey_field_name string              // M2M 表示被关联表的主键字段
 		index             bool                // whether the field is indexed in database

@@ -3,9 +3,9 @@ package postgres
 import (
 	"testing"
 
-	"github.com/volts-dev/orm"
+	"github.com/volts-dev/orm/test"
 )
 
 func TestDelete(t *testing.T) {
-	orm.TestDelete("", t)
+	test.TestDelete("", t)
 }

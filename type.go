@@ -145,6 +145,11 @@ var (
 	BigSerial        = "BIGSERIAL"
 	Json             = "JSON" // ORM
 	Jsonb            = "JSONB"
+	// new
+	TYPE_O2O = "one2one"
+	TYPE_O2M = "one2many"
+	TYPE_M2O = "many2one"
+	TYPE_M2M = "many2many"
 
 	SqlTypes = map[string]int{
 		Bool: NUMERIC_TYPE,
