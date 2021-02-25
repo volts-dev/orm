@@ -53,21 +53,21 @@ type (
 		//StoreEngine string
 
 		// object 属性
-		uidFieldName            string
-		fields                  map[string]IField                  // map[field]
-		relations               map[string]string                  // many2many many2one... 等关联表
-		relatedFields           map[string]*TRelatedField          // 关联字段如 UserId CompanyID
-		commonFields            map[string]map[string]IField       //
-		methods                 map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
-		object_val              map[reflect.Type]*TModel           // map[Model] 备份对象
-		object_types            map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
-		defaultValues           map[string]interface{}             // store the default values of model
-		fieldsLock              sync.RWMutex
-		relationsLock           sync.RWMutex
-		defaultValuesLock       sync.RWMutex
-		relatedFieldsLock       sync.RWMutex
-		commonFieldsLock        sync.RWMutex
-		indexesLock             sync.RWMutex
+		uidFieldName      string
+		fields            map[string]IField                  // map[field]
+		relations         map[string]string                  // many2many many2one... 等关联表
+		relatedFields     map[string]*TRelatedField          // 关联字段如 UserId CompanyID
+		commonFields      map[string]map[string]IField       //
+		methods           map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
+		object_val        map[reflect.Type]*TModel           // map[Model] 备份对象
+		object_types      map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
+		defaultValues     map[string]interface{}             // store the default values of model
+		fieldsLock        sync.RWMutex
+		relationsLock     sync.RWMutex
+		defaultValuesLock sync.RWMutex
+		relatedFieldsLock sync.RWMutex
+		commonFieldsLock  sync.RWMutex
+		indexesLock       sync.RWMutex
 	}
 
 	TOsv struct {

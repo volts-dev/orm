@@ -306,6 +306,10 @@ func (self *TSession) SyncModel(region string, models ...interface{}) (modelName
 	modelNames = make([]string, 0)
 	for _, mod := range models {
 		model := self.orm.mapping(region, mod)
+		if model == nil {
+			continue
+		}
+
 		model_name := model.GetName()
 
 		var exits_model IModel // 数据库存在的
@@ -546,9 +550,10 @@ func (self *TSession) Orm() *TOrm {
 	return self.orm
 }
 
-func (self *TSession)Models() *TSession {
+func (self *TSession) Models() *TSession {
 	return self
 }
+
 //
 func (self *TSession) Model(model string, region ...string) *TSession {
 	var mod IModel
@@ -1384,7 +1389,7 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 		for _, field := range name_fields {
 			//logger.Dbg("aa", rec_id, name)
 
-			field.OnRead(&TFieldEventContext{
+			err := field.OnRead(&TFieldEventContext{
 				Session: self,
 				Model:   self.Statement.model,
 				Field:   field,
@@ -1392,6 +1397,9 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 				//Value:   val,
 				Dataset: dataset,
 			})
+			if err != nil {
+				logger.Errf("%s@%s.OnRead:%s", field.ModelName(), field.Name(), err.Error())
+			}
 			//logger.Dbg("convert_to_read:", name, val, dataset.Count(), rec_id, dataset.FieldByName("id").AsString(), dataset.Position, dataset.Eof(), res_dataset.FieldByName(name).AsString(), dataset.FieldByName(name).AsInterface(), field)
 		}
 	}
@@ -1624,8 +1632,8 @@ func (self *TSession) CreateIndexes(model string) error {
 
 	self.Statement.model = mod.GetBase() //self.orm.GetTable(tableName)
 
-	lSqls := self.Statement.generate_index()
-	for _, sql := range lSqls {
+	sqls := self.Statement.generate_index()
+	for _, sql := range sqls {
 		_, err := self.exec(sql)
 		if err != nil {
 			return err

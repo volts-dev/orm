@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 	"time"
@@ -12,10 +11,6 @@ import (
 )
 
 const (
-	// Index
-	IndexType = iota + 1
-	UniqueType
-
 	// 字段读写模式
 	TWOSIDES = iota + 1
 	ONLYTODB
@@ -35,13 +30,6 @@ type (
 			Read(session *TSession, field *TField, dataset *dataset.TDataSet, rel_context map[string]interface{}) interface{}         // (res map[string]map[string]interface{})         // 字段数据获取
 		}
 	*/
-	// database index
-	TIndex struct {
-		IsRegular bool
-		Name      string
-		Type      int
-		Cols      []string
-	}
 
 	// The context for Tag
 	TFieldContext struct {
@@ -117,15 +105,17 @@ type (
 		IsInheritedField(arg ...bool) bool
 		//IsCommonField(arg ...bool) bool
 		IsAutoJoin() bool // 自动Join
+		IsCompute() bool  // 自动Join
+
 		//IsClassicRead() bool
 		//IsClassicWrite() bool
 
 		UseAttachment() bool
 
 		// raw I/O event of field when it be read/write.
-		// [原始数据] 处理读取数据库的原始数据
+		// [原始数据] 处理计算读取数据库的原始数据 将会调用Compute等标签里的函数
 		OnRead(ctx *TFieldEventContext) error // (res map[string]map[string]interface{})         // 字段数据获取
-		// [原始数据] 处理写入数据库原始数据
+		// [原始数据] 处理计算写入数据库原始数据 将会调用Compute等标签里的函数
 		OnWrite(ctx *TFieldEventContext) error //(res map[string]map[string]interface{}) // 字段数据保存
 
 		// classic I/O event of the field. It will be call when using classic query. READ/WRITE the relate data FROM/TO its relation table
@@ -218,6 +208,8 @@ type (
 		_func_multi   string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
 		_func_search  string      //允许你在这个字段上定义搜索功能
 		_compute      string      //# 字段值的计算函数函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
+		_setter       string      // 写入计算格式化函数
+		_getter       string      // 读取计算格式化函数
 		_compute_sudo bool        //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
 		_oldname      string      //# the previous name of this field, so that ORM can rename it automatically at migration
 
@@ -251,54 +243,6 @@ type (
 		RelateTopestTable string //idx:3 //关联字段由那个表产生
 	}
 )
-
-func (index *TIndex) XName(tableName string) string {
-	if !strings.HasPrefix(index.Name, "UQE_") &&
-		!strings.HasPrefix(index.Name, "IDX_") {
-		tableName = strings.Replace(tableName, `"`, "", -1)
-		tableName = strings.Replace(tableName, `.`, "_", -1)
-		if index.Type == UniqueType {
-			return fmt.Sprintf("UQE_%v_%v", tableName, index.Name)
-		}
-		return fmt.Sprintf("IDX_%v_%v", tableName, index.Name)
-	}
-	return index.Name
-}
-
-// add columns which will be composite index
-func (index *TIndex) AddColumn(cols ...string) {
-	for _, col := range cols {
-		index.Cols = append(index.Cols, col)
-	}
-}
-
-func (index *TIndex) Equal(dst *TIndex) bool {
-	if index.Type != dst.Type {
-		return false
-	}
-	if len(index.Cols) != len(dst.Cols) {
-		return false
-	}
-
-	for i := 0; i < len(index.Cols); i++ {
-		var found bool
-		for j := 0; j < len(dst.Cols); j++ {
-			if index.Cols[i] == dst.Cols[j] {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
-// new an index
-func newIndex(name string, indexType int) *TIndex {
-	return &TIndex{true, name, indexType, make([]string, 0)}
-}
 
 // Register makes a log provide available by the provided name.
 // If Register is called twice with the same name or if driver is nil,
@@ -638,6 +582,10 @@ func (self *TField) IsVersion() bool {
 	return self.isVersion
 }
 
+func (self *TField) IsCompute() bool {
+	return
+}
+
 //
 func (self *TField) IsInheritedField(arg ...bool) bool {
 	if len(arg) > 0 {
@@ -747,6 +695,24 @@ func (self *TField) onConvertToWrite(session *TSession, value interface{}) inter
    """
 */
 func (self *TField) OnRead(ctx *TFieldEventContext) error {
+	/*	model := ctx.Model
+		field := self
+
+		if lMehodName := field.Func(); lMehodName != "" {
+			//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+			if m := model.modelValue.MethodByName(lMehodName); m.IsValid() {
+				//logger.Dbg("selection:", m, self.model.modelValue)
+				results := m.Call([]reflect.Value{self.model.modelValue}) //
+				//logger.Dbg("selection:", results)
+				if len(results) == 1 {
+					//fld.Selection, _ = results[0].Interface().([][]string)
+					if res, ok := results[0].Interface().([][]string); ok {
+						field._attr_selection = res
+					}
+				}
+			}
+		}
+	*/
 	return nil
 }
 

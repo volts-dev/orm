@@ -317,11 +317,16 @@ func (self *TOrm) formatTime(tz *time.Location, sqlTypeName string, t time.Time)
 
 // # 映射结构体与表
 func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) {
+	model_value := reflect.Indirect(reflect.ValueOf(model))
+	model_type := model_value.Type()
+	if model_type.Kind() != reflect.Struct {
+		logger.Warnf("please make sure model is a struct! but not %v@%v", model_type.Name(), model_type.String())
+		return nil
+	}
+
 	object_name := utils.Obj2Name(model)
 	model_name := fmtModelName(object_name)
 	model_alt_name := model_name // model别名,当Model使用别名Tag时作用
-	model_value := reflect.Indirect(reflect.ValueOf(model))
-	model_type := model_value.Type()
 	model_object := self.osv.newObject(model_name)
 
 	res_model = NewModel(model_name, model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
@@ -565,7 +570,7 @@ func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, 
 					break
 				}
 
-				logger.Warnf("Unknown tag %s from %s:%s", tag_str, fieldCtx.Model.GetName(), field.Name())
+				logger.Warnf("Unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.GetName(), field.Name())
 			}
 		}
 	}

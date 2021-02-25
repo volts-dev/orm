@@ -62,6 +62,8 @@ const (
 	TAG_VER           = "version"    // TODO
 	TAG_COMPUTE       = "compute"    // # 函数赋值
 	TAG_INVERSE       = "inverse"    // # 函数赋值相反
+	TAG_SETTER        = "setter"     // # 函数赋值
+	TAG_GETTER        = "getter"     // # 函数赋值
 
 	// type
 	TAG_INT       = "int"
@@ -79,7 +81,7 @@ const (
 	TAG_ON2MANY   = "one2many"
 	TAG_MANY2ONE  = "many2one"
 	TAG_MANY2MANY = "many2many"
-	TAG_RELATION  = "relation"
+	TAG_RELATION  = "relation" // 关系表 用于多对多等
 
 	// rel
 	//TAG_RELATED   = "related" //废弃
@@ -102,6 +104,8 @@ func init() {
 
 		// #attr
 		//tag_ctrl[TAG_IGNORE] = "-" // 忽略某些继承者成员
+		"readonly":     tag_read_only,
+		"writeonly":    tag_write_only,
 		TAG_READ_ONLY:  tag_read_only,
 		TAG_WRITE_ONLY: tag_write_only,
 		TAG_NAME:       tag_name,
@@ -151,10 +155,11 @@ func init() {
 		TAG_MANY2ONE:  tag_many2one,
 		TAG_MANY2MANY: tag_many2many,
 		TAG_JSON:    tag_json,*/
-		TAG_COMPUTE: tag_compute,
-		TAG_INVERSE: tag_inverse,
-		//TAG_RELATION:tag_
-
+		TAG_COMPUTE:  tag_compute,
+		TAG_INVERSE:  tag_inverse,
+		TAG_RELATION: tag_relation,
+		TAG_SETTER:   tag_setter,
+		TAG_GETTER:   tag_getter,
 		// # rel
 		//TAG_RELATED] = "related" //废弃
 		TAG_EXTENDS: tag_extends,
@@ -207,8 +212,8 @@ func tag_compute(ctx *TFieldContext) {
 	params := ctx.Params
 
 	//# by default, computed fields are not stored, not copied and readonly
-	fld.Base()._attr_store = false
-	fld.Base()._attr_readonly = false
+	fld.Base()._attr_store = fld.Base()._attr_store || false
+	fld.Base()._attr_readonly = fld.Base()._attr_readonly || false
 
 	if len(params) > 0 {
 		fld.Base()._compute = "" // 初始化
@@ -222,6 +227,60 @@ func tag_compute(ctx *TFieldContext) {
 	}
 }
 
+func tag_getter(ctx *TFieldContext) {
+	/*
+		fnct 是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
+		fnct_inv：是一个允许设置这个字段值的函数或方法。
+		type：由函数返回的字段类型名。其可以是任何字段类型名 除了函数
+		fnct_search：允许你在这个字段上定义搜索功能
+		method：这个字段是由一个方法计算还是由一个全局函数计算。
+		store：是否将这个字段存储在数据库中。默认false
+		multi：一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
+	*/
+	//lField.Type = "function" function 是未定义字段
+
+	fld := ctx.Field
+	params := ctx.Params
+
+	//# by default, computed fields are not stored, not copied and readonly
+	fld.Base()._attr_store = fld.Base()._attr_store || false
+	fld.Base()._compute_sudo = fld.Base()._compute_sudo || false
+	fld.Base()._attr_readonly = fld.Base()._attr_readonly || fld.Base()._setter == ""
+
+	if len(params) > 0 {
+		fld.Base()._getter = "" // 初始化
+		funcName := strings.Trim(params[0], "'")
+		funcName = strings.Replace(funcName, "''", "'", -1)
+		if m := ctx.Model.GetBase().modelValue.MethodByName(funcName); m.IsValid() {
+			fld.Base()._getter = funcName
+		}
+	} else {
+		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
+	}
+}
+
+func tag_setter(ctx *TFieldContext) {
+	fld := ctx.Field
+	params := ctx.Params
+
+	//# by default, computed fields are not stored, not copied and readonly
+	fld.Base()._attr_store = fld.Base()._attr_store || false
+	fld.Base()._compute_sudo = fld.Base()._compute_sudo || false
+	fld.Base()._attr_readonly = fld.Base()._attr_readonly || false
+
+	if len(params) > 0 {
+		fld.Base()._setter = "" // 初始化
+		funcName := strings.Trim(params[0], "'")
+		funcName = strings.Replace(funcName, "''", "'", -1)
+		if m := ctx.Model.GetBase().modelValue.MethodByName(funcName); m.IsValid() {
+			fld.Base()._setter = funcName
+		}
+	} else {
+		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
+	}
+}
+
+//name of a method that inverses the field (optional)
 func tag_inverse(ctx *TFieldContext) {
 }
 
@@ -331,6 +390,11 @@ func tag_extends(ctx *TFieldContext) {
 			}
 		}
 	}
+}
+
+// relation(关系表)
+func tag_relation(ctx *TFieldContext) {
+
 }
 
 func tag_relate(ctx *TFieldContext) {
@@ -485,34 +549,30 @@ func tag_unique(ctx *TFieldContext) {
 	field_name := fld.Name()
 	var index *TIndex
 	var ok bool
+	indexName := generate_index_name(UniqueType, model.GetName(), []string{field_name})
 
-	if index, ok = model.Obj().indexes[field_name]; ok {
+	if index, ok = model.Obj().indexes[indexName]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index = newIndex(field_name, UniqueType)
+		index = newIndex(indexName, UniqueType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}
-
-	//	fld.Base().Indexes[index.Name] = UniqueType
 }
 
 func tag_index(ctx *TFieldContext) {
 	fld := ctx.Field
 	model := ctx.Model
 	field_name := fld.Name()
-	var index *TIndex
-	var ok bool
+	indexName := generate_index_name(IndexType, model.GetName(), []string{field_name})
 
-	if index, ok = model.Obj().indexes[field_name]; ok {
+	if index, ok := model.Obj().indexes[indexName]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index := newIndex(field_name, IndexType)
+		index := newIndex(indexName, IndexType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}
-
-	//	fld.Base().Indexes[index.Name] = IndexType
 }
 
 func tag_required(ctx *TFieldContext) {
@@ -574,6 +634,7 @@ func tag_store(ctx *TFieldContext) {
 	} else {
 		fld.Base()._attr_store = true
 	}
+	logger.Dbg("store", params, fld.Base()._attr_store)
 }
 
 func tag_domain(ctx *TFieldContext) {

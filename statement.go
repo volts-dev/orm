@@ -265,15 +265,18 @@ func (self *TStatement) generate_add_column(col IField) (string, []interface{}) 
 func (self *TStatement) generate_index() []string {
 	var sqls []string = make([]string, 0)
 	quote := self.session.orm.dialect.Quote
+	modelName := self.session.Statement.model.GetName()
 
 	for idxName, index := range self.session.Statement.model.obj.indexes {
-		lIdxName := fmt.Sprintf("IDX_%v_%v", self.session.Statement.model.GetName(), idxName)
 		if index.Type == IndexType {
-			sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);", quote(lIdxName),
-				quote(self.session.Statement.model.GetName()), quote(strings.Join(index.Cols, quote(","))))
+			//idxName := index.GetName(modelName)
+			sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);",
+				quote(idxName), quote(modelName), quote(strings.Join(index.Cols, quote(","))))
 			sqls = append(sqls, sql)
+			//logger.Dbg(sql, index)
 		}
 	}
+
 	return sqls
 }
 

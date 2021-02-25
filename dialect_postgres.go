@@ -999,9 +999,9 @@ func (self *postgres) DropDatabase(name string) error {
 }
 
 func (db *postgres) DropIndexSql(tableName string, index *TIndex) string {
-	quote := db.Quote
+	//quote := db.Quote
 	//var unique string
-	var idxName string = index.Name
+	/*var idxName string = index.Name
 	if !strings.HasPrefix(idxName, "UQE_") &&
 		!strings.HasPrefix(idxName, "IDX_") {
 		if index.Type == UniqueType {
@@ -1009,8 +1009,9 @@ func (db *postgres) DropIndexSql(tableName string, index *TIndex) string {
 		} else {
 			idxName = fmt.Sprintf("IDX_%v_%v", tableName, index.Name)
 		}
-	}
-	return fmt.Sprintf("DROP INDEX %v", quote(idxName))
+	}*/
+	idxName := index.GetName(tableName)
+	return fmt.Sprintf("DROP INDEX %v", db.Quote(idxName))
 }
 
 func (db *postgres) IsColumnExist(tableName, colName string) (bool, error) {
@@ -1179,33 +1180,41 @@ func (db *postgres) GetIndexes(tableName string) (map[string]*TIndex, error) {
 		var indexType int
 		var indexName, indexdef string
 		var colNames []string
+
 		err = rows.Scan(&indexName, &indexdef)
 		if err != nil {
 			return nil, err
 		}
+
 		indexName = strings.Trim(indexName, `" `)
 		if strings.HasSuffix(indexName, "_pkey") {
 			continue
 		}
+
 		if strings.HasPrefix(indexdef, "CREATE UNIQUE INDEX") {
 			indexType = UniqueType
 		} else {
 			indexType = IndexType
 		}
+
 		cs := strings.Split(indexdef, "(")
 		colNames = strings.Split(cs[1][0:len(cs[1])-1], ",")
 
-		if strings.HasPrefix(indexName, "IDX_"+tableName) || strings.HasPrefix(indexName, "UQE_"+tableName) {
+		if strings.HasPrefix(indexName, IndexPrefix+tableName) || strings.HasPrefix(indexName, UniquePrefix+tableName) {
 			newIdxName := indexName[5+len(tableName) : len(indexName)]
 			if newIdxName != "" {
 				indexName = newIdxName
 			}
 		}
 
-		index := &TIndex{Name: indexName, Type: indexType, Cols: make([]string, 0)}
+		var indexs []string
 		for _, colName := range colNames {
-			index.Cols = append(index.Cols, strings.Trim(colName, `" `))
+			indexs = append(indexs, strings.Trim(colName, `" `))
 		}
+
+		index := newIndex(indexName, indexType, indexs...)
+		//index := &TIndex{Name: indexName, Type: indexType, Cols: make([]string, 0)}
+
 		indexes[index.Name] = index
 	}
 	return indexes, nil

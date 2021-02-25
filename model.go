@@ -76,6 +76,8 @@ type (
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
 		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
+		BeforeSetup()
+		AfterSetup()
 	}
 
 	// ???
@@ -152,9 +154,19 @@ func NewModel(name string, modelValue reflect.Value, modelType reflect.Type) (mo
 	return model
 }
 
+/*
 // TODO 包含同步上个下文Session
+super() 函数是用于调用父类(超类)的一个方法。
+super 是用来解决多重继承问题的，直接用类名调用父类方法在使用单继承的时候没问题，但是如果使用多继承，会涉及到查找顺序（MRO）、重复调用（钻石继承）等种种问题。
+MRO 就是类的方法解析顺序表, 其实也就是继承父类方法时的顺序表。
+*/
 func (self *TModel) Super() IModel {
-	return self.Orm().GetModel(self.super)
+	//mod, err := self.Session().GetModel(self.GetName())
+	su, err := self.Orm().GetModel(self.super)
+	if err != nil {
+		logger.Errf("create product record failed:%s", err.Error())
+	}
+	return su
 }
 
 func (self *TModel) setBaseModel(model *TModel) {
@@ -764,7 +776,7 @@ func (self *TModel) _add_inherited_fields() {
 func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error) {
 	field := self.GetFieldByName(fieldName)
 	if !field.IsRelatedField() || field.Type() != TYPE_O2M {
-		logger.Panicf("could not call model func One2many() from a not One2many field!")
+		return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, fieldName, field.IsRelatedField(), field.Type())
 	}
 
 	// # retrieve the lines in the comodel
@@ -885,3 +897,5 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 		}
 	}
 }
+func (self *TModel) BeforeSetup() {}
+func (self *TModel) AfterSetup()  {}

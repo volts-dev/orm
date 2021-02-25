@@ -218,7 +218,7 @@ func (db *TDialect) CreateIndexSql(tableName string, index *TIndex) string {
 	if index.Type == UniqueType {
 		unique = " UNIQUE"
 	}
-	idxName = index.XName(tableName)
+	idxName = index.GetName(tableName)
 	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)", unique,
 		quote(idxName), quote(tableName),
 		quote(strings.Join(index.Cols, quote(","))))
@@ -228,7 +228,7 @@ func (db *TDialect) DropIndexSql(tableName string, index *TIndex) string {
 	quote := db.dialect.Quote
 	var name string
 	if index.IsRegular {
-		name = index.XName(tableName)
+		name = index.GetName(tableName)
 	} else {
 		name = index.Name
 	}
@@ -250,6 +250,7 @@ func (b *TDialect) CreateTableSql(model IModel, storeEngine, charset string) str
 		pkList := model.GetPrimaryKeys()
 
 		for _, field := range fields {
+			//logger.Dbg("ffff", field.Name(), field.Store()) // TODO调试 store 失效原因
 			if !field.Store() {
 				continue
 			}

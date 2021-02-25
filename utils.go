@@ -22,12 +22,14 @@ func contains(s string, c byte) bool {
 
 // format the model name to the same
 func fmtModelName(name string) string {
-	return utils.SnakeCasedName(utils.Trim(name))
+	name = strings.Replace(name, ".", "_", -1)
+	return utils.SnakeCasedName(utils.TrimQuotes(utils.Trim(name)))
 }
 
 // format the field name to the same
 func fmtFieldName(name string) string {
-	return utils.SnakeCasedName(utils.Trim(name))
+	name = strings.Replace(name, ".", "_", -1)
+	return utils.SnakeCasedName(utils.TrimQuotes(utils.Trim(name)))
 }
 
 func lookup(tag string, key ...string) (value string) {
