@@ -3,9 +3,9 @@ package postgres
 import (
 	"testing"
 
-	"github.com/volts-dev/orm"
+	"github.com/volts-dev/orm/test"
 )
 
 func TestOr(t *testing.T) {
-	orm.TestOr("", t)
+	test.TestOr("", t)
 }

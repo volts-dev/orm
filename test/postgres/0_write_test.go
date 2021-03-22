@@ -3,9 +3,9 @@ package postgres
 import (
 	"testing"
 
-	"github.com/volts-dev/orm"
+	"github.com/volts-dev/orm/test"
 )
 
 func TestWrite(t *testing.T) {
-	orm.TestWrite("", t)
+	test.TestWrite("", t)
 }

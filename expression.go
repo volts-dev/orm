@@ -800,14 +800,14 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		// :var list path: left operand seen as a sequence of field names
 		path = strings.SplitN(left.String(), ".", 2) // "foo.bar" -> ["foo", "bar"]
 		model := ex_leaf.model                       // get the model instance
-		lFieldName := path[0]                        // get the   first part
-		//IsInheritField := model.obj.GetRelatedFieldByName(lFieldName) != nil
-		//_, IsInheritField := model._relate_fields[lFieldName] // 是否是继承字段
+		fieldName := path[0]                         // get the   first part
+		//IsInheritField := model.obj.GetRelatedFieldByName(fieldName) != nil
+		//_, IsInheritField := model._relate_fields[fieldName] // 是否是继承字段
 		//column := model._Columns[path[0]]
 		//   comodel = model.pool.get(getattr(field, 'comodel_name', None))
 
 		// get the model
-		field := model.GetFieldByName(lFieldName) // get the field instance which has full details
+		field := model.GetFieldByName(fieldName) // get the field instance which has full details
 		if field != nil {
 			comodel, err = model.Orm().GetModel(field.ModelName()) // get the model of the field owner
 			if err != nil {
@@ -843,7 +843,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			*/
 		} else if field == nil {
 			// FIELD NOT FOUND
-			return logger.Errf("Invalid field %s in leaf %s", left.String(), domain.Domain2String(ex_leaf.leaf))
+			return logger.Errf("Invalid field <%s>@<%s> in leaf <%s>", left.String(), model.GetName(), domain.Domain2String(ex_leaf.leaf))
 
 		} else if field.IsInheritedField() {
 			// ----------------------------------------
@@ -864,15 +864,15 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 
 			// next_model = model.pool[model._inherit_fields[path[0]][0]]
 			//ex_leaf.add_join_context(next_model, model._inherits[next_model._name], 'id', model._inherits[next_model._name])
-			logger.Dbg("ttt", model.obj.GetRelatedFieldByName(lFieldName))
+			logger.Dbg("ttt", model.obj.GetRelatedFieldByName(fieldName))
 
-			related_field := model.obj.GetRelatedFieldByName(lFieldName)
+			related_field := model.obj.GetRelatedFieldByName(fieldName)
 			next_model, err := model.orm.GetModel(related_field.RelateTableName)
 			if err != nil {
 				return err
 			}
 			logger.Dbg("ttt", next_model, related_field)
-			//logger.Dbg("IsRelatedField>>", lFieldName, next_model.GetModelName())
+			//logger.Dbg("IsRelatedField>>", fieldName, next_model.GetModelName())
 			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.GetName()), "id", model.obj.GetRelationByName(next_model.GetName()))
 			self.push(ex_leaf)
 
@@ -906,13 +906,13 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 
 			//logger.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			// # res_partner.state_id = res_partner__state_id.id
-			ex_leaf.add_join_context(comodel.GetBase(), lFieldName, "id", lFieldName)
+			ex_leaf.add_join_context(comodel.GetBase(), fieldName, "id", fieldName)
 			self.push(create_substitution_leaf(ex_leaf, domain.NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
 
 		} else if len(path) > 1 && field.Store() && field.Type() == "one2many" && field.IsAutoJoin() {
 			//logger.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			//  # res_partner.id = res_partner__bank_ids.partner_id
-			ex_leaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), lFieldName)
+			ex_leaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), fieldName)
 			node, err := domain.String2Domain(field.Domain()) //column._domain(model) if callable(column._domain) else column._domain
 			if err != nil {
 				logger.Err(err)

@@ -7,7 +7,7 @@ import (
 )
 
 func TestRead(t *testing.T) {
-	test.ClearDatabase = false
+	//test.ClearDatabase = false
 	//test.TestCreate10("", t)
 	test.TestRead("", t)
 }

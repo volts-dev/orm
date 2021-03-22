@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -188,7 +187,6 @@ func RegisterTagController(name string, ctrl ITagController) {
 func GetTagControllerByName(name string) ITagController {
 	ctrl, has := tag_ctrl[name]
 	if !has {
-		fmt.Errorf("cache: unknown adapter name %q (forgot to import?)", name)
 		return nil
 	}
 
@@ -227,6 +225,8 @@ func tag_compute(ctx *TFieldContext) {
 	}
 }
 
+// fun()getter(ctx *TFieldEventContext) error
+// getter 通过ctx信息处理并修改回dataset里
 func tag_getter(ctx *TFieldContext) {
 	/*
 		fnct 是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
@@ -246,6 +246,7 @@ func tag_getter(ctx *TFieldContext) {
 	fld.Base()._attr_store = fld.Base()._attr_store || false
 	fld.Base()._compute_sudo = fld.Base()._compute_sudo || false
 	fld.Base()._attr_readonly = fld.Base()._attr_readonly || fld.Base()._setter == ""
+	fld.Base().isCompute = false
 
 	if len(params) > 0 {
 		fld.Base()._getter = "" // 初始化
@@ -253,6 +254,7 @@ func tag_getter(ctx *TFieldContext) {
 		funcName = strings.Replace(funcName, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(funcName); m.IsValid() {
 			fld.Base()._getter = funcName
+			fld.Base().isCompute = true
 		}
 	} else {
 		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
@@ -267,6 +269,7 @@ func tag_setter(ctx *TFieldContext) {
 	fld.Base()._attr_store = fld.Base()._attr_store || false
 	fld.Base()._compute_sudo = fld.Base()._compute_sudo || false
 	fld.Base()._attr_readonly = fld.Base()._attr_readonly || false
+	fld.Base().isCompute = false
 
 	if len(params) > 0 {
 		fld.Base()._setter = "" // 初始化
@@ -274,12 +277,14 @@ func tag_setter(ctx *TFieldContext) {
 		funcName = strings.Replace(funcName, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(funcName); m.IsValid() {
 			fld.Base()._setter = funcName
+			fld.Base().isCompute = true
 		}
 	} else {
 		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
 }
 
+// 废弃 seetter 替代
 //name of a method that inverses the field (optional)
 func tag_inverse(ctx *TFieldContext) {
 }

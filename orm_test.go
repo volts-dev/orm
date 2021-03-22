@@ -187,7 +187,7 @@ func splitTag2(tag string) (tags []string) {
 		}
 	}
 	if lastIdx < len(tag) {
-		tags = append(tags, strings.TrimSpace(tag[lastIdx:len(tag)]))
+		tags = append(tags, strings.TrimSpace(tag[lastIdx:]))
 	}
 	return
 }

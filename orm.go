@@ -345,6 +345,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 	)
 
 	for i := 0; i < model_type.NumField(); i++ {
+		isSuper := false
 		member_name = model_type.Field(i).Name
 
 		// filter out the unexport field
@@ -362,8 +363,8 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		var tagMap map[string][]string // 记录Tag的
 		if field_tag == "" {
 			// # 忽略无Tag的匿名继承结构
-			if model_type.Field(i).Name == field_type.Name() {
-				res_model.super = field_type.Name() // TODO 带路径的类名称
+			if member_name == field_type.Name() {
+				isSuper = true
 				// TODO 验证继承的加载合法情况
 				continue
 			}
@@ -375,6 +376,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			if tag_str == "" {
 				tag_str = lookup(string(field_tag), self.TableIdentifier)
 				is_table_tag = true
+				isSuper = true
 			}
 
 			// 识别分割Tag各属性
@@ -414,6 +416,13 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			}
 		}
 
+		// 更新超级类
+		if isSuper {
+			// TODO 考虑是否需要
+			//	logger.Dbg("ggg", field_value.Addr().Interface().(IModel))
+			//	aaa := field_value.Addr().Interface().(IModel)
+			//res_model.super = aaa // TODO 带路径的类名称
+		}
 		//logger.Dbg("%s:%s %s", model_name, member_name, lColName)
 
 		// # 忽略TModel类字段
@@ -632,7 +641,7 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 			results = append(results, result)
 			if err != nil {
 				return nil, err
-				lastError = err
+				//lastError = err
 			}
 		}
 	}

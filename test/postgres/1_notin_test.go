@@ -3,9 +3,9 @@ package postgres
 import (
 	"testing"
 
-	"github.com/volts-dev/orm"
+	"github.com/volts-dev/orm/test"
 )
 
 func TestNotIn(t *testing.T) {
-	orm.TestNotIn("", t)
+	test.TestNotIn("", t)
 }

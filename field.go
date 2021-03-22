@@ -41,14 +41,11 @@ type (
 	}
 
 	TFieldEventContext struct {
-		Session *TSession
+		Id      interface{} // the current id of current record
+		Value   interface{} // the current value of the field
+		Field   IField      //FieldTypeValue reflect.Value
 		Model   IModel
-		//FieldTypeValue reflect.Value
-		Field IField
-		// the current id of current record
-		Id interface{}
-		// the current value of the field
-		Value   interface{}
+		Session *TSession
 		Dataset *dataset.TDataSet // 数据集将被修改
 		Context map[string]interface{}
 	}
@@ -135,6 +132,7 @@ type (
 		isDeleted       bool
 		isCascade       bool
 		isVersion       bool
+		isCompute       bool
 
 		defaultIsEmpty bool
 		Comment        string
@@ -583,7 +581,7 @@ func (self *TField) IsVersion() bool {
 }
 
 func (self *TField) IsCompute() bool {
-	return
+	return self.isCompute
 }
 
 //
@@ -695,24 +693,30 @@ func (self *TField) onConvertToWrite(session *TSession, value interface{}) inter
    """
 */
 func (self *TField) OnRead(ctx *TFieldEventContext) error {
-	/*	model := ctx.Model
-		field := self
-
-		if lMehodName := field.Func(); lMehodName != "" {
+	model := ctx.Model
+	field := self
+	//dataset := ctx.Dataset
+	if field.IsCompute() {
+		if mehodName := field._getter; mehodName != "" {
+			// TODO 同一记录方法到OBJECT里使用Method
 			//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
-			if m := model.modelValue.MethodByName(lMehodName); m.IsValid() {
+			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
 				//logger.Dbg("selection:", m, self.model.modelValue)
-				results := m.Call([]reflect.Value{self.model.modelValue}) //
+				args := make([]reflect.Value, 0)
+				args = append(args, reflect.ValueOf(ctx))
+				results := method.Call(args) //
 				//logger.Dbg("selection:", results)
 				if len(results) == 1 {
 					//fld.Selection, _ = results[0].Interface().([][]string)
-					if res, ok := results[0].Interface().([][]string); ok {
-						field._attr_selection = res
+					// 返回结果nil或者错误
+					if err, ok := results[0].Interface().(error); ok && err != nil {
+						return err
 					}
 				}
 			}
 		}
-	*/
+	}
+
 	return nil
 }
 
@@ -722,5 +726,29 @@ func (self *TField) OnRead(ctx *TFieldEventContext) error {
    """
 */
 func (self *TField) OnWrite(ctx *TFieldEventContext) error {
+	model := ctx.Model
+	field := self
+	//dataset := ctx.Dataset
+	if field.IsCompute() {
+		if mehodName := field._setter; mehodName != "" {
+			// TODO 同一记录方法到OBJECT里使用Method
+			//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
+				//logger.Dbg("selection:", m, self.model.modelValue)
+				args := make([]reflect.Value, 0)
+				args = append(args, reflect.ValueOf(ctx))
+				results := method.Call(args) //
+				//logger.Dbg("selection:", results)
+				if len(results) == 1 {
+					//fld.Selection, _ = results[0].Interface().([][]string)
+					// 返回结果nil或者错误
+					if err, ok := results[0].Interface().(error); ok && err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }

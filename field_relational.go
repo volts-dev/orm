@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/volts-dev/dataset"
-	"github.com/volts-dev/orm/domain"
 	"github.com/volts-dev/orm/logger"
 
 	"github.com/volts-dev/utils"
@@ -268,87 +267,23 @@ func (self *TMany2ManyField) update_db_foreign_keys(ctx *TFieldContext) {
 // 设置字段获得的值
 // TODO :未完成
 func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
-	session := ctx.Session
 	field := ctx.Field.Base()
 	ds := ctx.Dataset
 	model := ctx.Model
 	id_field := model.IdField()
+	ds.SetKeyField(id_field)
+	ids := ds.Keys()
 
-	// TODO 检测字段应该在注册MODEL时完成
-	// 检测关联Model合法性
-	if !ctx.Session.Orm().HasModel(field.comodel_name) || !ctx.Session.Orm().HasModel(field.comodel_name) {
-		return nil
-	}
-
-	// TODO　model 规范命名方式
-	cotable_name := field.comodel_name   //# 字段关联表名
-	reltable_name := field.relmodel_name //# 字段M2m关系表名
-
-	node, err := domain.String2Domain(field.Domain())
+	//
+	data, err := model.Many2many(ids, field.Name())
 	if err != nil {
 		return err
 	}
-	sess := session.Orm().NewSession()
-	defer sess.Close()
-
-	//table_name := field.comodel_name//sess.Statement.TableName()
-	sess.Model(field.Base().comodel_name)
-	wquery, err := sess.Statement.where_calc(node, false, nil)
-	if err != nil {
-		return err
-	}
-	order_by := sess.Statement.generate_order_by(wquery, nil)
-	from_c, where_c, where_params := wquery.get_sql()
-	if where_c == "" {
-		where_c = "1=1"
-	}
-
-	limit := ""
-	if field.limit > 0 {
-		limit = fmt.Sprintf("LIMIT %v", field.limit)
-	}
-
-	offset := ""
-
-	// the table name in cacher
-	cacher_table_name := field.Relation() + "_" + from_c
-
-	//Many2many('res.lang', 'website_lang_rel', 'website_id', 'lang_id')
-	//SELECT {rel}.{id1}, {rel}.{id2} FROM {rel}, {from_c} WHERE {where_c} AND {rel}.{id1} IN %s AND {rel}.{id2} = {tbl}.id {order_by} {limit} OFFSET {offset}
-	query := fmt.Sprintf(
-		`SELECT %s.%s, %s.%s FROM %s, %s WHERE %s AND %s.%s IN (?) AND %s.%s = %s.id %s %s %s`,
-		reltable_name, field.cokey_field_name, reltable_name, field.relkey_field_name, reltable_name, from_c,
-		where_c, reltable_name, field.cokey_field_name, reltable_name, field.relkey_field_name, cotable_name,
-		order_by, limit, offset,
-	)
-
-	var res_ds *dataset.TDataSet
 
 	ds.First()
 	for !ds.Eof() {
 		id := ds.FieldByName(id_field).AsInterface()
-
-		// # 添加 IDs 作为参数
-		params := append(where_params, id)
-
-		// # 获取字段关联表的字符
-		res_ds = ctx.Session.Orm().Cacher.GetBySql(cacher_table_name, query, params)
-		if res_ds == nil {
-			// TODO 只查询缺的记录不查询所有
-			// # 如果缺省缓存记录重新查询
-
-			ds, err := sess.Query(query, params...)
-			if err != nil {
-				logger.Err(err)
-				ds.Next()
-				continue
-			}
-
-			// # store result in cache
-			session.Orm().Cacher.PutBySql(cacher_table_name, query, where_params, ds) // # 添加Sql查询结果
-
-			res_ds = ds
-		}
+		res_ds := data[id]
 
 		//group := make(map[interface{}][]int64)
 		list := make([]interface{}, res_ds.Count())

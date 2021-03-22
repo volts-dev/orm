@@ -167,7 +167,7 @@ func (self *TSession) scanRows(rows *sql.Rows) (res_dataset *dataset.TDataSet, e
 			rec.Fields(cols...)
 
 			// 创建数据容器
-			for idx, _ := range cols {
+			for idx := range cols {
 				vals[idx] = reflect.New(ITF_TYPE).Interface()
 			}
 
@@ -989,7 +989,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			comm_tables := self.Statement.model.obj.GetCommonFieldByName(name) // 获得拥有该字段的所有表
 			if comm_tables != nil {
 				// 为各表预存值
-				for tbl, _ := range comm_tables {
+				for tbl := range comm_tables {
 					if tbl == self.Statement.model.GetName() {
 						new_vals[name] = val // 为当前表添加共同字段值
 
@@ -1112,7 +1112,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 
 	if self.IsClassic {
 		//???
-		for field, _ := range values {
+		for field := range values {
 			var fobj IField
 			fobj = self.Statement.model.GetFieldByName(field)
 			if fobj == nil {
@@ -1243,7 +1243,6 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 			})
 			if err != nil {
 				logger.Err(err)
-
 			}
 
 			res_effect++
@@ -1731,7 +1730,6 @@ func (self *TSession) _check_selection_field_value(field IField, value interface
 func (self *TSession) _check_model() bool {
 	if self.Statement.model == nil {
 		panic("Must point out a Model for continue")
-		return false
 	}
 
 	return true

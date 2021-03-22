@@ -8,7 +8,7 @@ import (
 )
 
 func TestPostgres(t *testing.T) {
-	orm.BaseTest(t)
+	//orm.BaseTest(t)
 	//	UserTest1(engine, t)
 	//	BaseTestAllSnakeMapper(engine, t)
 	//	BaseTestAll2(engine, t)

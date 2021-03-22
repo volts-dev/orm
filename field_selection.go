@@ -54,13 +54,13 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 	//lField.initSelection(lTag[1:]...)
 	logger.Assert(len(params) > 0, "Selection(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 
-	fld.Base()._compute = "" //初始化
- 	lStr := strings.Trim(params[0], "'")
+	fld.Base()._getter = "" //初始化
+	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
 	//logger.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base().modelValue, ctx.Model.Base().modelValue.MethodByName(lStr))
 	//if m := model.MethodByName(lStr); m != nil {
 	if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
-		fld.Base()._compute = lStr
+		fld.Base()._getter = lStr
 	} else {
 		m := make(map[string]string)
 		err := json.Unmarshal([]byte(lStr), &m)
@@ -147,23 +147,26 @@ func (self *TSelectionField) GetAttributes(ctx *TFieldContext) map[string]interf
 }
 
 func (self *TSelectionField) OnRead(ctx *TFieldEventContext) error {
-	/*	model := ctx.Model
-		field := self
+	model := ctx.Model
+	field := self
 
-		if lMehodName := field.Func(); lMehodName != "" {
-			//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
-			if m := model.modelValue.MethodByName(lMehodName); m.IsValid() {
-				//logger.Dbg("selection:", m, self.model.modelValue)
-				results := m.Call([]reflect.Value{self.model.modelValue}) //
-				//logger.Dbg("selection:", results)
-				if len(results) == 1 {
-					//fld.Selection, _ = results[0].Interface().([][]string)
-					if res, ok := results[0].Interface().([][]string); ok {
-						field._attr_selection = res
-					}
+	if mehodName := field._getter; mehodName != "" {
+		// TODO 同一记录方法到OBJECT里使用Method
+		//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+		if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
+			//logger.Dbg("selection:", m, self.model.modelValue)
+			args := make([]reflect.Value, 0)
+			args = append(args, reflect.ValueOf(ctx))
+			results := method.Call(args) //
+			//logger.Dbg("selection:", results)
+			if len(results) == 1 {
+				//fld.Selection, _ = results[0].Interface().([][]string)
+				if res, ok := results[0].Interface().([][]string); ok {
+					field._attr_selection = res
 				}
 			}
 		}
-	*/
+	}
+
 	return nil
 }

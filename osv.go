@@ -373,7 +373,31 @@ func (self *TOsv) RegisterModel(region string, model *TModel) {
 	if region != "" {
 		delete(obj.object_types, "")
 	}
+	/*
+		//utils.Dbg("RegisterModel Method", aType, aType.NumField(), aType.NumMethod())
+		// @添加方法映射到对象里
+		var method reflect.Method
+		for i := 0; i < model.modelType.NumMethod(); i++ {
+			method = model.modelType.Method(i)
+			//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
+			// 参数验证func(self,handler)
+			//lMethod.Type.In(1).Elem().String() == handlerType.String()
+			//logger.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
 
+			//if lMethod.Type.NumIn() == 2 {
+			obj.methods[method.Name] = model.modelType // 添加方法对应的Object
+			//}
+		}
+	*/
+	obj.mappingMethod(model)
+	obj.uidFieldName = model.idField
+
+	self.modelsLock.Lock()
+	self.models[model.name] = obj
+	self.modelsLock.Unlock()
+}
+
+func (self *TObj) mappingMethod(model *TModel) {
 	//utils.Dbg("RegisterModel Method", aType, aType.NumField(), aType.NumMethod())
 	// @添加方法映射到对象里
 	var method reflect.Method
@@ -385,15 +409,9 @@ func (self *TOsv) RegisterModel(region string, model *TModel) {
 		//logger.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
 
 		//if lMethod.Type.NumIn() == 2 {
-		obj.methods[method.Name] = model.modelType // 添加方法对应的Object
+		self.methods[method.Name] = model.modelType // 添加方法对应的Object
 		//}
 	}
-
-	obj.uidFieldName = model.idField
-
-	self.modelsLock.Lock()
-	self.models[model.name] = obj
-	self.modelsLock.Unlock()
 }
 
 // 根据Model和Action 执行方法
@@ -466,7 +484,7 @@ func (self *TOsv) GetModels() (models []string) {
 	models = make([]string, len(self.models))
 
 	idx := 0
-	for name, _ := range self.models {
+	for name := range self.models {
 		models[idx] = name
 		idx++
 	}

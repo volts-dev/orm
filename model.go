@@ -12,14 +12,27 @@ import (
 	"github.com/volts-dev/utils"
 )
 
+const (
+	// maximum number of prefetched records
+	PREFETCH_MAX = 200
+
+	// ERROR
+	MODEL_NOT_FOUND = ""
+)
+
+var (
+	// special columns automatically created by the ORM
+	LOG_ACCESS_COLUMNS = []string{"create_id", "create_date", "write_id", "write_date"}
+	MAGIC_COLUMNS      = append(LOG_ACCESS_COLUMNS, "id")
+)
+
 type (
 	// BaseModel 接口
 	IModel interface {
 		// 获取继承的模型
 		// 用处:super 用于方便调用不同层级模型的方法/查询等
 		Super() IModel
-		GetColumnsSeq() []string
-		GetPrimaryKeys() []string
+
 		// private
 		setBaseModel(model *TModel) //赋值初始化BaseModel
 		relations_reload()
@@ -30,20 +43,23 @@ type (
 		// public
 		GetName() string
 		GetBase() *TModel // get the base model object
+		GetColumnsSeq() []string
+		GetPrimaryKeys() []string
 
 		// 对象被创建时
 		GetDefault() map[string]interface{}
 		GetDefaultByName(fieldName string) (value interface{})
 		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
 		One2many(ids []interface{}, fieldName string) (*dataset.TDataSet, error)
-		Many2many(ids []interface{}, fieldName string) (*dataset.TDataSet, error)
+		Many2one(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error)
+		Many2many(ids []interface{}, fieldName string) (map[interface{}]*dataset.TDataSet, error)
 
 		AddField(field IField)
 		// return the model name
 		//GetModelName() string
 		//GetTableName() string
 		GetTableDescription() string
-		SetRecordName(n string)
+		SetRecordName(fieldName string)
 		GetRecordName() string
 		SetName(n string)
 		//		SetRegistry(reg *TRegistry)
@@ -62,8 +78,10 @@ type (
 
 		// UTF file only
 		Load(file io.Reader, breakcount ...int) (map[int]string, error)
-		//Create(values map[string]interface{}) (id int64)
-		//Read(ids []string, fields []string) *dataset.TDataSet
+		Create(values interface{}) (id interface{}, err error)
+		Read(ids []interface{}, fields []string) (*dataset.TDataSet, error)
+		Update(ids []interface{}, values interface{}) (int64, error)
+		Delete(ids ...interface{}) (int64, error)
 		//Write(ids []string, values interface{}) (err error)
 		//update(vals map[string]interface{}, where string, args ...interface{}) (id int64)
 		//Unlink(ids ...string) bool
@@ -71,6 +89,7 @@ type (
 		Obj() *TObj
 		Orm() *TOrm
 		//NameGet(ids []string) [][]string
+		NameCreate(name string) (*dataset.TDataSet, error)
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
@@ -91,28 +110,30 @@ type (
 	* 	方法命名规格 ："GetXXX","SetXXX","XXByXX"
 	 */
 	TModel struct {
-		name string // # xx.xx 映射在OSV的名称
 		// # 核心对象
 		modelType  reflect.Type  // # Model 反射类
 		modelValue reflect.Value // # Model 反射值 供某些程序调用方法
 		orm        *TOrm
 		osv        *TOsv
 		obj        *TObj
-		super      string // 继承的Model名称
+		super      IModel // 继承的Model名称
 
+		name string // # xx.xx 映射在OSV的名称
+
+		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
 		//_fields       map[string]IField // # model的所有字段
 		_parent_name  string // #! 父表中的字段名称
 		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
 		_sequence     string //
 		_order        string //
 		_module       string // # 属于哪个模块所有
-		_rec_name     string // # 记录的名称字段 如字段Name,Title,PartNo
+		_rec_name     string // the field name which is the name represent a record @examples: Name,Title,PartNo
+		idField       string // the field name which is the UID represent a record
 		_auto         bool   // # True # create database backend
 		_transient    bool   // # 暂时的
 		_description  string // # 描述
 		is_base       bool   // #该Model是否是基Model,并非扩展Model
 		// TODO　a object
-		idField string // the field name of UID
 
 		// # common fields for all table
 		//Id         int64     `field:"pk autoincr"`
@@ -121,20 +142,6 @@ type (
 		//WriteId    int64     `field:"int"`
 		//WriteTime  time.Time `field:"datetime updated"`
 	}
-)
-
-const (
-	// maximum number of prefetched records
-	PREFETCH_MAX = 200
-
-	// ERROR
-	MODEL_NOT_FOUND = ""
-)
-
-var (
-	// special columns automatically created by the ORM
-	LOG_ACCESS_COLUMNS = []string{"create_id", "create_date", "write_id", "write_date"}
-	MAGIC_COLUMNS      = append(LOG_ACCESS_COLUMNS, "id")
 )
 
 // @ name Sys.View
@@ -161,12 +168,33 @@ super 是用来解决多重继承问题的，直接用类名调用父类方法�
 MRO 就是类的方法解析顺序表, 其实也就是继承父类方法时的顺序表。
 */
 func (self *TModel) Super() IModel {
-	//mod, err := self.Session().GetModel(self.GetName())
+	/*//mod, err := self.Session().GetModel(self.GetName())
 	su, err := self.Orm().GetModel(self.super)
 	if err != nil {
 		logger.Errf("create product record failed:%s", err.Error())
 	}
-	return su
+	return su*/
+	return self.super
+}
+
+//#被重载接口 创建记录 提供给继承
+func (self *TModel) Create(values interface{}) (id interface{}, err error) {
+	return self.Records().Create(values)
+}
+
+//#被重载接口
+func (self *TModel) Read(ids []interface{}, fields []string) (*dataset.TDataSet, error) {
+	return self.Records().Ids(ids...).Select(fields...).Read()
+}
+
+//#被重载接口
+func (self *TModel) Update(ids []interface{}, values interface{}) (int64, error) {
+	return self.Records().Ids(ids...).Write(values)
+}
+
+//#被重载接口
+func (self *TModel) Delete(ids ...interface{}) (int64, error) {
+	return self.Records().Delete(ids...)
 }
 
 func (self *TModel) setBaseModel(model *TModel) {
@@ -175,8 +203,8 @@ func (self *TModel) setBaseModel(model *TModel) {
 
 }
 
-func (self *TModel) SetRecordName(n string) {
-	self._rec_name = n
+func (self *TModel) SetRecordName(fieldName string) {
+	self._rec_name = fieldName
 }
 
 // return the field name of record's name field
@@ -206,10 +234,8 @@ func (self *TModel) GetPrimaryKeys() []string {
 }
 
 // pravite
-func (self *TModel) SetName(n string) {
-	self.name = n
-	//self._table = strings.Replace(n, ".", "_", -1)
-	//	self.table.Name = strings.Replace(n, ".", "_", -1)
+func (self *TModel) SetName(name string) {
+	self.name = name
 }
 
 // 返回Model的描述字符串
@@ -235,9 +261,8 @@ func (self *TModel) Module() string {
 }
 
 // return the method object of model by name
-func (self *TModel) MethodByName(method string) (res_method *TMethod) {
-	res_method = self.osv.GetMethod(self.GetName(), method)
-	return
+func (self *TModel) MethodByName(methodName string) *TMethod {
+	return self.osv.GetMethod(self.GetName(), methodName)
 }
 
 //-------------- 路由方法 --------------------
@@ -265,26 +290,6 @@ func _generate_order_by(order_spec, query *TQuery) {
         return order_by_clause and (' ORDER BY %s ' % order_by_clause) or ''
 */
 
-/*
-// 底层数据查询接口
-func (self *TModel) _query(sql string, params ...interface{}) (res []map[string]interface{}, err error) {
-	lRows, err := self.orm.DB().Query(sql, params)
-	logger.Err(err)
-
-	defer lRows.Close()
-	for lRows.Next() {
-		tempMap := make(map[string]interface{})
-		err = lRows.ScanMap(tempMap)
-		if !logger.Err(err) {
-			res = append(res, tempMap)
-		}
-	}
-	err = lRows.Err()
-	logger.Err(err)
-
-	return res, err
-}
-*/
 /*
 // :param access_rights_uid: optional user ID to use when checking access rights
 // (not for ir.rules, this is only for ir.model.access)
@@ -384,17 +389,36 @@ func (self *TModel) __search_name(name string, args *utils.TStringList, operator
 }
 
 //根据名称创建简约记录
-func (self *TModel) name_create() {
+/*
+name_create(name) -> record
 
+Create a new record by calling :meth:`~.create` with only one value
+provided: the display name of the new record.
+
+The new record will be initialized with any default values
+applicable to this model, or provided through the context. The usual
+behavior of :meth:`~.create` applies.
+
+:param name: display name of the record to create
+:rtype: tuple
+:return: the :meth:`~.name_get` pair value of the created record
+*/
+func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
+	if self.obj.GetFieldByName(self._rec_name) != nil {
+		id, err := self.Create(map[string]interface{}{
+			self._rec_name: name,
+		})
+		if err != nil {
+			return nil, logger.Errf("cannot execute name_create, create name faild %s", err.Error())
+
+		}
+		return self.NameGet([]interface{}{id})
+	} else {
+		return nil, logger.Errf("Cannot execute name_create, no _rec_name defined on %s", self.name)
+	}
 }
 
 // 获得id和名称
-func (self *TModel) __name_get(ids []interface{}, fields []string) (result *dataset.TDataSet) {
-	//result = self.Read(ids, fields)
-	result, _ = self.Records().Select(fields...).Ids(ids...).Read()
-	return
-}
-
 func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 	name := self.GetRecordName()
 	id_field := self.idField
@@ -408,13 +432,16 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 	} else {
 		ds := dataset.NewDataSet()
 		for _, id := range ids {
-			ds.NewRecord(map[string]interface{}{id_field: id, name: self.GetName()})
+			ds.NewRecord(map[string]interface{}{
+				id_field: id,
+				name:     self.GetName(),
+			})
 		}
 
 		return ds, nil
 	}
 
-	return nil, fmt.Errorf("%s Call NameGet() failure! Arg: %v", self.GetName(), ids)
+	//return nil, fmt.Errorf("%s Call NameGet() failure! Arg: %v", self.GetName(), ids)
 }
 
 // search record by name field only
@@ -735,7 +762,7 @@ func (self *TModel) _add_inherited_fields() {
 	//# determine candidate inherited fields
 	//	var fields = make([]*TField, 0)
 	var lNew IField
-	for parent_model, _ := range self.obj.GetRelations() {
+	for parent_model := range self.obj.GetRelations() {
 		parent, err := self.osv.GetModel(parent_model) // #i
 		if err != nil {
 			logger.Err(err, "@_add_inherited_fields")
@@ -773,6 +800,29 @@ func (self *TModel) _add_inherited_fields() {
 	*/
 }
 
+// TODO 返回值待确定
+func (self *TModel) GetRelate(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error) {
+	field := self.GetFieldByName(fieldName)
+	typ := field.Type()
+	if !field.IsRelatedField() {
+		return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, fieldName, field.IsRelatedField(), field.Type())
+	}
+
+	switch typ {
+	//case TYPE_O2O:
+	//return self.One2one(ids, fieldName)
+	case TYPE_O2M:
+		return self.One2many(ids, fieldName)
+	case TYPE_M2O:
+		return self.Many2one(ids, fieldName)
+	case TYPE_M2M:
+		//return self.Many2many(ids, fieldName)
+	}
+
+	return nil, fmt.Errorf("the type <%s> of relate field not implemented!", typ)
+}
+
+// 获取外键所有Child关联记录
 func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error) {
 	field := self.GetFieldByName(fieldName)
 	if !field.IsRelatedField() || field.Type() != TYPE_O2M {
@@ -780,19 +830,21 @@ func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.T
 	}
 
 	// # retrieve the lines in the comodel
-	relmodel_name := field.RelateModelName()
+
+	relModelName := field.RelateModelName()
 	relkey_field_name := field.RelateFieldName()
-	rel_model, err := self.orm.GetModel(relmodel_name)
+	rel_model, err := self.orm.GetModel(relModelName)
 	if err != nil {
 		return nil, err
 	}
 
 	rel_filed := rel_model.GetFieldByName(relkey_field_name)
-	if rel_filed.SQLType().Name != TYPE_M2O {
-		return nil, logger.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
+	if rel_filed.Type() != TYPE_M2O {
+		return nil, logger.Errf("the relate model <%s> field <%s> is not many2one type.", relModelName, relkey_field_name)
 	}
 
-	ds, err = rel_model.Records().In(fieldName, ids...).Read()
+	//logger.Dbg("fff", ids, relModelName)
+	ds, err = rel_model.Records().In(relkey_field_name, ids...).Read()
 	if err != nil {
 		logger.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
 		return nil, err
@@ -800,36 +852,103 @@ func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.T
 
 	return ds, err
 }
-
-// 获取外键所有Child关联2222222记录
-//TODO ids []string
-func (self *TModel) ___One2many(ids []interface{}, modelName string, fieldKey string) (ds *dataset.TDataSet, err error) {
-	if modelName != "" && fieldKey != "" {
-		model, err := self.osv.GetModel(modelName) // #i
-		if err != nil {
-			return nil, err
-		}
-
-		//domainNode := domain.NewDomainNode()
-		//domainNode.Push(fieldKey)
-		//domainNode.Push("in")
-		//domainNode.Push(ids...)
-		//lDomain := fmt.Sprintf(`[('%s', 'in', [%s])]`, fieldKey,utils.re ids)
-		//logger.Dbg("One2many", lDomain)
-		//ds = lMOdelObj.SearchRead(lDomain, nil, 0, 0, "", nil)
-		//ds, err = model.Records().Domain(domainNode).Read()
-		ds, err = model.Records().In(fieldKey, ids...).Read()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return ds, nil
+func (self *TModel) Many2one(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error) {
+	return nil, nil
 }
 
-// TODO Many2many
-func (self *TModel) Many2many(ids []interface{}, fieldName string) (*dataset.TDataSet, error) {
-	return nil, nil
+// return : map[id]record
+func (self *TModel) Many2many(ids []interface{}, fieldName string) (map[interface{}]*dataset.TDataSet, error) {
+	field := self.GetFieldByName(fieldName)
+	if !field.IsRelatedField() || field.Type() != TYPE_M2M {
+		return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, fieldName, field.IsRelatedField(), field.Type())
+	}
+
+	// # retrieve the lines in the comodel
+	orm := self.orm
+	relModelName := field.RelateModelName() //# 字段关联表名
+	relFieldName := field.RelateFieldName()
+	midModelName := field.MiddleModelName() //# 字段M2m关系表名
+	midFieldName := field.MiddleFieldName()
+
+	// 检测关联Model合法性
+	if !orm.HasModel(relModelName) || !orm.HasModel(midModelName) {
+		return nil, fmt.Errorf("the models are not correctable for many2many")
+	}
+
+	domainNode, err := domain.String2Domain(field.Domain())
+	if err != nil {
+		return nil, err
+	}
+
+	sess := orm.NewSession()
+	defer sess.Close()
+
+	//table_name := field.comodel_name//sess.Statement.TableName()
+	sess.Model(relModelName)
+	wquery, err := sess.Statement.where_calc(domainNode, false, nil)
+	if err != nil {
+		return nil, err
+	}
+	order_by := sess.Statement.generate_order_by(wquery, nil)
+	from_c, where_c, where_params := wquery.get_sql()
+	if where_c == "" {
+		where_c = "1=1"
+	}
+
+	limit := ""
+	if field.Base().limit > 0 {
+		limit = fmt.Sprintf("LIMIT %v", field.Base().limit)
+	}
+
+	offset := ""
+
+	// the table name in cacher
+	cacher_table_name := relModelName + "_" + from_c
+
+	//Many2many('res.lang', 'website_lang_rel', 'website_id', 'lang_id')
+	//SELECT {rel}.{id1}, {rel}.{id2} FROM {rel}, {from_c} WHERE {where_c} AND {rel}.{id1} IN %s AND {rel}.{id2} = {tbl}.id {order_by} {limit} OFFSET {offset}
+	query := fmt.Sprintf(
+		`SELECT %s.%s, %s.%s FROM %s, %s WHERE %s AND %s.%s IN (?) AND %s.%s = %s.id %s %s %s`,
+		midModelName, relFieldName, midModelName, midFieldName,
+		midModelName, from_c, // FROM
+		where_c,                    //WHERE
+		midModelName, relFieldName, // AND
+		midModelName, midFieldName, relModelName, //AND
+		order_by, limit, offset,
+	)
+
+	result := make(map[interface{}]*dataset.TDataSet)
+	var res_ds *dataset.TDataSet
+	for _, id := range ids {
+		//ds.First()
+		//for !ds.Eof() {
+		//id := ds.FieldByName(id_field).AsInterface()
+
+		// # 添加 IDs 作为参数
+		params := append(where_params, id)
+
+		// # 获取字段关联表的字符
+		res_ds = orm.Cacher.GetBySql(cacher_table_name, query, params)
+		if res_ds == nil {
+			// TODO 只查询缺的记录不查询所有
+			// # 如果缺省缓存记录重新查询
+
+			ds, err := sess.Query(query, params...)
+			if err != nil {
+				logger.Err(err)
+				//ds.Next()
+				continue
+			}
+
+			// # store result in cache
+			orm.Cacher.PutBySql(cacher_table_name, query, where_params, ds) // # 添加Sql查询结果
+			res_ds = ds
+		}
+
+		result[id] = res_ds
+	}
+
+	return result, nil
 }
 
 /*
@@ -891,7 +1010,7 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 				//logger.Dbg("datetime", key, val, utils.Itf2Time(val))
 			case "many2one":
 				// TODO 支持多种数据类型
-				//self.osv.GetModel(f.relmodel_name)
+				//self.osv.GetModel(f.relModelName)
 				vals[key] = utils.Itf2Int(val)
 			}
 		}

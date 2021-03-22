@@ -147,7 +147,7 @@ func (self *TQuery) add_join(connection []string, implicit bool, outer bool, ext
 	col := connection[3]     // realte field
 
 	link := connection[4]
-	alias, alias_statement := generate_table_alias(lhs, [][]string{[]string{table, link}})
+	alias, alias_statement := generate_table_alias(lhs, [][]string{{table, link}})
 
 	if implicit {
 		if utils.InStrings(alias_statement, self.tables...) == -1 {
@@ -298,7 +298,7 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
 	}
 
-	return
+	//return result
 }
 
 func (self *TQuery) _get_table_aliases() (aliases []string) {

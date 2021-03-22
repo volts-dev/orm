@@ -34,9 +34,15 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 		self.Fatal("creation didn't returnning a Id!")
 	}
 
+	user_data.CompanyId = companyId.(int64)
+	// Call the API Create()
+	_, err = ss.Model("user_model").Create(user_data, isClassic)
+	if err != nil {
+		self.Fatalf("create record failure with error < %s >", err.Error())
+	}
+
 	for i := 0; i < 10; i++ {
 		user_data.Name = "Create" + utils.IntToStr(i)
-		user_data.CompanyId = companyId.(int64)
 
 		// Call the API Create()
 		id, err := ss.Model("user_model").Create(user_data, isClassic)

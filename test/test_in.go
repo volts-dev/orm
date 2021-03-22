@@ -1,29 +1,21 @@
 package test
 
-import (
-	"testing"
+func (self *Testchain) In() *Testchain {
+	self.PrintSubject("In")
 
-	"github.com/volts-dev/orm"
-)
-
-func TestIn(title string, t *testing.T) {
-	PrintSubject(title, "And()")
-	test_in(test_orm, t)
-
-}
-
-func test_in(o *orm.TOrm, t *testing.T) {
-	model, err := o.GetModel("user_model")
+	model, err := self.Orm.GetModel("user_model")
 	if err != nil {
-		t.Fatal(err)
+		self.Fatal(err)
 	}
 
-	ds, err := model.Records().In("title", "aa").Where("name=?", "中国").Read()
+	ds, err := model.Records().In("title", "Admin").Where("name=?", "Admin").Read()
 	if err != nil {
-		t.Fatal(err)
+		self.Fatal(err)
 	}
 
 	if ds.IsEmpty() {
-		t.Fatalf("the action Read() return %d!", ds.Count())
+		self.Fatalf("the action Read() return %d!", ds.Count())
 	}
+
+	return self
 }
