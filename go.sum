@@ -14,3 +14,5 @@ github.com/volts-dev/logger v0.0.0-20210803162057-18754d780c31/go.mod h1:6inPB8Q
 github.com/volts-dev/utils v0.0.0-20210131181100-6365ffec7098/go.mod h1:Gc+qRhI3xm2jw2mAv+X7xI91R9+t+oeTrnYoUes1Aco=
 github.com/volts-dev/utils v0.0.0-20220114095423-ea7bf7f05b74 h1:co3LP2Pvh8bsOnR5/oNR6x7KVYD/NyCgoKsubzPP2Hc=
 github.com/volts-dev/utils v0.0.0-20220114095423-ea7bf7f05b74/go.mod h1:Gc+qRhI3xm2jw2mAv+X7xI91R9+t+oeTrnYoUes1Aco=
+github.com/volts-dev/utils v0.0.0-20220301183119-0de4229e75b4 h1:/91t8R4x/efct/5r7IvXHpGjntTPLi24Yw8rH/lbjDU=
+github.com/volts-dev/utils v0.0.0-20220301183119-0de4229e75b4/go.mod h1:Gc+qRhI3xm2jw2mAv+X7xI91R9+t+oeTrnYoUes1Aco=

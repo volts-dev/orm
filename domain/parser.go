@@ -64,10 +64,10 @@ func parseDomain(node *TDomainNode) string {
 				IsList = true
 				str_lst = append(str_lst, item.Text)
 			} else*/if item.IsListNode() {
- 				str := parseDomain(item)
+				str := parseDomain(item)
 				str_lst = append(str_lst, str)
 			} else {
- 				//str_lst = append(str_lst, node.Quote(item.Text))
+				//str_lst = append(str_lst, node.Quote(item.Text))
 				str_lst = append(str_lst, item.String())
 			}
 		}
@@ -175,7 +175,12 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 				list = NewDomainNode() // 新建一个列表继续采集
 				break
 			} else {
-				list.Push(trimQuotes(item.Val))
+				v := trimQuotes(item.Val)
+				if vv, err := utils.IsNumeric(v); err != nil {
+					list.Push(vv)
+					break
+				}
+				list.Push(v)
 				break
 			}
 

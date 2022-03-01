@@ -1317,7 +1317,7 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 	//	self.check_access_rights("read")
 	//	fields = self._check_field_access_rights("read", fields, nil)
 
-	self.Statement.Limit(0)
+	//self.Statement.Limit(0)/// remove
 
 	//# split fields into stored and computed fields
 	stored := make([]string, 0) // 可存于数据的字段

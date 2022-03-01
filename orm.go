@@ -58,6 +58,7 @@ type (
 	}
 )
 
+// TODO 使用函数配置参数
 /*
  create a new ORM instance
 */
@@ -106,6 +107,11 @@ func NewOrm(dataSource *TDataSource) (*TOrm, error) {
 	}
 
 	return orm, nil
+}
+
+// TODO
+func (self *TOrm) Config() {
+
 }
 
 // TODO 保持表实时更新到ORM - 由于有些表是由SQL后期创建 导致Orm里缓存不存在改表Sycn时任然执行创建而抛出错误

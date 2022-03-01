@@ -28,6 +28,17 @@ type (
 	}
 )
 
+func NewDataSource(dbtype, dbName, host, port, sslMode, userName, password string) *TDataSource {
+	return &TDataSource{
+		DbType:   dbtype,
+		DbName:   dbName,
+		Host:     host,
+		Port:     port,
+		SSLMode:  sslMode,
+		UserName: userName,
+		Password: password,
+	}
+}
 func (self *TDataSource) validate() {
 	if self.Host == "" {
 		self.Host = "127.0.0.1"

@@ -10,7 +10,7 @@ var logger log.ILogger
 
 // build a new logger for entire orm
 func init() {
-	logger = log.NewLogger(log.WithPrefix(`{"Prefix":"ORM"}`))
+	logger = log.NewLogger(log.WithPrefix("ORM"))
 }
 
 // return the logger instance
