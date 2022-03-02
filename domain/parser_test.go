@@ -20,6 +20,7 @@ var (
 		`[('domain_id.domain_type_id.code', '=', 'incoming'), ('location_id.usage', '!=', 'internal'), ('location_dest_id.usage', '=', 'internal')]`,
 		`["|","|",["mode","ilike","tens"],["active","=","true"]]`,
 		`["|",["name","ilike","m"],["domain_id","ilike","m"]]`,
+		`[|,(&,('aa','=','cc'),('aa','=','cc')),(&,('aa','=','cc'),('aa','=','cc')]`,
 	}
 
 	checker = map[string]string{
@@ -36,6 +37,7 @@ var (
 		domains[10]: `[(domain_id.domain_type_id.code,=,incoming),(location_id.usage,!=,internal),(location_dest_id.usage,=,internal)]`,
 		domains[11]: `[|,|,(mode,ilike,tens),(active,=,true)]`,
 		domains[12]: `[|,(name,ilike,m),(domain_id,ilike,m)]`,
+		domains[13]: `[|,(name,ilike,m),(domain_id,ilike,m)]`,
 	}
 )
 

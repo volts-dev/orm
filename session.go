@@ -1072,9 +1072,9 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		ids = self.Statement.IdParam
 	} else {
 		idField := self.Statement.model.idField
-		if _, has := values[idField]; has {
+		if id, has := values[idField]; has {
 			//  必须不是 Set 语句值
-			if id, has := self.Statement.Sets[idField]; !has {
+			if _, has := self.Statement.Sets[idField]; !has {
 				ids = []interface{}{id}
 			}
 		}

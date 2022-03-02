@@ -176,7 +176,7 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 				break
 			} else {
 				v := trimQuotes(item.Val)
-				if vv, err := utils.IsNumeric(v); err != nil {
+				if vv, err := utils.IsNumeric(v); err == nil {
 					list.Push(vv)
 					break
 				}

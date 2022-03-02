@@ -787,6 +787,12 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			left = ex_leaf.leaf
 			operator = nil
 			right = nil
+			/*	}else if ex_leaf.leaf.Item(0).IsDomainOperator() {
+				left = ex_leaf.leaf.Item(0)
+				operator = nil
+				right = nil
+				ex_leaf = NewExtendedLeaf(ex_leaf.leaf, self.root_model, nil, false)
+			*/
 		} else if ex_leaf.is_true_leaf() || ex_leaf.is_false_leaf() {
 			left = ex_leaf.leaf.Item(0)     // 1      TRUE_LEAF  = "(1, '=', 1)"
 			operator = ex_leaf.leaf.Item(1) // =
@@ -1238,7 +1244,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, table_alias, left.String(), table_alias, left.String())
 		res_params = nil
 
-	} else if (vals == nil || utils.IsBlank(vals[0])) && operator.String() == "=" {
+	} else if (vals == nil || utils.Itf2Str(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && operator.String() == "=" {
 		res_query = fmt.Sprintf(`%s."%s" IS NULL `, table_alias, left.String())
 		res_params = nil
 
@@ -1247,7 +1253,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, table_alias, left.String(), table_alias, left.String())
 		res_params = nil
 
-	} else if (vals == nil || utils.IsBlank(vals[0])) && (operator.String() == "!=") {
+	} else if (vals == nil || utils.Itf2Str(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && (operator.String() == "!=") {
 		res_query = fmt.Sprintf(`%s."%s" IS NOT NULL`, table_alias, left.String())
 		res_params = nil
 
