@@ -271,20 +271,16 @@ func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, err
 }
 
 // Execute sql
-func (self *TSession) execWithOrg(query string, args ...interface{}) (res sql.Result, err error) {
+func (self *TSession) execWithOrg(query string, args ...interface{}) (sql.Result, error) {
 	if self.Prepared {
 		var stmt *sql.Stmt
 
-		stmt, err = self.doPrepare(query)
+		stmt, err := self.doPrepare(query)
 		if err != nil {
-			return
+			return nil, err
 		}
 
-		res, err = stmt.Exec(args...)
-		if err != nil {
-			return
-		}
-		return
+		return stmt.Exec(args...)
 	}
 
 	return self.db.Exec(query, args...)
@@ -641,11 +637,6 @@ func (self *TSession) Ids(ids ...interface{}) *TSession {
 	return self
 }
 
-func (self *TSession) Desc(fileds ...string) *TSession {
-	self.Statement.Desc(fileds...)
-	return self
-}
-
 // Where condition
 // Example: Where("id==?",1)
 // 支持Domain 返回解析为Domain
@@ -726,6 +717,18 @@ func (self *TSession) GroupBy(keys string) *TSession {
 func (self *TSession) OrderBy(order string) *TSession {
 	self.Statement.OrderBy(order)
 	return self
+}
+
+// Method Desc provide desc order by query condition, the input parameters are columns.
+func (self *TSession) Desc(fileds ...string) *TSession {
+	self.Statement.Desc(fileds...)
+	return self
+}
+
+// Method Asc provide asc order by query condition, the input parameters are columns.
+func (session *TSession) Asc(colNames ...string) *TSession {
+	session.Statement.Asc(colNames...)
+	return session
 }
 
 func (self *TSession) Limit(limit int64, offset ...int64) *TSession {

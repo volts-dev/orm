@@ -158,7 +158,19 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 
 		case lexer.IDENT, lexer.HOLDER, lexer.STRING, lexer.NUMBER:
 			value := strings.ToLower(item.Val)
-			if utils.InStrings(value, "and", "or") != -1 {
+			if value == "is" {
+				parser.ConsumeWhitespace()
+				parser.Next()
+				nitem := parser.Item()
+				if strings.ToLower(nitem.Val) != "not" {
+					parser.Backup()
+					list.Push("=")
+				} else {
+					list.Push("!=")
+				}
+
+				break
+			} else if utils.InStrings(value, "and", "or") != -1 {
 				if value == "and" {
 					result.Insert(0, AND_OPERATOR)
 				} else if value == "or" {
@@ -228,7 +240,7 @@ func (self *TDomainParser) ConsumeWhitespace() (item lexer.TToken) {
 		}
 		//fmt.Println("consume_whitespace", self.Item().Val)
 		switch self.Item().Type {
-		case lexer.TokenWhitespace:
+		case lexer.TokenWhitespace, lexer.SAPCE:
 			continue
 		default:
 			item = self.Item()

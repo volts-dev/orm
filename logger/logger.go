@@ -3,19 +3,18 @@ package logger
 import (
 	"fmt"
 
-	log "github.com/volts-dev/logger"
+	"github.com/volts-dev/logger"
 )
 
-var logger log.ILogger
+var log = logger.NewLogger(logger.WithPrefix("ORM"))
 
 // build a new logger for entire orm
 func init() {
-	logger = log.NewLogger(log.WithPrefix("ORM"))
 }
 
 // return the logger instance
-func Logger() log.ILogger {
-	return logger
+func Logger() logger.ILogger {
+	return log
 }
 
 // 断言如果结果和条件不一致就错误
@@ -30,29 +29,29 @@ func Panicf(format string, args ...interface{}) {
 }
 
 func Info(err ...interface{}) {
-	logger.Info(err...)
+	log.Info(err...)
 }
 
 func Infof(fmt string, arg ...interface{}) {
-	logger.Infof(fmt, arg...)
+	log.Infof(fmt, arg...)
 }
 
 func Dbg(err ...interface{}) {
-	logger.Dbg(err...)
+	log.Dbg(err...)
 }
 
 func Warn(err ...interface{}) {
-	logger.Warn(err...)
+	log.Warn(err...)
 }
 
 func Warnf(fmt string, arg ...interface{}) {
-	logger.Warnf(fmt, arg...)
+	log.Warnf(fmt, arg...)
 }
 
 func Err(err ...interface{}) error {
-	return logger.Err(err...)
+	return log.Err(err...)
 }
 
 func Errf(fmt string, arg ...interface{}) error {
-	return logger.Errf(fmt, arg...)
+	return log.Errf(fmt, arg...)
 }

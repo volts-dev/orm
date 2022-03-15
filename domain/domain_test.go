@@ -59,3 +59,23 @@ func TestDomain2String(t *testing.T) {
 	fmt.Println(Domain2String(sub4))
 
 }
+
+func TestIsNul(t *testing.T) {
+	node, err := String2Domain("actice = true")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	node2, err := String2Domain("domain IS not NULL")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	node.AND(node2)
+
+	result_str := Domain2String(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("New: %s", result_str)
+}

@@ -136,7 +136,10 @@ func (self *TStatement) Or(query string, args ...interface{}) *TStatement {
 // In generate "Where column IN (?) " statement
 func (self *TStatement) In(field string, args ...interface{}) *TStatement {
 	if len(args) == 0 {
+		// FIXME IN Condition must pass at least one arguments
 		// TODO report err stack
+		//logger.Errf("IN Condition must pass at least one arguments")
+		logger.Panicf("IN Condition must pass at least one arguments")
 		return self
 	}
 
@@ -195,6 +198,18 @@ func (self *TStatement) Desc(fileds ...string) *TStatement {
 	}
 	//newColNames := statement.col2NewColsWithQuote(colNames...)
 	fmt.Fprintf(&buf, "%v DESC", strings.Join(fileds, " DESC, "))
+	self.OrderByClause = buf.String()
+	return self
+}
+
+func (self *TStatement) Asc(fileds ...string) *TStatement {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, self.OrderByClause)
+	if len(self.OrderByClause) > 0 {
+		fmt.Fprint(&buf, ", ")
+	}
+	//newColNames := statement.col2NewColsWithQuote(colNames...)
+	fmt.Fprintf(&buf, "%v ASC", strings.Join(fileds, " ASC, "))
 	self.OrderByClause = buf.String()
 	return self
 }
