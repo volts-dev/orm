@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/volts-dev/cacher"
+	cache "github.com/volts-dev/cacher"
 	"github.com/volts-dev/dataset"
 )
 
 // TODO cache name
 type (
 	TCacher struct {
+		sync.RWMutex
 		active   bool
 		interval int
 		expired  int
@@ -191,11 +192,12 @@ func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*data
 	} else {
 		return nil, ids
 	}
-
-	return nil, nil
 }
 
 func (self *TCacher) RemoveById(table string, ids ...interface{}) {
+	self.table_id_key_index_lock.Lock()
+	defer self.table_id_key_index_lock.Unlock()
+
 	if _, has := self.table_id_key_index[table]; has {
 		for _, id := range ids {
 			key := self.genIdKey(table, id, true)
@@ -206,6 +208,8 @@ func (self *TCacher) RemoveById(table string, ids ...interface{}) {
 }
 
 func (self *TCacher) RemoveBySql(table string, sqls ...string) {
+	self.table_id_key_index_lock.Lock()
+	defer self.table_id_key_index_lock.Unlock()
 	if _, has := self.table_sql_key_index[table]; has {
 		for _, sql := range sqls {
 			key := self.genIdKey(table, sql, true)
@@ -217,12 +221,13 @@ func (self *TCacher) RemoveBySql(table string, sqls ...string) {
 
 //
 func (self *TCacher) ClearByTable(table string) {
+	self.table_id_key_index_lock.Lock()
+	defer self.table_id_key_index_lock.Unlock()
 	if m, has := self.table_id_key_index[table]; has {
 		for key, _ := range m {
 			self.sql_caches.Remove(key)
 		}
 	}
-
 }
 
 /*

@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -34,6 +33,8 @@ type (
 		OmitClause     string
 		GroupBySClause string
 		OrderByClause  string
+		AscFields      []string
+		DescFields     []string
 		LimitClause    int64
 		OffsetClause   int64
 		IsCount        bool
@@ -53,6 +54,8 @@ func (self *TStatement) Init() {
 	self.NullableFields = make(map[string]bool) // TODO 优化
 	self.FromClause = ""
 	self.OrderByClause = ""
+	self.AscFields = nil
+	self.DescFields = nil
 	self.LimitClause = 0
 	self.OffsetClause = 0
 	self.IsCount = false
@@ -181,36 +184,42 @@ func (self *TStatement) GroupBy(keys string) *TStatement {
 }
 
 // OrderBy generate "Order By order" statement
-func (self *TStatement) OrderBy(order string) *TStatement {
+// order string like "id desc,address asc"
+func (self *TStatement) OrderBy(clause string) *TStatement {
 	if len(self.OrderByClause) > 0 {
 		self.OrderByClause += ", "
 	}
-	self.OrderByClause += order
+	self.OrderByClause += clause
 	return self
 }
 
 // Desc generate `ORDER BY xx DESC`
 func (self *TStatement) Desc(fileds ...string) *TStatement {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, self.OrderByClause)
-	if len(self.OrderByClause) > 0 {
-		fmt.Fprint(&buf, ", ")
-	}
-	//newColNames := statement.col2NewColsWithQuote(colNames...)
-	fmt.Fprintf(&buf, "%v DESC", strings.Join(fileds, " DESC, "))
-	self.OrderByClause = buf.String()
+	self.DescFields = append(self.DescFields, fileds...)
+	/*
+		var buf bytes.Buffer
+		if len(self.OrderByClause) > 0 {
+			fmt.Fprint(&buf, self.OrderByClause, ", ")
+		}
+		//newColNames := statement.col2NewColsWithQuote(colNames...)
+		fmt.Fprintf(&buf, "%v DESC", strings.Join(fileds, " DESC, "))
+		self.OrderByClause = buf.String()
+	*/
 	return self
 }
 
 func (self *TStatement) Asc(fileds ...string) *TStatement {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, self.OrderByClause)
-	if len(self.OrderByClause) > 0 {
-		fmt.Fprint(&buf, ", ")
-	}
-	//newColNames := statement.col2NewColsWithQuote(colNames...)
-	fmt.Fprintf(&buf, "%v ASC", strings.Join(fileds, " ASC, "))
-	self.OrderByClause = buf.String()
+	self.AscFields = append(self.AscFields, fileds...)
+	/*
+		var buf bytes.Buffer
+		if len(self.OrderByClause) > 0 {
+			fmt.Fprint(&buf, self.OrderByClause, ", ")
+		}
+
+		//newColNames := statement.col2NewColsWithQuote(colNames...)
+		fmt.Fprintf(&buf, "%v ASC", strings.Join(fileds, " ASC, "))
+		self.OrderByClause = buf.String()
+	*/
 	return self
 }
 
@@ -600,6 +609,55 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 		//初始化
 	}
 	order_by_elements := make([]string, 0)
+
+	generate_order := func(fields []string, order_direction string) {
+		for _, fieldName := range fields {
+			if fieldName == self.IdKey {
+				lStr := fmt.Sprintf(`"%s"."%s" %s`, alias, fieldName, order_direction)
+				order_by_elements = append(order_by_elements, lStr)
+
+			} else {
+				field := self.session.Statement.model.obj.GetFieldByName(fieldName)
+				if field == nil {
+					//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
+					logger.Warnf("Sorting field %s not found on model %s", fieldName, self.model.GetName())
+					continue
+				}
+
+				if field.IsRelatedField() {
+
+				}
+
+				if field.Store() && field.Type() == "many2one" {
+					// key = (self._name, order_column._obj, order_field)
+					// if key not in seen{
+					//     seen.add(key)
+					//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
+					//	}
+				} else if field.Store() && field.SQLType().Name != "" {
+					qualifield_name := query.inherits_join_calc(fieldName, self.session.Statement.model)
+					if field.Type() == "boolean" {
+						qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
+					}
+
+					lStr := fmt.Sprintf(`%s %s`, qualifield_name, order_direction)
+					order_by_elements = append(order_by_elements, lStr)
+				} else {
+					continue //# ignore non-readable or "non-joinable" fields
+				}
+			}
+		}
+	}
+	generate_order(self.AscFields, "ASC")
+	generate_order(self.DescFields, "DESC")
+	return order_by_elements
+}
+
+func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, query *TQuery, reverse_direction bool, seen []string) []string {
+	if seen == nil {
+		//初始化
+	}
+	order_by_elements := make([]string, 0)
 	self._check_qorder(order_spec)
 	var (
 		order_direction string
@@ -782,7 +840,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 func (self *TStatement) generate_order_by(query *TQuery, context map[string]interface{}) (result string) {
 	order_by_clause := ""
 
-	if self.OrderByClause != "" {
+	if self.OrderByClause != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0 {
 		order_by_elements := self.generate_order_by_inner(self.session.Statement.model.GetName(), self.OrderByClause, query, false, nil)
 		if len(order_by_elements) > 0 {
 			order_by_clause = strings.Join(order_by_elements, ",")
