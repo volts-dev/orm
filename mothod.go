@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"log"
 	"reflect"
 )
 
@@ -57,7 +56,7 @@ func (self *TMethod) AsInterface() interface{} {
 func (self *TMethod) Call(model interface{}, args ...interface{}) bool {
 	self.args = make([]reflect.Value, 0)
 	self.args = append(self.args, reflect.ValueOf(model))
-	
+
 	for _, arg := range args {
 		self.args = append(self.args, reflect.ValueOf(arg))
 	}

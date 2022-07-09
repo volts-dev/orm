@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/volts-dev/dataset"
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -317,7 +316,7 @@ func NewField(name string, sqlType interface{}) IField {
 	}
 
 	if type_name == "" {
-		logger.Errf("the sqltype %v is not supported!", sqlType)
+		log.Errf("the sqltype %v is not supported!", sqlType)
 		return nil
 	}
 
@@ -699,13 +698,13 @@ func (self *TField) OnRead(ctx *TFieldEventContext) error {
 	if field.IsCompute() {
 		if mehodName := field._getter; mehodName != "" {
 			// TODO 同一记录方法到OBJECT里使用Method
-			//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+			//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
-				//logger.Dbg("selection:", m, self.model.modelValue)
+				//log.Dbg("selection:", m, self.model.modelValue)
 				args := make([]reflect.Value, 0)
 				args = append(args, reflect.ValueOf(ctx))
 				results := method.Call(args) //
-				//logger.Dbg("selection:", results)
+				//log.Dbg("selection:", results)
 				if len(results) == 1 {
 					//fld.Selection, _ = results[0].Interface().([][]string)
 					// 返回结果nil或者错误
@@ -732,13 +731,13 @@ func (self *TField) OnWrite(ctx *TFieldEventContext) error {
 	if field.IsCompute() {
 		if mehodName := field._setter; mehodName != "" {
 			// TODO 同一记录方法到OBJECT里使用Method
-			//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+			//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
-				//logger.Dbg("selection:", m, self.model.modelValue)
+				//log.Dbg("selection:", m, self.model.modelValue)
 				args := make([]reflect.Value, 0)
 				args = append(args, reflect.ValueOf(ctx))
 				results := method.Call(args) //
-				//logger.Dbg("selection:", results)
+				//log.Dbg("selection:", results)
 				if len(results) == 1 {
 					//fld.Selection, _ = results[0].Interface().([][]string)
 					// 返回结果nil或者错误

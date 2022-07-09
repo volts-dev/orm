@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/volts-dev/orm/logger"
-
 	"github.com/volts-dev/utils"
 )
 
@@ -83,9 +81,9 @@ func NewQuery(tables []string, where_clause []string, params []interface{}, join
 }
 
 // Returns (query_from, query_where, query_params).
-func (self *TQuery) get_sql() (fromClause, whereClause string, whereClauseParams []interface{}) {
+func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams []interface{}) {
 	tables_to_process := self.tables
-	self.alias_mapping = self.get_alias_mapping()
+	self.alias_mapping = self.getAliasMapping()
 	from_clause := make([]string, 0)
 	from_params := make([]interface{}, 0)
 
@@ -97,7 +95,7 @@ func (self *TQuery) get_sql() (fromClause, whereClause string, whereClauseParams
 		from_clause = append(from_clause, table)
 		_, table_alias := get_alias_from_query(table)
 		if _, has := self.joins[table_alias]; has {
-			self.add_joins_for_table(table_alias, tables_to_process, from_clause, from_params)
+			self.addJoinsForTable(table_alias, tables_to_process, from_clause, from_params)
 		}
 	}
 
@@ -139,7 +137,7 @@ func (self *TQuery) get_sql() (fromClause, whereClause string, whereClauseParams
     :param extra_params: a list of parameters for the `extra` condition.
 """*/
 // 添加目标表到当前表
-func (self *TQuery) add_join(connection []string, implicit bool, outer bool, extra, extra_params map[string]interface{}) (string, string) {
+func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extra, extra_params map[string]interface{}) (string, string) {
 	// (lhs.lhs_col = table.col)
 	lhs := connection[0]     // mdoel name
 	lhs_col := connection[1] // field
@@ -188,7 +186,6 @@ func (self *TQuery) add_join(connection []string, implicit bool, outer bool, ext
 				//extra = extra.format(lhs=lhs, rhs=alias)
 				//self.extras[(lhs, join_tuple)] = (extra, extra_params)
 			}
-
 		}
 		return alias, alias_statement
 	}
@@ -196,7 +193,7 @@ func (self *TQuery) add_join(connection []string, implicit bool, outer bool, ext
 
 // :lhs table name
 //
-func (self *TQuery) add_joins_for_table(lhs string, tables_to_process, from_clause []string, from_params []interface{}) {
+func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause []string, from_params []interface{}) {
 	if tablelst, has := self.joins[lhs]; has {
 		for _, table := range tablelst {
 			rhs, lhs_col, rhs_col, join := table.String(0), table.String(1), table.String(2), table.String(3)
@@ -208,10 +205,9 @@ func (self *TQuery) add_joins_for_table(lhs string, tables_to_process, from_clau
 				from_clause = append(from_clause, " AND ")
 				from_clause = append(from_clause, extra.String(0))
 				from_params = append(from_params, extra.String(1))
-				//logger.Dbg("add_joins_for_table", extra.String(0), extra.String(1))
 			}
 			from_clause = append(from_clause, ")")
-			self.add_joins_for_table(rhs, tables_to_process, from_clause, from_params)
+			self.addJoinsForTable(rhs, tables_to_process, from_clause, from_params)
 		}
 	}
 }
@@ -268,13 +264,13 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 			parent_model_name := rel.RelateTableName
 			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
 			if err != nil {
-				logger.Err(err, "@inherits_join_calc")
+				log.Err(err, "@inherits_join_calc")
 				//Dbg("inherits_join_calc:", field, alias, parent_model_name)
 			}
 
 			//NOTE JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
 			parent_field := model.Obj().GetRelationByName(parent_model_name)
-			parent_alias, _ := self.add_join(
+			parent_alias, _ := self.addJoin(
 				[]string{
 					alias, parent_field,
 					parent_model.GetName(), parent_model.IdField(),
@@ -286,7 +282,7 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 			model, alias = parent_model, parent_alias
 
 		} else {
-			//logger.Dbg("inherits_join_calc:", field, alias, fld)
+			//log.Dbg("inherits_join_calc:", field, alias, fld)
 		}
 	}
 	//# handle the case where the field is translated
@@ -313,7 +309,7 @@ func (self *TQuery) _get_table_aliases() (aliases []string) {
 }
 
 // 获得表别名枚举
-func (self *TQuery) get_alias_mapping() (mapping map[string]string) {
+func (self *TQuery) getAliasMapping() (mapping map[string]string) {
 	mapping = make(map[string]string)
 	for _, table := range self.tables {
 		_, statement := get_alias_from_query(table)

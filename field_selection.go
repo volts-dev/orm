@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
-
-	"github.com/volts-dev/orm/logger"
 )
 
 type (
@@ -52,12 +50,12 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 	//fld.Base()._attr_type = "selection"
 	//fld.Base()._column_type = "selection"
 	//lField.initSelection(lTag[1:]...)
-	logger.Assert(len(params) > 0, "Selection(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	log.Assert(len(params) > 0, "Selection(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 
 	fld.Base()._getter = "" //初始化
 	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
-	//logger.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base().modelValue, ctx.Model.Base().modelValue.MethodByName(lStr))
+	//log.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base().modelValue, ctx.Model.Base().modelValue.MethodByName(lStr))
 	//if m := model.MethodByName(lStr); m != nil {
 	if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
 		fld.Base()._getter = lStr
@@ -65,7 +63,7 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 		m := make(map[string]string)
 		err := json.Unmarshal([]byte(lStr), &m)
 		if err != nil {
-			logger.Errf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
+			log.Errf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
 		}
 
 		for k, v := range m {
@@ -126,12 +124,12 @@ func (self *TSelectionField) GetAttributes(ctx *TFieldContext) map[string]interf
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 
 	if lMehodName := self.Compute(); lMehodName != "" {
-		//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+		//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 		if m := model_val.MethodByName(lMehodName); m.IsValid() {
-			//logger.Dbg("selection:", m, self.model.modelValue)
+			//log.Dbg("selection:", m, self.model.modelValue)
 			//results := m.Call([]reflect.Value{model.Base().modelValue}) //
 			results := m.Call(nil) //
-			//logger.Dbg("selection:", results)
+			//log.Dbg("selection:", results)
 			if len(results) == 1 {
 				//fld.Selection, _ = results[0].Interface().([][]string)
 				if res, ok := results[0].Interface().([][]string); ok {
@@ -152,13 +150,13 @@ func (self *TSelectionField) OnRead(ctx *TFieldEventContext) error {
 
 	if mehodName := field._getter; mehodName != "" {
 		// TODO 同一记录方法到OBJECT里使用Method
-		//logger.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
+		//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 		if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
-			//logger.Dbg("selection:", m, self.model.modelValue)
+			//log.Dbg("selection:", m, self.model.modelValue)
 			args := make([]reflect.Value, 0)
 			args = append(args, reflect.ValueOf(ctx))
 			results := method.Call(args) //
-			//logger.Dbg("selection:", results)
+			//log.Dbg("selection:", results)
 			if len(results) == 1 {
 				//fld.Selection, _ = results[0].Interface().([][]string)
 				if res, ok := results[0].Interface().([][]string); ok {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -171,7 +170,7 @@ func (self *TModel) Super() IModel {
 	/*//mod, err := self.Session().GetModel(self.GetName())
 	su, err := self.Orm().GetModel(self.super)
 	if err != nil {
-		logger.Errf("create product record failed:%s", err.Error())
+		log.Errf("create product record failed:%s", err.Error())
 	}
 	return su*/
 	return self.super
@@ -331,7 +330,7 @@ func (self *TModel) _search(args *utils.TStringList, fields []string, offset int
 		// hurt performance
 		query_str = `SELECT count(1) FROM ` + from_clause + where_str
 		lRes, err := self.orm.SqlQuery(query_str, where_clause_params...)
-		logger.Err(err)
+		log.Err(err)
 		return []string{lRes.FieldByName("count").AsString()}
 	}
 
@@ -345,7 +344,7 @@ func (self *TModel) _search(args *utils.TStringList, fields []string, offset int
 	query_str = fmt.Sprintf(`SELECT "%s".id FROM `, self._table) + from_clause + where_str + order_by + limit_str + offset_str
 	web.Debug("_search", query_str, where_clause_params)
 	res, err := self.orm.SqlQuery(query_str, where_clause_params...)
-	if logger.Err(err) {
+	if log.Err(err) {
 		return nil
 	}
 	return res.Keys()
@@ -367,7 +366,7 @@ func (self *TModel) __search_name(name string, args *utils.TStringList, operator
 		}
 		// optimize out the default criterion of ``ilike ''`` that matches everything
 		if self._rec_name == "" {
-			utils.Logger.Warn("Cannot execute name_search, no _rec_name defined on %s", self.name)
+			utils.log.Warn("Cannot execute name_search, no _rec_name defined on %s", self.name)
 		} else if name != "" && operator != "ilike" {
 			lDomain := NewStringList()
 			lDomain.PushString(self._rec_name)
@@ -409,12 +408,12 @@ func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
 			self._rec_name: name,
 		})
 		if err != nil {
-			return nil, logger.Errf("cannot execute name_create, create name faild %s", err.Error())
+			return nil, log.Errf("cannot execute name_create, create name faild %s", err.Error())
 
 		}
 		return self.NameGet([]interface{}{id})
 	} else {
-		return nil, logger.Errf("Cannot execute name_create, no _rec_name defined on %s", self.name)
+		return nil, log.Errf("Cannot execute name_create, no _rec_name defined on %s", self.name)
 	}
 }
 
@@ -466,7 +465,7 @@ func (self *TModel) SearchName(name string, domain_str string, operator string, 
 	// 使用默认 name 字段
 	rec_name_field := self.GetRecordName()
 	if rec_name_field == "" {
-		return nil, logger.Errf("Cannot execute name_search, no _rec_name defined on %s", self.name)
+		return nil, log.Errf("Cannot execute name_search, no _rec_name defined on %s", self.name)
 	}
 
 	if name == "" && operator != "ilike" {
@@ -475,7 +474,7 @@ func (self *TModel) SearchName(name string, domain_str string, operator string, 
 		_domain.Push(lNew)
 	}
 
-	//logger.Dbg("SearchName:", lNameField, lDomain.String())
+	//log.Dbg("SearchName:", lNameField, lDomain.String())
 	//access_rights_uid = name_get_uid or user
 	// 获取匹配的Ids
 	//lIds := self._search(lDomain, nil, 0, limit, "", false, access_rights_uid, context)
@@ -560,7 +559,7 @@ func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, err
 	csvFile := csv.NewReader(file)
 	header, err := csvFile.Read()
 	if err != nil {
-		return nil, logger.Err(err)
+		return nil, log.Err(err)
 	}
 
 	// 建立过滤索引
@@ -592,7 +591,7 @@ func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, err
 					isEof = true
 					break
 				}
-				errRows[row] = logger.Err(err).Error()
+				errRows[row] = log.Err(err).Error()
 				break
 			}
 
@@ -605,7 +604,7 @@ func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, err
 
 			id, err := session.Create(rec.AsItfMap())
 			if id == nil || err != nil {
-				errRows[row] = logger.Err(err).Error()
+				errRows[row] = log.Err(err).Error()
 				break
 			}
 
@@ -615,7 +614,7 @@ func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, err
 
 		err = session.Commit()
 		if err != nil {
-			logger.Err(err)
+			log.Err(err)
 
 			// 添加提交失败的行
 			for _, r := range successRows {
@@ -624,7 +623,7 @@ func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, err
 
 			e := session.Rollback()
 			if e != nil {
-				logger.Err(e)
+				log.Err(e)
 			}
 		}
 	}
@@ -721,10 +720,10 @@ func (self *TModel) relations_reload() {
 	)
 
 	for tbl, fld := range self.obj.GetRelations() {
-		//logger.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
+		//log.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
 		rel_model, err := self.osv.GetModel(tbl) // #i //TableByName(tbl)
 		if err != nil {
-			logger.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetName())
+			log.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetName())
 		}
 
 		rel_model.relations_reload()
@@ -765,7 +764,7 @@ func (self *TModel) _add_inherited_fields() {
 	for parent_model := range self.obj.GetRelations() {
 		parent, err := self.osv.GetModel(parent_model) // #i
 		if err != nil {
-			logger.Err(err, "@_add_inherited_fields")
+			log.Err(err, "@_add_inherited_fields")
 		}
 
 		for refname, ref := range parent.GetFields() {
@@ -840,13 +839,13 @@ func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.T
 
 	rel_filed := rel_model.GetFieldByName(relkey_field_name)
 	if rel_filed.Type() != TYPE_M2O {
-		return nil, logger.Errf("the relate model <%s> field <%s> is not many2one type.", relModelName, relkey_field_name)
+		return nil, log.Errf("the relate model <%s> field <%s> is not many2one type.", relModelName, relkey_field_name)
 	}
 
-	//logger.Dbg("fff", ids, relModelName)
+	//log.Dbg("fff", ids, relModelName)
 	ds, err = rel_model.Records().In(relkey_field_name, ids...).Read()
 	if err != nil {
-		logger.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
+		log.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
 		return nil, err
 	}
 
@@ -890,7 +889,7 @@ func (self *TModel) Many2many(ids []interface{}, fieldName string) (map[interfac
 		return nil, err
 	}
 	order_by := sess.Statement.generate_order_by(wquery, nil)
-	from_c, where_c, where_params := wquery.get_sql()
+	from_c, where_c, where_params := wquery.getSql()
 	if where_c == "" {
 		where_c = "1=1"
 	}
@@ -935,7 +934,7 @@ func (self *TModel) Many2many(ids []interface{}, fieldName string) (map[interfac
 
 			ds, err := sess.Query(query, params...)
 			if err != nil {
-				logger.Err(err)
+				log.Err(err)
 				//ds.Next()
 				continue
 			}
@@ -983,7 +982,7 @@ func (self *TModel) __select_column_data() *dataset.TDataSet {
            WHERE c.relname=%s 
            AND c.oid=a.attrelid
            AND a.atttypid=t.oid`, self.GetName())
-	logger.Err(err)
+	log.Err(err)
 
 	return lDs
 
@@ -1007,7 +1006,7 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 			//	vals[key] = utils.Itf2Bool(val)
 			case "datetime", "date":
 				vals[key] = utils.Itf2Time(val)
-				//logger.Dbg("datetime", key, val, utils.Itf2Time(val))
+				//log.Dbg("datetime", key, val, utils.Itf2Time(val))
 			case "many2one":
 				// TODO 支持多种数据类型
 				//self.osv.GetModel(f.relModelName)

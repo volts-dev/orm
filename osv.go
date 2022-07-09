@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -382,7 +381,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) {
 			//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
 			// 参数验证func(self,handler)
 			//lMethod.Type.In(1).Elem().String() == handlerType.String()
-			//logger.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
+			//log.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
 
 			//if lMethod.Type.NumIn() == 2 {
 			obj.methods[method.Name] = model.modelType // 添加方法对应的Object
@@ -406,7 +405,7 @@ func (self *TObj) mappingMethod(model *TModel) {
 		//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
 		// 参数验证func(self,handler)
 		//lMethod.Type.In(1).Elem().String() == handlerType.String()
-		//logger.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
+		//log.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
 
 		//if lMethod.Type.NumIn() == 2 {
 		self.methods[method.Name] = model.modelType // 添加方法对应的Object
@@ -438,7 +437,7 @@ func (self *TOsv) HasModel(name string) (has bool) {
 //TODO  TEST 测试是否正确使用路劲作为Modul
 func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 	module_name := "" // "web" // 默认取Web模块注册的Models
-	//logger.Dbg("getmodel", model, lModule, module)
+	//log.Dbg("getmodel", model, lModule, module)
 	if len(module) > 0 && utils.Trim(module[0]) != "" {
 		module_name = utils.Trim(module[0])
 	} else {
@@ -454,7 +453,7 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 			if idx := utils.InStrings("module", lDirLst...); idx > -1 {
 				lModule = lDirLst[idx+1]
 			}
-			logger.Dbg("getmodel", utils.CurPath(), lModule, lFilePath, utils.AppDir(), lDirLst)
+			log.Dbg("getmodel", utils.CurPath(), lModule, lFilePath, utils.AppDir(), lDirLst)
 			//if len(lDirLst) > 1 { // && lDirLst[0] == AppModuleDir
 			//	lModule = lDirLst[1]
 			//}
@@ -532,7 +531,7 @@ func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 
 	//获取Model的Object对象
 	if obj, has := self.models[model]; has {
-		//logger.Dbg("getModelByModule1", obj, len(self.models), region, model)
+		//log.Dbg("getModelByModule1", obj, len(self.models), region, model)
 
 		// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
 		for region_name, module_map = range obj.object_types {
@@ -541,7 +540,7 @@ func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 			}
 		}
 
-		//logger.Dbg("_getModelByModule2", region_name, module_map)
+		//log.Dbg("_getModelByModule2", region_name, module_map)
 
 		if model_type, has = module_map[model]; has {
 			// 创建对象
@@ -595,7 +594,7 @@ func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error)
 			return m, nil
 		}
 
-		logger.Panicf(`Model %s@%s is not a standard orm.IModel type,
+		log.Panicf(`Model %s@%s is not a standard orm.IModel type,
 		please check the name of Fields and Methods,make sure they are correct and not same each other`, model, region)
 	}
 

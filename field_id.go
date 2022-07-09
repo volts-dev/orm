@@ -3,7 +3,6 @@ package orm
 import (
 	"github.com/bwmarrin/snowflake"
 	"github.com/volts-dev/orm/domain"
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 	//"github.com/google/uuid"
 	//"github.com/rs/xid"
@@ -24,7 +23,7 @@ func init() {
 	var err error
 	uuid, err = snowflake.NewNode(1)
 	if err != nil {
-		logger.Err(err)
+		log.Err(err)
 	}
 }
 

@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/volts-dev/lexer"
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
+	"github.com/volts-dev/volts/logger"
 )
 
 type (

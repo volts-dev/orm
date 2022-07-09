@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/volts-dev/dataset"
-	"github.com/volts-dev/orm/logger"
 
 	"github.com/volts-dev/utils"
 )
@@ -117,7 +116,7 @@ func (self *TOne2OneField) OnRead(ctx *TFieldEventContext) error {
 				continue
 			}
 
-			//logger.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
+			//log.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
 			rel_ds, err := model.NameGet([]interface{}{rel_id})
 			if err != nil {
 				return err
@@ -181,7 +180,7 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 		fld.Base()._attr_relation = fld.Base().comodel_name
 		fld.Base()._attr_type = TYPE_M2M
 	} else {
-		logger.Panicf("field %s of model %s must format like 'Many2Many(relate_model)' or 'Many2Many(relate_model,model_id,relate_model_id)'!", fld.Name(), self.model_name)
+		log.Panicf("field %s of model %s must format like 'Many2Many(relate_model)' or 'Many2Many(relate_model,model_id,relate_model_id)'!", fld.Name(), self.model_name)
 	}
 }
 
@@ -195,7 +194,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 
 	has, err := orm.IsTableExist(rel)
 	if err != nil {
-		logger.Errf("m2m check table %s failed:%s", ctx.Field.RelateModelName(), err.Error())
+		log.Errf("m2m check table %s failed:%s", ctx.Field.RelateModelName(), err.Error())
 	}
 
 	if !has {
@@ -218,7 +217,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 			rel, id2)
 		_, err := orm.Exec(query)
 		if err != nil {
-			logger.Errf("m2m create table '%s' failure : SQL:%s,Error:%s", ctx.Field.RelateModelName(), query, err.Error())
+			log.Errf("m2m create table '%s' failure : SQL:%s,Error:%s", ctx.Field.RelateModelName(), query, err.Error())
 		}
 
 		self.update_db_foreign_keys(ctx)
@@ -405,7 +404,7 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldEventContext) error {
 	case []interface{}:
 		ids = ctx.Value.([]interface{})
 	default:
-		logger.Errf("M2M field name <%s> could not support this type of value %v", ctx.Field.Name(), ctx.Value)
+		log.Errf("M2M field name <%s> could not support this type of value %v", ctx.Field.Name(), ctx.Value)
 	}
 
 	if len(ids) > 0 {
@@ -454,7 +453,7 @@ func (self *TMany2OneField) Init(ctx *TFieldContext) {
 	// field:"many2one() int()"
 	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
 	//fld.Base()._classic_write = true
-	logger.Assert(len(params) > 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	log.Assert(len(params) > 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 	fld.Base().isRelatedField = true
 	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
 	fld.Base()._attr_relation = fld.Base().comodel_name
@@ -492,7 +491,7 @@ func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
 				continue
 			}
 
-			//logger.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
+			//log.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
 			rel_ds, err := model.NameGet([]interface{}{rel_id})
 			if err != nil {
 				return err
@@ -518,7 +517,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 		}
 
 	default:
-		logger.Errf("%s OnWrite many2one fail", field.Name())
+		log.Errf("%s OnWrite many2one fail", field.Name())
 
 	}
 
@@ -529,7 +528,7 @@ func (self *TOne2ManyField) Init(ctx *TFieldContext) { //comodel_name string, in
 	field := ctx.Field
 	params := ctx.Params
 
-	logger.Assert(len(params) > 1, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
+	log.Assert(len(params) > 1, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
 	// self.Base()._column_type = ""
 	// Field.Base()._classic_read = false
 	// Field.Base()._classic_write = false
@@ -558,7 +557,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
 
 		rel_filed := rel_model.GetFieldByName(relkey_field_name)
 		if rel_filed.SQLType().Name != TYPE_O2M {
-			return logger.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
+			return log.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
 		}
 	*/
 	ids := ds.Keys()

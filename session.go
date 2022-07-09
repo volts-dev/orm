@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/volts-dev/dataset"
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -370,21 +369,21 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 					//TODO 修改数据类型
 					// 如果是修改字符串到
 					if expectedType == Text && strings.HasPrefix(curType, Varchar) {
-						logger.Infof("Table <%s> column <%s> change type from %s to %s\n", lTableName, field.Name(), curType, expectedType)
+						log.Infof("Table <%s> column <%s> change type from %s to %s\n", lTableName, field.Name(), curType, expectedType)
 						_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
 
 					} else if strings.HasPrefix(curType, Varchar) && strings.HasPrefix(expectedType, Varchar) {
 						// 如果是同是字符串 则检查长度变化 for mysql
 
 						if cur_field.Size() < field.Size() {
-							logger.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", lTableName, field.Name(), cur_field.Size(), field.Size())
+							log.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", lTableName, field.Name(), cur_field.Size(), field.Size())
 							_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
 						}
 						//}
 						//其他
 					} else {
 						if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
-							logger.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", lTableName, field.Name(), curType, expectedType)
+							log.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", lTableName, field.Name(), curType, expectedType)
 						}
 					}
 
@@ -392,7 +391,7 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 				// 如果是同是字符串 则检查长度变化 for mysql
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() < field.Size() {
-					logger.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n",
+					log.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n",
 						lTableName, field.Name(), cur_field.Size(), field.Size())
 					_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
 				}
@@ -400,12 +399,12 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 
 				//
 				if field.Default() != cur_field.Default() {
-					logger.Warnf("Table <%s> Column <%s> db default is <%s>, model default is <%s>",
+					log.Warnf("Table <%s> Column <%s> db default is <%s>, model default is <%s>",
 						lTableName, field.Name(), cur_field.Default(), field.Default())
 				}
 
 				if field.Required() != cur_field.Required() {
-					logger.Warnf("Table <%s> Column <%s> db required is <%v>, model required is <%v>",
+					log.Warnf("Table <%s> Column <%s> db required is <%v>, model required is <%v>",
 						lTableName, field.Name(), cur_field.Required(), field.Required())
 				}
 
@@ -561,7 +560,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	} else {
 		mod, err = self.orm.GetModel(model, region...)
 		if err != nil {
-			logger.Panicf(err.Error())
+			log.Panicf(err.Error())
 			self.IsDeprecated = true
 		}
 	}
@@ -577,10 +576,10 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	if md = nil {
 		self.IsClassic = false
 		lTableName := utils.SnakeCasedName(strings.Replace(model, ".", "_", -1))
-		//logger.Err("Model %s is not a standard model type of this system", lTableName)
+		//log.Err("Model %s is not a standard model type of this system", lTableName)
 		self.Statement.Table = self.orm.tables[lTableName]
 		if self.Statement.Table == nil {
-			logger.Errf("the table is not in database.")
+			log.Errf("the table is not in database.")
 			self.IsDeprecated = true
 			return nil
 		}
@@ -599,7 +598,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 
 	// ### id key must exist
 	if self.Statement.IdKey == "" {
-		logger.Errf("the statement must have a Id key exist!")
+		log.Errf("the statement must have a Id key exist!")
 		self.IsDeprecated = true
 	}
 
@@ -851,7 +850,7 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 					Field:   lField,
 					Value:   vals[name]})
 				if err != nil {
-					logger.Err(err)
+					log.Err(err)
 
 				}
 			}
@@ -972,14 +971,14 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 		lNullableField := nullableFields[name]
 		if val, has := vals[name]; has {
 			// 过滤可以为空的字段空字段
-			//logger.Dbg("## XXX:", name, val, has, val == nil, utils.IsBlank(val))
+			//log.Dbg("## XXX:", name, val, has, val == nil, utils.IsBlank(val))
 			if !is_must_field && !lNullableField && !includeNil && (val == nil || utils.IsBlank(val)) {
 				continue
 			}
 
-			//logger.Dbg("## VV:", name, col.SQLType.IsNumeric())
+			//log.Dbg("## VV:", name, col.SQLType.IsNumeric())
 			if field != nil && field.SQLType().IsNumeric() {
-				//logger.Dbg("## VV:", name, val, blank, reflect.TypeOf(val), val == blank)
+				//log.Dbg("## VV:", name, val, blank, reflect.TypeOf(val), val == blank)
 				if utils.IsBlank(val) {
 					continue
 				}
@@ -1098,7 +1097,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		}
 
 		// # determine the actual query to execute
-		from_clause, where_clause, where_clause_params = query.get_sql()
+		from_clause, where_clause, where_clause_params = query.getSql()
 	} else {
 		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}
@@ -1213,7 +1212,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		lSql := fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, lFldName, self.Statement.model.GetName(), self.Statement.IdKey, in_vals)
 		lDs, err := self.orm.Query(lSql, ids...)
 		if err != nil {
-			logger.Err(err)
+			log.Err(err)
 		}
 
 		lDs.First()
@@ -1225,7 +1224,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 		if len(ref_vals) > 0 { //# 重新写入关联数据
 			lMdlObj, err := self.orm.GetModel(tbl) // #i
 			if err != nil {
-				logger.Err(err)
+				log.Err(err)
 			}
 
 			lMdlObj.Records().Ids(nids...).Write(ref_vals) //TODO 检查是否真确使用
@@ -1245,7 +1244,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 				Value:   values[name],
 			})
 			if err != nil {
-				logger.Err(err)
+				log.Err(err)
 			}
 
 			res_effect++
@@ -1345,7 +1344,7 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 					inherited = append(inherited, name)
 				}
 			} else {
-				logger.Warnf(`%s.read() with unknown field '%s'`, self.Statement.model.GetName(), name)
+				log.Warnf(`%s.read() with unknown field '%s'`, self.Statement.model.GetName(), name)
 			}
 		}
 	} else {
@@ -1389,7 +1388,7 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 
 		//TODO　执行太多SQL
 		for _, field := range name_fields {
-			//logger.Dbg("aa", rec_id, name)
+			//log.Dbg("aa", rec_id, name)
 
 			err := field.OnRead(&TFieldEventContext{
 				Session: self,
@@ -1400,9 +1399,9 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 				Dataset: dataset,
 			})
 			if err != nil {
-				logger.Errf("%s@%s.OnRead:%s", field.ModelName(), field.Name(), err.Error())
+				log.Errf("%s@%s.OnRead:%s", field.ModelName(), field.Name(), err.Error())
 			}
-			//logger.Dbg("convert_to_read:", name, val, dataset.Count(), rec_id, dataset.FieldByName("id").AsString(), dataset.Position, dataset.Eof(), res_dataset.FieldByName(name).AsString(), dataset.FieldByName(name).AsInterface(), field)
+			//log.Dbg("convert_to_read:", name, val, dataset.Count(), rec_id, dataset.FieldByName("id").AsString(), dataset.Position, dataset.Eof(), res_dataset.FieldByName(name).AsString(), dataset.FieldByName(name).AsInterface(), field)
 		}
 	}
 
@@ -1688,7 +1687,7 @@ func (self *TSession) addColumn(colName string) error {
 	}
 
 	col := self.Statement.model.GetFieldByName(colName)
-	//logger.Dbg("addColumn", self.Statement.Table.Type, colName, col)
+	//log.Dbg("addColumn", self.Statement.Table.Type, colName, col)
 	sql, args := self.Statement.generate_add_column(col)
 	_, err := self.exec(sql, args...)
 	return err
@@ -1781,14 +1780,14 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 	//	fields_str = `*`
 	//}
 
-	//logger.Dbg("_search", self.Statement.Domain, StringList2Domain(self.Statement.Domain))
+	//log.Dbg("_search", self.Statement.Domain, StringList2Domain(self.Statement.Domain))
 	query, err = self.Statement.where_calc(self.Statement.domain, false, context)
 	if err != nil {
 		return nil, err
 	}
 
 	order_by = self.Statement.generate_order_by(query, context) // TODO 未完成
-	from_clause, where_clause, where_clause_params = query.get_sql()
+	from_clause, where_clause, where_clause_params = query.getSql()
 
 	if where_clause != "" {
 		where_clause = fmt.Sprintf(` WHERE %s`, where_clause)
@@ -1933,7 +1932,7 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 
 		select_clause = strings.Join(qual_names, ",")
 		// # determine the actual query to execute
-		from_clause, where_clause, where_clause_params = query.get_sql()
+		from_clause, where_clause, where_clause_params = query.getSql()
 
 		if where_clause != "" {
 			where_clause = "WHERE " + where_clause
@@ -2029,7 +2028,7 @@ func (self *TSession) convertStruct2Itfmap(src interface{}) (res_map map[string]
 
 		// don't check if it's omitted
 		var tag string
-		if tag = lField.Tag.Get(self.orm.FieldIdentifier); tag == "-" {
+		if tag = lField.Tag.Get(self.orm.config.FieldIdentifier); tag == "-" {
 			continue
 		}
 
@@ -2068,7 +2067,7 @@ func (self *TSession) convertStruct2Itfmap(src interface{}) (res_map map[string]
 			//}
 		}
 
-		//logger.Dbg("field#", lName, lFieldType, lFieldValue)
+		//log.Dbg("field#", lName, lFieldType, lFieldValue)
 		switch lFieldType.Kind() {
 		case reflect.Struct:
 			if lFieldType.ConvertibleTo(TimeType) {
@@ -2082,7 +2081,7 @@ func (self *TSession) convertStruct2Itfmap(src interface{}) (res_map map[string]
 					if lCol.SQLType().IsText() {
 						bytes, err := json.Marshal(lFieldValue.Interface())
 						if err != nil {
-							logger.Errf("IsJson", err)
+							log.Errf("IsJson", err)
 							continue
 						}
 						lValue = string(bytes)
@@ -2091,18 +2090,18 @@ func (self *TSession) convertStruct2Itfmap(src interface{}) (res_map map[string]
 						var err error
 						bytes, err = json.Marshal(lFieldValue.Interface())
 						if err != nil {
-							logger.Errf("IsBlob", err)
+							log.Errf("IsBlob", err)
 							continue
 						}
 						lValue = bytes
 					}
 				} else {
 					// any other
-					logger.Err("other field type ", lName)
+					log.Err("other field type ", lName)
 				}
 			}
 		}
-		//logger.Dbg("field#2", lName, lFieldType, lFieldValue)
+		//log.Dbg("field#2", lName, lFieldType, lFieldValue)
 		lValue = lFieldValue.Interface()
 		res_map[lName] = lValue
 

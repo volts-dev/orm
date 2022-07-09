@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -930,7 +929,7 @@ func (db *postgres) IsDatabaseExist(name string) bool {
 		var database_name string
 		err = rows.Scan(&database_name)
 		if err != nil {
-			logger.Panicf(err.Error())
+			log.Panicf(err.Error())
 			return false
 		}
 

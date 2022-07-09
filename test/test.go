@@ -29,12 +29,12 @@ func NewTest(t *testing.T) *Testchain {
 	}
 
 	var err error
-	self.Orm, err = orm.NewOrm(DataSource)
+	self.Orm, err = orm.New(orm.WithDataSource(DataSource))
 	if err != nil {
 		self.Fatal(err)
 	}
 
-	self.Orm.ShowSql(ShowSql)
+	self.Orm.Config().Init(orm.WithShowSql(true))
 
 	if !self.Orm.IsExist(DataSource.DbName) {
 		self.Orm.CreateDatabase(DataSource.DbName)
@@ -60,7 +60,7 @@ func (self *Testchain) PrintSubject(subject string) *Testchain {
 }
 
 func (self *Testchain) ShowSql(show bool) *Testchain {
-	self.Orm.ShowSql(show)
+	self.Orm.Config().Init(orm.WithShowSql(show))
 	return self
 }
 
@@ -106,12 +106,11 @@ func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 	var err error
 
 	if test_orm == nil {
-		test_orm, err = orm.NewOrm(dataSource)
+		test_orm, err = orm.New(orm.WithDataSource(DataSource))
 		if err != nil {
 			return err
 		}
-
-		test_orm.ShowSql(show_sql)
+		test_orm.Config().Init(orm.WithShowSql(show_sql))
 	}
 
 	if !test_orm.IsExist(dataSource.DbName) {

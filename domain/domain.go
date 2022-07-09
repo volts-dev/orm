@@ -3,8 +3,8 @@ package domain
 import (
 	"fmt"
 
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
+	"github.com/volts-dev/volts/logger"
 )
 
 //TODO: domain 解析速度必须比Json序列化快

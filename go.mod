@@ -8,6 +8,6 @@ require (
 	github.com/volts-dev/cacher v0.0.0-20180329043438-92d368b7b959
 	github.com/volts-dev/dataset v0.0.0-20210303044526-4e29c6250cdc
 	github.com/volts-dev/lexer v0.0.0-20200528054106-0cc2fffb8ac7
-	github.com/volts-dev/logger v0.0.0-20210803162057-18754d780c31
-	github.com/volts-dev/utils v0.0.0-20220301183119-0de4229e75b4
+	github.com/volts-dev/utils v0.0.0-20220409042925-ad5762368652
+	github.com/volts-dev/volts v0.0.0-20220708072314-93aeddd3c191
 )

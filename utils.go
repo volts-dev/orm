@@ -6,7 +6,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -79,7 +78,7 @@ func lookup(tag string, key ...string) (value string) {
 		if utils.InStrings(name, key...) != -1 {
 			value, err := unquote(qvalue)
 			if err != nil {
-				logger.Errf("parse Tag error: %s, %s : %s", qvalue, value, err.Error())
+				log.Errf("parse Tag error: %s, %s : %s", qvalue, value, err.Error())
 				break
 			}
 			return value

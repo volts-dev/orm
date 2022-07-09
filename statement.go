@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/volts-dev/orm/domain"
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -110,12 +109,12 @@ func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) {
 		// 添加信的条件
 		new_cond, err = domain.String2Domain(cond.(string))
 		if err != nil {
-			logger.Err(err)
+			log.Err(err)
 		}
 	case *domain.TDomainNode:
 		new_cond = cond.(*domain.TDomainNode)
 	default:
-		logger.Errf("op not support this query %v", cond)
+		log.Errf("op not support this query %v", cond)
 	}
 
 	self.domain.OP(op, new_cond)
@@ -141,8 +140,8 @@ func (self *TStatement) In(field string, args ...interface{}) *TStatement {
 	if len(args) == 0 {
 		// FIXME IN Condition must pass at least one arguments
 		// TODO report err stack
-		//logger.Errf("IN Condition must pass at least one arguments")
-		logger.Panicf("IN Condition must pass at least one arguments")
+		//log.Errf("IN Condition must pass at least one arguments")
+		log.Panicf("IN Condition must pass at least one arguments")
 		return self
 	}
 
@@ -297,7 +296,7 @@ func (self *TStatement) generate_index() []string {
 			sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);",
 				quote(idxName), quote(modelName), quote(strings.Join(index.Cols, quote(","))))
 			sqls = append(sqls, sql)
-			//logger.Dbg(sql, index)
+			//log.Dbg(sql, index)
 		}
 	}
 
@@ -443,7 +442,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 					if col.SQLType().IsText() {
 						bytes, err := json.Marshal(val)
 						if err != nil {
-							logger.Err("adas", err)
+							log.Err("adas", err)
 							continue
 						}
 						val = string(bytes)
@@ -452,7 +451,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 						var err error
 						bytes, err = json.Marshal(val)
 						if err != nil {
-							logger.Errf("asdf", err)
+							log.Errf("asdf", err)
 							continue
 						}
 						val = bytes
@@ -472,7 +471,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 			if col.SQLType().IsText() {
 				bytes, err := json.Marshal(lFieldVal.Interface())
 				if err != nil {
-					logger.Errf("generate_query:", err)
+					log.Errf("generate_query:", err)
 					continue
 				}
 				val = string(bytes)
@@ -489,7 +488,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 				} else {
 					bytes, err = json.Marshal(lFieldVal.Interface())
 					if err != nil {
-						logger.Err("1", err)
+						log.Err("1", err)
 						continue
 					}
 					val = bytes
@@ -555,7 +554,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 				//domain.Insert(0, Query2StringList(`('active', '=', 1)`))
 				node, err := domain.String2Domain(`[('active', '=', 1)]`)
 				if err != nil {
-					logger.Err(err)
+					log.Err(err)
 				}
 				node.Insert(0, node)
 			}
@@ -564,7 +563,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 			var err error
 			node, err = domain.String2Domain(`[('active', '=', 1)]`)
 			if err != nil {
-				logger.Err(err)
+				log.Err(err)
 			}
 
 		}
@@ -593,13 +592,13 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 func (self *TStatement) _check_qorder(word string) (result bool) {
 	re, err := regexp.Compile(`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+$`) //`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+(?<!,)$`
 	if err != nil {
-		logger.Err(err)
+		log.Err(err)
 	}
 
 	//matches := re.FindAllStringSubmatch(word, -1)
 	if re.Match([]byte(word)) {
 		//  raise UserError(_('Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)'))
-		logger.Err(`Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)`)
+		log.Err(`Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)`)
 	}
 	return true
 }
@@ -620,7 +619,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				field := self.session.Statement.model.obj.GetFieldByName(fieldName)
 				if field == nil {
 					//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-					logger.Warnf("Sorting field %s not found on model %s", fieldName, self.model.GetName())
+					log.Warnf("Sorting field %s not found on model %s", fieldName, self.model.GetName())
 					continue
 				}
 
@@ -693,7 +692,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 			field := self.session.Statement.model.obj.GetFieldByName(order_field)
 			if field == nil {
 				//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-				logger.Warnf("Sorting field %s not found on model %s", order_field, self.model.GetName())
+				log.Warnf("Sorting field %s not found on model %s", order_field, self.model.GetName())
 				continue
 			}
 

@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
 )
 
@@ -221,7 +220,7 @@ func tag_compute(ctx *TFieldContext) {
 			fld.Base()._compute = lStr
 		}
 	} else {
-		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
+		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
 }
 
@@ -257,7 +256,7 @@ func tag_getter(ctx *TFieldContext) {
 			fld.Base().isCompute = true
 		}
 	} else {
-		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
+		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
 }
 
@@ -280,7 +279,7 @@ func tag_setter(ctx *TFieldContext) {
 			fld.Base().isCompute = true
 		}
 	} else {
-		logger.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
+		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
 }
 
@@ -351,7 +350,7 @@ func tag_extends(ctx *TFieldContext) {
 	ctx.Field.Base()._attr_store = false // 忽略某些继承者成员
 	switch fld_val.Kind() {
 	case reflect.Ptr:
-		logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
+		log.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
 		break
 	case reflect.Struct:
 		// #当该值为空时表示不限制字段
@@ -411,7 +410,7 @@ func tag_relate(ctx *TFieldContext) {
 
 	switch fld_val.Kind() {
 	case reflect.Ptr:
-		logger.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
+		log.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
 		break
 	case reflect.Struct:
 		// #当该值为空时表示不限制字段
@@ -639,7 +638,7 @@ func tag_store(ctx *TFieldContext) {
 	} else {
 		fld.Base()._attr_store = true
 	}
-	logger.Dbg("store", params, fld.Base()._attr_store)
+	log.Dbg("store", params, fld.Base()._attr_store)
 }
 
 func tag_domain(ctx *TFieldContext) {

@@ -18,9 +18,11 @@ import (
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/cacher"
-	"github.com/volts-dev/orm/logger"
 	"github.com/volts-dev/utils"
+	"github.com/volts-dev/volts/logger"
 )
+
+var log = logger.New("ORM")
 
 const (
 	NAMEDATALEN = 63
@@ -41,20 +43,15 @@ type (
 	}
 
 	TOrm struct {
-		dialect     IDialect
-		db          *sql.DB
-		dataSource  *TDataSource
-		osv         *TOsv // 对象管理
-		nameIndex   map[string]*TModel
-		showSql     bool
-		showSqlTime bool
-		connected   bool
+		config    *Config
+		dialect   IDialect
+		db        *sql.DB
+		osv       *TOsv // 对象管理
+		nameIndex map[string]*TModel
+		connected bool
 
 		// public
-		Cacher          *cacher.TCacher
-		TimeZone        *time.Location
-		FieldIdentifier string // 字段 tag 标记
-		TableIdentifier string // 表 tag 标记
+		Cacher *cacher.TCacher
 	}
 )
 
@@ -62,32 +59,30 @@ type (
 /*
  create a new ORM instance
 */
-func NewOrm(dataSource *TDataSource) (*TOrm, error) {
-	dialect := QueryDialect(dataSource.DbType)
+func New(opt ...Option) (*TOrm, error) {
+	cfg := newConfig(opt...)
+	dialect := QueryDialect(cfg.DataSource.DbType)
 	if dialect == nil {
-		return nil, fmt.Errorf("Unsupported dialect type: %v", dataSource.DbType)
+		return nil, fmt.Errorf("Unsupported dialect type: %v", cfg.DataSource.DbType)
 	}
 
-	db, err := sql.Open(dataSource.DbType, dataSource.toString())
+	db, err := sql.Open(cfg.DataSource.DbType, cfg.DataSource.toString())
 	if err != nil {
 		return nil, err
 	}
 
-	err = dialect.Init(db, dataSource)
+	err = dialect.Init(db, cfg.DataSource)
 	if err != nil {
 		return nil, err
 	}
 
-	logger.Infof("Connected database %s", dataSource.DbName)
+	log.Infof("Connected database %s", cfg.DataSource.DbName)
 
 	orm := &TOrm{
-		db:              db,
-		dialect:         dialect,
-		dataSource:      dataSource,
-		nameIndex:       make(map[string]*TModel),
-		FieldIdentifier: "field",
-		TableIdentifier: "table",
-		TimeZone:        time.Local,
+		config:    cfg,
+		db:        db,
+		dialect:   dialect,
+		nameIndex: make(map[string]*TModel),
 	}
 
 	// Cacher
@@ -96,22 +91,21 @@ func NewOrm(dataSource *TDataSource) (*TOrm, error) {
 	// OSV
 	orm.osv = newOsv(orm)
 
-	if orm.IsExist(dataSource.DbName) {
+	if orm.IsExist(cfg.DataSource.DbName) {
 		err = orm.reverse()
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		orm.connected = false
-		logger.Warnf("the orm is disconnected with database %s", dataSource.DbName)
+		log.Warnf("the orm is disconnected with database %s", cfg.DataSource.DbName)
 	}
 
 	return orm, nil
 }
 
-// TODO
-func (self *TOrm) Config() {
-
+func (self *TOrm) Config() *Config {
+	return self.config
 }
 
 // TODO 保持表实时更新到ORM - 由于有些表是由SQL后期创建 导致Orm里缓存不存在改表Sycn时任然执行创建而抛出错误
@@ -144,7 +138,7 @@ func (self *TOrm) reverse() error {
 		*/
 
 		self.osv.RegisterModel("", model.GetBase())
-		logger.Infof("%s found in database!", model.GetName())
+		log.Infof("%s found in database!", model.GetName())
 	}
 
 	return nil
@@ -159,7 +153,7 @@ func (self *TOrm) DriverName() string {
 func (self *TOrm) Ping() error {
 	session := self.NewSession()
 	defer session.Close()
-	logger.Infof("PING DATABASE %s@%s", self.dataSource.DbName, self.DriverName())
+	log.Infof("PING DATABASE %s@%s", self.config.DataSource.DbName, self.DriverName())
 	return session.Ping()
 }
 
@@ -172,7 +166,7 @@ func (self *TOrm) Close() error {
 // TZTime change one time to time location
 func (self *TOrm) FormatTimeZone(t time.Time) time.Time {
 	if !t.IsZero() { // if time is not initialized it's not suitable for Time.In()
-		return t.In(self.TimeZone)
+		return t.In(self.config.TimeZone)
 	}
 	return t
 }
@@ -206,14 +200,14 @@ func (self *TOrm) QuoteStr() string {
 }
 
 func (self *TOrm) logExecSql(sql string, args []interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
-	if self.showSql {
+	if self.config.ShowSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			log.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
 		} else {
-			logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			log.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -222,14 +216,14 @@ func (self *TOrm) logExecSql(sql string, args []interface{}, executionBlock func
 }
 
 func (self *TOrm) logQuerySql(sql string, args []interface{}, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
-	if self.showSql {
+	if self.config.ShowSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			logger.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			log.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
 		} else {
-			logger.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			log.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -244,8 +238,8 @@ func (self *TOrm) nowTime(sqlTypeName string) (res_val interface{}, res_time tim
 		return
 	}
 
-	if self.TimeZone != nil {
-		res_time = res_time.In(self.TimeZone)
+	if self.config.TimeZone != nil {
+		res_time = res_time.In(self.config.TimeZone)
 
 	}
 
@@ -281,7 +275,7 @@ func (self *TOrm) nowTime(sqlTypeName string) (res_val interface{}, res_time tim
 
 // FormatTime format time
 func (self *TOrm) FormatTime(sqlTypeName string, t time.Time) (v interface{}) {
-	return self.formatTime(self.TimeZone, sqlTypeName, t)
+	return self.formatTime(self.config.TimeZone, sqlTypeName, t)
 }
 
 func (self *TOrm) formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v interface{}) {
@@ -326,7 +320,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 	model_value := reflect.Indirect(reflect.ValueOf(model))
 	model_type := model_value.Type()
 	if model_type.Kind() != reflect.Struct {
-		logger.Warnf("please make sure model is a struct! but not %v@%v", model_type.Name(), model_type.String())
+		log.Warnf("please make sure model is a struct! but not %v@%v", model_type.Name(), model_type.String())
 		return nil
 	}
 
@@ -378,15 +372,15 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			// 识别拆分Tag字符串
 			var is_table_tag bool
 
-			tag_str := lookup(string(field_tag), self.FieldIdentifier)
+			tag_str := lookup(string(field_tag), self.config.FieldIdentifier)
 			if tag_str == "" {
-				tag_str = lookup(string(field_tag), self.TableIdentifier)
+				tag_str = lookup(string(field_tag), self.config.TableIdentifier)
 				is_table_tag = true
 				isSuper = true
 			}
 
 			// 识别分割Tag各属性
-			//logger.Dbg("tags1", lookup(string(field_tag), self.FieldIdentifier))
+			//log.Dbg("tags1", lookup(string(field_tag), self.FieldIdentifier))
 			tags := splitTag(tag_str)
 
 			// 排序Tag并_确保优先执行字段类型属性
@@ -399,7 +393,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				attrs = parseTag(key)
 
 				// 验证
-				logger.Assert(len(attrs) != 0, "Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, field_name, field_tag, key, attrs)
+				log.Assert(len(attrs) != 0, "Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, field_name, field_tag, key, attrs)
 
 				field_type_name = strings.ToLower(attrs[0])
 				tag_str = strings.Replace(key, field_type_name, "", 1) // 去掉Tag Item
@@ -410,7 +404,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					if strings.Index(tag_str, " ") != -1 {
 						if !strings.HasPrefix(tag_str, "'") &&
 							!strings.HasSuffix(tag_str, "'") {
-							logger.Panicf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", model_name, strings.ToUpper(field_name))
+							log.Panicf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", model_name, strings.ToUpper(field_name))
 						}
 					}
 				}
@@ -425,11 +419,11 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		// 更新超级类
 		if isSuper {
 			// TODO 考虑是否需要
-			//	logger.Dbg("ggg", field_value.Addr().Interface().(IModel))
+			//	log.Dbg("ggg", field_value.Addr().Interface().(IModel))
 			//	aaa := field_value.Addr().Interface().(IModel)
 			//res_model.super = aaa // TODO 带路径的类名称
 		}
-		//logger.Dbg("%s:%s %s", model_name, member_name, lColName)
+		//log.Dbg("%s:%s %s", model_name, member_name, lColName)
 
 		// # 忽略TModel类字段
 		field_context := new(TFieldContext)
@@ -483,7 +477,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 
 			// # check again 根据Tyep创建字段
 			if field == nil { // 必须确保上面的代码能获取到定义的字段类型
-				logger.Panicf("must difine the field type for the model field :" + model_name + "." + field_name)
+				log.Panicf("must difine the field type for the model field :" + model_name + "." + field_name)
 			}
 
 			if field.SQLType().Name == "" {
@@ -528,7 +522,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 					//if !is_exit_col {
 					////table.AddColumn(column)
 					//} else {
-					//	logger.Dbg("is_exit_col", column.Name)
+					//	log.Dbg("is_exit_col", column.Name)
 					//}
 
 					// 为字段添加数据库字段属性
@@ -585,7 +579,7 @@ func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, 
 					break
 				}
 
-				logger.Warnf("Unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.GetName(), field.Name())
+				log.Warnf("Unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.GetName(), field.Name())
 			}
 		}
 	}
@@ -642,7 +636,7 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 	for scanner.Scan() {
 		query := strings.Trim(scanner.Text(), " \t\n\r")
 		if len(query) > 0 {
-			logger.Info(query)
+			log.Info(query)
 			result, err := self.Exec(query)
 			results = append(results, result)
 			if err != nil {
@@ -655,11 +649,11 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 	return results, lastError
 }
 
-func (self *TOrm) ShowSql(sw ...bool) {
+func (self *TOrm) ___ShowSql(sw ...bool) {
 	if len(sw) > 0 {
-		self.showSql = sw[0]
+		self.config.ShowSql = sw[0]
 	} else {
-		self.showSql = true
+		self.config.ShowSql = true
 	}
 }
 
