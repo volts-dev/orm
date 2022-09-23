@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	cache "github.com/volts-dev/cacher"
+	"github.com/volts-dev/cacher"
 	"github.com/volts-dev/dataset"
 )
 
@@ -17,8 +17,8 @@ type (
 		expired  int
 		status   map[string]bool
 		//TODO 将表名和缓存Key 组合为table_key
-		id_caches                cache.ICacher // 缓存Id 对应记录 map[model]record
-		sql_caches               cache.ICacher // 缓存Sq
+		id_caches                cacher.ICacher // 缓存Id 对应记录 map[model]record
+		sql_caches               cacher.ICacher // 缓存Sq
 		table_id_key_index       map[string]map[string]bool
 		table_sql_key_index      map[string]map[string]bool
 		table_id_key_index_lock  sync.RWMutex
@@ -27,23 +27,24 @@ type (
 )
 
 func NewCacher() *TCacher {
-	cacher := &TCacher{
+	chr := &TCacher{
 		status:              make(map[string]bool),
 		table_id_key_index:  make(map[string]map[string]bool),
 		table_sql_key_index: make(map[string]map[string]bool),
 	}
 	var err error
-	cacher.id_caches, err = cache.NewCacher("memory", fmt.Sprintf(`{"interval":%v,"expired":%v}`, cache.INTERVAL_TIME, cache.EXPIRED_TIME))
+
+	chr.id_caches, err = cacher.New("memory")
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	cacher.sql_caches, err = cache.NewCacher("memory", fmt.Sprintf(`{"interval":%v,"expired":%v}`, cache.INTERVAL_TIME, cache.EXPIRED_TIME))
+	chr.sql_caches, err = cacher.New("memory")
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	return cacher
+	return chr
 }
 
 //@removed 是否用于移除
@@ -124,14 +125,7 @@ func (self *TCacher) SetStatus(sw bool, table_name string) {
 func (self *TCacher) PutBySql(table string, sql string, arg interface{}, data *dataset.TDataSet) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
-		self.sql_caches.Put(key, data)
-	}
-}
-
-func (self *TCacher) ___PutBySql(table string, sql string, arg interface{}, record_ids ...interface{}) {
-	if open, has := self.status[table]; has && open {
-		key := self.genSqlKey(table, sql, arg, false)
-		self.sql_caches.Put(key, record_ids)
+		self.sql_caches.Set(key, data)
 	}
 }
 
@@ -141,23 +135,12 @@ func (self *TCacher) GetBySql(table string, sql string, arg interface{}) *datase
 	//逻辑可能有问题	if open, has := self.status[table]; !has || (has && open) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
-		if ids, ok := self.sql_caches.Get(key).(*dataset.TDataSet); ok {
-			return ids
-		}
-	}
 
-	return nil
-}
-
-func (self *TCacher) ___GetBySql(table string, sql string, arg interface{}) (res_ids []interface{}) {
-	//逻辑可能有问题	if open, has := self.status[table]; !has || (has && open) {
-	if open, has := self.status[table]; has && open {
-		key := self.genSqlKey(table, sql, arg, false)
-		if ids, ok := self.sql_caches.Get(key).([]interface{}); ok {
-			return ids
-		} else {
+		var ids *dataset.TDataSet
+		if err := self.sql_caches.Get(key, &ids); err != nil {
 			return nil
 		}
+		return ids
 	}
 
 	return nil
@@ -168,7 +151,7 @@ func (self *TCacher) PutById(table string, id interface{}, record *dataset.TReco
 	if open, has := self.status[table]; !has || (has && open) {
 		//ck := self.RecCacher(table)
 		key := self.genIdKey(table, id, false)
-		self.id_caches.Put(key, record)
+		self.id_caches.Set(key, record)
 	}
 }
 
@@ -181,11 +164,12 @@ func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*data
 	if open, has := self.status[table]; !has || (has && open) {
 		for _, id := range ids {
 			key := self.genIdKey(table, id, false)
-			if rec, ok := self.id_caches.Get(key).(*dataset.TRecordSet); ok {
-				records = append(records, rec)
-			} else {
+
+			var rec *dataset.TDataSet
+			if err := self.sql_caches.Get(key, &ids); err != nil {
 				ids_less = append(ids_less, id)
 			}
+			records = append(records, rec)
 		}
 
 		return records, ids_less

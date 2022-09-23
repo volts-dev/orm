@@ -240,7 +240,7 @@ func (self *TDomainParser) ConsumeWhitespace() (item lexer.TToken) {
 		}
 		//fmt.Println("consume_whitespace", self.Item().Val)
 		switch self.Item().Type {
-		case lexer.TokenWhitespace, lexer.SAPCE:
+		case lexer.SAPCE: //lexer.TokenWhitespace,
 			continue
 		default:
 			item = self.Item()
