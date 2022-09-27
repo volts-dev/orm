@@ -125,7 +125,7 @@ func (self *TCacher) SetStatus(sw bool, table_name string) {
 func (self *TCacher) PutBySql(table string, sql string, arg interface{}, data *dataset.TDataSet) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
-		self.sql_caches.Set(key, data)
+		self.sql_caches.Set(&cacher.CacheBlock{Key: key, Value: data})
 	}
 }
 
@@ -151,7 +151,7 @@ func (self *TCacher) PutById(table string, id interface{}, record *dataset.TReco
 	if open, has := self.status[table]; !has || (has && open) {
 		//ck := self.RecCacher(table)
 		key := self.genIdKey(table, id, false)
-		self.id_caches.Set(key, record)
+		self.id_caches.Set(&cacher.CacheBlock{Key: key, Value: record})
 	}
 }
 
@@ -165,7 +165,7 @@ func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*data
 		for _, id := range ids {
 			key := self.genIdKey(table, id, false)
 
-			var rec *dataset.TDataSet
+			var rec *dataset.TRecordSet
 			if err := self.sql_caches.Get(key, &ids); err != nil {
 				ids_less = append(ids_less, id)
 			}
@@ -186,7 +186,7 @@ func (self *TCacher) RemoveById(table string, ids ...interface{}) {
 		for _, id := range ids {
 			key := self.genIdKey(table, id, true)
 
-			self.id_caches.Remove(key)
+			self.id_caches.Delete(key)
 		}
 	}
 }
@@ -198,7 +198,7 @@ func (self *TCacher) RemoveBySql(table string, sqls ...string) {
 		for _, sql := range sqls {
 			key := self.genIdKey(table, sql, true)
 
-			self.sql_caches.Remove(key)
+			self.sql_caches.Delete(key)
 		}
 	}
 }
@@ -208,8 +208,8 @@ func (self *TCacher) ClearByTable(table string) {
 	self.table_id_key_index_lock.Lock()
 	defer self.table_id_key_index_lock.Unlock()
 	if m, has := self.table_id_key_index[table]; has {
-		for key, _ := range m {
-			self.sql_caches.Remove(key)
+		for key := range m {
+			self.sql_caches.Delete(key)
 		}
 	}
 }
