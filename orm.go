@@ -22,7 +22,7 @@ import (
 	"github.com/volts-dev/volts/logger"
 )
 
-var log = logger.New("ORM")
+var log = logger.New("orm")
 
 const (
 	NAMEDATALEN = 63
@@ -86,7 +86,11 @@ func New(opt ...Option) (*TOrm, error) {
 	}
 
 	// Cacher
-	orm.Cacher = cacher.NewCacher()
+	orm.Cacher, err = cacher.New()
+	if err != nil {
+		log.Trace(err)
+		return nil, err
+	}
 
 	// OSV
 	orm.osv = newOsv(orm)
@@ -153,7 +157,7 @@ func (self *TOrm) DriverName() string {
 func (self *TOrm) Ping() error {
 	session := self.NewSession()
 	defer session.Close()
-	log.Infof("PING DATABASE %s@%s", self.config.DataSource.DbName, self.DriverName())
+	log.Infof("Ping database %s@%s", self.config.DataSource.DbName, self.DriverName())
 	return session.Ping()
 }
 
@@ -393,8 +397,9 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 				attrs = parseTag(key)
 
 				// 验证
-				log.Assert(len(attrs) != 0, "Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, field_name, field_tag, key, attrs)
-
+				if len(attrs) == 0 {
+					log.Fatalf("Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, field_name, field_tag, key, attrs)
+				}
 				field_type_name = strings.ToLower(attrs[0])
 				tag_str = strings.Replace(key, field_type_name, "", 1) // 去掉Tag Item
 				tag_str = strings.TrimLeft(tag_str, "(")
@@ -724,7 +729,13 @@ func (self *TOrm) CreateTables(name ...string) error {
 
 // create database
 func (self *TOrm) CreateDatabase(name string) error {
-	return self.dialect.CreateDatabase(name)
+	err := self.dialect.CreateDatabase(name)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Create Database %s success!", name)
+	return nil
 }
 
 // build the indexes for model
@@ -788,9 +799,9 @@ func (self *TOrm) DBMetas() (models []IModel, err error) {
 	return
 }
 
-//# 插入一个新的Table并创建
+// # 插入一个新的Table并创建
 // 同步更新Model 并返回同步后表 <字段>
-//region 区分相同Model名称来自哪个模块，等级
+// region 区分相同Model名称来自哪个模块，等级
 func (self *TOrm) SyncModel(region string, models ...interface{}) (modelNames []string, err error) {
 	session := self.NewSession()
 	defer session.Close()

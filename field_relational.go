@@ -185,7 +185,7 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 }
 
 // 创建关联表
-//model, columns
+// model, columns
 func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 	orm := ctx.Orm
 	fld := ctx.Field
@@ -248,7 +248,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 	*/
 }
 
-//Add the foreign keys corresponding to the field's relation table.
+// Add the foreign keys corresponding to the field's relation table.
 func (self *TMany2ManyField) update_db_foreign_keys(ctx *TFieldContext) {
 	/*        cr = model._cr
 	          comodel = model.env[self.comodel_name]
@@ -346,7 +346,7 @@ func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldEventContext) er
 }
 
 // TODO 错误将IDS删除基数
-//# remove all records for which user has access rights
+// # remove all records for which user has access rights
 func (self *TMany2ManyField) unlink_all(ids []interface{}, ctx *TFieldEventContext) error {
 	orm := ctx.Session.Orm()
 	dialect := ctx.Session.Orm().dialect
@@ -453,7 +453,7 @@ func (self *TMany2OneField) Init(ctx *TFieldContext) {
 	// field:"many2one() int()"
 	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
 	//fld.Base()._classic_write = true
-	log.Assert(len(params) > 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	log.Assert(len(params) == 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 	fld.Base().isRelatedField = true
 	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
 	fld.Base()._attr_relation = fld.Base().comodel_name
@@ -528,7 +528,7 @@ func (self *TOne2ManyField) Init(ctx *TFieldContext) { //comodel_name string, in
 	field := ctx.Field
 	params := ctx.Params
 
-	log.Assert(len(params) > 1, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
+	log.Assert(len(params) < 2, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
 	// self.Base()._column_type = ""
 	// Field.Base()._classic_read = false
 	// Field.Base()._classic_write = false

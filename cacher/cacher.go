@@ -5,8 +5,12 @@ import (
 	"sync"
 
 	"github.com/volts-dev/cacher"
+	_ "github.com/volts-dev/cacher/memory"
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/volts/logger"
 )
+
+var log = logger.New("orm")
 
 // TODO cache name
 type (
@@ -26,7 +30,7 @@ type (
 	}
 )
 
-func NewCacher() *TCacher {
+func New() (*TCacher, error) {
 	chr := &TCacher{
 		status:              make(map[string]bool),
 		table_id_key_index:  make(map[string]map[string]bool),
@@ -36,15 +40,15 @@ func NewCacher() *TCacher {
 
 	chr.id_caches, err = cacher.New("memory")
 	if err != nil {
-		fmt.Println(err)
+		return nil, err
 	}
 
 	chr.sql_caches, err = cacher.New("memory")
 	if err != nil {
-		fmt.Println(err)
+		return nil, err
 	}
 
-	return chr
+	return chr, nil
 }
 
 //@removed 是否用于移除
