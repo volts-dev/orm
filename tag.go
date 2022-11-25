@@ -7,11 +7,13 @@ import (
 	"github.com/volts-dev/utils"
 )
 
-/**
-  字段Tag
+/*
+*
 
+	字段Tag
 
-**/
+*
+*/
 type (
 	ITagController func(hd *TFieldContext)
 )
@@ -284,7 +286,7 @@ func tag_setter(ctx *TFieldContext) {
 }
 
 // 废弃 seetter 替代
-//name of a method that inverses the field (optional)
+// name of a method that inverses the field (optional)
 func tag_inverse(ctx *TFieldContext) {
 }
 
@@ -307,7 +309,6 @@ func tag_as(ctx *TFieldContext) {
 	}
 }
 
-//
 func tag_id(ctx *TFieldContext) {
 	// do nothing here
 	// already implement on field_id.go
@@ -341,7 +342,7 @@ func tag_default(ctx *TFieldContext) {
 	}
 }
 
-//TODO tag_extends 未完成
+// TODO tag_extends 未完成
 func tag_extends(ctx *TFieldContext) {
 	fld_val := ctx.FieldTypeValue
 	model := ctx.Model
@@ -444,7 +445,7 @@ func tag_relate(ctx *TFieldContext) {
 			new_field.SetBase(parent_field.Base())
 
 			if f := model.GetFieldByName(field_name); f != nil {
-				model.GetBase().obj.SetCommonFieldByName(field_name, parentModel.GetName(), new_field)
+				model.GetBase().obj.SetCommonFieldByName(field_name, parentModel.String(), new_field)
 				model.GetBase().obj.SetCommonFieldByName(field_name, f.Base().model_name, f)
 
 			} else {
@@ -553,7 +554,7 @@ func tag_unique(ctx *TFieldContext) {
 	field_name := fld.Name()
 	var index *TIndex
 	var ok bool
-	indexName := generate_index_name(UniqueType, model.GetName(), []string{field_name})
+	indexName := generate_index_name(UniqueType, model.Table(), []string{field_name})
 
 	if index, ok = model.Obj().indexes[indexName]; ok {
 		index.AddColumn(field_name)
@@ -568,7 +569,7 @@ func tag_index(ctx *TFieldContext) {
 	fld := ctx.Field
 	model := ctx.Model
 	field_name := fld.Name()
-	indexName := generate_index_name(IndexType, model.GetName(), []string{field_name})
+	indexName := generate_index_name(IndexType, model.Table(), []string{field_name})
 
 	if index, ok := model.Obj().indexes[indexName]; ok {
 		index.AddColumn(field_name)
@@ -670,7 +671,6 @@ func tag_table_name(ctx *TFieldContext) {
 
 		if name != "" { // 检测合法不为空
 			model.GetBase().name = fmtModelName(name)
-			//model.GetBase().table.Name = fmtModelName(name) //strings.Replace(name, ".", "_", -1)
 		}
 	}
 }

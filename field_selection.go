@@ -39,7 +39,7 @@ func (self *TBooleanField) Init(ctx *TFieldContext) {
 	//	fld.Base()._column_type = Bool
 }
 
-//###########################################################################
+// ###########################################################################
 // TODO 方法可以是任何大小写 参考https://github.com/alangpierce/go-forceexport
 // 所有的selection 函数必须是大写并返回[][]string,
 func (self *TSelectionField) Init(ctx *TFieldContext) {
@@ -50,7 +50,7 @@ func (self *TSelectionField) Init(ctx *TFieldContext) {
 	//fld.Base()._attr_type = "selection"
 	//fld.Base()._column_type = "selection"
 	//lField.initSelection(lTag[1:]...)
-	log.Assert(len(params) > 0, "Selection(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", fld.Name(), self.model_name, params)
 
 	fld.Base()._getter = "" //初始化
 	lStr := strings.Trim(params[0], "'")
@@ -104,7 +104,6 @@ func (self *TSelectionField) _setup_related_full(model IModel) {
 	///self.selection = self._description_selection(model.env)
 }
 
-//
 // Full field setup: everything else, except recomputation triggers
 //
 // 配置字段内容

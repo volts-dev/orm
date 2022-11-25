@@ -453,7 +453,7 @@ func (self *TMany2OneField) Init(ctx *TFieldContext) {
 	// field:"many2one() int()"
 	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
 	//fld.Base()._classic_write = true
-	log.Assert(len(params) == 0, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	log.Assert(len(params) < 1, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
 	fld.Base().isRelatedField = true
 	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
 	fld.Base()._attr_relation = fld.Base().comodel_name

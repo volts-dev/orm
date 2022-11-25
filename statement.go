@@ -32,6 +32,7 @@ type (
 		OmitClause     string
 		GroupBySClause string
 		OrderByClause  string
+		SortClauses    []string
 		AscFields      []string
 		DescFields     []string
 		LimitClause    int64
@@ -69,7 +70,7 @@ func (self *TStatement) Ids(ids ...interface{}) *TStatement {
 
 func (self *TStatement) Select(fields ...string) *TStatement {
 	for idx, name := range fields {
-		name = fmtModelName(name) //# 支持输入结构字段名称
+		name = fmtFieldName(name) //# 支持输入结构字段名称
 		if idx == 0 && (name == "*" || name == "'*'" || name == `"*"`) {
 			self.Fields = nil
 			return self
@@ -192,6 +193,11 @@ func (self *TStatement) OrderBy(clause string) *TStatement {
 	return self
 }
 
+func (self *TStatement) Sort(clauses ...string) *TStatement {
+	self.SortClauses = clauses
+	return self
+}
+
 // Desc generate `ORDER BY xx DESC`
 func (self *TStatement) Desc(fileds ...string) *TStatement {
 	self.DescFields = append(self.DescFields, fileds...)
@@ -272,7 +278,7 @@ func (self *TStatement) generate_unique() []string {
 	var sqls []string = make([]string, 0)
 	for _, index := range self.session.Statement.model.obj.indexes {
 		if index.Type == UniqueType {
-			sql := self.session.orm.dialect.CreateIndexSql(self.session.Statement.model.GetName(), index)
+			sql := self.session.orm.dialect.CreateIndexSql(self.session.Statement.model.table, index)
 			sqls = append(sqls, sql)
 		}
 	}
@@ -281,20 +287,20 @@ func (self *TStatement) generate_unique() []string {
 
 func (self *TStatement) generate_add_column(col IField) (string, []interface{}) {
 	quote := self.session.orm.dialect.Quote
-	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.session.Statement.model.GetName()), col.String(self.session.orm.dialect))
+	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.session.Statement.model.table), col.String(self.session.orm.dialect))
 	return sql, []interface{}{}
 }
 
 func (self *TStatement) generate_index() []string {
 	var sqls []string = make([]string, 0)
 	quote := self.session.orm.dialect.Quote
-	modelName := self.session.Statement.model.GetName()
+	tableName := fmtTableName(self.session.Statement.model.String())
 
 	for idxName, index := range self.session.Statement.model.obj.indexes {
 		if index.Type == IndexType {
 			//idxName := index.GetName(modelName)
 			sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);",
-				quote(idxName), quote(modelName), quote(strings.Join(index.Cols, quote(","))))
+				quote(idxName), quote(tableName), quote(strings.Join(index.Cols, quote(","))))
 			sqls = append(sqls, sql)
 			//log.Dbg(sql, index)
 		}
@@ -305,7 +311,7 @@ func (self *TStatement) generate_index() []string {
 
 func (self *TStatement) generate_insert(fields []string) (query string, isQuery bool) {
 	id_field := self.model.idField
-	sqlStr, isQuery := self.session.orm.dialect.GenInsertSql(self.model.GetName(), fields, id_field)
+	sqlStr, isQuery := self.session.orm.dialect.GenInsertSql(self.model.table, fields, id_field)
 	return sqlStr, isQuery
 }
 
@@ -524,13 +530,15 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 	return
 }
 
-/*Computes the WHERE clause needed to implement an OpenERP domain.
-  :param domain: the domain to compute
-  :type domain: list
-  :param active_test: whether the default filtering of records with ``active``
-                      field set to ``False`` should be applied.
-  :return: the query expressing the given domain as provided in domain
-  :rtype: osv.query.Query
+/*
+Computes the WHERE clause needed to implement an OpenERP domain.
+
+	:param domain: the domain to compute
+	:type domain: list
+	:param active_test: whether the default filtering of records with ``active``
+	                    field set to ``False`` should be applied.
+	:return: the query expressing the given domain as provided in domain
+	:rtype: osv.query.Query
 */
 func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, context map[string]interface{}) (*TQuery, error) {
 	if context == nil {
@@ -582,7 +590,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 		where_clause, where_params = exp.to_sql(self.Params...)
 
 	} else {
-		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.model.GetName())
+		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.model.table)
 
 	}
 
@@ -619,7 +627,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				field := self.session.Statement.model.obj.GetFieldByName(fieldName)
 				if field == nil {
 					//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-					log.Warnf("Sorting field %s not found on model %s", fieldName, self.model.GetName())
+					log.Warnf("Sorting field %s not found on model %s", fieldName, self.model.String())
 					continue
 				}
 
@@ -692,7 +700,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 			field := self.session.Statement.model.obj.GetFieldByName(order_field)
 			if field == nil {
 				//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-				log.Warnf("Sorting field %s not found on model %s", order_field, self.model.GetName())
+				log.Warnf("Sorting field %s not found on model %s", order_field, self.model.String())
 				continue
 			}
 
@@ -840,7 +848,7 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 	order_by_clause := ""
 
 	if self.OrderByClause != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0 {
-		order_by_elements := self.generate_order_by_inner(self.session.Statement.model.GetName(), self.OrderByClause, query, false, nil)
+		order_by_elements := self.generate_order_by_inner(self.session.Statement.model.table, self.OrderByClause, query, false, nil)
 		if len(order_by_elements) > 0 {
 			order_by_clause = strings.Join(order_by_elements, ",")
 		}
@@ -872,7 +880,7 @@ func (self *TStatement) generate_fields() []string {
 			if self.AliasTableName != "" {
 				name = self.session.orm.dialect.Quote(self.AliasTableName)
 			} else {
-				name = self.session.orm.dialect.Quote(self.model.GetName())
+				name = self.session.orm.dialect.Quote(self.model.table)
 			}
 			name += "." + self.session.orm.dialect.Quote(col.Name())
 			if col.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {

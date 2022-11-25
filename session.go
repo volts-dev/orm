@@ -300,16 +300,21 @@ func (self *TSession) SyncModel(region string, models ...interface{}) (modelName
 
 	modelNames = make([]string, 0)
 	for _, mod := range models {
+		// 无效！ 设置ORM为Model作为控制器使用
+		//if v, ok := mod.(IModel); ok {
+		//	v.setOrm(self.orm)
+		//}
+
 		model := self.orm.mapping(region, mod)
 		if model == nil {
 			continue
 		}
 
-		model_name := model.GetName()
+		model_name := model.String()
 
 		var exits_model IModel // 数据库存在的
 		for _, md := range exits_models {
-			if strings.ToLower(md.GetName()) == strings.ToLower(model_name) {
+			if strings.ToLower(md.String()) == strings.ToLower(model_name) {
 				exits_model = md
 				break
 			}
@@ -355,7 +360,7 @@ func (self *TSession) SyncModel(region string, models ...interface{}) (modelName
  */
 func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 	orm := self.orm
-	lTableName := newModel.GetName()
+	lTableName := newModel.table
 
 	{ // 字段修改
 		var cur_field IField
@@ -413,7 +418,7 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 				// 这里必须过滤掉 NOTE [SyncModel] 里提及的特殊字段
 				if field.Store() && !field.IsInheritedField() {
 					session := self.orm.NewSession()
-					session.Model(newModel.GetName())
+					session.Model(newModel.String())
 					//TODO # 修正上面指向错误Model
 					session.Statement.model = newModel
 					err = session.addColumn(field.Name())
@@ -473,7 +478,7 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 		for name, index := range addedNames {
 			if index.Type == UniqueType {
 				lSession := orm.NewSession()
-				lSession.Model(newModel.GetName())
+				lSession.Model(newModel.String())
 				//TODO # 修正上面指向错误Model
 				//			lSession.model = newModel
 				lSession.Statement.model = newModel
@@ -482,7 +487,7 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 
 			} else if index.Type == IndexType {
 				lSession := orm.NewSession()
-				lSession.Model(newModel.GetName())
+				lSession.Model(newModel.String())
 				//TODO # 修正上面指向错误Model
 				//			lSession.model = newModel
 				lSession.Statement.model = newModel
@@ -549,13 +554,12 @@ func (self *TSession) Models() *TSession {
 	return self
 }
 
-//
 func (self *TSession) Model(model string, region ...string) *TSession {
 	var mod IModel
 	var err error
 
 	// #如果Session已经预先指定Model
-	if self.Statement.model != nil && self.Statement.model.GetName() == model {
+	if self.Statement.model != nil && self.Statement.model.String() == model {
 		mod = self.Statement.model
 	} else {
 		mod, err = self.orm.GetModel(model, region...)
@@ -567,7 +571,6 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 
 	self.IsClassic = true
 	self.Statement.model = mod.GetBase()
-	//	self.Statement.TableNameClause = mod.GetName()
 
 	// # 主键
 	self.Statement.IdKey = self.Statement.model.idField
@@ -647,7 +650,7 @@ func (self *TSession) Where(clause string, args ...interface{}) *TSession {
 func (self *TSession) New() *TSession {
 	session := self.orm.NewSession()
 	session.IsClassic = true
-	return session.Model(self.Statement.model.GetName())
+	return session.Model(self.Statement.model.String())
 }
 
 // And provides custom query condition.
@@ -678,7 +681,9 @@ func (self *TSession) Set(fieldName string, value interface{}) *TSession {
 	return self
 }
 
-/* support domain string and list objec
+/*
+	support domain string and list objec
+
 [('foo', '=', 'bar')]
 foo = 'bar'
 
@@ -701,7 +706,8 @@ id in (1, 2, 3)
 ( ( a = 1 OR b = 2 ) AND ( c = 3 OR d = 4 ) )
 
 [('|', (('a', '=', 1), ('b', '=', 2)), (('c', '=', 3), ('d', '=', 4)))]
-( ( a = 1 AND b = 2 ) OR ( c = 3 AND d = 4 ) )               */
+( ( a = 1 AND b = 2 ) OR ( c = 3 AND d = 4 ) )
+*/
 func (self *TSession) Domain(domain interface{}, args ...interface{}) *TSession {
 	self.Statement.Domain(domain, args...)
 	return self
@@ -715,6 +721,12 @@ func (self *TSession) GroupBy(keys string) *TSession {
 
 func (self *TSession) OrderBy(order string) *TSession {
 	self.Statement.OrderBy(order)
+	return self
+}
+
+// the value could be like "list_price ASC, name ASC, default_code ASC"
+func (self *TSession) Sort(clauses ...string) *TSession {
+	self.Statement.Sort(clauses...)
 	return self
 }
 
@@ -736,7 +748,7 @@ func (self *TSession) Limit(limit int64, offset ...int64) *TSession {
 }
 
 func (self *TSession) create(src interface{}) (res_id interface{}, res_err error) {
-	if len(self.Statement.model.GetName()) < 1 {
+	if len(self.Statement.model.String()) < 1 {
 		return nil, ErrTableNotFound
 	}
 
@@ -859,7 +871,7 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 
 	if res_id != nil {
 		//更新缓存
-		table_name := self.Statement.model.GetName()
+		table_name := self.Statement.model.table
 		lRec := dataset.NewRecordSet(nil, lNewVals)
 		self.orm.Cacher.PutById(table_name, utils.IntToStr(res_id), lRec) //for create
 
@@ -896,10 +908,12 @@ func (self *TSession) validateValues(values interface{}) (map[string]interface{}
 // TODO FN
 // 分配值并补全ID,Update,Create字段值
 // separate data for difference type of update
-//, includeVersion bool, includeUpdated bool, includeNil bool,
+// , includeVersion bool, includeUpdated bool, includeNil bool,
+//
 //	includeAutoIncr bool, allUseBool bool, useAllCols bool,
 //	mustColumnMap map[string]bool, nullableMap map[string]bool,
 //	columnMap map[string]bool, update, unscoped bool
+//
 // includePkey is the values inclduing key
 func (self *TSession) separateValues(vals map[string]interface{}, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, mustPkey bool) (map[string]interface{}, map[string]map[string]interface{}, []string, error) {
 	//!!! create record not need to including pk
@@ -992,7 +1006,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			if comm_tables != nil {
 				// 为各表预存值
 				for tbl := range comm_tables {
-					if tbl == self.Statement.model.GetName() {
+					if tbl == self.Statement.model.table {
 						new_vals[name] = val // 为当前表添加共同字段值
 
 					} else if rel_vals[tbl] != nil {
@@ -1049,7 +1063,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 // TODO 只更新变更字段值
 // #fix:由于更新可能只对少数字段更新,更新不适合使用缓存
 func (self *TSession) write(src interface{}, context map[string]interface{}) (res_effect int64, res_err error) {
-	if len(self.Statement.model.GetName()) < 1 {
+	if len(self.Statement.model.String()) < 1 {
 		return -1, ErrTableNotFound
 	}
 
@@ -1084,7 +1098,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 
 	// 组合查询语句
 	if len(ids) > 0 {
-		from_clause = self.Statement.model.GetName()
+		from_clause = self.Statement.model.table
 		where_clause = fmt.Sprintf(`%s IN (%s)`,
 			self.Statement.IdKey,
 			strings.Repeat("?,", len(ids)-1)+"?")
@@ -1209,7 +1223,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 
 		// add in ids data
 		in_vals := strings.Repeat("?,", len(ids)-1) + "?"
-		lSql := fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, lFldName, self.Statement.model.GetName(), self.Statement.IdKey, in_vals)
+		lSql := fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, lFldName, self.Statement.model.table, self.Statement.IdKey, in_vals)
 		lDs, err := self.orm.Query(lSql, ids...)
 		if err != nil {
 			log.Err(err)
@@ -1309,7 +1323,7 @@ func (self *TSession) Read(classic_read ...bool) (*dataset.TDataSet, error) {
 }
 
 func (self *TSession) read() (*dataset.TDataSet, error) {
-	if len(self.Statement.model.GetName()) < 1 {
+	if len(self.Statement.model.String()) < 1 {
 		return nil, ErrTableNotFound
 	}
 
@@ -1344,7 +1358,7 @@ func (self *TSession) read() (*dataset.TDataSet, error) {
 					inherited = append(inherited, name)
 				}
 			} else {
-				log.Warnf(`%s.read() with unknown field '%s'`, self.Statement.model.GetName(), name)
+				log.Warnf(`%s.read() with unknown field '%s'`, self.Statement.model.String(), name)
 			}
 		}
 	} else {
@@ -1492,7 +1506,7 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	}
 
 	// TODO 为什么用len
-	if len(self.Statement.model.GetName()) < 1 {
+	if len(self.Statement.model.String()) < 1 {
 		return 0, ErrTableNotFound
 	}
 	//self._check_model()
@@ -1512,7 +1526,7 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	id_field := self.Statement.model.idField
 
 	//#1 删除目标Model记录
-	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.model.GetName(), id_field, idsToSqlHolder(ids...))
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.model.table, id_field, idsToSqlHolder(ids...))
 	res, err := self.exec(sql, ids...)
 	if err != nil {
 		return 0, err
@@ -1523,7 +1537,7 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 		return 0, ErrDeleteFailed
 	}
 
-	table_name := self.Statement.model.GetName()
+	table_name := self.Statement.model.table
 	//lCacher := self.orm.Cacher.RecCacher(self.Statement.model.GetName()) // for del
 	//if lCacher != nil {
 	for _, id := range ids {
@@ -1534,7 +1548,7 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
 	//lCacher = self.orm.Cacher.SqlCacher(self.Statement.model.GetName()) // for del
 	//lCacher.Clear()
-	self.orm.Cacher.ClearByTable(self.Statement.model.GetName())
+	self.orm.Cacher.ClearByTable(self.Statement.model.table)
 
 	return res.RowsAffected()
 }
@@ -1547,11 +1561,6 @@ func (self *TSession) CreateTable(model string) error {
 		defer self.Close()
 	}
 
-	var lSql string
-	//tableName := strings.Replace(model, ".", "_", -1)
-	//tableName = utils.SnakeCasedName(tableName)
-	//fmt.Println("CreateTable", tableName, self.orm.GetTable(tableName))
-	//self.Statement.Table = self.orm.GetTable(tableName)
 	mod, err := self.orm.GetModel(model)
 	if err != nil {
 		return err
@@ -1576,8 +1585,8 @@ func (self *TSession) CreateTable(model string) error {
 
 
 	}	*/
-	lSql = self.Statement.generate_create_table()
-	res, err := self.exec(lSql)
+
+	res, err := self.exec(self.Statement.generate_create_table())
 	if err != nil {
 		return err
 	}
@@ -1596,18 +1605,13 @@ func (self *TSession) CreateUniques(model string) error {
 		defer self.Close()
 	}
 
-	//tableName := strings.Replace(model, ".", "_", -1)
-	//tableName = utils.SnakeCasedName(tableName)
-	//self.Statement.Table = self.orm.GetTable(tableName)
 	mod, err := self.orm.GetModel(model)
 	if err != nil {
 		return err
 	}
 
-	self.Statement.model = mod.GetBase() //self.orm.GetTable(tableName)
-
-	lSqls := self.Statement.generate_unique()
-	for _, sql := range lSqls {
+	self.Statement.model = mod.GetBase()
+	for _, sql := range self.Statement.generate_unique() {
 		_, err := self.exec(sql)
 		if err != nil {
 			return err
@@ -1624,8 +1628,6 @@ func (self *TSession) CreateIndexes(model string) error {
 		defer self.Close()
 	}
 
-	//tableName := strings.Replace(model, ".", "_", -1)
-	//tableName = utils.SnakeCasedName(tableName)
 	mod, err := self.orm.GetModel(model)
 	if err != nil {
 		return err
@@ -1719,11 +1721,12 @@ func (self *TSession) addUnique(tableName, uqeName string) error {
 
 // 作废 更新单一字段
 func (self *TSession) _update_field(id interface{}, field *TField, value string, rel_context map[string]interface{}) {
-	self.exec(fmt.Sprintf("UPDATE "+self.Statement.model.GetName()+" SET "+field.Name()+"="+field.SymbolChar()+" WHERE id=%v", field.SymbolFunc()(value), id))
+	self.exec(fmt.Sprintf("UPDATE "+self.Statement.model.table+" SET "+field.Name()+"="+field.SymbolChar()+" WHERE id=%v", field.SymbolFunc()(value), id))
 }
 
 // Check whether value is among the valid values for the given
-//    selection/reference field, and raise an exception if not.
+//
+//	selection/reference field, and raise an exception if not.
 func (self *TSession) _check_selection_field_value(field IField, value interface{}) {
 	//   field = self._fields[field]
 	// field.convert_to_cache(value, self)
@@ -1793,7 +1796,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 		where_clause = fmt.Sprintf(` WHERE %s`, where_clause)
 	}
 
-	table_name := self.Statement.model.GetName()
+	table_name := self.Statement.model.table
 	if self.Statement.IsCount {
 		// Ignore order, limit and offset when just counting, they don't make sense and could
 		// hurt performance
@@ -1826,7 +1829,7 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 	//	lAutoIncrKey = col.Name
 	//}
 
-	query_str = fmt.Sprintf(`SELECT %s.%s FROM `, self.orm.dialect.Quote(self.Statement.model.GetName()), self.orm.dialect.Quote(self.Statement.IdKey)) + from_clause + where_clause + order_by + limit_str + offset_str
+	query_str = fmt.Sprintf(`SELECT %s.%s FROM `, self.orm.dialect.Quote(self.Statement.model.table), self.orm.dialect.Quote(self.Statement.IdKey)) + from_clause + where_clause + order_by + limit_str + offset_str
 	//	web.Debug("_search", query_str, where_clause_params)
 
 	// #调用缓存
@@ -1845,9 +1848,9 @@ func (self *TSession) search(access_rights_uid string, context map[string]interf
 	return res_ids, nil
 }
 
-//# ids_less 缺少的ID
+// # ids_less 缺少的ID
 func (self *TSession) readFromCache(ids []interface{}) (res []*dataset.TRecordSet, ids_less []interface{}) {
-	res, ids_less = self.orm.Cacher.GetByIds(self.Statement.model.GetName(), ids...)
+	res, ids_less = self.orm.Cacher.GetByIds(self.Statement.model.table, ids...)
 	return
 }
 
@@ -1949,7 +1952,7 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 	)
 
 	// 从缓存里获得数据
-	res_ds = self.orm.Cacher.GetBySql(self.Statement.model.GetName(), res_sql, where_clause_params)
+	res_ds = self.orm.Cacher.GetBySql(self.Statement.model.table, res_sql, where_clause_params)
 	if res_ds != nil {
 		res_ds.First()
 		return res_ds, res_sql, nil
@@ -1962,7 +1965,7 @@ func (self *TSession) readFromDatabase(field_names, inherited_field_names []stri
 	}
 
 	//# 添加进入缓存
-	self.orm.Cacher.PutBySql(self.Statement.model.GetName(), res_sql, where_clause_params, res_ds)
+	self.orm.Cacher.PutBySql(self.Statement.model.table, res_sql, where_clause_params, res_ds)
 
 	//# 必须是合法位置上
 	res_ds.First()

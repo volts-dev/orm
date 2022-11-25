@@ -33,6 +33,7 @@ type (
 		Super() IModel
 
 		// private
+		setOrm(o *TOrm)
 		setBaseModel(model *TModel) //赋值初始化BaseModel
 		relations_reload()
 
@@ -40,7 +41,9 @@ type (
 		//check_access_rights(operation string) bool
 		GetIndexes() map[string]*TIndex
 		// public
-		GetName() string
+		String() string // model name in orm like "base.user"
+		Table() string  // table name in database like "base_user"
+		//___GetName() string
 		GetBase() *TModel // get the base model object
 		GetColumnsSeq() []string
 		GetPrimaryKeys() []string
@@ -117,8 +120,8 @@ type (
 		obj        *TObj
 		super      IModel // 继承的Model名称
 
-		name string // # xx.xx 映射在OSV的名称
-
+		name  string // # xx.xx 映射在OSV的名称
+		table string // mapping table name
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
 		//_fields       map[string]IField // # model的所有字段
 		_parent_name  string // #! 父表中的字段名称
@@ -132,7 +135,6 @@ type (
 		_transient    bool   // # 暂时的
 		_description  string // # 描述
 		is_base       bool   // #该Model是否是基Model,并非扩展Model
-		// TODO　a object
 
 		// # common fields for all table
 		//Id         int64     `field:"pk autoincr"`
@@ -148,9 +150,10 @@ type (
 // @ Registry
 func NewModel(name string, modelValue reflect.Value, modelType reflect.Type) (model *TModel) {
 	model = &TModel{
+		name:       name,
+		table:      fmtTableName(name),
 		modelType:  modelType,
 		modelValue: modelValue,
-		name:       name,
 		_order:     "id",
 		_auto:      true,
 	}
@@ -176,24 +179,28 @@ func (self *TModel) Super() IModel {
 	return self.super
 }
 
-//#被重载接口 创建记录 提供给继承
+// #被重载接口 创建记录 提供给继承
 func (self *TModel) Create(values interface{}) (id interface{}, err error) {
 	return self.Records().Create(values)
 }
 
-//#被重载接口
+// #被重载接口
 func (self *TModel) Read(ids []interface{}, fields []string) (*dataset.TDataSet, error) {
 	return self.Records().Ids(ids...).Select(fields...).Read()
 }
 
-//#被重载接口
+// #被重载接口
 func (self *TModel) Update(ids []interface{}, values interface{}) (int64, error) {
 	return self.Records().Ids(ids...).Write(values)
 }
 
-//#被重载接口
+// #被重载接口
 func (self *TModel) Delete(ids ...interface{}) (int64, error) {
 	return self.Records().Delete(ids...)
+}
+
+func (self *TModel) setOrm(o *TOrm) {
+	self.orm = o
 }
 
 func (self *TModel) setBaseModel(model *TModel) {
@@ -261,7 +268,7 @@ func (self *TModel) Module() string {
 
 // return the method object of model by name
 func (self *TModel) MethodByName(methodName string) *TMethod {
-	return self.osv.GetMethod(self.GetName(), methodName)
+	return self.osv.GetMethod(self.String(), methodName)
 }
 
 //-------------- 路由方法 --------------------
@@ -292,63 +299,64 @@ func _generate_order_by(order_spec, query *TQuery) {
 /*
 // :param access_rights_uid: optional user ID to use when checking access rights
 // (not for ir.rules, this is only for ir.model.access)
-func (self *TModel) _search(args *utils.TStringList, fields []string, offset int64, limit int64, order string, count bool, access_rights_uid string, context map[string]interface{}) (result []string) {
-	var (
-		//		fields_str string
-		where_str  string
-		limit_str  string
-		offset_str string
-		query_str  string
-		order_by   string
-		err        error
-	)
 
-	if context == nil {
-		context = make(map[string]interface{})
+	func (self *TModel) _search(args *utils.TStringList, fields []string, offset int64, limit int64, order string, count bool, access_rights_uid string, context map[string]interface{}) (result []string) {
+		var (
+			//		fields_str string
+			where_str  string
+			limit_str  string
+			offset_str string
+			query_str  string
+			order_by   string
+			err        error
+		)
+
+		if context == nil {
+			context = make(map[string]interface{})
+		}
+
+		//	self.check_access_rights("read")
+
+		// 如果有返回字段
+		//if fields != nil {
+		//	fields_str = strings.Join(fields, ",")
+		//} else {
+		//	fields_str = `*`
+		//}
+
+		query := self.where_calc(args, false, context)
+		order_by = self._generate_order_by(order, query, context) // TODO 未完成
+		from_clause, where_clause, where_clause_params := query.get_sql()
+		if where_clause == "" {
+			where_str = ""
+		} else {
+			where_str = fmt.Sprintf(` WHERE %s`, where_clause)
+		}
+
+		if count {
+			// Ignore order, limit and offset when just counting, they don't make sense and could
+			// hurt performance
+			query_str = `SELECT count(1) FROM ` + from_clause + where_str
+			lRes, err := self.orm.SqlQuery(query_str, where_clause_params...)
+			log.Err(err)
+			return []string{lRes.FieldByName("count").AsString()}
+		}
+
+		if limit > 0 {
+			limit_str = fmt.Sprintf(` limit %d`, limit)
+		}
+		if offset > 0 {
+			offset_str = fmt.Sprintf(` offset %d`, offset)
+		}
+
+		query_str = fmt.Sprintf(`SELECT "%s".id FROM `, self._table) + from_clause + where_str + order_by + limit_str + offset_str
+		web.Debug("_search", query_str, where_clause_params)
+		res, err := self.orm.SqlQuery(query_str, where_clause_params...)
+		if log.Err(err) {
+			return nil
+		}
+		return res.Keys()
 	}
-
-	//	self.check_access_rights("read")
-
-	// 如果有返回字段
-	//if fields != nil {
-	//	fields_str = strings.Join(fields, ",")
-	//} else {
-	//	fields_str = `*`
-	//}
-
-	query := self.where_calc(args, false, context)
-	order_by = self._generate_order_by(order, query, context) // TODO 未完成
-	from_clause, where_clause, where_clause_params := query.get_sql()
-	if where_clause == "" {
-		where_str = ""
-	} else {
-		where_str = fmt.Sprintf(` WHERE %s`, where_clause)
-	}
-
-	if count {
-		// Ignore order, limit and offset when just counting, they don't make sense and could
-		// hurt performance
-		query_str = `SELECT count(1) FROM ` + from_clause + where_str
-		lRes, err := self.orm.SqlQuery(query_str, where_clause_params...)
-		log.Err(err)
-		return []string{lRes.FieldByName("count").AsString()}
-	}
-
-	if limit > 0 {
-		limit_str = fmt.Sprintf(` limit %d`, limit)
-	}
-	if offset > 0 {
-		offset_str = fmt.Sprintf(` offset %d`, offset)
-	}
-
-	query_str = fmt.Sprintf(`SELECT "%s".id FROM `, self._table) + from_clause + where_str + order_by + limit_str + offset_str
-	web.Debug("_search", query_str, where_clause_params)
-	res, err := self.orm.SqlQuery(query_str, where_clause_params...)
-	if log.Err(err) {
-		return nil
-	}
-	return res.Keys()
-}
 */
 func (self *TModel) __search_name(name string, args *utils.TStringList, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (ds *dataset.TDataSet) {
 	/*	// private implementation of name_search, allows passing a dedicated user
@@ -433,7 +441,7 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 		for _, id := range ids {
 			ds.NewRecord(map[string]interface{}{
 				id_field: id,
-				name:     self.GetName(),
+				name:     self.String(),
 			})
 		}
 
@@ -507,48 +515,56 @@ func (self *TModel) GetName() string {
 	return self.name
 }
 
+// mapping table name which in database
+func (self *TModel) Table() string {
+	return self.table
+}
+
+func (self *TModel) String() string {
+	return self.name
+}
+
 /*
-   Import given data in given module
+Import given data in given module
 
-    This method is used when importing data via client menu.
+	This method is used when importing data via client menu.
 
-    Example of fields to import for a sale.order::
+	Example of fields to import for a sale.order::
 
-        .id,                         (=database_id)
-        partner_id,                  (=name_search)
-        order_line/.id,              (=database_id)
-        order_line/name,
-        order_line/product_id/id,    (=xml id)
-        order_line/price_unit,
-        order_line/product_uom_qty,
-        order_line/product_uom/id    (=xml_id)
+	    .id,                         (=database_id)
+	    partner_id,                  (=name_search)
+	    order_line/.id,              (=database_id)
+	    order_line/name,
+	    order_line/product_id/id,    (=xml id)
+	    order_line/price_unit,
+	    order_line/product_uom_qty,
+	    order_line/product_uom/id    (=xml_id)
 
-    This method returns a 4-tuple with the following structure::
+	This method returns a 4-tuple with the following structure::
 
-        (return_code, errored_resource, error_message, unused)
+	    (return_code, errored_resource, error_message, unused)
 
-    * The first item is a return code, it is ``-1`` in case of
-      import error, or the last imported row number in case of success
-    * The second item contains the record data dict that failed to import
-      in case of error, otherwise it's 0
-    * The third item contains an error message string in case of error,
-      otherwise it's 0
-    * The last item is currently unused, with no specific semantics
+	* The first item is a return code, it is ``-1`` in case of
+	  import error, or the last imported row number in case of success
+	* The second item contains the record data dict that failed to import
+	  in case of error, otherwise it's 0
+	* The third item contains an error message string in case of error,
+	  otherwise it's 0
+	* The last item is currently unused, with no specific semantics
 
-    :param fields: list of fields to import
-    :param datas: data to import
-    :param mode: 'init' or 'update' for record creation
-    :param current_module: module name
-    :param noupdate: flag for record creation
-    :param filename: optional file to store partial import state for recovery
-    :returns: 4-tuple in the form (return_code, errored_resource, error_message, unused)
-    :rtype: (int, dict or 0, str or 0, str or 0)
+	:param fields: list of fields to import
+	:param datas: data to import
+	:param mode: 'init' or 'update' for record creation
+	:param current_module: module name
+	:param noupdate: flag for record creation
+	:param filename: optional file to store partial import state for recovery
+	:returns: 4-tuple in the form (return_code, errored_resource, error_message, unused)
+	:rtype: (int, dict or 0, str or 0, str or 0)
 */
 func (self *TModel) import_data() {
 
 }
 
-//
 // @Return map: row index in csv file fail and error message
 func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, error) {
 	onceInsert := 50000
@@ -688,7 +704,7 @@ func (self *TModel) Records() *TSession {
 	lSession := self.orm.NewSession()
 	lSession.IsClassic = true
 
-	return lSession.Model(self.GetName())
+	return lSession.Model(self.String())
 }
 
 // Provide api to query records from cache or database
@@ -698,8 +714,8 @@ func (self *TModel) Db() *TSession {
 	return lSession
 }
 
-//""" Recompute the _inherit_fields mapping. """
-//TODO 移动到ORM里实现
+// """ Recompute the _inherit_fields mapping. """
+// TODO 移动到ORM里实现
 // 重载关联表字段到_relate_fields里 _relate_fields的赋值在此实现
 // 条件必须所有Model都注册到OSV里
 func (self *TModel) relations_reload() {
@@ -723,7 +739,7 @@ func (self *TModel) relations_reload() {
 		//log.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
 		rel_model, err := self.osv.GetModel(tbl) // #i //TableByName(tbl)
 		if err != nil {
-			log.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.GetName())
+			log.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.String())
 		}
 
 		rel_model.relations_reload()
@@ -754,7 +770,8 @@ func (self *TModel) relations_reload() {
 
 }
 
-//     """ Determine inherited fields. """
+//	""" Determine inherited fields. """
+//
 // 添加关联字段到Model
 func (self *TModel) _add_inherited_fields() {
 
@@ -845,7 +862,7 @@ func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.T
 	//log.Dbg("fff", ids, relModelName)
 	ds, err = rel_model.Records().In(relkey_field_name, ids...).Read()
 	if err != nil {
-		log.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.GetName())
+		log.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.String())
 		return nil, err
 	}
 
@@ -951,20 +968,19 @@ func (self *TModel) Many2many(ids []interface{}, fieldName string) (map[interfac
 }
 
 /*
-	Call _field_create and, unless _auto is False:
+Call _field_create and, unless _auto is False:
 
-	- create the corresponding table in database for the model,
-	- possibly add the parent columns in database,
-	- possibly add the columns 'create_uid', 'create_date', 'write_uid',
-	  'write_date' in database if _log_access is True (the default),
-	- report on database columns no more existing in _columns,
-	- remove no more existing not null constraints,
-	- alter existing database columns to match _columns,
-	- create database tables to match _columns,
-	- add database indices to match _columns,
-	- save in self._foreign_keys a list a foreign keys to create (see
-	  _auto_end).
-
+  - create the corresponding table in database for the model,
+  - possibly add the parent columns in database,
+  - possibly add the columns 'create_uid', 'create_date', 'write_uid',
+    'write_date' in database if _log_access is True (the default),
+  - report on database columns no more existing in _columns,
+  - remove no more existing not null constraints,
+  - alter existing database columns to match _columns,
+  - create database tables to match _columns,
+  - add database indices to match _columns,
+  - save in self._foreign_keys a list a foreign keys to create (see
+    _auto_end).
 */
 func (self *TModel) __select_column_data() *dataset.TDataSet {
 	//# attlen is the number of bytes necessary to represent the type when
@@ -981,14 +997,14 @@ func (self *TModel) __select_column_data() *dataset.TDataSet {
            FROM pg_class c,pg_attribute a,pg_type t
            WHERE c.relname=%s 
            AND c.oid=a.attrelid
-           AND a.atttypid=t.oid`, self.GetName())
+           AND a.atttypid=t.oid`, self.table)
 	log.Err(err)
 
 	return lDs
 
 }
 
-//转换
+// 转换
 func (self *TModel) _validate(vals map[string]interface{}) {
 	for key, val := range vals {
 		if f := self.GetFieldByName(key); f != nil && !f.IsRelatedField() {

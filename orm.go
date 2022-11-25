@@ -142,7 +142,7 @@ func (self *TOrm) reverse() error {
 		*/
 
 		self.osv.RegisterModel("", model.GetBase())
-		log.Infof("%s found in database!", model.GetName())
+		log.Infof("%s found in database!", model.String())
 	}
 
 	return nil
@@ -440,8 +440,8 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 			self.handleTags(field_context, tagMap, "table")
 
 			// 更新model新名称 并传递给其他Field
-			if res_model.GetName() != model_alt_name {
-				model_alt_name = res_model.GetName()
+			if res_model.String() != model_alt_name {
+				model_alt_name = res_model.String()
 			}
 		} else {
 			//if column = model_object.GetFieldByName(lColName); column == nil {
@@ -584,7 +584,7 @@ func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, 
 					break
 				}
 
-				log.Warnf("Unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.GetName(), field.Name())
+				log.Warnf("Unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.String(), field.Name())
 			}
 		}
 	}
@@ -708,7 +708,7 @@ func (self *TOrm) DropTables(names ...string) error {
 
 // TODO 根据表依赖关系顺序创建表
 // CreateTables create tabls according bean
-func (self *TOrm) CreateTables(name ...string) error {
+func (self *TOrm) CreateTables(names ...string) error {
 	session := self.NewSession()
 	err := session.Begin()
 	defer session.Close()
@@ -716,7 +716,7 @@ func (self *TOrm) CreateTables(name ...string) error {
 		return err
 	}
 
-	for _, model := range name {
+	for _, model := range names {
 		err = session.CreateTable(model)
 		if err != nil {
 			session.Rollback()
@@ -761,7 +761,7 @@ func (self *TOrm) DBMetas() (models []IModel, err error) {
 	}
 
 	for _, model := range models {
-		model_name := model.GetName()
+		model_name := model.String()
 		model_object := self.osv.newObject(model_name)
 		model.GetBase().obj = model_object
 		//self.osv.RegisterModel("", model.GetBase())

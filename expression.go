@@ -104,31 +104,32 @@ func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context ma
 	return exp, nil
 }
 
-/* Initialize the ExtendedLeaf
+/*
+Initialize the ExtendedLeaf
 
-   :attr [string, tuple] leaf: operator or tuple-formatted domain
-       expression
-   :attr obj model: current working model
-   :attr list models: list of chained models, updated when
-       adding joins
-   :attr list join_context: list of join contexts. This is a list of
-       tuples like ``(lhs, table, lhs_col, col, link)``
+	:attr [string, tuple] leaf: operator or tuple-formatted domain
+	    expression
+	:attr obj model: current working model
+	:attr list models: list of chained models, updated when
+	    adding joins
+	:attr list join_context: list of join contexts. This is a list of
+	    tuples like ``(lhs, table, lhs_col, col, link)``
 
-       where
+	    where
 
-       lhs
-           source (left hand) model
-       model
-           destination (right hand) model
-       lhs_col
-           source model column for join condition
-       col
-           destination model column for join condition
-       link
-           link column between source and destination model
-           that is not necessarily (but generally) a real column used
-           in the condition (i.e. in many2one); this link is used to
-           compute aliases
+	    lhs
+	        source (left hand) model
+	    model
+	        destination (right hand) model
+	    lhs_col
+	        source model column for join condition
+	    col
+	        destination model column for join condition
+	    link
+	        link column between source and destination model
+	        that is not necessarily (but generally) a real column used
+	        in the condition (i.e. in many2one); this link is used to
+	        compute aliases
 */
 func NewExtendedLeaf(leaf *domain.TDomainNode, model *TModel, context []TJoinContext, internal bool) *TExtendedLeaf {
 	ex_leaf := &TExtendedLeaf{
@@ -145,14 +146,17 @@ func NewExtendedLeaf(leaf *domain.TDomainNode, model *TModel, context []TJoinCon
 	return ex_leaf
 }
 
-/*" Leaf validity rules:
-    - a valid leaf is an operator or a leaf
-    - a valid leaf has a field objects unless
-        - it is not a tuple
-        - it is an inherited field
-        - left is id, operator is 'child_of'
-        - left is in MAGIC_COLUMNS
-"*/
+/*
+" Leaf validity rules:
+  - a valid leaf is an operator or a leaf
+  - a valid leaf has a field objects unless
+  - it is not a tuple
+  - it is an inherited field
+  - left is id, operator is 'child_of'
+  - left is in MAGIC_COLUMNS
+
+"
+*/
 func (self *TExtendedLeaf) check_leaf(internal bool) {
 	//if !isOperator(self.leaf) && !isLeaf(self.leaf, internal) {
 	if !self.leaf.IsDomainOperator() && !self.leaf.IsLeafNode() {
@@ -166,10 +170,10 @@ func (self *TExtendedLeaf) generate_alias() (string, string) {
 	//links = [(context[1]._table, context[4]) for context in self.join_context]
 	var links [][]string
 	for _, context := range self.join_context {
-		links = append(links, []string{context.DestModel.GetName(), context.Link})
+		links = append(links, []string{context.DestModel.table, context.Link})
 	}
 
-	return generate_table_alias(self.models[0].GetName(), links)
+	return generate_table_alias(self.models[0].table, links)
 }
 
 func (self *TExtendedLeaf) is_true_leaf() bool {
@@ -188,14 +192,13 @@ func (self *TExtendedLeaf) is_false_leaf() bool {
 	return false
 }
 
-//
 func idsToSqlHolder(ids ...interface{}) string {
 	return strings.Repeat("?,", len(ids)-1) + "?"
 }
 
 // 格式化 操作符 统一使用 字母in,not in 或者字符 "=", "!="
 // 确保 操作符为小写
-//""" Change a term's operator to some canonical form, simplifying later processing. """
+// """ Change a term's operator to some canonical form, simplifying later processing. """
 func (self *TExtendedLeaf) normalize_leaf() bool {
 	if !self.leaf.IsLeafNode() {
 		return true
@@ -229,7 +232,9 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 }
 
 // See above comments for more details. A join context is a tuple like:
-//        ``(lhs, model, lhs_col, col, link)``
+//
+//	``(lhs, model, lhs_col, col, link)``
+//
 // After adding the join, the model of the current leaf is updated.
 func (self *TExtendedLeaf) add_join_context(model *TModel, lhs_col, table_col, link string) {
 	self.join_context = append(
@@ -249,8 +254,8 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 	links := make([][]string, 0)
 
 	for _, context := range self.join_context {
-		links = append(links, []string{context.DestModel.GetName(), context.Link})
-		_, alias_statement := generate_table_alias(self.models[0].GetName(), links)
+		links = append(links, []string{context.DestModel.table, context.Link})
+		_, alias_statement := generate_table_alias(self.models[0].table, links)
 
 		tables.PushString(alias_statement)
 	}
@@ -260,7 +265,7 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 
 func (self *TExtendedLeaf) get_join_conditions() (conditions []string) {
 	conditions = make([]string, 0) //utils.NewStringList()
-	alias := self.models[0].GetName()
+	alias := self.models[0].table
 	for _, context := range self.join_context {
 		previous_alias := alias
 		alias += "__" + context.Link
@@ -325,31 +330,33 @@ def get_alias_from_query(from_query):
 
 */
 
-//    """AND([D1,D2,...]) returns a domain representing D1 and D2 and ... """
+// """AND([D1,D2,...]) returns a domain representing D1 and D2 and ... """
 func ___AND(domains ...string) *utils.TStringList {
 	return combine(domain.AND_OPERATOR, domain.TRUE_DOMAIN, domain.FALSE_DOMAIN, domains)
 }
 
-//    """OR([D1,D2,...]) returns a domain representing D1 or D2 or ... """
+// """OR([D1,D2,...]) returns a domain representing D1 or D2 or ... """
 func ___OR(domains ...string) *utils.TStringList {
 	return combine(domain.OR_OPERATOR, domain.FALSE_DOMAIN, domain.TRUE_DOMAIN, domains)
 }
 
-/*Returns a new domain expression where all domain components from ``domains``
-  have been added together using the binary operator ``operator``. The given
-  domains must be normalized.
+/*
+Returns a new domain expression where all domain components from “domains“
 
-  :param unit: the identity element of the domains "set" with regard to the operation
-               performed by ``operator``, i.e the domain component ``i`` which, when
-               combined with any domain ``x`` via ``operator``, yields ``x``.
-               E.g. [(1,'=',1)] is the typical unit for AND_OPERATOR: adding it
-               to any domain component gives the same domain.
-  :param zero: the absorbing element of the domains "set" with regard to the operation
-               performed by ``operator``, i.e the domain component ``z`` which, when
-               combined with any domain ``x`` via ``operator``, yields ``z``.
-               E.g. [(1,'=',1)] is the typical zero for OR_OPERATOR: as soon as
-               you see it in a domain component the resulting domain is the zero.
-  :param domains: a list of normalized domains.
+	have been added together using the binary operator ``operator``. The given
+	domains must be normalized.
+
+	:param unit: the identity element of the domains "set" with regard to the operation
+	             performed by ``operator``, i.e the domain component ``i`` which, when
+	             combined with any domain ``x`` via ``operator``, yields ``x``.
+	             E.g. [(1,'=',1)] is the typical unit for AND_OPERATOR: adding it
+	             to any domain component gives the same domain.
+	:param zero: the absorbing element of the domains "set" with regard to the operation
+	             performed by ``operator``, i.e the domain component ``z`` which, when
+	             combined with any domain ``x`` via ``operator``, yields ``z``.
+	             E.g. [(1,'=',1)] is the typical zero for OR_OPERATOR: as soon as
+	             you see it in a domain component the resulting domain is the zero.
+	:param domains: a list of normalized domains.
 */
 func combine(operator, unit, zero string, domains []string) (result *utils.TStringList) {
 	count := 0
@@ -379,10 +386,11 @@ func combine(operator, unit, zero string, domains []string) (result *utils.TStri
 # --------------------------------------------------
 # Generic domain manipulation
 # --------------------------------------------------
- """Returns a normalized version of ``domain_expr``, where all implicit '&' operators
-    have been made explicit. One property of normalized domain expressions is that they
-    can be easily combined together as if they were single domain components.
- """
+
+	"""Returns a normalized version of ``domain_expr``, where all implicit '&' operators
+	   have been made explicit. One property of normalized domain expressions is that they
+	   can be easily combined together as if they were single domain components.
+	"""
 */
 func normalize_domain(node *domain.TDomainNode) (*domain.TDomainNode, error) {
 	if node == nil {
@@ -494,23 +502,25 @@ func parent_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_mo
 
 }
 
-/*" Distribute any '!' domain operators found inside a normalized domain.
+/*
+" Distribute any '!' domain operators found inside a normalized domain.
 
-  Because we don't use SQL semantic for processing a 'left not in right'
-  query (i.e. our 'not in' is not simply translated to a SQL 'not in'),
-  it means that a '! left in right' can not be simply processed
-  by __leaf_to_sql by first emitting code for 'left in right' then wrapping
-  the result with 'not (...)', as it would result in a 'not in' at the SQL
-  level.
+	Because we don't use SQL semantic for processing a 'left not in right'
+	query (i.e. our 'not in' is not simply translated to a SQL 'not in'),
+	it means that a '! left in right' can not be simply processed
+	by __leaf_to_sql by first emitting code for 'left in right' then wrapping
+	the result with 'not (...)', as it would result in a 'not in' at the SQL
+	level.
 
-  This function is thus responsible for pushing any '!' domain operators
-  inside the terms themselves. For example::
+	This function is thus responsible for pushing any '!' domain operators
+	inside the terms themselves. For example::
 
-       ['!','&',('user_id','=',4),('partner_id','in',[1,2])]
-          will be turned into:
-       ['|',('user_id','!=',4),('partner_id','not in',[1,2])]
+	     ['!','&',('user_id','=',4),('partner_id','in',[1,2])]
+	        will be turned into:
+	     ['|',('user_id','!=',4),('partner_id','not in',[1,2])]
 
-  "*/
+	"
+*/
 func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 	if node == nil {
 		return domain.NewDomainNode() //返回空白确保循环不会出现==nil
@@ -606,8 +616,9 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 }
 
 // :param string from_query: is something like :
-//  - '"res_partner"' OR
-//  - '"res_partner" as "res_users__partner_id"''
+//   - '"res_partner"' OR
+//   - '"res_partner" as "res_users__partner_id"”
+//
 // from_query: 表名有关的字符串
 func get_alias_from_query(from_query string) (string, string) {
 	from_splitted := strings.Split(from_query, " as ")
@@ -662,7 +673,7 @@ func (self *TExpression) push(eleaf *TExtendedLeaf) {
 	self.stack = append(self.stack, eleaf)
 }
 
-//反转
+// 反转
 func (self *TExpression) reverse(lst []*TExtendedLeaf) {
 	var tmp []*TExtendedLeaf
 	lCnt := len(lst)
@@ -680,11 +691,15 @@ func (self *TExpression) push_result(leaf *TExtendedLeaf) {
 // TODO 为完成
 // Normalize a single id or name, or a list of those, into a list of ids
 // :param {int,long,basestring,list,tuple} value:
-//  if int, long -> return [value]
+//
+//	if int, long -> return [value]
+//
 // if basestring, convert it into a list of basestrings, then
-//  if list of basestring ->
-//   perform a name_search on comodel for each name
-//       return the list of related ids
+//
+//	if list of basestring ->
+//	 perform a name_search on comodel for each name
+//	     return the list of related ids
+//
 // 获得Ids
 func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, context map[string]interface{}, limit int64) *domain.TDomainNode {
 	var names []string
@@ -841,7 +856,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			*/
 		} else if field == nil {
 			// FIELD NOT FOUND
-			return log.Errf("Invalid field <%s>@<%s> in leaf <%s>", left.String(), model.GetName(), domain.Domain2String(ex_leaf.leaf))
+			return log.Errf("Invalid field <%s>@<%s> in leaf <%s>", left.String(), model.String(), domain.Domain2String(ex_leaf.leaf))
 
 		} else if field.IsInheritedField() {
 			// ----------------------------------------
@@ -871,7 +886,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 			log.Dbg("ttt", next_model, related_field)
 			//log.Dbg("IsRelatedField>>", fieldName, next_model.GetModelName())
-			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.GetName()), "id", model.obj.GetRelationByName(next_model.GetName()))
+			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.String()), "id", model.obj.GetRelationByName(next_model.String()))
 			self.push(ex_leaf)
 
 		} else if fn, has := hierarchy_funcs[operator.String()]; has && left.String() == self.root_model.idField {
@@ -1379,7 +1394,7 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 	return []string{query}, res_params //lParams.Flatten()
 }
 
-//""" Returns the list of tables for SQL queries, like select from ... """
+// """ Returns the list of tables for SQL queries, like select from ... """
 func (self *TExpression) get_tables() *utils.TStringList {
 	tables := utils.NewStringList()
 	for _, leaf := range self.result {
@@ -1391,7 +1406,7 @@ func (self *TExpression) get_tables() *utils.TStringList {
 		}
 	}
 
-	table_name := quoteStr(self.root_model.GetName())
+	table_name := quoteStr(self.root_model.table)
 	if !tables.Has(table_name) {
 		tables.PushString(table_name)
 	}

@@ -242,7 +242,7 @@ func (db *TDialect) ModifyColumnSql(tableName string, col IField) string {
 func (b *TDialect) CreateTableSql(model IModel, storeEngine, charset string) string {
 	var sql string
 	sql = "CREATE TABLE IF NOT EXISTS "
-	sql += b.dialect.Quote(model.GetName())
+	sql += b.dialect.Quote(fmtTableName(model.String()))
 	sql += " ("
 
 	fields := model.GetFields()
@@ -250,7 +250,7 @@ func (b *TDialect) CreateTableSql(model IModel, storeEngine, charset string) str
 		pkList := model.GetPrimaryKeys()
 
 		for _, field := range fields {
-			//logger.Dbg("ffff", field.Name(), field.Store()) // TODO调试 store 失效原因
+			// TODO调试 store 失效原因
 			if !field.Store() {
 				continue
 			}

@@ -23,7 +23,7 @@ const (
 
 var (
 // 提供类对比
-//handlerType = reflect.TypeOf(server.THandler{})
+// handlerType = reflect.TypeOf(server.THandler{})
 )
 
 type (
@@ -201,15 +201,17 @@ func newOsv(orm *TOrm) (osv *TOsv) {
 	return osv
 }
 
-//TODO 重命名函数
-//TODO 考虑无效层次Field检测
+// TODO 重命名函数
+// TODO 考虑无效层次Field检测
 // 初始化/装备/配置 对象
 // 初始化添加所有字段到_fileds 包括关联
 // Complete the setup of models.
-//    This must be called after loading modules and before using the ORM.
-///
-//     :param partial: ``True`` if all models have not been loaded yet.
 //
+//	This must be called after loading modules and before using the ORM.
+//
+// /
+//
+//	:param partial: ``True`` if all models have not been loaded yet.
 func (self *TOsv) ___SetupModels() {
 	/*	var lNew *TField
 
@@ -434,10 +436,9 @@ func (self *TOsv) HasModel(name string) (has bool) {
 	return
 }
 
-//TODO  TEST 测试是否正确使用路劲作为Modul
+// TODO  TEST 测试是否正确使用路劲作为Modul
 func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 	module_name := "" // "web" // 默认取Web模块注册的Models
-	//log.Dbg("getmodel", model, lModule, module)
 	if len(module) > 0 && utils.Trim(module[0]) != "" {
 		module_name = utils.Trim(module[0])
 	} else {
@@ -460,7 +461,7 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 		*/
 	}
 
-	model, err := self.GetModelByModule(module_name, name)
+	model, err := self.GetModelByModule(module_name, fmtModelName(name))
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +470,7 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 		return m, nil
 	}
 
-	return nil, errors.New("Model is a interface of IModel")
+	return nil, errors.New("Model is not a interface of IModel")
 }
 
 func (self *TOsv) RemoveModel(name string) {
@@ -478,7 +479,6 @@ func (self *TOsv) RemoveModel(name string) {
 	self.modelsLock.RUnlock()
 }
 
-//
 func (self *TOsv) GetModels() (models []string) {
 	models = make([]string, len(self.models))
 
@@ -506,7 +506,7 @@ func (self *TOsv) NewModel(name string) (model *TModel) {
 	return
 }
 
-//TODO　优化更简洁
+// TODO　优化更简洁
 // 每次GetModel都会激活初始化对象
 func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TObj, modelName string) {
 	if m, ok := val.Interface().(IModel); ok {

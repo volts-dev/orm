@@ -34,12 +34,12 @@ func (self *TMethod) Name() string {
 	return self.name
 }
 
-//TODO dataset
+// TODO dataset
 func (self *TMethod) Result() []reflect.Value {
 	return self.result
 }
 
-//废弃
+// 废弃
 func (self *TMethod) ___SetArgs(args ...interface{}) bool {
 	self.args = make([]reflect.Value, 0)
 
@@ -93,7 +93,7 @@ func (self *TMethodsSet) get(methodName string) (*TMethod, bool) {
 func (self *TMethodsSet) MustGet(methodName string) *TMethod {
 	methInfo, exists := self.get(methodName)
 	if !exists {
-		log.Panic("Unknown method in model", "model", self.model.GetName(), "method", methodName)
+		log.Panic("Unknown method in model", "model", self.model.String(), "method", methodName)
 	}
 	return methInfo
 }

@@ -192,7 +192,6 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 }
 
 // :lhs table name
-//
 func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause []string, from_params []interface{}) {
 	if tablelst, has := self.joins[lhs]; has {
 		for _, table := range tablelst {
@@ -213,7 +212,7 @@ func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause 
 }
 
 // 验证字段并添加关系表到from
-//# the query may involve several tables: we need fully-qualified names
+// # the query may involve several tables: we need fully-qualified names
 func (self *TQuery) qualify(field IField, model IModel) string {
 	res := self.inherits_join_calc(field.Name(), model)
 	/*
@@ -225,15 +224,18 @@ func (self *TQuery) qualify(field IField, model IModel) string {
 	return fmt.Sprintf(`%s as "%s"`, res, field.Name())
 }
 
-/* """
-   Adds missing table select and join clause(s) to ``query`` for reaching
-   the field coming from an '_inherits' parent table (no duplicates).
+/*
+"""
 
-   :param alias: name of the initial SQL alias
-   :param field: name of inherited field to reach
-   :param query: query object on which the JOIN should be added
-   :return: qualified name of field, to be used in SELECT clause
-   """*/
+	Adds missing table select and join clause(s) to ``query`` for reaching
+	the field coming from an '_inherits' parent table (no duplicates).
+
+	:param alias: name of the initial SQL alias
+	:param field: name of inherited field to reach
+	:param query: query object on which the JOIN should be added
+	:return: qualified name of field, to be used in SELECT clause
+	"""
+*/
 func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result string) {
 	/*
 	   # INVARIANT: alias is the SQL alias of model._table in query
@@ -256,7 +258,7 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 	   else:
 	       return '"%s"."%s"' % (alias, field)
 	*/
-	alias := model.GetName()
+	alias := model.Table()
 	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
 		//for name, _ := range self._relate_fields {
 		if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInheritedField() {
@@ -273,7 +275,7 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 			parent_alias, _ := self.addJoin(
 				[]string{
 					alias, parent_field,
-					parent_model.GetName(), parent_model.IdField(),
+					parent_model.Table(), parent_model.IdField(),
 					parent_field},
 				true,
 				false,

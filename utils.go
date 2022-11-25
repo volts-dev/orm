@@ -21,6 +21,12 @@ func contains(s string, c byte) bool {
 
 // format the model name to the same
 func fmtModelName(name string) string {
+	name = utils.TitleCasedName(utils.TrimQuotes(utils.Trim(name)))
+	return utils.DotCasedName(name)
+}
+
+// format the database table name to the same
+func fmtTableName(name string) string {
 	name = strings.Replace(name, ".", "_", -1)
 	return utils.SnakeCasedName(utils.TrimQuotes(utils.Trim(name)))
 }
