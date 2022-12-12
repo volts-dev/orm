@@ -279,7 +279,7 @@ func (self *TOsv) newObject(name string) *TObj {
 }
 
 // register new model to the object service
-func (self *TOsv) RegisterModel(region string, model *TModel) {
+func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	//获得Object 检查是否存在，不存在则创建
 	self.modelsLock.RLock()
 	obj := self.models[model.name]
@@ -396,6 +396,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) {
 	self.modelsLock.Lock()
 	self.models[model.name] = obj
 	self.modelsLock.Unlock()
+	return nil
 }
 
 func (self *TObj) mappingMethod(model *TModel) {
@@ -511,7 +512,7 @@ func (self *TOsv) NewModel(name string) (model *TModel) {
 func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TObj, modelName string) {
 	if m, ok := val.Interface().(IModel); ok {
 		// NOTED <以下代码严格遵守执行顺序>
-		model := NewModel(modelName, val, atype) //self.newModel(sess, model)
+		model := newModel(modelName, "", val, atype) //self.newModel(sess, model)
 		model.idField = obj.uidFieldName
 		model.obj = obj
 		model.osv = self

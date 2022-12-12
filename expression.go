@@ -1355,7 +1355,7 @@ func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{})
 	// 翻转顺序以便递归生成
 	// Process the domain from right to left, using a stack, to generate a SQL expression.
 	self.reverse(self.result)
-	params = utils.ReverseItfs(params...)
+	params = utils.Reversed(params...)
 
 	// 遍历并生成
 	res_params := make([]interface{}, 0)

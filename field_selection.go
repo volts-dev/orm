@@ -45,25 +45,23 @@ func (self *TBooleanField) Init(ctx *TFieldContext) {
 func (self *TSelectionField) Init(ctx *TFieldContext) {
 	fld := self
 	params := ctx.Params
-	//fields.Selection([('linear', 'Linear'), ('degressive', 'Degressive')]), string='Computation Method'
-	//fields.Selection(['linear', 'Linear','degressive', 'Degressive']), string='Computation Method'
-	//fld.Base()._attr_type = "selection"
-	//fld.Base()._column_type = "selection"
-	//lField.initSelection(lTag[1:]...)
+
 	log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", fld.Name(), self.model_name, params)
 
 	fld.Base()._getter = "" //初始化
 	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
-	//log.Dbg("tag_selection", params, lStr, ctx.Model.ModelName(), ctx.Model.Base().modelValue, ctx.Model.Base().modelValue.MethodByName(lStr))
-	//if m := model.MethodByName(lStr); m != nil {
-	if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
+	m := ctx.Model.GetBase().modelValue.MethodByName(lStr)
+	if m.IsValid() {
+		if _, ok := m.Interface().(func() [][]string); !ok {
+			log.Fatalf("the selection field %s@%s method %s must func()[][]string type", fld.Name(), ctx.Model.String(), lStr)
+		}
 		fld.Base()._getter = lStr
 	} else {
 		m := make(map[string]string)
 		err := json.Unmarshal([]byte(lStr), &m)
 		if err != nil {
-			log.Errf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
+			log.Fatalf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
 		}
 
 		for k, v := range m {
@@ -151,10 +149,18 @@ func (self *TSelectionField) OnRead(ctx *TFieldEventContext) error {
 		// TODO 同一记录方法到OBJECT里使用Method
 		//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 		if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
+			var results []reflect.Value
+			if method.Type().NumIn() == 1 {
+				args := make([]reflect.Value, 0)
+				args = append(args, reflect.ValueOf(ctx))
+				results = method.Call(args) //
+
+			} else {
+				results = method.Call(nil) //
+
+			}
 			//log.Dbg("selection:", m, self.model.modelValue)
-			args := make([]reflect.Value, 0)
-			args = append(args, reflect.ValueOf(ctx))
-			results := method.Call(args) //
+
 			//log.Dbg("selection:", results)
 			if len(results) == 1 {
 				//fld.Selection, _ = results[0].Interface().([][]string)

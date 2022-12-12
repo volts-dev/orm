@@ -291,22 +291,29 @@ func (self *TStatement) generate_add_column(col IField) (string, []interface{}) 
 	return sql, []interface{}{}
 }
 
-func (self *TStatement) generate_index() []string {
+func (self *TStatement) generate_index() ([]string, error) {
 	var sqls []string = make([]string, 0)
-	quote := self.session.orm.dialect.Quote
 	tableName := fmtTableName(self.session.Statement.model.String())
 
 	for idxName, index := range self.session.Statement.model.obj.indexes {
 		if index.Type == IndexType {
-			//idxName := index.GetName(modelName)
-			sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);",
-				quote(idxName), quote(tableName), quote(strings.Join(index.Cols, quote(","))))
+			exist, err := self.session.orm.IsIndexExist(tableName, idxName, false)
+			if err != nil {
+				return nil, err
+			}
+
+			if exist {
+				continue
+			}
+
+			sql := self.session.orm.dialect.CreateIndexSql(tableName, index)
+			//sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);",
+			//	quote(idxName), quote(tableName), quote(strings.Join(index.Cols, quote(","))))
 			sqls = append(sqls, sql)
-			//log.Dbg(sql, index)
 		}
 	}
 
-	return sqls
+	return sqls, nil
 }
 
 func (self *TStatement) generate_insert(fields []string) (query string, isQuery bool) {

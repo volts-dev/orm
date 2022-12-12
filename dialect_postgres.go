@@ -784,7 +784,7 @@ func (db *postgres) Init(d *sql.DB, uri *TDataSource) error {
 }
 
 // 生成插入SQL句子
-func (db *postgres) GenInsertSql(model string, fields []string, idField string) (sql string, isquery bool) {
+func (db *postgres) GenInsertSql(tableName string, fields []string, idField string) (sql string, isquery bool) {
 	cnt := len(fields)
 	field_places := strings.Repeat("?,", cnt-1) + "?"
 	field_list := ""
@@ -798,7 +798,7 @@ func (db *postgres) GenInsertSql(model string, fields []string, idField string) 
 	}
 
 	sql = fmt.Sprintf("INSERT INTO %s (%v) VALUES (%v)",
-		db.Quote(model),
+		db.Quote(tableName),
 		field_list,
 		field_places,
 	)
@@ -810,7 +810,6 @@ func (db *postgres) GenInsertSql(model string, fields []string, idField string) 
 	return sql, true
 }
 
-//
 func (db *postgres) GenSqlType(field IField) string {
 	var res string
 	c := field.Base()
@@ -1146,8 +1145,8 @@ func (db *postgres) GetModels() ([]IModel, error) {
 
 	models := make([]IModel, 0)
 	for rows.Next() {
-		var model_name string
-		err = rows.Scan(&model_name)
+		var tableName string
+		err = rows.Scan(&tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -1156,7 +1155,7 @@ func (db *postgres) GetModels() ([]IModel, error) {
 		model_type := model_val.Type()
 
 		// new a base model instance
-		model := NewModel(model_name, model_val, model_type)
+		model := newModel("", tableName, model_val, model_type)
 		models = append(models, model)
 	}
 	return models, nil

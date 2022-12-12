@@ -59,7 +59,7 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 	if err != nil {
 		self.Log(err)
 
-		e := ss.Rollback()
+		e := ss.Rollback(err)
 		if e != nil {
 			self.Fatal(e)
 		}

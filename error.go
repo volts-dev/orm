@@ -2,11 +2,17 @@ package orm
 
 import (
 	"errors"
+	"fmt"
 )
 
 type (
 	TErrors struct {
 		list []error
+	}
+
+	sessionError struct {
+		title  string
+		errors []error
 	}
 )
 
@@ -24,3 +30,27 @@ var (
 	ErrDeleteFailed    error = errors.New("Delete Failed.")
 	ErrInvalidSession  error = errors.New("The session of query is invalid!")
 )
+
+// 接受多个错误 如果0错误返回nil
+func newSessionError(title string, errs ...error) *sessionError {
+	e := &sessionError{
+		title:  title,
+		errors: make([]error, 0),
+	}
+
+	for _, err := range errs {
+		if err != nil {
+			e.errors = append(e.errors, err)
+		}
+	}
+
+	if len(e.errors) == 0 {
+		return nil
+	}
+
+	return e
+}
+
+func (self sessionError) Error() string {
+	return fmt.Sprintf("%s:%v ", self.title, self.errors)
+}

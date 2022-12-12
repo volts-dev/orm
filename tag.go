@@ -364,7 +364,7 @@ func tag_extends(ctx *TFieldContext) {
 		// 现在成员名是关联的Model名,Tag 为关联的字段
 		model.Obj().SetRelationByName(model_name, params[0])
 
-		parentModel := ctx.Orm.mapping("", fld_val.Interface())
+		parentModel := ctx.Orm.mapping(fld_val.Interface())
 		for _, fld := range parentModel.obj.GetFields() {
 			// #限制某些字段
 			// @ 当参数多余1个时判断为限制字段　例如：`field:"extends(PartnerId,Name)"`
@@ -427,7 +427,7 @@ func tag_relate(ctx *TFieldContext) {
 
 		parentModel, err := ctx.Orm.GetModel(model_name)
 		if err != nil || parentModel == nil {
-			parentModel = ctx.Orm.mapping("", fld_val.Interface())
+			parentModel = ctx.Orm.mapping(fld_val.Interface())
 		}
 
 		var (
@@ -639,7 +639,6 @@ func tag_store(ctx *TFieldContext) {
 	} else {
 		fld.Base()._attr_store = true
 	}
-	log.Dbg("store", params, fld.Base()._attr_store)
 }
 
 func tag_domain(ctx *TFieldContext) {

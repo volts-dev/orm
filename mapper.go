@@ -3,6 +3,8 @@ package orm
 import (
 	"strings"
 	"sync"
+
+	"github.com/volts-dev/utils"
 )
 
 // name translation between struct, fields names and table, column names
@@ -92,32 +94,8 @@ func (mapper SnakeMapper) Obj2Table(name string) string {
 	return snakeCasedName(name)
 }
 
-func titleCasedName(name string) string {
-	newstr := make([]rune, 0)
-	upNextChar := true
-
-	name = strings.ToLower(name)
-
-	for _, chr := range name {
-		switch {
-		case upNextChar:
-			upNextChar = false
-			if 'a' <= chr && chr <= 'z' {
-				chr -= ('a' - 'A')
-			}
-		case chr == '_':
-			upNextChar = true
-			continue
-		}
-
-		newstr = append(newstr, chr)
-	}
-
-	return string(newstr)
-}
-
 func (mapper SnakeMapper) Table2Obj(name string) string {
-	return titleCasedName(name)
+	return utils.TitleCasedName(name)
 }
 
 // GonicMapper implements IMapper. It will consider initialisms when mapping names.

@@ -740,8 +740,8 @@ github.com/volts-dev/utils v0.0.0-20220301183119-0de4229e75b4/go.mod h1:Gc+qRhI3
 github.com/volts-dev/utils v0.0.0-20220409042925-ad5762368652/go.mod h1:Gc+qRhI3xm2jw2mAv+X7xI91R9+t+oeTrnYoUes1Aco=
 github.com/volts-dev/utils v0.0.0-20220910074456-cb5176e72a85/go.mod h1:Gc+qRhI3xm2jw2mAv+X7xI91R9+t+oeTrnYoUes1Aco=
 github.com/volts-dev/utils v0.0.0-20221011112847-200c138184c5/go.mod h1:Gc+qRhI3xm2jw2mAv+X7xI91R9+t+oeTrnYoUes1Aco=
-github.com/volts-dev/utils v0.0.0-20221016185110-2b8319f61f5a h1:PZGJ4t6g06d34yb6Oh1PJSU0JqwuKpliWJHSYjmnN8c=
-github.com/volts-dev/utils v0.0.0-20221016185110-2b8319f61f5a/go.mod h1:Gc+qRhI3xm2jw2mAv+X7xI91R9+t+oeTrnYoUes1Aco=
+github.com/volts-dev/utils v0.0.0-20221128131418-685301f004ca h1:d7M/3TL5se+KJlGvg+jMkyPGj5oVL/lnHdsypA47a+Q=
+github.com/volts-dev/utils v0.0.0-20221128131418-685301f004ca/go.mod h1:+kUf8mA9snzPnc5K3L6UGXBFtM8IwFTFnBryr8wmbT4=
 github.com/volts-dev/volts v0.0.0-20200503182809-04484fd814bb/go.mod h1:NwNqkHwcSHc8VW0CTeVtUaAoxsiDt8BSx4uuthjS0EQ=
 github.com/volts-dev/volts v0.0.0-20220624022555-ce4156864717/go.mod h1:KLBXzETY7bFqitK4tLtOiaOUAdQXB5wLEqyiFDhOHCs=
 github.com/volts-dev/volts v0.0.0-20220914091534-201a863d2943/go.mod h1:EErBH6pkmaz5YxBNg+6u5JdwQg3HCfO9cr35ppL78G4=

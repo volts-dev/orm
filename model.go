@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
@@ -31,6 +32,7 @@ type (
 		// 获取继承的模型
 		// 用处:super 用于方便调用不同层级模型的方法/查询等
 		Super() IModel
+		Tx() *TSession
 
 		// private
 		setOrm(o *TOrm)
@@ -41,9 +43,8 @@ type (
 		//check_access_rights(operation string) bool
 		GetIndexes() map[string]*TIndex
 		// public
-		String() string // model name in orm like "base.user"
-		Table() string  // table name in database like "base_user"
-		//___GetName() string
+		String() string   // model name in orm like "base.user"
+		Table() string    // table name in database like "base_user"
 		GetBase() *TModel // get the base model object
 		GetColumnsSeq() []string
 		GetPrimaryKeys() []string
@@ -80,9 +81,14 @@ type (
 
 		// UTF file only
 		Load(file io.Reader, breakcount ...int) (map[int]string, error)
-		Create(values interface{}) (id interface{}, err error)
-		Read(ids []interface{}, fields []string) (*dataset.TDataSet, error)
-		Update(ids []interface{}, values interface{}) (int64, error)
+
+		// Create 不带事务的
+		Create(records ...any) ([]any, error)
+		// Read 不带事务的
+		Read(domain string, ids []interface{}, fields []string, limit int, sort string) (*dataset.TDataSet, error)
+		// Update 不带事务的
+		Update(values ...interface{}) (int64, error)
+		// Delete 不带事务的
 		Delete(ids ...interface{}) (int64, error)
 		//Write(ids []string, values interface{}) (err error)
 		//update(vals map[string]interface{}, where string, args ...interface{}) (id int64)
@@ -113,12 +119,13 @@ type (
 	 */
 	TModel struct {
 		// # 核心对象
-		modelType  reflect.Type  // # Model 反射类
-		modelValue reflect.Value // # Model 反射值 供某些程序调用方法
-		orm        *TOrm
-		osv        *TOsv
-		obj        *TObj
-		super      IModel // 继承的Model名称
+		modelType   reflect.Type  // # Model 反射类
+		modelValue  reflect.Value // # Model 反射值 供某些程序调用方法
+		orm         *TOrm
+		osv         *TOsv
+		obj         *TObj
+		super       IModel    // 继承的Model名称
+		transaction *TSession // 事务
 
 		name  string // # xx.xx 映射在OSV的名称
 		table string // mapping table name
@@ -135,23 +142,24 @@ type (
 		_transient    bool   // # 暂时的
 		_description  string // # 描述
 		is_base       bool   // #该Model是否是基Model,并非扩展Model
-
-		// # common fields for all table
-		//Id         int64     `field:"pk autoincr"`
-		//CreateId   int64     `field:"int"`
-		//CreateTime time.Time `field:"datetime created"` //-- Created on
-		//WriteId    int64     `field:"int"`
-		//WriteTime  time.Time `field:"datetime updated"`
 	}
 )
 
-// @ name Sys.View
+// 新建模型 不带其他信息
 // @ Session
 // @ Registry
-func NewModel(name string, modelValue reflect.Value, modelType reflect.Type) (model *TModel) {
+func newModel(name, tableName string, modelValue reflect.Value, modelType reflect.Type) (model *TModel) {
+	if len(name) > 0 && len(tableName) == 0 {
+		tableName = fmtTableName(name)
+	}
+
+	if len(name) == 0 && len(tableName) > 0 {
+		name = fmtModelName(tableName)
+	}
+
 	model = &TModel{
 		name:       name,
-		table:      fmtTableName(name),
+		table:      tableName,
 		modelType:  modelType,
 		modelValue: modelValue,
 		_order:     "id",
@@ -179,24 +187,91 @@ func (self *TModel) Super() IModel {
 	return self.super
 }
 
+func (self *TModel) Tx() *TSession {
+	if self.transaction == nil {
+		self.transaction = self.Records()
+	}
+	return self.transaction
+}
+
 // #被重载接口 创建记录 提供给继承
-func (self *TModel) Create(values interface{}) (id interface{}, err error) {
-	return self.Records().Create(values)
+func (self *TModel) Create(records ...any) ([]any, error) {
+	recs := self.Tx()
+	if recs.IsAutoClose {
+		defer recs.Close()
+	}
+
+	ids := make([]any, len(records))
+	for i, d := range records {
+		id, err := recs.Create(d)
+		if err != nil {
+			return nil, recs.Rollback(err)
+		}
+		ids[i] = id
+	}
+
+	return ids, nil
 }
 
 // #被重载接口
-func (self *TModel) Read(ids []interface{}, fields []string) (*dataset.TDataSet, error) {
-	return self.Records().Ids(ids...).Select(fields...).Read()
+func (self *TModel) Read(domain string, ids []interface{}, fields []string, limit int, sort string) (*dataset.TDataSet, error) {
+	recs := self.Tx()
+	if recs.IsAutoClose {
+		defer recs.Close()
+	}
+
+	if limit == 0 {
+		limit = 10
+	}
+
+	recs.Select(fields...)
+	cnt := len(ids)
+	if cnt > 0 {
+		if cnt > 250 { // 限制ids获取量
+			limit = 250
+		}
+		return recs.Ids(ids...).Limit(int64(limit)).Sort(strings.Split(sort, ",")...).Read()
+	}
+
+	if domain != "" {
+		recs.Domain(domain)
+	}
+
+	return recs.Limit(int64(limit)).Sort(strings.Split(sort, ",")...).Read()
 }
 
 // #被重载接口
-func (self *TModel) Update(ids []interface{}, values interface{}) (int64, error) {
-	return self.Records().Ids(ids...).Write(values)
+func (self *TModel) Update(values ...interface{}) (int64, error) {
+	recs := self.Tx()
+	if recs.IsAutoClose {
+		defer recs.Close()
+	}
+
+	var effectCount int64
+	for _, d := range values {
+		id, err := recs.Write(d)
+		if err != nil {
+			return 0, err
+		}
+		effectCount += id
+	}
+
+	return effectCount, nil
 }
 
 // #被重载接口
-func (self *TModel) Delete(ids ...interface{}) (int64, error) {
-	return self.Records().Delete(ids...)
+func (self *TModel) Delete(ids ...any) (int64, error) {
+	recs := self.Tx()
+	if recs.IsAutoClose {
+		defer recs.Close()
+	}
+
+	effectCount, err := recs.Delete(ids...)
+	if err != nil {
+		return 0, err
+	}
+
+	return effectCount, nil
 }
 
 func (self *TModel) setOrm(o *TOrm) {
@@ -637,7 +712,7 @@ func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, err
 				errRows[r] = "Commit fail!"
 			}
 
-			e := session.Rollback()
+			e := session.Rollback(err)
 			if e != nil {
 				log.Err(e)
 			}

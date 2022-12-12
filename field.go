@@ -36,6 +36,7 @@ type (
 		Model          IModel // required
 		Field          IField // required
 		FieldTypeValue reflect.Value
+		ModelValue     reflect.Value
 		Params         []string // 属性参数 int(<params>)
 	}
 
@@ -407,7 +408,7 @@ func (self *TField) ModelName() string {
 	return self.model_name
 }
 
-//TODO 优化函数名称
+// TODO 优化函数名称
 func (self *TField) RelateFieldName() string {
 	return self.cokey_field_name
 }
@@ -534,7 +535,7 @@ func (self *TField) IsIndex() bool {
 	return self.index
 }
 
-//TODO 改名称
+// TODO 改名称
 func (self *TField) FuncMultiName() string {
 	return self._func_multi
 }
@@ -583,7 +584,6 @@ func (self *TField) IsCompute() bool {
 	return self.isCompute
 }
 
-//
 func (self *TField) IsInheritedField(arg ...bool) bool {
 	if len(arg) > 0 {
 		self.isInheritedField = arg[0]
@@ -642,9 +642,9 @@ func (self *TField) UpdateDb(ctx *TFieldContext) {
 
 }
 
-//""" Return a dictionary that describes the field ``self``. """
+// """ Return a dictionary that describes the field “self“. """
 // 返回字段自己 补充部分属性值
-//func (self *TField) GetDescription() (res *TField) {
+// func (self *TField) GetDescription() (res *TField) {
 func (self *TField) GetAttributes(ctx *TFieldContext) map[string]interface{} {
 	return map[string]interface{}{
 		"name":       self._attr_name,
@@ -684,12 +684,14 @@ func (self *TField) onConvertToWrite(session *TSession, value interface{}) inter
 }
 
 /*
-   """ Convert ``value`` from the record format to the format returned by
-   method :meth:`BaseModel.read`.
+""" Convert “value“ from the record format to the format returned by
+method :meth:`BaseModel.read`.
 
-   :param bool use_name_get: when True, the value's display name will be
-       computed using :meth:`BaseModel.name_get`, if relevant for the field
-   """
+:param bool use_name_get: when True, the value's display name will be
+
+	computed using :meth:`BaseModel.name_get`, if relevant for the field
+
+"""
 */
 func (self *TField) OnRead(ctx *TFieldEventContext) error {
 	model := ctx.Model
@@ -720,9 +722,9 @@ func (self *TField) OnRead(ctx *TFieldEventContext) error {
 }
 
 /*
-   """ Convert ``value`` from the record format to the format of method
-   :meth:`BaseModel.write`.
-   """
+""" Convert “value“ from the record format to the format of method
+:meth:`BaseModel.write`.
+"""
 */
 func (self *TField) OnWrite(ctx *TFieldEventContext) error {
 	model := ctx.Model

@@ -135,14 +135,16 @@ func (self *TOrm) reverse() error {
 			model_type := model_val.Type()
 
 			// new a base model instance
-			model := NewModel(model_name, model_val, model_type)
+			model := newModel(model_name, model_val, model_type)
 			model.obj = self.osv.newObject(model_name)
 			model.is_base = true
 		}
 		*/
 
-		self.osv.RegisterModel("", model.GetBase())
-		log.Infof("%s found in database!", model.String())
+		if err = self.osv.RegisterModel("", model.GetBase()); err != nil {
+			return err
+		}
+		log.Infof("table %s found in database!", model.Table())
 	}
 
 	return nil
@@ -320,7 +322,7 @@ func (self *TOrm) formatTime(tz *time.Location, sqlTypeName string, t time.Time)
 }
 
 // # 映射结构体与表
-func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) {
+func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 	model_value := reflect.Indirect(reflect.ValueOf(model))
 	model_type := model_value.Type()
 	if model_type.Kind() != reflect.Struct {
@@ -333,7 +335,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 	model_alt_name := model_name // model别名,当Model使用别名Tag时作用
 	model_object := self.osv.newObject(model_name)
 
-	res_model = NewModel(model_name, model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
+	res_model = newModel(model_name, "", model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
 	res_model.obj = model_object
 	res_model.is_base = false
 
@@ -435,6 +437,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		field_context.Orm = self
 		field_context.Model = res_model
 		field_context.FieldTypeValue = field_value
+		field_context.ModelValue = model_value
 		if strings.Index(strings.ToLower(member_name), "tmodel") != -1 {
 			// 执行tag处理
 			self.handleTags(field_context, tagMap, "table")
@@ -545,10 +548,7 @@ func (self *TOrm) mapping(region string, model interface{}) (res_model *TModel) 
 		}
 	} // end for
 
-	// 注册到对象服务
-	self.osv.RegisterModel(region, res_model)
-
-	return
+	return res_model
 }
 
 func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, prefix string) {
@@ -584,7 +584,7 @@ func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, 
 					break
 				}
 
-				log.Warnf("Unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.String(), field.Name())
+				log.Warnf("unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.String(), field.Name())
 			}
 		}
 	}
@@ -654,17 +654,15 @@ func (self *TOrm) Import(r io.Reader) ([]sql.Result, error) {
 	return results, lastError
 }
 
-func (self *TOrm) ___ShowSql(sw ...bool) {
-	if len(sw) > 0 {
-		self.config.ShowSql = sw[0]
-	} else {
-		self.config.ShowSql = true
-	}
-}
-
 // Is the orm connected database
 func (self *TOrm) Connected() bool {
 	return self.connected
+}
+
+func (self *TOrm) IsIndexExist(model string, field string, unique bool) (bool, error) {
+	session := self.NewSession()
+	defer session.Close()
+	return session.IsIndexExist(model, field, unique)
 }
 
 // If a table has any reocrd
@@ -699,8 +697,7 @@ func (self *TOrm) DropTables(names ...string) error {
 	for _, model := range names {
 		err = session.DropTable(model)
 		if err != nil {
-			session.Rollback()
-			return err
+			return session.Rollback(err)
 		}
 	}
 	return session.Commit()
@@ -719,8 +716,7 @@ func (self *TOrm) CreateTables(names ...string) error {
 	for _, model := range names {
 		err = session.CreateTable(model)
 		if err != nil {
-			session.Rollback()
-			return err
+			return session.Rollback(err)
 		}
 	}
 
@@ -752,37 +748,44 @@ func (self *TOrm) CreateUniques(modelName string) error {
 	return session.CreateUniques(modelName)
 }
 
-// DBMetas Retrieve all tables, columns, indexes' informations from database.
-// 从连接的数据库获取数据库及表基本信息
-func (self *TOrm) DBMetas() (models []IModel, err error) {
-	models, err = self.dialect.GetModels()
+func (self *TOrm) modelMetas(model IModel) (IModel, error) {
+	tableName := model.Table()
+	modelObject := self.osv.newObject(model.String())
+	model.GetBase().obj = modelObject
+
+	colSeq, fields, err := self.dialect.GetFields(tableName)
 	if err != nil {
 		return nil, err
 	}
 
+	for _, name := range colSeq {
+		model.AddField(fields[name])
+	}
+
+	indexes, err := self.dialect.GetIndexes(tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	model.Obj().indexes = indexes
+
+	return model, nil
+}
+
+// DBMetas Retrieve all tables, columns, indexes' informations from database.
+// 从连接的数据库获取数据库及表基本信息
+func (self *TOrm) DBMetas() (map[string]IModel, error) {
+	models, err := self.dialect.GetModels()
+	if err != nil {
+		return nil, err
+	}
+
+	modelLst := make(map[string]IModel)
 	for _, model := range models {
-		model_name := model.String()
-		model_object := self.osv.newObject(model_name)
-		model.GetBase().obj = model_object
-		//self.osv.RegisterModel("", model.GetBase())
-
-		colSeq, fields, err := self.dialect.GetFields(model_name)
+		model, err = self.modelMetas(model)
 		if err != nil {
 			return nil, err
 		}
-
-		for _, name := range colSeq {
-			model.AddField(fields[name])
-		}
-		//model.Columns = cols
-		//model.ColumnsSeq = colSeq
-		indexes, err := self.dialect.GetIndexes(model_name)
-		if err != nil {
-			return nil, err
-		}
-
-		model.Obj().indexes = indexes
-
 		/* TODO 搞清楚Indexes作用
 		for _, index := range indexes {
 			for _, name := range index.Cols {
@@ -794,9 +797,10 @@ func (self *TOrm) DBMetas() (models []IModel, err error) {
 			}
 		}
 		*/
+		modelLst[model.String()] = model
 	}
 
-	return
+	return modelLst, nil
 }
 
 // # 插入一个新的Table并创建
@@ -804,8 +808,21 @@ func (self *TOrm) DBMetas() (models []IModel, err error) {
 // region 区分相同Model名称来自哪个模块，等级
 func (self *TOrm) SyncModel(region string, models ...interface{}) (modelNames []string, err error) {
 	session := self.NewSession()
-	defer session.Close()
-	return session.SyncModel(region, models...)
+	session.Begin()
+	defer func() {
+		session.Rollback(nil)
+	}()
+
+	modelNames, err = session.SyncModel(region, models...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = session.Commit(); err != nil {
+		return nil, err
+	}
+
+	return modelNames, nil
 }
 
 func (self *TOrm) Query(sql string, params ...interface{}) (ds *dataset.TDataSet, err error) {

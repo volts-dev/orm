@@ -51,7 +51,7 @@ func (self *TSession) Close() {
 		// When Close be called, if session is a transaction and do not call
 		// Commit or Rollback, then call Rollback.
 		if self.tx != nil && !self.IsCommitedOrRollbacked {
-			self.Rollback()
+			self.Rollback(nil)
 		}
 
 		self.db = nil
@@ -71,6 +71,12 @@ func (self *TSession) Ping() error {
 }
 
 // Begin a transaction
+//
+//	Begin()
+//		...
+//	if err = Commit(); err != nil {
+//			Rollback()
+//	}
 func (self *TSession) Begin() error {
 	// 当第一次调用时才修改Tx
 	if self.IsAutoCommit {
@@ -89,22 +95,28 @@ func (self *TSession) Begin() error {
 
 func (self *TSession) Commit() error {
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
+		self.IsCommitedOrRollbacked = true
+
 		if err := self.tx.Commit(); err != nil {
 			return err
 		}
 	}
-
+	// TODO 是否重置Session
 	return nil
 }
 
 // Rollback when using transaction, you can rollback if any error
-func (self *TSession) Rollback() error {
+// e: the error witch trigger this Rollback
+func (self *TSession) Rollback(e error) error {
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
 		//session.saveLastSQL(session.Engine.dialect.RollBackStr())
 		self.IsCommitedOrRollbacked = true
-		return self.tx.Rollback()
+		err := self.tx.Rollback()
+		if err != nil {
+			return newSessionError("", e, err)
+		}
 	}
-	return nil
+	return newSessionError("", e)
 }
 
 // Query a raw sql and return records as dataset
@@ -293,61 +305,61 @@ func (self *TSession) execWithTx(sql string, args ...interface{}) (sql.Result, e
 // synchronize structs to database tables
 func (self *TSession) SyncModel(region string, models ...interface{}) (modelNames []string, err error) {
 	// NOTE [SyncModel] 这里获取到的Model是由数据库信息创建而成.并不包含所有字段继承字段.
-	exits_models, err := self.orm.DBMetas() // 获取基本数据库信息
+	exitsModels, err := self.orm.DBMetas() // 获取基本数据库信息
 	if err != nil {
 		return nil, err
 	}
 
 	modelNames = make([]string, 0)
 	for _, mod := range models {
-		// 无效！ 设置ORM为Model作为控制器使用
-		//if v, ok := mod.(IModel); ok {
-		//	v.setOrm(self.orm)
-		//}
-
-		model := self.orm.mapping(region, mod)
+		model := self.orm.mapping(mod)
 		if model == nil {
 			continue
 		}
-
-		model_name := model.String()
-
-		var exits_model IModel // 数据库存在的
-		for _, md := range exits_models {
-			if strings.ToLower(md.String()) == strings.ToLower(model_name) {
-				exits_model = md
-				break
-			}
+		// 注册到对象服务
+		err = self.orm.osv.RegisterModel(region, model)
+		if err != nil {
+			return nil, err
 		}
 
-		// #设置该Session的Model/Table
-		self.Model(model_name, region)
-
-		if exits_model == nil {
+		modelName := model.String()
+		self.Model(modelName, region)        // #设置该Session的Model/Table
+		exitsModel := exitsModels[modelName] // 数据库存在的
+		if exitsModel == nil {
 			// 如果数据库不存在改Model对应的表则创建
 			//err = self.StoreEngine(s.Statement.StoreEngine).CreateTable(bean)
-			err = self.CreateTable(model_name)
-			if err != nil {
+			if err = self.CreateTable(modelName); err != nil {
 				return modelNames, err
 			}
 
-			err = self.CreateUniques(model_name)
-			if err != nil {
+			if err = self.CreateUniques(modelName); err != nil {
 				return modelNames, err
 			}
 
-			err = self.CreateIndexes(model_name)
-			if err != nil {
+			if err = self.CreateIndexes(modelName); err != nil {
 				return modelNames, err
 			}
+
 		} else {
-			err := self.alterTable(model, exits_model.(*TModel))
-			if err != nil {
+			if err = self.alterTable(model, exitsModel.(*TModel)); err != nil {
 				return modelNames, err
 			}
+
+			// 剔除已经修改保留未修改作为下面注册
+			//delete(exitsModels, modelName)
 		}
 
-		modelNames = append(modelNames, model_name)
+		modelNames = append(modelNames, modelName)
+		delete(exitsModels, modelName)
+	}
+
+	// 确保获得其他没被注册的模型
+	for _, m := range exitsModels {
+		if !self.orm.osv.HasModel(m.String()) {
+			if err = self.orm.osv.RegisterModel(region, m.(*TModel)); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return modelNames, nil
@@ -360,7 +372,7 @@ func (self *TSession) SyncModel(region string, models ...interface{}) (modelName
  */
 func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 	orm := self.orm
-	lTableName := newModel.table
+	tableName := newModel.table
 
 	{ // 字段修改
 		var cur_field IField
@@ -374,21 +386,21 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 					//TODO 修改数据类型
 					// 如果是修改字符串到
 					if expectedType == Text && strings.HasPrefix(curType, Varchar) {
-						log.Infof("Table <%s> column <%s> change type from %s to %s\n", lTableName, field.Name(), curType, expectedType)
-						_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
+						log.Infof("Table <%s> column <%s> change type from %s to %s\n", tableName, field.Name(), curType, expectedType)
+						_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 
 					} else if strings.HasPrefix(curType, Varchar) && strings.HasPrefix(expectedType, Varchar) {
 						// 如果是同是字符串 则检查长度变化 for mysql
 
 						if cur_field.Size() < field.Size() {
-							log.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", lTableName, field.Name(), cur_field.Size(), field.Size())
-							_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
+							log.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", tableName, field.Name(), cur_field.Size(), field.Size())
+							_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 						}
 						//}
 						//其他
 					} else {
 						if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
-							log.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", lTableName, field.Name(), curType, expectedType)
+							log.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", tableName, field.Name(), curType, expectedType)
 						}
 					}
 
@@ -397,31 +409,31 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() < field.Size() {
 					log.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n",
-						lTableName, field.Name(), cur_field.Size(), field.Size())
-					_, err = orm.Exec(orm.dialect.ModifyColumnSql(lTableName, field))
+						tableName, field.Name(), cur_field.Size(), field.Size())
+					_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 				}
 				//}
 
 				//
 				if field.Default() != cur_field.Default() {
 					log.Warnf("Table <%s> Column <%s> db default is <%s>, model default is <%s>",
-						lTableName, field.Name(), cur_field.Default(), field.Default())
+						tableName, field.Name(), cur_field.Default(), field.Default())
 				}
 
 				if field.Required() != cur_field.Required() {
 					log.Warnf("Table <%s> Column <%s> db required is <%v>, model required is <%v>",
-						lTableName, field.Name(), cur_field.Required(), field.Required())
+						tableName, field.Name(), cur_field.Required(), field.Required())
 				}
 
 				// 如果现在表无该字段则添加
 			} else {
 				// 这里必须过滤掉 NOTE [SyncModel] 里提及的特殊字段
 				if field.Store() && !field.IsInheritedField() {
-					session := self.orm.NewSession()
-					session.Model(newModel.String())
+					//session := self.orm.NewSession()
+					//session.Model(newModel.String())
 					//TODO # 修正上面指向错误Model
-					session.Statement.model = newModel
-					err = session.addColumn(field.Name())
+					//session.Statement.model = newModel
+					err = self.addColumn(field.Name())
 				}
 
 			}
@@ -438,37 +450,32 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 
 		// 检查更新索引 先取消索引载添加需要的
 		// 取消Idex
+		curIndexs := oldModel.GetIndexes()
+		var existIndex *TIndex
 		for name, index := range newModel.GetIndexes() {
-			var cur_index *TIndex
-			for name2, index2 := range oldModel.GetIndexes() {
-				if index.Equal(index2) {
-					cur_index = index2
-					foundIndexNames[name2] = true
-					break
-				}
-			}
+			// 匹配数据库索引
+			existIndex = curIndexs[name]
 
 			// 现有的idex
-			if cur_index != nil {
-				if cur_index.Type != index.Type { // 类型不同则清除
-					sql := orm.dialect.DropIndexSql(lTableName, cur_index)
-					_, err = orm.Exec(sql)
-					if err != nil {
+			if existIndex != nil {
+				if !existIndex.Equal(index) { // 类型不同则重新创建
+					sql := orm.dialect.DropIndexSql(tableName, existIndex)
+					if _, err = self.Exec(sql); err != nil {
 						return err
 					}
-					cur_index = nil
+					addedNames[name] = index // 加入列表稍后再添加
 				}
+				foundIndexNames[name] = true
 			} else {
 				addedNames[name] = index // 加入列表稍后再添加
 			}
 		}
 
 		// 清除已经作删除的索引
-		for name2, index2 := range oldModel.GetIndexes() {
-			if _, ok := foundIndexNames[name2]; !ok { // 在当前数据表且不再新数据表里的索引都要清除
-				sql := orm.dialect.DropIndexSql(lTableName, index2)
-				_, err = orm.Exec(sql)
-				if err != nil {
+		for name, index := range curIndexs {
+			if foundIndexNames[name] != true {
+				sql := orm.dialect.DropIndexSql(tableName, index)
+				if _, err = self.Exec(sql); err != nil {
 					return err
 				}
 			}
@@ -476,23 +483,15 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 
 		// 重新添加索引
 		for name, index := range addedNames {
+			//session := orm.NewSession()
+			//self.Model(newModel.String())
+			//TODO # 修正上面指向错误Model
+			//self.Statement.model = newModel
 			if index.Type == UniqueType {
-				lSession := orm.NewSession()
-				lSession.Model(newModel.String())
-				//TODO # 修正上面指向错误Model
-				//			lSession.model = newModel
-				lSession.Statement.model = newModel
-				defer lSession.Close()
-				err = lSession.addUnique(lTableName, name)
+				err = self.addUnique(tableName, name)
 
 			} else if index.Type == IndexType {
-				lSession := orm.NewSession()
-				lSession.Model(newModel.String())
-				//TODO # 修正上面指向错误Model
-				//			lSession.model = newModel
-				lSession.Statement.model = newModel
-				defer lSession.Close()
-				err = lSession.addIndex(lTableName, name)
+				err = self.addIndex(tableName, name)
 			}
 
 			if err != nil {
@@ -531,6 +530,29 @@ func (self *TSession) IsExist(model ...string) (bool, error) {
 	}
 
 	return lDs.Count() > 0, nil
+}
+
+func (self *TSession) resetStatement() {
+	if self.AutoResetStatement {
+		self.Statement.Init()
+	}
+}
+
+func (self *TSession) IsIndexExist(tableName, idxName string, unique bool) (bool, error) {
+	defer self.resetStatement()
+	if self.IsAutoClose {
+		defer self.Close()
+	}
+
+	var idx string
+	if unique {
+		idx = generate_index_name(UniqueType, tableName, []string{idxName})
+	} else {
+		idx = generate_index_name(IndexType, tableName, []string{idxName})
+	}
+	sqlStr, args := self.orm.dialect.IndexCheckSql(tableName, idx)
+	results, err := self.query(sqlStr, args...)
+	return results.Count() > 0, err
 }
 
 // IsTableEmpty if table have any records
@@ -578,16 +600,16 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	/* TODO 删除  不可能会出现
 	if md = nil {
 		self.IsClassic = false
-		lTableName := utils.SnakeCasedName(strings.Replace(model, ".", "_", -1))
-		//log.Err("Model %s is not a standard model type of this system", lTableName)
-		self.Statement.Table = self.orm.tables[lTableName]
+		tableName := utils.SnakeCasedName(strings.Replace(model, ".", "_", -1))
+		//log.Err("Model %s is not a standard model type of this system", tableName)
+		self.Statement.Table = self.orm.tables[tableName]
 		if self.Statement.Table == nil {
 			log.Errf("the table is not in database.")
 			self.IsDeprecated = true
 			return nil
 		}
-		self.Statement.AltTableNameClause = lTableName
-		self.Statement.TableNameClause = lTableName
+		self.Statement.AltTableNameClause = tableName
+		self.Statement.TableNameClause = tableName
 
 		// # 主键
 		self.Statement.IdKey = "id"
@@ -601,7 +623,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 
 	// ### id key must exist
 	if self.Statement.IdKey == "" {
-		log.Errf("the statement must have a Id key exist!")
+		log.Errf("the statement of %s must have a Id key exist!", self.Statement.model.name)
 		self.IsDeprecated = true
 	}
 
@@ -1026,8 +1048,8 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			//comm_field := self.model.obj.GetCommonFieldByName(name)
 			if field.IsInheritedField() {
 				// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
-				lTableName := field.ModelName() // rel_fld.RelateTableName
-				rel_vals[lTableName][name] = val
+				tableName := field.ModelName() // rel_fld.RelateTableName
+				rel_vals[tableName][name] = val
 
 			} else {
 				if field.Store() && field.SQLType().Name != "" {
@@ -1288,7 +1310,7 @@ func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id in
 // TODO 接受多值 dataset
 // TODO 当只有M2M被更新时不更新主数据倒数据库
 // start to write data from the database
-func (self *TSession) Write(data interface{}, classic_write ...bool) (int64, error) {
+func (self *TSession) Write(data interface{}, classic_write ...bool) (effect int64, err error) {
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -1533,8 +1555,8 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 	}
 
 	if cnt, err := res.RowsAffected(); err != nil || (int(cnt) != len(ids)) {
-		self.Rollback()
-		return 0, ErrDeleteFailed
+
+		return 0, self.Rollback(err)
 	}
 
 	table_name := self.Statement.model.table
@@ -1593,8 +1615,9 @@ func (self *TSession) CreateTable(model string) error {
 
 	// 更新Model表
 	if cnt, err := res.RowsAffected(); err == nil && cnt > 0 {
-		self.Orm().reverse()
+		self.orm.reverse()
 	}
+
 	return err
 }
 
@@ -1635,10 +1658,13 @@ func (self *TSession) CreateIndexes(model string) error {
 
 	self.Statement.model = mod.GetBase() //self.orm.GetTable(tableName)
 
-	sqls := self.Statement.generate_index()
+	sqls, err := self.Statement.generate_index()
+	if err != nil {
+		return err
+	}
+
 	for _, sql := range sqls {
-		_, err := self.exec(sql)
-		if err != nil {
+		if _, err := self.exec(sql); err != nil {
 			return err
 		}
 	}
@@ -1703,7 +1729,6 @@ func (self *TSession) addIndex(tableName, idxName string) error {
 
 	index := self.Statement.model.GetIndexes()[idxName]
 	sql := self.orm.dialect.CreateIndexSql(tableName, index)
-
 	_, err := self.exec(sql)
 	return err
 }

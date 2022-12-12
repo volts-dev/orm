@@ -2,6 +2,7 @@ package orm
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/volts-dev/dataset"
@@ -141,7 +142,7 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 	if cnt == 1 { // many2many(关联表)
 		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName()))             // 字段归属的Model
 		model2 := fmtModelName(utils.TitleCasedName(params[0]))                   // 字段链接的Model
-		rel_model := fmt.Sprintf("%s_%s_rel", model1, model2)                     // 表字段关系的Model
+		rel_model := fmt.Sprintf("%s.%s.rel", model1, model2)                     // 表字段关系的Model
 		fld.Base().comodel_name = model2                                          //目标表
 		fld.Base().relmodel_name = rel_model                                      //提供目标表格关系的表
 		fld.Base().cokey_field_name = fmtFieldName(fmt.Sprintf("%s_id", model1))  //目标表关键字段
@@ -162,7 +163,7 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 	} else if cnt == 3 { // many2many(关联表,字段1,字段2)
 		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
 		model2 := fmtModelName(utils.TitleCasedName(params[0]))       // 字段链接的Model
-		rel_model := fmt.Sprintf("%s_%s_rel", model1, model2)         // 表字段关系的Model
+		rel_model := fmt.Sprintf("%s.%s.rel", model1, model2)         // 表字段关系的Model
 		fld.Base().comodel_name = model2                              //目标表
 		fld.Base().relmodel_name = rel_model                          //提供目标表格关系的表
 		fld.Base().cokey_field_name = fmtFieldName(params[1])         //目标表关键字段
@@ -192,18 +193,13 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 	model := ctx.Model
 	rel := strings.Replace(fld.MiddleModelName(), ".", "_", -1)
 
-	has, err := orm.IsTableExist(rel)
-	if err != nil {
-		log.Errf("m2m check table %s failed:%s", ctx.Field.RelateModelName(), err.Error())
-	}
-
-	if !has {
+	if _, has := orm.osv.models[fld.MiddleModelName()]; !has {
 		field := model.GetFieldByName(model.IdField())
 		sqlType := field.SQLType().Name
 		id1 := fld.RelateFieldName()
 		id2 := fld.MiddleFieldName()
 		query := fmt.Sprintf(`
-	           CREATE TABLE "%s" (
+	           CREATE TABLE IF NOT EXISTS "%s" (
 				"%s" %s NOT NULL,
 				"%s" %s NOT NULL,UNIQUE("%s","%s"));
 	           COMMENT ON TABLE "%s" IS '%s';
@@ -217,10 +213,22 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 			rel, id2)
 		_, err := orm.Exec(query)
 		if err != nil {
-			log.Errf("m2m create table '%s' failure : SQL:%s,Error:%s", ctx.Field.RelateModelName(), query, err.Error())
+			log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelateModelName(), query, err.Error())
 		}
 
 		self.update_db_foreign_keys(ctx)
+
+		// 新建模型
+		model_val := reflect.Indirect(reflect.ValueOf(new(TModel)))
+		model_type := model_val.Type()
+		model, err := orm.modelMetas(newModel(fld.MiddleModelName(), rel, model_val, model_type))
+		if err != nil {
+			log.Err(err)
+		}
+		// 注册model
+		if err = orm.osv.RegisterModel("", model.GetBase()); err != nil {
+			log.Err(err)
+		}
 	}
 
 	/*
@@ -330,15 +338,13 @@ func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldEventContext) er
 			*/
 			_, err := session.Exec(query, relate_id, rec_id)
 			if err != nil {
-				session.Rollback()
-				return err
+				return session.Rollback(err)
 			}
 		}
 
 		err := session.Commit()
 		if err != nil {
-			session.Rollback()
-			return err
+			return session.Rollback(err)
 		}
 	}
 	session.Close()
@@ -371,14 +377,12 @@ func (self *TMany2ManyField) unlink_all(ids []interface{}, ctx *TFieldEventConte
 		session.Begin()
 		_, err := session.Exec(query, arg...)
 		if err != nil {
-			session.Rollback()
-			return err
+			return session.Rollback(err)
 		}
 
 		session.Commit()
 		if err != nil {
-			session.Rollback()
-			return err
+			return session.Rollback(err)
 		}
 
 	}
