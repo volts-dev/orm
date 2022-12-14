@@ -129,6 +129,7 @@ func (self *TSession) Query(sql string, paramStr ...interface{}) (*dataset.TData
 }
 
 func (self *TSession) query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error) {
+	defer self.resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
 		sql = filter.Do(sql, self.orm.dialect, self.Statement.model)
 	}
@@ -138,7 +139,6 @@ func (self *TSession) query(sql string, paramStr ...interface{}) (*dataset.TData
 			return self.queryWithOrg(sql, paramStr...)
 		}
 		return self.queryWithTx(sql, paramStr...)
-
 	})
 }
 
@@ -261,6 +261,7 @@ func (self *TSession) Exec(sql_str string, args ...interface{}) (sql.Result, err
 
 // Exec raw sql
 func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, error) {
+	defer self.resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
 		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.model)
 	}
@@ -386,14 +387,14 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 					//TODO 修改数据类型
 					// 如果是修改字符串到
 					if expectedType == Text && strings.HasPrefix(curType, Varchar) {
-						log.Infof("Table <%s> column <%s> change type from %s to %s\n", tableName, field.Name(), curType, expectedType)
+						log.Warnf("Table <%s> column <%s> change type from %s to %s\n", tableName, field.Name(), curType, expectedType)
 						_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 
 					} else if strings.HasPrefix(curType, Varchar) && strings.HasPrefix(expectedType, Varchar) {
 						// 如果是同是字符串 则检查长度变化 for mysql
 
 						if cur_field.Size() < field.Size() {
-							log.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", tableName, field.Name(), cur_field.Size(), field.Size())
+							log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", tableName, field.Name(), cur_field.Size(), field.Size())
 							_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 						}
 						//}
@@ -408,7 +409,7 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 				// 如果是同是字符串 则检查长度变化 for mysql
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() < field.Size() {
-					log.Infof("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n",
+					log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n",
 						tableName, field.Name(), cur_field.Size(), field.Size())
 					_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 				}
@@ -447,6 +448,8 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 	{ // 表修改
 		var foundIndexNames = make(map[string]bool)
 		var addedNames = make(map[string]*TIndex)
+
+		// TODO 主键是否可以修改
 
 		// 检查更新索引 先取消索引载添加需要的
 		// 取消Idex
@@ -532,6 +535,7 @@ func (self *TSession) IsExist(model ...string) (bool, error) {
 	return lDs.Count() > 0, nil
 }
 
+// 重制Statement防止参数重用
 func (self *TSession) resetStatement() {
 	if self.AutoResetStatement {
 		self.Statement.Init()
@@ -1291,6 +1295,7 @@ func (self *TSession) write(src interface{}, context map[string]interface{}) (re
 }
 
 func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id interface{}, res_err error) {
+	defer self.resetStatement()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -1311,6 +1316,7 @@ func (self *TSession) Create(src interface{}, classic_create ...bool) (res_id in
 // TODO 当只有M2M被更新时不更新主数据倒数据库
 // start to write data from the database
 func (self *TSession) Write(data interface{}, classic_write ...bool) (effect int64, err error) {
+	defer self.resetStatement()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -1328,7 +1334,7 @@ func (self *TSession) Write(data interface{}, classic_write ...bool) (effect int
 // start to read data from the database
 func (self *TSession) Read(classic_read ...bool) (*dataset.TDataSet, error) {
 	// reset after complete
-	//defer self.Statement.Init()
+	defer self.resetStatement()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -1519,6 +1525,7 @@ func (self *TSession) Sum(colName string) (float64, error) {
 // TODO 根据条件删除
 // delete records
 func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
+	defer self.resetStatement()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -1767,6 +1774,7 @@ func (self *TSession) _check_model() bool {
 
 // search and return the id list only
 func (self *TSession) Search() ([]interface{}, error) {
+	defer self.resetStatement()
 	if self.IsAutoClose {
 		defer self.Close()
 	}

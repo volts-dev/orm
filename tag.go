@@ -319,8 +319,13 @@ func tag_id(ctx *TFieldContext) {
 
 func tag_pk(ctx *TFieldContext) {
 	fld := ctx.Field
+	params := ctx.Params
+	val := true
+	if len(params) > 0 {
+		val = utils.Itf2Bool(params[0])
+	}
 
-	fld.Base().isPrimaryKey = true
+	fld.Base().isPrimaryKey = val
 	fld.Base()._attr_required = true
 }
 

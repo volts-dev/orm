@@ -127,6 +127,11 @@ func (self *TObj) GetFieldByName(name string) IField {
 
 func (self *TObj) SetFieldByName(name string, field IField) {
 	self.fieldsLock.Lock()
+	if field.IsPrimaryKey() {
+		if utils.In(name, self.PrimaryKeys...) == -1 {
+			self.PrimaryKeys = append(self.PrimaryKeys, name)
+		}
+	}
 	self.fields[name] = field
 	self.fieldsLock.Unlock()
 }

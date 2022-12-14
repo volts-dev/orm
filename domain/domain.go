@@ -129,15 +129,26 @@ func printNodes(idx int, node *TDomainNode) {
 	}
 }
 
+// TODO 考虑废除 不简便易混要
 // domain 只负责where条件语句编写
 func NewDomainNode(values ...interface{}) *TDomainNode {
 	node := &TDomainNode{}
 
 	// set the default option
-	if values == nil {
+	if len(values) == 0 {
 		node.nodeType = VALUE_NODE
 	}
 
+	node.Push(values...)
+	return node
+}
+
+func New(field any, operators any, values ...interface{}) *TDomainNode {
+	node := &TDomainNode{
+		nodeType: LEAF_NODE,
+	}
+	node.Push(field)
+	node.Push(operators)
 	node.Push(values...)
 	return node
 }

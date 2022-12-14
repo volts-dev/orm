@@ -32,6 +32,7 @@ type (
 		// 获取继承的模型
 		// 用处:super 用于方便调用不同层级模型的方法/查询等
 		Super() IModel
+		// 包含指定表模型的事务
 		Tx() *TSession
 
 		// private
@@ -53,7 +54,13 @@ type (
 		GetDefault() map[string]interface{}
 		GetDefaultByName(fieldName string) (value interface{})
 		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
+		/*	Object A can have one or many of objects B (E.g A person can have many cars).
+			Relationship: A -> B = One -> Many = One2Many
+			(You can select many cars while creating a person).	*/
 		One2many(ids []interface{}, fieldName string) (*dataset.TDataSet, error)
+		/*	Object B can only have one object of A.
+			(E.g A car is owned by one person also many cars can be owned by the same person).
+			Relationship: B -> A = Many -> One = Many2One	*/
 		Many2one(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error)
 		Many2many(ids []interface{}, fieldName string) (map[interface{}]*dataset.TDataSet, error)
 
@@ -924,27 +931,53 @@ func (self *TModel) One2many(ids []interface{}, fieldName string) (ds *dataset.T
 
 	relModelName := field.RelateModelName()
 	relkey_field_name := field.RelateFieldName()
-	rel_model, err := self.orm.GetModel(relModelName)
+	relateModel, err := self.orm.GetModel(relModelName)
 	if err != nil {
 		return nil, err
 	}
 
-	rel_filed := rel_model.GetFieldByName(relkey_field_name)
+	rel_filed := relateModel.GetFieldByName(relkey_field_name)
 	if rel_filed.Type() != TYPE_M2O {
 		return nil, log.Errf("the relate model <%s> field <%s> is not many2one type.", relModelName, relkey_field_name)
 	}
 
-	//log.Dbg("fff", ids, relModelName)
-	ds, err = rel_model.Records().In(relkey_field_name, ids...).Read()
+	recs := relateModel.Tx()
+	if recs.IsAutoClose {
+		defer recs.Close()
+	}
+	ds, err = recs.In(relkey_field_name, ids...).Read()
 	if err != nil {
-		log.Errf("One2Many field %s search relate model %s faild", field.Name(), rel_model.String())
+		log.Errf("One2Many field %s search relate model %s faild", field.Name(), relateModel.String())
 		return nil, err
 	}
 
-	return ds, err
+	return ds, nil
 }
+
 func (self *TModel) Many2one(ids []interface{}, fieldName string) (ds *dataset.TDataSet, err error) {
-	return nil, nil
+
+	field := self.GetFieldByName(fieldName)
+	if !field.IsRelatedField() || field.Type() != TYPE_M2O {
+		return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, fieldName, field.IsRelatedField(), field.Type())
+	}
+
+	relateModelName := field.RelateModelName()
+	relateModel, err := self.orm.GetModel(relateModelName)
+	if err != nil {
+		return nil, err
+	}
+
+	recs := relateModel.Tx()
+	if recs.IsAutoClose {
+		defer recs.Close()
+	}
+	ds, err = recs.Ids(ids...).Read()
+	if err != nil {
+		log.Errf("Many2one field %s search relate model %s faild", field.Name(), relateModel.String())
+		return nil, err
+	}
+
+	return ds, nil
 }
 
 // return : map[id]record
@@ -993,18 +1026,20 @@ func (self *TModel) Many2many(ids []interface{}, fieldName string) (map[interfac
 
 	offset := ""
 
+	midTableName := fmtTableName(midModelName)
+	relTableName := fmtTableName(relModelName)
 	// the table name in cacher
-	cacher_table_name := relModelName + "_" + from_c
+	cacher_table_name := relTableName + "_" + from_c
 
 	//Many2many('res.lang', 'website_lang_rel', 'website_id', 'lang_id')
 	//SELECT {rel}.{id1}, {rel}.{id2} FROM {rel}, {from_c} WHERE {where_c} AND {rel}.{id1} IN %s AND {rel}.{id2} = {tbl}.id {order_by} {limit} OFFSET {offset}
 	query := fmt.Sprintf(
 		`SELECT %s.%s, %s.%s FROM %s, %s WHERE %s AND %s.%s IN (?) AND %s.%s = %s.id %s %s %s`,
-		midModelName, relFieldName, midModelName, midFieldName,
-		midModelName, from_c, // FROM
+		midTableName, relFieldName, midTableName, midFieldName,
+		midTableName, from_c, // FROM
 		where_c,                    //WHERE
-		midModelName, relFieldName, // AND
-		midModelName, midFieldName, relModelName, //AND
+		midTableName, relFieldName, // AND
+		midTableName, midFieldName, relTableName, //AND
 		order_by, limit, offset,
 	)
 
@@ -1026,9 +1061,8 @@ func (self *TModel) Many2many(ids []interface{}, fieldName string) (map[interfac
 
 			ds, err := sess.Query(query, params...)
 			if err != nil {
-				log.Err(err)
-				//ds.Next()
-				continue
+				return nil, err
+				//continue
 			}
 
 			// # store result in cache

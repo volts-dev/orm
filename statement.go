@@ -105,17 +105,17 @@ func (self *TStatement) Domain(dom interface{}, args ...interface{}) *TStatement
 func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) {
 	var new_cond *domain.TDomainNode
 	var err error
-	switch cond.(type) {
+	switch v := cond.(type) {
 	case string:
 		// 添加信的条件
-		new_cond, err = domain.String2Domain(cond.(string))
+		new_cond, err = domain.String2Domain(v)
 		if err != nil {
 			log.Err(err)
 		}
 	case *domain.TDomainNode:
-		new_cond = cond.(*domain.TDomainNode)
+		new_cond = v
 	default:
-		log.Errf("op not support this query %v", cond)
+		log.Errf("op not support this query %v", v)
 	}
 
 	self.domain.OP(op, new_cond)
@@ -146,11 +146,13 @@ func (self *TStatement) In(field string, args ...interface{}) *TStatement {
 		return self
 	}
 
-	keys := domain.NewDomainNode(args...)
-	new_cond := domain.NewDomainNode()
-	new_cond.Push(field)
-	new_cond.Push("IN")
-	new_cond.Push(keys)
+	new_cond := domain.New(field, "IN", args...)
+	/*
+		keys := domain.NewDomainNode(args...)
+		new_cond := domain.NewDomainNode()
+		new_cond.Push(field)
+		new_cond.Push("IN")
+		new_cond.Push(keys)*/
 	self.Op(domain.AND_OPERATOR, new_cond)
 	return self
 }

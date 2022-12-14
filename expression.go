@@ -74,7 +74,7 @@ var (
 		domain.OR_OPERATOR:  2,
 	}
 
-	hierarchy_funcs = map[string]func(*domain.TDomainNode, *domain.TDomainNode, *TModel, string, string, map[string]interface{}) *domain.TDomainNode{
+	HIERARCHY_FUNCS = map[string]func(*domain.TDomainNode, *domain.TDomainNode, *TModel, string, string, map[string]interface{}) *domain.TDomainNode{
 		"child_of":  child_of_domain,
 		"parent_of": parent_of_domain}
 )
@@ -889,7 +889,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.String()), "id", model.obj.GetRelationByName(next_model.String()))
 			self.push(ex_leaf)
 
-		} else if fn, has := hierarchy_funcs[operator.String()]; has && left.String() == self.root_model.idField {
+		} else if fn, has := HIERARCHY_FUNCS[operator.String()]; has && left.String() == self.root_model.idField {
 			// 父子关系
 			// TODO check id 必须改为动态
 			ids2 := self.to_ids(right, model, context, 0)
@@ -1020,9 +1020,51 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			// -------------------------------------------------
 
 		} else if field.Type() == "one2many" {
+			// TODO one2many
+			log.Errf("the one2many %s@%s is no implemented!", field.Name(), field.ModelName())
 		} else if field.Type() == "many2many" {
-
+			// TODO many2many
+			log.Errf("the many2many %s@%s is no implemented!", field.Name(), field.ModelName())
 		} else if field.Type() == "many2one" {
+			if _, has := HIERARCHY_FUNCS[operator.String()]; has {
+				/*
+				   ids2 = to_ids(right, comodel, leaf)
+				                       if field.comodel_name != model._name:
+				                           dom = HIERARCHY_FUNCS[operator](left, ids2, comodel, prefix=field.comodel_name)
+				                       else:
+				                           dom = HIERARCHY_FUNCS[operator]('id', ids2, model, parent=left)
+				                       for dom_leaf in dom:
+				                           push(dom_leaf, model, alias)
+				*/
+			} else {
+				//expr, params = self.leaf_to_sql(ex_leaf, model, alias)
+				self.push_result(ex_leaf)
+				/*
+				   def _get_expression(comodel, left, right, operator):
+				                          #Special treatment to ill-formed domains
+				                          operator = (operator in ['<', '>', '<=', '>=']) and 'in' or operator
+
+				                          dict_op = {'not in': '!=', 'in': '=', '=': 'in', '!=': 'not in'}
+				                          if isinstance(right, tuple):
+				                              right = list(right)
+				                          if (not isinstance(right, list)) and operator in ['not in', 'in']:
+				                              operator = dict_op[operator]
+				                          elif isinstance(right, list) and operator in ['!=', '=']:  # for domain (FIELD,'=',['value1','value2'])
+				                              operator = dict_op[operator]
+				                          res_ids = comodel.with_context(active_test=False)._name_search(right, [], operator, limit=None)
+				                          if operator in NEGATIVE_TERM_OPERATORS:
+				                              res_ids = list(res_ids) + [False]  # TODO this should not be appended if False was in 'right'
+				                          return left, 'in', res_ids
+				                      # resolve string-based m2o criterion into IDs
+				                      if isinstance(right, str) or \
+				                              isinstance(right, (tuple, list)) and right and all(isinstance(item, str) for item in right):
+				                          push(_get_expression(comodel, left, right, operator), model, alias)
+				                      else:
+				                          # right == [] or right == False and all other cases are handled by __leaf_to_sql()
+				                          expr, params = self.__leaf_to_sql(leaf, model, alias)
+				                          push_result(expr, params)
+				*/
+			}
 
 		} else if field.Type() == "binary" && field.(*TBinField).attachment {
 

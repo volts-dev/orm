@@ -13,6 +13,7 @@ import (
 var log = logger.New("orm")
 
 // TODO cache name
+// TODO 9缓存必须是支持读写多个ORM共享
 type (
 	TCacher struct {
 		sync.RWMutex
