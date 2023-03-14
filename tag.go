@@ -33,7 +33,6 @@ const (
 	TAG_IGNORE        = "-" // 忽略某些继承者成员
 	TAG_READ_ONLY     = "<-"
 	TAG_WRITE_ONLY    = "->"
-	TAG_ID            = "id"
 	TAG_PK            = "pk"
 	TAG_AUTO          = "autoincr"
 	TAG_TYPE          = "type"
@@ -66,6 +65,7 @@ const (
 	TAG_GETTER        = "getter"     // # 函数赋值
 
 	// type
+	TAG_ID        = "id"
 	TAG_INT       = "int"
 	TAG_BIGINT    = "bigint"
 	TAG_FLOAT     = "float"
@@ -73,6 +73,7 @@ const (
 	TAG_TIME      = "datetime" // #完整时间 包含时区
 	TAG_BOOL      = "bool"
 	TAG_CHAR      = "char"
+	TAG_RECNAME   = "recname"
 	TAG_VAR_CHAR  = "varchar"
 	TAG_TEXT      = "text"
 	TAG_SELECTION = "selection"
@@ -111,6 +112,7 @@ func init() {
 		TAG_NAME:       tag_name,
 		TAG_OLD_NANE:   tag_old_name,
 		TAG_ID:         tag_id,
+		TAG_RECNAME:    tag_recname,
 		TAG_PK:         tag_pk,
 		TAG_AUTO:       tag_auto,
 		TAG_TYPE:       tag_type,
@@ -175,23 +177,21 @@ func init() {
 func RegisterTagController(name string, ctrl ITagController) {
 	name = strings.ToLower(name)
 	if tag_ctrl == nil {
-		panic("logs: Register provide is nil")
+		log.Panic("Register Tag Controller provide is nil")
 	}
 
 	if _, dup := tag_ctrl[name]; dup {
-		panic("logs: Register called twice for provider " + name)
+		log.Panic("Register called twice for provider " + name)
 	}
 
 	tag_ctrl[name] = ctrl
 }
 
 func GetTagControllerByName(name string) ITagController {
-	ctrl, has := tag_ctrl[name]
-	if !has {
-		return nil
+	if ctrl, has := tag_ctrl[name]; has {
+		return ctrl
 	}
-
-	return ctrl
+	return nil
 }
 
 // 字段值计算函数 必须是Model的方法
@@ -315,6 +315,11 @@ func tag_id(ctx *TFieldContext) {
 
 	// set the id field to model
 	ctx.Model.IdField(ctx.Field.Name())
+}
+
+func tag_recname(ctx *TFieldContext) {
+	// set the id field to model
+	ctx.Model.SetRecordName(ctx.Field.Name())
 }
 
 func tag_pk(ctx *TFieldContext) {

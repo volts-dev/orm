@@ -26,9 +26,9 @@ type (
 
 func generate_index_name(indexType int, tableName string, fields []string) string {
 	tableName = strings.Replace(tableName, `"`, "", -1)
-	tableName = utils.TrimCasedName(tableName)
-	var fieldName string
+	tableName = TrimCasedName(tableName, true)
 
+	var fieldName string
 	if len(fields) == 1 {
 		fieldName = fields[0]
 	} else {
@@ -45,7 +45,7 @@ func generate_index_name(indexType int, tableName string, fields []string) strin
 func newIndex(name string, indexType int, fields ...string) *TIndex {
 	/*if name == "" {
 		tableName = strings.Replace(tableName, `"`, "", -1)
-		tableName = utils.TrimCasedName(tableName)
+		tableName = TrimCasedName(tableName, true)
 		var fieldName string
 
 		if len(fields) == 1 {
@@ -74,7 +74,7 @@ func (index *TIndex) GetName(tableName string) string {
 		!strings.HasPrefix(index.Name, "IDX_") {
 		tableName = strings.Replace(tableName, `"`, "", -1)
 		//tableName = strings.Replace(tableName, `.`, "_", -1)
-		tableName = utils.TrimCasedName(tableName)
+		tableName = TrimCasedName(tableName, true)
 		if index.Type == UniqueType {
 			return fmt.Sprintf("UQE_%v_%v", tableName, index.Name)
 		}

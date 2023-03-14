@@ -37,6 +37,36 @@ func fmtFieldName(name string) string {
 	return utils.SnakeCasedName(utils.TrimQuotes(utils.Trim(name)))
 }
 
+// "HelloWorld" to "hello_world" to "HW"
+func TrimCasedName(name string, keeplast ...bool) string {
+	var newstr []rune
+	upNextChar := true
+	lastCharIdx := 0
+
+	for idx, chr := range name {
+		if 'A' <= chr && chr <= 'Z' {
+			upNextChar = false
+		} else if upNextChar {
+			upNextChar = false
+		} else if chr == '_' || chr == '.' {
+			upNextChar = true
+			continue
+		} else {
+			continue
+		}
+		lastCharIdx = idx
+		newstr = append(newstr, chr)
+	}
+
+	if len(keeplast) > 0 && keeplast[0] {
+		lastStrName := name[lastCharIdx:]
+		name = string(newstr[:len(newstr)-1]) + lastStrName
+	} else {
+		name = string(newstr)
+	}
+	return name
+}
+
 func lookup(tag string, key ...string) (value string) {
 	// When modifying this code, also update the validateStructTag code
 	// in golang.org/x/tools/cmd/vet/structtag.go.

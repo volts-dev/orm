@@ -53,6 +53,7 @@ type (
 
 		// object 属性
 		uidFieldName      string
+		nameField         string
 		fields            map[string]IField                  // map[field]
 		relations         map[string]string                  // many2many many2one... 等关联表
 		relatedFields     map[string]*TRelatedField          // 关联字段如 UserId CompanyID
@@ -397,7 +398,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	*/
 	obj.mappingMethod(model)
 	obj.uidFieldName = model.idField
-
+	obj.nameField = model.nameField
 	self.modelsLock.Lock()
 	self.models[model.name] = obj
 	self.modelsLock.Unlock()
@@ -519,6 +520,7 @@ func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TObj, m
 		// NOTED <以下代码严格遵守执行顺序>
 		model := newModel(modelName, "", val, atype) //self.newModel(sess, model)
 		model.idField = obj.uidFieldName
+		model.nameField = obj.nameField
 		model.obj = obj
 		model.osv = self
 		model.orm = self.orm

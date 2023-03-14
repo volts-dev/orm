@@ -9,6 +9,7 @@ import (
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
+
 	"github.com/volts-dev/utils"
 )
 
@@ -87,7 +88,7 @@ type (
 		Records() *TSession
 
 		// UTF file only
-		Load(file io.Reader, breakcount ...int) (map[int]string, error)
+		Load(field []string, records ...any) (ids []any, err error)
 
 		// Create 不带事务的
 		Create(records ...any) ([]any, error)
@@ -98,6 +99,8 @@ type (
 		// Delete 不带事务的
 		Delete(ids ...interface{}) (int64, error)
 		//Write(ids []string, values interface{}) (err error)
+
+		Uplaod(fileName string, content []byte) (int64, error)
 		//update(vals map[string]interface{}, where string, args ...interface{}) (id int64)
 		//Unlink(ids ...string) bool
 		Osv() *TOsv
@@ -143,7 +146,7 @@ type (
 		_sequence     string //
 		_order        string //
 		_module       string // # 属于哪个模块所有
-		_rec_name     string // the field name which is the name represent a record @examples: Name,Title,PartNo
+		nameField     string // the field name which is the name represent a record @examples: Name,Title,PartNo
 		idField       string // the field name which is the UID represent a record
 		_auto         bool   // # True # create database backend
 		_transient    bool   // # 暂时的
@@ -281,6 +284,15 @@ func (self *TModel) Delete(ids ...any) (int64, error) {
 	return effectCount, nil
 }
 
+func (self *TModel) Uplaod(fileName string, content []byte) (int64, error) {
+	recs := self.Tx()
+	if recs.IsAutoClose {
+		defer recs.Close()
+	}
+
+	return 0, nil
+}
+
 func (self *TModel) setOrm(o *TOrm) {
 	self.orm = o
 }
@@ -292,23 +304,23 @@ func (self *TModel) setBaseModel(model *TModel) {
 }
 
 func (self *TModel) SetRecordName(fieldName string) {
-	self._rec_name = fieldName
+	self.nameField = fieldName
 }
 
 // return the field name of record's name field
 func (self *TModel) GetRecordName() string {
-	// # if self._rec_name is set, it belongs to self._fields
-	if fld := self.GetFieldByName(self._rec_name); fld == nil {
-		if self._rec_name == "" {
+	// # if self.nameField is set, it belongs to self._fields
+	if fld := self.GetFieldByName(self.nameField); fld == nil {
+		if self.nameField == "" {
 			if fld := self.GetFieldByName("name"); fld != nil {
-				self._rec_name = "name"
+				self.nameField = "name"
 			} else {
-				self._rec_name = self.idField
+				self.nameField = self.idField
 			}
 		}
 	}
 
-	return self._rec_name
+	return self.nameField
 }
 
 // TODO 优化
@@ -455,11 +467,11 @@ func (self *TModel) __search_name(name string, args *utils.TStringList, operator
 			limit = 100
 		}
 		// optimize out the default criterion of ``ilike ''`` that matches everything
-		if self._rec_name == "" {
-			utils.log.Warn("Cannot execute name_search, no _rec_name defined on %s", self.name)
+		if self.nameField == "" {
+			utils.log.Warn("Cannot execute name_search, no nameField defined on %s", self.name)
 		} else if name != "" && operator != "ilike" {
 			lDomain := NewStringList()
-			lDomain.PushString(self._rec_name)
+			lDomain.PushString(self.nameField)
 			lDomain.PushString(operator)
 			lDomain.PushString(name)
 			args.Push(lDomain)
@@ -493,9 +505,9 @@ behavior of :meth:`~.create` applies.
 :return: the :meth:`~.name_get` pair value of the created record
 */
 func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
-	if self.obj.GetFieldByName(self._rec_name) != nil {
+	if self.obj.GetFieldByName(self.nameField) != nil {
 		id, err := self.Create(map[string]interface{}{
-			self._rec_name: name,
+			self.nameField: name,
 		})
 		if err != nil {
 			return nil, log.Errf("cannot execute name_create, create name faild %s", err.Error())
@@ -503,7 +515,7 @@ func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
 		}
 		return self.NameGet([]interface{}{id})
 	} else {
-		return nil, log.Errf("Cannot execute name_create, no _rec_name defined on %s", self.name)
+		return nil, log.Errf("Cannot execute name_create, no nameField defined on %s", self.name)
 	}
 }
 
@@ -555,7 +567,7 @@ func (self *TModel) SearchName(name string, domain_str string, operator string, 
 	// 使用默认 name 字段
 	rec_name_field := self.GetRecordName()
 	if rec_name_field == "" {
-		return nil, log.Errf("Cannot execute name_search, no _rec_name defined on %s", self.name)
+		return nil, log.Errf("Cannot execute name_search, no nameField defined on %s", self.name)
 	}
 
 	if name == "" && operator != "ilike" {
@@ -647,8 +659,36 @@ func (self *TModel) import_data() {
 
 }
 
+// 带事务加载上传数据
 // @Return map: row index in csv file fail and error message
-func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, error) {
+func (self *TModel) Load(field []string, records ...any) (ids []any, err error) {
+	// 写入记录
+	model, err := self.Orm().GetModel(self.String())
+	if err != nil {
+		return nil, err
+	}
+
+	// 由model初始化事物
+	tx := model.Tx()
+	tx.Begin()
+
+	ids, err = model.Create(records...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		if e := tx.Rollback(err); e != nil {
+			return nil, err
+		}
+	}
+
+	return ids, nil
+}
+
+// TODO 删除
+// @Return map: row index in csv file fail and error message
+func (self *TModel) ___Load(field []string, file io.Reader, breakcount ...int) (map[int]string, error) {
 	onceInsert := 50000
 	if breakcount != nil {
 		onceInsert = breakcount[0]
@@ -710,18 +750,14 @@ func (self *TModel) Load(file io.Reader, breakcount ...int) (map[int]string, err
 			count++
 		}
 
-		err = session.Commit()
-		if err != nil {
-			log.Err(err)
+		if err = session.Commit(); err != nil {
+			if e := session.Rollback(err); e != nil {
+				return nil, err
+			}
 
 			// 添加提交失败的行
 			for _, r := range successRows {
 				errRows[r] = "Commit fail!"
-			}
-
-			e := session.Rollback(err)
-			if e != nil {
-				log.Err(e)
 			}
 		}
 	}
@@ -818,8 +854,7 @@ func (self *TModel) relations_reload() {
 	)
 
 	for tbl, fld := range self.obj.GetRelations() {
-		//log.Dbg("_relations_reload", tbl, strings.Replace(tbl, "_", ".", -1))
-		rel_model, err := self.osv.GetModel(tbl) // #i //TableByName(tbl)
+		rel_model, err := self.osv.GetModel(tbl) //
 		if err != nil {
 			log.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.String())
 		}
@@ -1122,7 +1157,7 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 			case "boolean":
 				vals[key] = utils.Itf2Bool(val)
 			case "integer":
-				vals[key] = utils.Itf2Int(val)
+				vals[key] = utils.ToInt(val)
 			case "float":
 				vals[key] = utils.Itf2Float(val)
 			case "char", "text":
@@ -1130,8 +1165,8 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 			//case "blob":
 			//	vals[key] = utils.Itf2Bool(val)
 			case "datetime", "date":
-				vals[key] = utils.Itf2Time(val)
-				//log.Dbg("datetime", key, val, utils.Itf2Time(val))
+				vals[key] = utils.ToTime(val)
+				//log.Dbg("datetime", key, val, utils.ToTime(val))
 			case "many2one":
 				// TODO 支持多种数据类型
 				//self.osv.GetModel(f.relModelName)

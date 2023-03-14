@@ -271,7 +271,7 @@ func value2FieldTypeValue(field IField, value interface{}) interface{} {
 	case Bool:
 		return utils.Itf2Bool(value)
 	case DateTime, Date, Time, TimeStamp, TimeStampz, SmallDateTime:
-		return utils.Itf2Time(value)
+		return utils.ToTime(value)
 	case Decimal, Numeric, Money, SmallMoney:
 		return value // TODO 2
 	default:
@@ -286,12 +286,12 @@ func value2SqlTypeValue(field IField, value interface{}) interface{} {
 	case Bool:
 		return utils.Itf2Bool(value)
 	case Int, BigInt:
-		return utils.Itf2Int64(value)
+		return utils.ToInt64(value)
 	case Char, Text:
 		return utils.Itf2Str(value)
 	//case Blob: // TODO Blob
 	case Time:
-		return utils.Itf2Time(value)
+		return utils.ToTime(value)
 	case Json: // TODO Json
 
 	default:

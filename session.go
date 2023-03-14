@@ -31,6 +31,10 @@ type (
 
 		lastSQL     string
 		lastSQLArgs []interface{} // 储存有序值
+
+		// 存储Create创建时Name字段索引缓存供Many2One.OnWrite使用
+		// @格式:[field]id
+		CacheNameIds map[string]any
 	}
 )
 
@@ -42,6 +46,7 @@ func (self *TSession) init() error {
 	self.AutoResetStatement = true
 	self.IsCommitedOrRollbacked = false
 	self.Prepared = false
+	self.CacheNameIds = nil
 	return nil
 }
 
@@ -547,15 +552,19 @@ func (self *TSession) IsIndexExist(tableName, idxName string, unique bool) (bool
 	if self.IsAutoClose {
 		defer self.Close()
 	}
-
-	var idx string
-	if unique {
-		idx = generate_index_name(UniqueType, tableName, []string{idxName})
-	} else {
-		idx = generate_index_name(IndexType, tableName, []string{idxName})
-	}
-	sqlStr, args := self.orm.dialect.IndexCheckSql(tableName, idx)
+	/*
+		var idx string
+		if unique {
+			idx = generate_index_name(UniqueType, tableName, []string{idxName})
+		} else {
+			idx = generate_index_name(IndexType, tableName, []string{idxName})
+		}
+	*/
+	sqlStr, args := self.orm.dialect.IndexCheckSql(tableName, idxName)
 	results, err := self.query(sqlStr, args...)
+
+	// NOTE:数据库不予许不同表使用同一索引名称 索引名称必须是数据库唯一的
+	// 如果出现relation "XXX" already exists并且results.Count()==0说明索引名称已经被占用！
 	return results.Count() > 0, err
 }
 
@@ -786,13 +795,13 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 	}
 
 	// 拆分数据
-	lNewVals, lRefVals, lNewTodo, res_err := self.separateValues(vals, self.Statement.Fields, self.Statement.NullableFields, true, true)
+	newValues, refValues, lNewTodo, res_err := self.separateValues(vals, self.Statement.Fields, self.Statement.NullableFields, true, true)
 	if res_err != nil {
 		return nil, res_err
 	}
 
 	// 创建关联数据
-	for tbl, rel_vals := range lRefVals {
+	for tbl, rel_vals := range refValues {
 		if len(rel_vals) == 0 {
 			continue // # 关系表无数据更新则忽略
 		}
@@ -820,25 +829,25 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 			lMdlObj.Records().Ids(record_id).Write(rel_vals)
 		}
 
-		lNewVals[self.Statement.model.obj.GetRelationByName(tbl)] = record_id
+		newValues[self.Statement.model.obj.GetRelationByName(tbl)] = record_id
 	}
 
 	// 被设置默认值的字段赋值给Val
 	for k, v := range self.Statement.model.obj.GetDefault() {
-		if lNewVals[k] == nil {
-			lNewVals[k] = v //fmt. lFld._symbol_c
+		if newValues[k] == nil {
+			newValues[k] = v //fmt. lFld._symbol_c
 		}
 	}
 
 	// #验证数据类型
 	//TODO 需要更准确安全
-	self.Statement.model._validate(lNewVals)
+	self.Statement.model._validate(newValues)
 
 	id_field := self.Statement.model.idField
 	fields := make([]string, 0)
 	params := make([]interface{}, 0)
 	// 字段,值
-	for k, v := range lNewVals {
+	for k, v := range newValues {
 		if v == nil { // 过滤nil 的值
 			continue
 		}
@@ -898,7 +907,7 @@ func (self *TSession) create(src interface{}) (res_id interface{}, res_err error
 	if res_id != nil {
 		//更新缓存
 		table_name := self.Statement.model.table
-		lRec := dataset.NewRecordSet(nil, lNewVals)
+		lRec := dataset.NewRecordSet(nil, newValues)
 		self.orm.Cacher.PutById(table_name, utils.IntToStr(res_id), lRec) //for create
 
 		// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
@@ -973,6 +982,7 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			continue
 		}
 
+		// --强字段--
 		// TODO 保留审视 // ignore AutoIncrement field
 		//	if col != nil && !mustPkey && (col.IsAutoIncrement || col.IsPrimaryKey) {
 		if field != nil && field.IsAutoIncrement() {
@@ -1006,7 +1016,19 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			vals[name] = lTimeItfVal
 		}
 
-		// 以下处理非强字段
+		if id, has := new_vals[self.Statement.IdKey]; has {
+			if field.Type() == TYPE_M2O {
+				// TODO name 字段
+				if nameVal, has := vals[self.Statement.model.nameField]; has {
+					if self.CacheNameIds == nil {
+						self.CacheNameIds = make(map[string]any)
+					}
+					self.CacheNameIds[nameVal.(string)] = id
+				}
+			}
+		}
+
+		// --非强字段--
 		is_must_field := mustFields[name]
 		lNullableField := nullableFields[name]
 		if val, has := vals[name]; has {
@@ -1016,16 +1038,14 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 				continue
 			}
 
-			//log.Dbg("## VV:", name, col.SQLType.IsNumeric())
 			if field != nil && field.SQLType().IsNumeric() {
-				//log.Dbg("## VV:", name, val, blank, reflect.TypeOf(val), val == blank)
 				if utils.IsBlank(val) {
 					continue
 				}
 			}
 
 			// TODO 优化确认代码位置  !NOTE! 转换值为数据库类型
-			val = field.onConvertToWrite(self, val)
+			//val = field.onConvertToWrite(self, val)
 
 			// #相同名称的字段分配给对应表
 			comm_tables := self.Statement.model.obj.GetCommonFieldByName(name) // 获得拥有该字段的所有表
@@ -1033,10 +1053,10 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 				// 为各表预存值
 				for tbl := range comm_tables {
 					if tbl == self.Statement.model.table {
-						new_vals[name] = val // 为当前表添加共同字段值
+						new_vals[name] = field.onConvertToWrite(self, val) // 为当前表添加共同字段值
 
 					} else if rel_vals[tbl] != nil {
-						rel_vals[tbl][name] = val // 为关联表添加共同字段值
+						rel_vals[tbl][name] = field.onConvertToWrite(self, val) // 为关联表添加共同字段值
 
 					}
 				}
@@ -1053,12 +1073,28 @@ func (self *TSession) separateValues(vals map[string]interface{}, mustFields map
 			if field.IsInheritedField() {
 				// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
 				tableName := field.ModelName() // rel_fld.RelateTableName
-				rel_vals[tableName][name] = val
+				rel_vals[tableName][name] = field.onConvertToWrite(self, val)
 
 			} else {
 				if field.Store() && field.SQLType().Name != "" {
-					// TODO 格式化值 区分Classic
-					new_vals[name] = val // field.SymbolFunc()(utils.Itf2Str(val))
+					switch field.Type() {
+					case TYPE_M2O:
+						ctx := &TFieldEventContext{
+							Session: self,
+							Model:   self.Statement.model,
+							//Id:      res_id, // TODO
+							Field: field,
+							Value: vals[name]}
+						err := field.OnWrite(ctx)
+						if err != nil {
+							return nil, nil, nil, err
+						}
+						new_vals[name] = ctx.Value
+
+					default:
+						new_vals[name] = field.onConvertToWrite(self, val) // field.SymbolFunc()(utils.Itf2Str(val))
+					}
+
 				} else {
 					//# 大型复杂计算字段
 					upd_todo = append(upd_todo, name)

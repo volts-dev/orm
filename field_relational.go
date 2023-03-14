@@ -396,17 +396,17 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldEventContext) error {
 
 	// TODO　更多类型
 	// 支持一下几种M2M数据类型
-	switch ctx.Value.(type) {
+	switch v := ctx.Value.(type) {
 	case []int:
-		for _, v := range ctx.Value.([]int) {
+		for _, v := range v {
 			ids = append(ids, v)
 		}
 	case []int64:
-		for _, v := range ctx.Value.([]int64) {
+		for _, v := range v {
 			ids = append(ids, v)
 		}
 	case []interface{}:
-		ids = ctx.Value.([]interface{})
+		ids = v
 	default:
 		log.Errf("M2M field name <%s> could not support this type of value %v", ctx.Field.Name(), ctx.Value)
 	}
@@ -513,16 +513,32 @@ func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
 
 func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
 	field := ctx.Field
+	switch v := ctx.Value.(type) {
+	case string:
+		// 处理值为名称转为ID
+		// NOTE:只处理同一Model下的Name值
+		model := ctx.Model
+		if self.RelateModelName() == model.String() {
+			ds, err := model.SearchName(v, "", "", 1, "", nil)
+			if err != nil {
+				return err
+			}
+			if ds.Count() > 0 {
+				ctx.Value = ds.FieldByName(model.IdField()).AsInterface()
+			} else {
+				if id, has := ctx.Session.CacheNameIds[v]; has {
+					ctx.Value = id
+				}
+			}
+		}
 
-	switch ctx.Value.(type) {
 	case []interface{}:
-		if lst, ok := ctx.Value.([]interface{}); ok && len(lst) > 0 {
-			ctx.Value = lst[0]
+		if len(v) > 0 {
+			ctx.Value = v[0]
 		}
 
 	default:
-		log.Errf("%s OnWrite many2one fail", field.Name())
-
+		return fmt.Errorf("%s@%s OnWrite many2one failed with value:%v", field.Name(), ctx.Model.String(), v)
 	}
 
 	return nil

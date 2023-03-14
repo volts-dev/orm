@@ -659,24 +659,24 @@ func (self *TOrm) Connected() bool {
 	return self.connected
 }
 
-func (self *TOrm) IsIndexExist(model string, field string, unique bool) (bool, error) {
+func (self *TOrm) IsIndexExist(tableName string, idxName string, unique bool) (bool, error) {
 	session := self.NewSession()
 	defer session.Close()
-	return session.IsIndexExist(model, field, unique)
+	return session.IsIndexExist(tableName, idxName, unique)
 }
 
 // If a table has any reocrd
-func (self *TOrm) IsTableEmpty(model string) (bool, error) {
+func (self *TOrm) IsTableEmpty(tableName string) (bool, error) {
 	session := self.NewSession()
 	defer session.Close()
-	return session.IsEmpty(model)
+	return session.IsEmpty(tableName)
 }
 
 // If a table is exist
-func (self *TOrm) IsTableExist(model string) (bool, error) {
+func (self *TOrm) IsTableExist(tableName string) (bool, error) {
 	session := self.NewSession()
 	defer session.Close()
-	return session.IsExist(model)
+	return session.IsExist(tableName)
 }
 
 // If a database is exist
@@ -809,9 +809,6 @@ func (self *TOrm) DBMetas() (map[string]IModel, error) {
 func (self *TOrm) SyncModel(region string, models ...interface{}) (modelNames []string, err error) {
 	session := self.NewSession()
 	session.Begin()
-	defer func() {
-		session.Rollback(nil)
-	}()
 
 	modelNames, err = session.SyncModel(region, models...)
 	if err != nil {
@@ -819,7 +816,9 @@ func (self *TOrm) SyncModel(region string, models ...interface{}) (modelNames []
 	}
 
 	if err = session.Commit(); err != nil {
-		return nil, err
+		if err = session.Rollback(err); err != nil {
+			return nil, err
+		}
 	}
 
 	return modelNames, nil

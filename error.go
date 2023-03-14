@@ -6,10 +6,6 @@ import (
 )
 
 type (
-	TErrors struct {
-		list []error
-	}
-
 	sessionError struct {
 		title  string
 		errors []error

@@ -33,7 +33,7 @@ func (self *TCharField) Init(ctx *TFieldContext) {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		size := utils.StrToInt(params[0])
+		size := utils.ToInt(params[0])
 		if size != 0 {
 			fld.Base()._attr_size = size
 		}

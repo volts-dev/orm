@@ -299,7 +299,7 @@ func (self *TStatement) generate_index() ([]string, error) {
 
 	for idxName, index := range self.session.Statement.model.obj.indexes {
 		if index.Type == IndexType {
-			exist, err := self.session.orm.IsIndexExist(tableName, idxName, false)
+			exist, err := self.session.IsIndexExist(tableName, idxName, false)
 			if err != nil {
 				return nil, err
 			}
