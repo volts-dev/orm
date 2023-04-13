@@ -286,6 +286,16 @@ func (self *TOsv) newObject(name string) *TObj {
 
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, model *TModel) error {
+	// 初始化模块
+	// 重建一个全新model以执行init
+	val := reflect.New(model.modelType)
+	self.initObject(val, model.modelType, model.obj, model.String())
+	if m, ok := val.Interface().(IModel); ok {
+		if err := m.Init(); err != nil {
+			return err
+		}
+	}
+
 	//获得Object 检查是否存在，不存在则创建
 	self.modelsLock.RLock()
 	obj := self.models[model.name]
@@ -517,7 +527,7 @@ func (self *TOsv) NewModel(name string) (model *TModel) {
 // 每次GetModel都会激活初始化对象
 func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TObj, modelName string) {
 	if m, ok := val.Interface().(IModel); ok {
-		// NOTED <以下代码严格遵守执行顺序>
+		// NOTE <以下代码严格遵守执行顺序>
 		model := newModel(modelName, "", val, atype) //self.newModel(sess, model)
 		model.idField = obj.uidFieldName
 		model.nameField = obj.nameField
@@ -539,8 +549,6 @@ func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 
 	//获取Model的Object对象
 	if obj, has := self.models[model]; has {
-		//log.Dbg("getModelByModule1", obj, len(self.models), region, model)
-
 		// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
 		for region_name, module_map = range obj.object_types {
 			if region_name == region {
@@ -548,25 +556,9 @@ func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 			}
 		}
 
-		//log.Dbg("_getModelByModule2", region_name, module_map)
-
 		if model_type, has = module_map[model]; has {
-			// 创建对象
-			val = reflect.New(model_type)
+			val = reflect.New(model_type) // 创建对象
 			self.initObject(val, model_type, obj, model)
-			/*
-				// 使用接口对TModel进行赋值
-				if m, ok := val.Interface().(IModel); ok {
-					lModel := NewModel(model, session) //self.newModel(sess, model)
-					lModel._fields = obj.fields
-
-					m.setBaseModel(lModel)
-					//m.SetName(name)
-					//m.SetRegistry(self)
-					//web.Warn("使用接口对TModel进行赋值", m, lVal)
-
-					//return m
-				}*/
 			return val
 		}
 	}

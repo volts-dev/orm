@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -15,7 +16,7 @@ import (
 *
 */
 type (
-	ITagController func(hd *TFieldContext)
+	ITagController func(hd *TTagContext) error
 )
 
 const (
@@ -28,6 +29,12 @@ const (
 	TAG_TABLE_DESCRIPTION = "table_description"
 	TAG_TABLE_ORDER       = "table_order"
 
+	// rel
+	//TAG_RELATED   = "related" //废弃
+	TAG_TABLE_EXTENDS = "table_extends" // TODO
+	TAG_TABLE_RELATE  = "table_relate"
+	TAG_INHERITS      = "inherits"  // #postgres 的继承功能
+	TAG_INHERITED     = "inherited" // #该字段继承来自X表X字段名称 //name = openerp.fields.Char(related='partner_id.name', inherited=True)
 	//******* field tags********
 	// attr
 	TAG_IGNORE        = "-" // 忽略某些继承者成员
@@ -49,7 +56,7 @@ const (
 	TAG_STATES        = "states"
 	TAG_PRIORITY      = "priority"   // TODO
 	TAG_ON_DELETE     = "ondelete"   // TODO
-	TAGTRANSLATE_     = "translate"  // TODO
+	TAG_TRANSLATE     = "translate"  // TODO
 	TAG_SELECT        = "select"     // #select=True （在外键字段上创建了一个索引）
 	TAG_CLASSIC_READ  = "read"       // #经典模式
 	TAG_CLASSIC_WRITE = "write"      // #经典模式
@@ -84,12 +91,6 @@ const (
 	TAG_MANY2MANY = "many2many"
 	TAG_RELATION  = "relation" // 关系表 用于多对多等
 
-	// rel
-	//TAG_RELATED   = "related" //废弃
-	TAG_EXTENDS   = "extends" // TODO
-	TAG_RELATE    = "relate"
-	TAG_INHERITS  = "inherits"  // #postgres 的继承功能
-	TAG_INHERITED = "inherited" // #该字段继承来自X表X字段名称 //name = openerp.fields.Char(related='partner_id.name', inherited=True)
 )
 
 var (
@@ -102,6 +103,11 @@ func init() {
 		TAG_TABLE_NAME:        tag_table_name,
 		TAG_TABLE_DESCRIPTION: tag_table_description,
 		TAG_TABLE_ORDER:       tag_table_order,
+		// # rel
+		//TAG_RELATED] = "related" //废弃
+		TAG_TABLE_EXTENDS: tag_table_extends,
+		TAG_TABLE_RELATE:  tag_table_relate,
+		//TAG_INHERITS: tag_extends_relate, //tag_inherits
 
 		// #attr
 		//tag_ctrl[TAG_IGNORE] = "-" // 忽略某些继承者成员
@@ -129,7 +135,7 @@ func init() {
 		//TAG_STATES:tag_s
 		//TAG_PRIORITY] = "priority"     // TODO
 		TAG_ON_DELETE: tag_ondelete,
-		//TAGTRANSLATE_] = "translate"   // TODO
+		//TAG_TRANSLATE = "translate"   // TODO
 		//TAG_SELECT] = "select"         // #select=True （在外键字段上创建了一个索引）
 		//TAG_CLASSIC_READ:  tag_read,
 		//TAG_CLASSIC_WRITE: tag_write,
@@ -162,12 +168,6 @@ func init() {
 		TAG_RELATION: tag_relation,
 		TAG_SETTER:   tag_setter,
 		TAG_GETTER:   tag_getter,
-		// # rel
-		//TAG_RELATED] = "related" //废弃
-		TAG_EXTENDS: tag_extends,
-		TAG_RELATE:  tag_relate,
-		//TAG_INHERITS: tag_extends_relate, //tag_inherits
-		//T
 	}
 }
 
@@ -195,7 +195,7 @@ func GetTagControllerByName(name string) ITagController {
 }
 
 // 字段值计算函数 必须是Model的方法
-func tag_compute(ctx *TFieldContext) {
+func tag_compute(ctx *TTagContext) error {
 	/*
 		fnct 是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
 		fnct_inv：是一个允许设置这个字段值的函数或方法。
@@ -211,10 +211,11 @@ func tag_compute(ctx *TFieldContext) {
 	params := ctx.Params
 
 	//# by default, computed fields are not stored, not copied and readonly
-	fld.Base()._attr_store = fld.Base()._attr_store || false
+	fld.Base()._attr_store = false // fld.Base()._attr_store || false
 	fld.Base()._attr_readonly = fld.Base()._attr_readonly || false
 
 	if len(params) > 0 {
+		fld.Base().isCompute = true
 		fld.Base()._compute = "" // 初始化
 		lStr := strings.Trim(params[0], "'")
 		lStr = strings.Replace(lStr, "''", "'", -1)
@@ -224,11 +225,11 @@ func tag_compute(ctx *TFieldContext) {
 	} else {
 		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
+	return nil
 }
 
-// fun()getter(ctx *TFieldEventContext) error
 // getter 通过ctx信息处理并修改回dataset里
-func tag_getter(ctx *TFieldContext) {
+func tag_getter(ctx *TTagContext) error {
 	/*
 		fnct 是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
 		fnct_inv：是一个允许设置这个字段值的函数或方法。
@@ -244,7 +245,7 @@ func tag_getter(ctx *TFieldContext) {
 	params := ctx.Params
 
 	//# by default, computed fields are not stored, not copied and readonly
-	fld.Base()._attr_store = fld.Base()._attr_store || false
+	fld.Base()._attr_store = false // fld.Base()._attr_store || false
 	fld.Base()._compute_sudo = fld.Base()._compute_sudo || false
 	fld.Base()._attr_readonly = fld.Base()._attr_readonly || fld.Base()._setter == ""
 	fld.Base().isCompute = false
@@ -260,9 +261,10 @@ func tag_getter(ctx *TFieldContext) {
 	} else {
 		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
+	return nil
 }
 
-func tag_setter(ctx *TFieldContext) {
+func tag_setter(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -283,46 +285,52 @@ func tag_setter(ctx *TFieldContext) {
 	} else {
 		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
 	}
+	return nil
 }
 
 // 废弃 seetter 替代
 // name of a method that inverses the field (optional)
-func tag_inverse(ctx *TFieldContext) {
+func tag_inverse(ctx *TTagContext) error {
+	return nil
 }
 
 // dataset 数据类型
-func tag_type(ctx *TFieldContext) {
+func tag_type(ctx *TTagContext) error {
 	params := ctx.Params
 	fld := ctx.Field
 
 	if len(params) > 0 {
 		fld.Base()._attr_type = params[0]
 	}
+	return nil
 }
 
-func tag_as(ctx *TFieldContext) {
+func tag_as(ctx *TTagContext) error {
 	params := ctx.Params
 	fld := ctx.Field
 
 	if len(params) > 0 {
 		fld.Base().as = params[0]
 	}
+	return nil
 }
 
-func tag_id(ctx *TFieldContext) {
+func tag_id(ctx *TTagContext) error {
 	// do nothing here
 	// already implement on field_id.go
 
 	// set the id field to model
 	ctx.Model.IdField(ctx.Field.Name())
+	return nil
 }
 
-func tag_recname(ctx *TFieldContext) {
+func tag_recname(ctx *TTagContext) error {
 	// set the id field to model
 	ctx.Model.SetRecordName(ctx.Field.Name())
+	return nil
 }
 
-func tag_pk(ctx *TFieldContext) {
+func tag_pk(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 	val := true
@@ -332,16 +340,17 @@ func tag_pk(ctx *TFieldContext) {
 
 	fld.Base().isPrimaryKey = val
 	fld.Base()._attr_required = true
+	return nil
 }
-
-func tag_auto(ctx *TFieldContext) {
+func tag_auto(ctx *TTagContext) error {
 	fld := ctx.Field
 
 	fld.Base().isAutoIncrement = true
+	return nil
 }
 
 // TODO test
-func tag_default(ctx *TFieldContext) {
+func tag_default(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 	model := ctx.Model
@@ -350,69 +359,10 @@ func tag_default(ctx *TFieldContext) {
 		//fld.Base()._attr_size = params[0]
 		model.Obj().SetDefaultByName(fld.Name(), params[0]) // save to model object
 	}
+	return nil
 }
 
-// TODO tag_extends 未完成
-func tag_extends(ctx *TFieldContext) {
-	fld_val := ctx.FieldTypeValue
-	model := ctx.Model
-	params := ctx.Params
-
-	ctx.Field.Base()._attr_store = false // 忽略某些继承者成员
-	switch fld_val.Kind() {
-	case reflect.Ptr:
-		log.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
-		break
-	case reflect.Struct:
-		// #当该值为空时表示不限制字段
-		lRelFields := params
-		lRelFieldsCnt := len(lRelFields)
-
-		object_name := utils.Obj2Name(fld_val.Interface())
-		model_name := fmtModelName(object_name)
-
-		// 现在成员名是关联的Model名,Tag 为关联的字段
-		model.Obj().SetRelationByName(model_name, params[0])
-
-		parentModel := ctx.Orm.mapping(fld_val.Interface())
-		for _, fld := range parentModel.obj.GetFields() {
-			// #限制某些字段
-			// @ 当参数多余1个时判断为限制字段　例如：`field:"extends(PartnerId,Name)"`
-			if lRelFieldsCnt > 1 && utils.InStrings(fld.Name(), lRelFields...) == -1 {
-				continue
-			}
-
-			lNewFld := utils.Clone(fld).(IField) // 复制关联字段
-			lNewFld.SetBase(fld.Base())
-			if f := model.GetFieldByName(fld.Name()); f == nil {
-				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
-
-				// db:读写锁
-				//model.GetBase().table.AddColumn(lNewFld.Column())
-				model.GetBase().AddField(lNewFld)
-
-				if lNewFld.IsAutoIncrement() {
-					model.Obj().AutoIncrementField = lNewFld.Name()
-				}
-
-				//# 以下因为使用postgres 的继承方法时Model部分字段是由Parent继承来的
-				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
-				if lNewFld.Base().isPrimaryKey && lNewFld.Base().isAutoIncrement {
-					model.GetBase().idField = lNewFld.Name()
-				}
-
-				model.GetBase().obj.SetFieldByName(fld.Name(), lNewFld)
-			}
-		}
-	}
-}
-
-// relation(关系表)
-func tag_relation(ctx *TFieldContext) {
-
-}
-
-func tag_relate(ctx *TFieldContext) {
+func ___tag_relate(ctx *TTagContext) error {
 	fld_val := ctx.FieldTypeValue
 	model := ctx.Model
 	params := ctx.Params
@@ -437,7 +387,10 @@ func tag_relate(ctx *TFieldContext) {
 
 		parentModel, err := ctx.Orm.GetModel(model_name)
 		if err != nil || parentModel == nil {
-			parentModel = ctx.Orm.mapping(fld_val.Interface())
+			parentModel, err = ctx.Orm.mapping(fld_val.Interface())
+			if err != nil {
+				return err
+			}
 		}
 
 		var (
@@ -476,34 +429,39 @@ func tag_relate(ctx *TFieldContext) {
 			}
 		}
 	}
+	return nil
 }
 
-func tag_created(ctx *TFieldContext) {
+func tag_created(ctx *TTagContext) error {
 	fld := ctx.Field
 
 	fld.Base().isCreated = true
 	fld.Base().isCreated = true
+	return nil
 }
 
-func tag_updated(ctx *TFieldContext) {
+func tag_updated(ctx *TTagContext) error {
 	fld := ctx.Field
 
 	fld.Base().isUpdated = true
 	fld.Base().isUpdated = true
+	return nil
 }
 
-func tag_deleted(ctx *TFieldContext) {
+func tag_deleted(ctx *TTagContext) error {
 	fld := ctx.Field
 	fld.Base().isDeleted = true
+	return nil
 }
 
-func tag_ver(ctx *TFieldContext) {
+func tag_ver(ctx *TTagContext) error {
 	fld := ctx.Field
 	fld.Base().isVersion = true
 	fld.Base()._attr_default = 1
+	return nil
 }
 
-func tag_name(ctx *TFieldContext) {
+func tag_name(ctx *TTagContext) error {
 	model := ctx.Model
 	fld := ctx.Field
 	params := ctx.Params
@@ -530,12 +488,14 @@ func tag_name(ctx *TFieldContext) {
 		//new_ame := params[2]
 		//TODO
 	}
+	return nil
 }
 
-func tag_old_name(ctx *TFieldContext) {
+func tag_old_name(ctx *TTagContext) error {
+	return nil
 }
 
-func tag_title(ctx *TFieldContext) {
+func tag_title(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -544,9 +504,10 @@ func tag_title(ctx *TFieldContext) {
 		title = strings.Replace(title, "''", "'", -1)
 		fld.Base()._attr_title = title
 	}
+	return nil
 }
 
-func tag_help(ctx *TFieldContext) {
+func tag_help(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -556,9 +517,9 @@ func tag_help(ctx *TFieldContext) {
 		fld.Base().Comment = help
 		fld.Base()._attr_help = help
 	}
+	return nil
 }
-
-func tag_unique(ctx *TFieldContext) {
+func tag_unique(ctx *TTagContext) error {
 	fld := ctx.Field
 	model := ctx.Model
 	field_name := fld.Name()
@@ -573,9 +534,10 @@ func tag_unique(ctx *TFieldContext) {
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}
+	return nil
 }
 
-func tag_index(ctx *TFieldContext) {
+func tag_index(ctx *TTagContext) error {
 	fld := ctx.Field
 	model := ctx.Model
 	field_name := fld.Name()
@@ -588,9 +550,10 @@ func tag_index(ctx *TFieldContext) {
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}
+	return nil
 }
 
-func tag_required(ctx *TFieldContext) {
+func tag_required(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -598,9 +561,10 @@ func tag_required(ctx *TFieldContext) {
 	if len(params) > 0 {
 		fld.Base()._attr_required = utils.StrToBool(params[0])
 	}
+	return nil
 }
 
-func tag_read_only(ctx *TFieldContext) {
+func tag_read_only(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -609,9 +573,10 @@ func tag_read_only(ctx *TFieldContext) {
 	if len(params) > 0 {
 		fld.Base()._attr_readonly = utils.StrToBool(params[0])
 	}
+	return nil
 }
 
-func tag_write_only(ctx *TFieldContext) {
+func tag_write_only(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -620,27 +585,30 @@ func tag_write_only(ctx *TFieldContext) {
 	if len(params) > 0 {
 		fld.Base()._attr_writeonly = utils.StrToBool(params[0])
 	}
+	return nil
 }
 
-func tag_size(ctx *TFieldContext) {
+func tag_size(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
 	if len(params) > 0 {
 		fld.Base()._attr_size = utils.StrToInt(params[0])
 	}
+	return nil
 }
 
-func tag_ondelete(ctx *TFieldContext) {
+func tag_ondelete(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
 	if len(params) > 0 {
 		fld.Base().ondelete = strings.Trim(params[0], "'")
 	}
+	return nil
 }
 
-func tag_store(ctx *TFieldContext) {
+func tag_store(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -649,9 +617,10 @@ func tag_store(ctx *TFieldContext) {
 	} else {
 		fld.Base()._attr_store = true
 	}
+	return nil
 }
 
-func tag_domain(ctx *TFieldContext) {
+func tag_domain(ctx *TTagContext) error {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -659,17 +628,19 @@ func tag_domain(ctx *TFieldContext) {
 		domain := strings.Trim(params[0], "'")
 		fld.Base()._attr_domain = domain
 	}
+	return nil
 }
 
-func tag_attachment(ctx *TFieldContext) {
+func tag_attachment(ctx *TTagContext) error {
 	if fld, ok := ctx.Field.(*TBinField); ok {
 		fld.attachment = true
 	}
+	return nil
 }
 
 // Only for table
 // sample: `table:"name('orm.user')"`
-func tag_table_name(ctx *TFieldContext) {
+func tag_table_name(ctx *TTagContext) error {
 	model := ctx.Model
 	params := ctx.Params
 
@@ -682,10 +653,12 @@ func tag_table_name(ctx *TFieldContext) {
 			model.GetBase().name = fmtModelName(name)
 		}
 	}
+
+	return nil
 }
 
 // Only for table
-func tag_table_description(ctx *TFieldContext) {
+func tag_table_description(ctx *TTagContext) error {
 	model := ctx.Model
 	params := ctx.Params
 
@@ -694,15 +667,147 @@ func tag_table_description(ctx *TFieldContext) {
 		description = strings.Replace(description, "''", "'", -1)
 		model.GetBase()._description = description
 	}
+	return nil
+
 }
 
 // Only for table
 // TODO 支持多字段排序
-func tag_table_order(ctx *TFieldContext) {
+func tag_table_order(ctx *TTagContext) error {
 	model := ctx.Model
 	params := ctx.Params
 
 	if len(params) > 0 {
 		model.GetBase()._order = strings.Trim(params[0], "'")
 	}
+	return nil
+
+}
+
+// TODO tag_extends 未完成
+func tag_table_extends(ctx *TTagContext) error {
+	fld_val := ctx.FieldTypeValue
+	model := ctx.Model
+	params := ctx.Params
+
+	ctx.Field.Base()._attr_store = false // 忽略某些继承者成员
+	switch fld_val.Kind() {
+	case reflect.Ptr:
+		log.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
+		break
+	case reflect.Struct:
+		// #当该值为空时表示不限制字段
+		lRelFields := params
+		lRelFieldsCnt := len(lRelFields)
+
+		object_name := utils.Obj2Name(fld_val.Interface())
+		model_name := fmtModelName(object_name)
+
+		// 现在成员名是关联的Model名,Tag 为关联的字段
+		model.Obj().SetRelationByName(model_name, params[0])
+
+		parentModel, err := ctx.Orm.mapping(fld_val.Interface())
+		if err != nil {
+			return err
+		}
+		for _, fld := range parentModel.obj.GetFields() {
+			// #限制某些字段
+			// @ 当参数多余1个时判断为限制字段　例如：`field:"extends(PartnerId,Name)"`
+			if lRelFieldsCnt > 1 && utils.InStrings(fld.Name(), lRelFields...) == -1 {
+				continue
+			}
+
+			lNewFld := utils.Clone(fld).(IField) // 复制关联字段
+			lNewFld.SetBase(fld.Base())
+			if f := model.GetFieldByName(fld.Name()); f == nil {
+				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
+
+				// db:读写锁
+				//model.GetBase().table.AddColumn(lNewFld.Column())
+				model.GetBase().AddField(lNewFld)
+
+				if lNewFld.IsAutoIncrement() {
+					model.Obj().AutoIncrementField = lNewFld.Name()
+				}
+
+				//# 以下因为使用postgres 的继承方法时Model部分字段是由Parent继承来的
+				//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
+				if lNewFld.Base().isPrimaryKey && lNewFld.Base().isAutoIncrement {
+					model.GetBase().idField = lNewFld.Name()
+				}
+
+				model.GetBase().obj.SetFieldByName(fld.Name(), lNewFld)
+			}
+		}
+	}
+	return nil
+
+}
+
+// relation(关系表)
+func tag_relation(ctx *TTagContext) error {
+	return nil
+
+}
+
+// relate(modelName,relateField)
+func tag_table_relate(ctx *TTagContext) error {
+	model := ctx.Model
+	params := ctx.Params
+
+	// #当该值为空时表示不限制字段
+	if len(params) != 2 {
+		return fmt.Errorf("relate:%v must including model name and field!", params)
+	}
+
+	modelName := fmtModelName(params[0])
+	relateField := fmtFieldName(params[1])
+
+	// 现在成员名是关联的Model名,Tag 为关联的字段
+	model.Obj().SetRelationByName(modelName, relateField)
+
+	parentModel, err := ctx.Orm.GetModel(modelName)
+	if err != nil || parentModel == nil {
+		return fmt.Errorf("tag func relate(%v) must including model name and field!", params)
+
+	}
+
+	var (
+		parentField, newField IField
+		fieldName             string
+	)
+	for _, parentField = range parentModel.GetFields() {
+		// #限制某些字段
+		// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
+		//if lRelFieldsCnt > 1 && utils.InStrings(parentField.Name(), lRelFields...) == -1 {
+		//	continue
+		//}
+		fieldName = parentField.Name()
+		newField = utils.Clone(parentField).(IField) // 复制关联字段
+		newField.SetBase(parentField.Base())
+
+		if f := model.GetFieldByName(fieldName); f != nil {
+			// 相同字段处理
+			model.GetBase().obj.SetCommonFieldByName(fieldName, parentModel.String(), newField)
+			model.GetBase().obj.SetCommonFieldByName(fieldName, f.Base().model_name, f)
+
+		} else {
+			// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
+			newField.Base().isInheritedField = true
+			newField.Base()._attr_store = false // 关系字段不存储
+
+			if newField.IsAutoIncrement() {
+				//model.GetBase().table.AutoIncrement = fieldName
+				model.Obj().AutoIncrementField = fieldName
+			}
+
+			//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
+			if newField.Base().isPrimaryKey && newField.Base().isAutoIncrement {
+				model.GetBase().idField = fieldName
+			}
+			model.GetBase().obj.SetFieldByName(fieldName, newField)
+		}
+	}
+	return nil
+
 }

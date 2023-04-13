@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"time"
@@ -22,16 +23,8 @@ var (
 )
 
 type (
-	/*
-		// 废弃
-		IFieldCtrl interface {
-			Write(session *TSession, id string, fields *TField, value string, rel_context map[string]interface{}) interface{} //(res map[string]map[string]interface{}) // 字段数据保存
-			Read(session *TSession, field *TField, dataset *dataset.TDataSet, rel_context map[string]interface{}) interface{}         // (res map[string]map[string]interface{})         // 字段数据获取
-		}
-	*/
-
 	// The context for Tag
-	TFieldContext struct {
+	TTagContext struct {
 		Orm            *TOrm
 		Model          IModel // required
 		Field          IField // required
@@ -40,14 +33,17 @@ type (
 		Params         []string // 属性参数 int(<params>)
 	}
 
-	TFieldEventContext struct {
-		Id      interface{} // the current id of current record
-		Value   interface{} // the current value of the field
-		Field   IField      //FieldTypeValue reflect.Value
-		Model   IModel
-		Session *TSession
-		Dataset *dataset.TDataSet // 数据集将被修改
-		Context map[string]interface{}
+	TFieldContext struct {
+		Ids         []any       // 提供查询所有指定外键绑定的Ids
+		Id          interface{} // the current id of current record
+		Value       interface{} // the current value of the field
+		Field       IField      // FieldTypeValue reflect.Value
+		Model       IModel
+		Session     *TSession
+		Dataset     *dataset.TDataSet // 数据集将被修改
+		ClassicRead bool
+		UseNameGet  bool
+		Context     context.Context
 	}
 
 	IField interface {
@@ -61,8 +57,8 @@ type (
 		IsCascade() bool
 		IsVersion() bool
 		SQLType() *SQLType
-		Init(ctx *TFieldContext) // call when parse the field tag
-		Base() *TField           // return itself
+		Init(ctx *TTagContext) // call when parse the field tag
+		Base() *TField         // return itself
 
 		// attributes func
 		Name() string // name of field in database
@@ -81,8 +77,8 @@ type (
 		Title() string
 		As() string // return the type of the value format as
 		// 获取Field所有属性值
-		UpdateDb(ctx *TFieldContext)
-		GetAttributes(ctx *TFieldContext) map[string]interface{}
+		UpdateDb(ctx *TTagContext)
+		GetAttributes(ctx *TTagContext) map[string]interface{}
 		SetName(name string)
 		SetModel(name string)
 		SetBase(field *TField)
@@ -111,9 +107,9 @@ type (
 
 		// raw I/O event of field when it be read/write.
 		// [原始数据] 处理计算读取数据库的原始数据 将会调用Compute等标签里的函数
-		OnRead(ctx *TFieldEventContext) error // (res map[string]map[string]interface{})         // 字段数据获取
+		OnRead(ctx *TFieldContext) error // (res map[string]map[string]interface{})         // 字段数据获取
 		// [原始数据] 处理计算写入数据库原始数据 将会调用Compute等标签里的函数
-		OnWrite(ctx *TFieldEventContext) error //(res map[string]map[string]interface{}) // 字段数据保存
+		OnWrite(ctx *TFieldContext) error //(res map[string]map[string]interface{}) // 字段数据保存
 
 		// classic I/O event of the field. It will be call when using classic query. READ/WRITE the relate data FROM/TO its relation table
 		// the RETURN value is the value of field.
@@ -206,10 +202,11 @@ type (
 		_func_multi   string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
 		_func_search  string      //允许你在这个字段上定义搜索功能
 		_compute      string      //# 字段值的计算函数函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
-		_setter       string      // 写入计算格式化函数
-		_getter       string      // 读取计算格式化函数
-		_compute_sudo bool        //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
-		_oldname      string      //# the previous name of this field, so that ORM can rename it automatically at migration
+		_computeFunc  func(*TFieldContext) error
+		_setter       string // 写入计算格式化函数
+		_getter       string // 读取计算格式化函数
+		_compute_sudo bool   //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
+		_oldname      string //# the previous name of this field, so that ORM can rename it automatically at migration
 
 		// # one2many
 		_fields_id string
@@ -268,7 +265,7 @@ func newBaseField(name, field_type string) *TField {
 		//		_column_type: field_type,
 		_attr_name:  name,
 		_attr_type:  field_type,
-		_attr_store: true,
+		_attr_store: false, // 默认必须是False避免于后面Tag冲突
 	}
 }
 
@@ -282,13 +279,12 @@ func NewField(name string, sqlType interface{}) IField {
 	var type_name string
 	var new_field *TField
 
-	if typ, ok := sqlType.(string); ok {
-		type_name = typ
-		new_field = newBaseField(name, typ)
-	}
-
-	if typ, ok := sqlType.(SQLType); ok {
-		switch typ.Name {
+	switch v := sqlType.(type) {
+	case string:
+		type_name = v
+		new_field = newBaseField(name, v)
+	case SQLType:
+		switch v.Name {
 		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
 			type_name = "int"
 		case BigInt, BigSerial:
@@ -312,8 +308,7 @@ func NewField(name string, sqlType interface{}) IField {
 		}
 
 		new_field = newBaseField(name, type_name)
-		new_field.SqlType = sqlType.(SQLType)
-
+		new_field.SqlType = v
 	}
 
 	if type_name == "" {
@@ -605,7 +600,7 @@ func (self *TField) New() (res *TField) {
 	return
 }
 
-func (self *TField) Init(ctx *TFieldContext) {
+func (self *TField) Init(ctx *TTagContext) {
 
 }
 
@@ -638,14 +633,14 @@ func (self *TField) SetModel(name string) {
 }
 
 // 跟新字段到数据库 索引 唯一等
-func (self *TField) UpdateDb(ctx *TFieldContext) {
+func (self *TField) UpdateDb(ctx *TTagContext) {
 
 }
 
 // """ Return a dictionary that describes the field “self“. """
 // 返回字段自己 补充部分属性值
 // func (self *TField) GetDescription() (res *TField) {
-func (self *TField) GetAttributes(ctx *TFieldContext) map[string]interface{} {
+func (self *TField) GetAttributes(ctx *TTagContext) map[string]interface{} {
 	return map[string]interface{}{
 		"name":       self._attr_name,
 		"store":      self._attr_store,
@@ -693,7 +688,7 @@ method :meth:`BaseModel.read`.
 
 """
 */
-func (self *TField) OnRead(ctx *TFieldEventContext) error {
+func (self *TField) OnRead(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
 	//dataset := ctx.Dataset
@@ -726,7 +721,7 @@ func (self *TField) OnRead(ctx *TFieldEventContext) error {
 :meth:`BaseModel.write`.
 """
 */
-func (self *TField) OnWrite(ctx *TFieldEventContext) error {
+func (self *TField) OnWrite(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
 	//dataset := ctx.Dataset

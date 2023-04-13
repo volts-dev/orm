@@ -31,7 +31,7 @@ func newIdField() IField {
 	return new(TIdField)
 }
 
-func (self *TIdField) Init(ctx *TFieldContext) {
+func (self *TIdField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 	model := ctx.Model
 
@@ -39,12 +39,13 @@ func (self *TIdField) Init(ctx *TFieldContext) {
 	fld.Base().isPrimaryKey = true
 	fld.Base().SqlType = SQLType{BigInt, 0, 0}
 	fld.Base()._attr_type = "bigint"
+	fld.Base()._attr_store = true
 
 	// set the id field for model
 	model.IdField(fld.Name())
 }
 
-func (self *TIdField) OnCreate(ctx *TFieldEventContext) interface{} {
+func (self *TIdField) OnCreate(ctx *TFieldContext) interface{} {
 	id := uuid.Generate()
 	return id.Int64()
 }

@@ -28,7 +28,7 @@ func newTextField() IField {
 }
 
 // TODO 限制长度
-func (self *TCharField) Init(ctx *TFieldContext) {
+func (self *TCharField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -41,11 +41,12 @@ func (self *TCharField) Init(ctx *TFieldContext) {
 
 	fld.Base().SqlType = SQLType{Varchar, 0, 0}
 	fld.Base()._attr_type = "char"
+	fld.Base()._attr_store = true
 	fld.Base()._symbol_c = `'%s'`
 	fld.Base()._symbol_f = _CharFormat
 }
 
-func (self *TTextField) Init(ctx *TFieldContext) {
+func (self *TTextField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -58,6 +59,7 @@ func (self *TTextField) Init(ctx *TFieldContext) {
 
 	fld.Base().SqlType = SQLType{Text, 0, 0}
 	fld.Base()._attr_type = "text"
+	fld.Base()._attr_store = true
 	fld.Base()._symbol_c = `'%s'`
 	fld.Base()._symbol_f = _CharFormat
 }

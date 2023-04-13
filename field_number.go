@@ -42,7 +42,7 @@ func newDoubleField() IField {
 	return new(TDoubleField)
 }
 
-func (self *TIntField) Init(ctx *TFieldContext) {
+func (self *TIntField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 	vals := ctx.Params
 
@@ -59,25 +59,29 @@ func (self *TIntField) Init(ctx *TFieldContext) {
 		fld.Base().SqlType = SQLType{Int, 0, 0}
 		fld.Base()._attr_type = "int"
 	}
+	fld.Base()._attr_store = true
 }
 
-func (self *TBigIntField) Init(ctx *TFieldContext) {
+func (self *TBigIntField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 
 	fld.Base().SqlType = SQLType{BigInt, 0, 0}
 	fld.Base()._attr_type = "bigint"
+	fld.Base()._attr_store = true
 }
 
-func (self *TFloatField) Init(ctx *TFieldContext) {
+func (self *TFloatField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 
 	fld.Base().SqlType = SQLType{Float, 0, 0}
 	fld.Base()._attr_type = "float"
+	fld.Base()._attr_store = true
 }
 
-func (self *TDoubleField) Init(ctx *TFieldContext) {
+func (self *TDoubleField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 
 	fld.Base().SqlType = SQLType{Double, 0, 0}
 	fld.Base()._attr_type = "double"
+	fld.Base()._attr_store = true
 }

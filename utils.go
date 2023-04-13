@@ -9,6 +9,33 @@ import (
 	"github.com/volts-dev/utils"
 )
 
+func JoinPlaceholder(placeholder string, s string, n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		b.WriteString(placeholder)
+		if i < n-1 {
+			b.WriteString(s)
+		}
+	}
+
+	return b.String()
+}
+
+// FIXME 优化
+func JoinClause(clauses ...string) string {
+	var b strings.Builder
+	for i, s := range clauses {
+		if len(s) > 0 {
+			if i == 0 {
+				b.WriteString(s)
+				continue
+			}
+			b.WriteString(" " + s)
+		}
+	}
+	return b.String()
+}
+
 // contains reports whether the string contains the byte c.
 func contains(s string, c byte) bool {
 	for i := 0; i < len(s); i++ {

@@ -15,6 +15,12 @@ var log = logger.New("orm")
 // TODO cache name
 // TODO 9缓存必须是支持读写多个ORM共享
 type (
+	// FIXME 未提供使用
+	//ModelCacher interface {
+	//	PutById(table string, id interface{}, record *dataset.TRecordSet)
+	//	GetBySql(table string, sql string, arg interface{}) *dataset.TDataSet
+	//}
+
 	TCacher struct {
 		sync.RWMutex
 		active   bool
@@ -52,7 +58,7 @@ func New() (*TCacher, error) {
 	return chr, nil
 }
 
-//@removed 是否用于移除
+// @removed 是否用于移除
 func (self *TCacher) genIdKey(table string, key interface{}, removed bool) string {
 	str := fmt.Sprintf("%v-%v", table, key)
 
@@ -126,7 +132,7 @@ func (self *TCacher) SetStatus(sw bool, table_name string) {
 	self.status[table_name] = sw
 }
 
-//#缓存Sql查询结果ID集
+// #缓存Sql查询结果ID集
 func (self *TCacher) PutBySql(table string, sql string, arg interface{}, data *dataset.TDataSet) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
@@ -134,7 +140,7 @@ func (self *TCacher) PutBySql(table string, sql string, arg interface{}, data *d
 	}
 }
 
-//#通过Sql获取查询结果ID集
+// #通过Sql获取查询结果ID集
 // @Return:  nil or 空[]string
 func (self *TCacher) GetBySql(table string, sql string, arg interface{}) *dataset.TDataSet {
 	//逻辑可能有问题	if open, has := self.status[table]; !has || (has && open) {
@@ -160,7 +166,7 @@ func (self *TCacher) PutById(table string, id interface{}, record *dataset.TReco
 	}
 }
 
-//#通过ID获取记录
+// #通过ID获取记录
 func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*dataset.TRecordSet, ids_less []interface{}) {
 	if !self.active {
 		return nil, ids
@@ -208,7 +214,6 @@ func (self *TCacher) RemoveBySql(table string, sqls ...string) {
 	}
 }
 
-//
 func (self *TCacher) ClearByTable(table string) {
 	self.table_id_key_index_lock.Lock()
 	defer self.table_id_key_index_lock.Unlock()

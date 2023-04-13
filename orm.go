@@ -322,12 +322,11 @@ func (self *TOrm) formatTime(tz *time.Location, sqlTypeName string, t time.Time)
 }
 
 // # 映射结构体与表
-func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
+func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 	model_value := reflect.Indirect(reflect.ValueOf(model))
 	model_type := model_value.Type()
 	if model_type.Kind() != reflect.Struct {
-		log.Warnf("please make sure model is a struct! but not %v@%v", model_type.Name(), model_type.String())
-		return nil
+		return nil, fmt.Errorf("please make sure model is a struct! but not %v@%v", model_type.Name(), model_type.String())
 	}
 
 	object_name := utils.Obj2Name(model)
@@ -335,7 +334,7 @@ func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 	model_alt_name := model_name // model别名,当Model使用别名Tag时作用
 	model_object := self.osv.newObject(model_name)
 
-	res_model = newModel(model_name, "", model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
+	res_model := newModel(model_name, "", model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
 	res_model.obj = model_object
 	res_model.is_base = false
 
@@ -400,7 +399,7 @@ func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 
 				// 验证
 				if len(attrs) == 0 {
-					log.Fatalf("Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, field_name, field_tag, key, attrs)
+					return nil, fmt.Errorf("Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, field_name, field_tag, key, attrs)
 				}
 				field_type_name = strings.ToLower(attrs[0])
 				tag_str = strings.Replace(key, field_type_name, "", 1) // 去掉Tag Item
@@ -411,7 +410,7 @@ func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 					if strings.Index(tag_str, " ") != -1 {
 						if !strings.HasPrefix(tag_str, "'") &&
 							!strings.HasSuffix(tag_str, "'") {
-							log.Panicf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", model_name, strings.ToUpper(field_name))
+							return nil, fmt.Errorf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", model_name, strings.ToUpper(field_name))
 						}
 					}
 				}
@@ -430,18 +429,20 @@ func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 			//	aaa := field_value.Addr().Interface().(IModel)
 			//res_model.super = aaa // TODO 带路径的类名称
 		}
-		//log.Dbg("%s:%s %s", model_name, member_name, lColName)
 
 		// # 忽略TModel类字段
-		field_context := new(TFieldContext)
-		field_context.Orm = self
-		field_context.Model = res_model
-		field_context.FieldTypeValue = field_value
-		field_context.ModelValue = model_value
+		field_context := &TTagContext{
+			Orm:            self,
+			Model:          res_model,
+			FieldTypeValue: field_value,
+			ModelValue:     model_value,
+		}
 		if strings.Index(strings.ToLower(member_name), "tmodel") != -1 {
 			// 执行tag处理
-			self.handleTags(field_context, tagMap, "table")
-
+			err := self.handleTags(field_context, tagMap, "table")
+			if err != nil {
+				return nil, err
+			}
 			// 更新model新名称 并传递给其他Field
 			if res_model.String() != model_alt_name {
 				model_alt_name = res_model.String()
@@ -485,7 +486,7 @@ func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 
 			// # check again 根据Tyep创建字段
 			if field == nil { // 必须确保上面的代码能获取到定义的字段类型
-				log.Panicf("must difine the field type for the model field :" + model_name + "." + field_name)
+				return nil, fmt.Errorf("must difine the field type for the model field :" + model_name + "." + field_name)
 			}
 
 			if field.SQLType().Name == "" {
@@ -501,7 +502,10 @@ func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 			field.Init(field_context)
 
 			// 执行tag处理
-			self.handleTags(field_context, tagMap, "")
+			err := self.handleTags(field_context, tagMap, "")
+			if err != nil {
+				return nil, err
+			}
 
 			if field.Base().isAutoIncrement && field.Base().isPrimaryKey {
 				res_model.idField = field.Name()
@@ -548,10 +552,10 @@ func (self *TOrm) mapping(model interface{}) (res_model *TModel) {
 		}
 	} // end for
 
-	return res_model
+	return res_model, nil
 }
 
-func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, prefix string) {
+func (self *TOrm) handleTags(fieldCtx *TTagContext, tags map[string][]string, prefix string) error {
 	field := fieldCtx.Field
 
 	for attr, vals := range tags {
@@ -576,7 +580,9 @@ func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, 
 			tag_ctrl := GetTagControllerByName(tag_str)
 			if tag_ctrl != nil {
 				fieldCtx.Params = vals
-				tag_ctrl(fieldCtx)
+				if err := tag_ctrl(fieldCtx); err != nil {
+					return err
+				}
 			} else {
 				// check not field type also
 				if _, has := field_creators[tag_str]; has {
@@ -590,7 +596,7 @@ func (self *TOrm) handleTags(fieldCtx *TFieldContext, tags map[string][]string, 
 	}
 
 EXIT:
-	return
+	return nil
 }
 
 func (self *TOrm) HasModel(name string) bool {
@@ -700,7 +706,13 @@ func (self *TOrm) DropTables(names ...string) error {
 			return session.Rollback(err)
 		}
 	}
-	return session.Commit()
+
+	if err := session.Commit(); err != nil {
+		return err
+	}
+
+	log.Infof("Drop model table %s success!", names)
+	return nil
 }
 
 // TODO 根据表依赖关系顺序创建表
@@ -720,7 +732,12 @@ func (self *TOrm) CreateTables(names ...string) error {
 		}
 	}
 
-	return session.Commit()
+	if err := session.Commit(); err != nil {
+		return err
+	}
+
+	log.Infof("Create model table %s success!", names)
+	return nil
 }
 
 // create database
@@ -758,8 +775,24 @@ func (self *TOrm) modelMetas(model IModel) (IModel, error) {
 		return nil, err
 	}
 
+	// TODO 充实model pk id 等选项
 	for _, name := range colSeq {
-		model.AddField(fields[name])
+		if field, has := fields[name]; has {
+			model.AddField(field)
+			/*
+				没有起到作用
+				无法鉴别来自数据库的字段是否id字段或者name字段
+				if f, ok := field.(*TIdField); ok {
+					model.IdField(f.Name())
+					model.Obj().uidFieldName = f.Name()
+				}
+				if f, ok := field.(*TNameField); ok {
+					model.NameField(f.Name())
+					model.Obj().nameField = f.Name()
+				}
+			*/
+		}
+
 	}
 
 	indexes, err := self.dialect.GetIndexes(tableName)
@@ -824,7 +857,7 @@ func (self *TOrm) SyncModel(region string, models ...interface{}) (modelNames []
 	return modelNames, nil
 }
 
-func (self *TOrm) Query(sql string, params ...interface{}) (ds *dataset.TDataSet, err error) {
+func (self *TOrm) Query(sql string, params ...interface{}) (*TDataset, error) {
 	session := self.NewSession()
 	defer session.Close()
 	return session.Query(sql, params...)

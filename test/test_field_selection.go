@@ -19,6 +19,6 @@ func TestFieldSelection(title string, t *testing.T) {
 		field := model.FieldByName("type")
 		t.Log(field)
 		field = model.FieldByName("lang")
-		t.Log(field.(*orm.TSelectionField).GetAttributes(&orm.TFieldContext{Model: model, Field: field}))
+		t.Log(field.(*orm.TSelectionField).GetAttributes(&orm.TTagContext{Model: model, Field: field}))
 	*/
 }

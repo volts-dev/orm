@@ -1448,7 +1448,8 @@ func (self *TExpression) get_tables() *utils.TStringList {
 		}
 	}
 
-	table_name := quoteStr(self.root_model.table)
+	//table_name := quoteStr(self.root_model.table)
+	table_name := self.root_model.table
 	if !tables.Has(table_name) {
 		tables.PushString(table_name)
 	}

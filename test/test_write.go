@@ -51,7 +51,7 @@ func test_write(o *orm.TOrm, t *testing.T) {
 	}
 
 	// change data
-	ds.FieldByName("title").AsString(title)
+	ds.Record().SetByField("title", title)
 
 	// write data
 	effect, err := model.Records().Write(ds.Record().AsItfMap())

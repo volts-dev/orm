@@ -31,23 +31,25 @@ func newSelectionField() IField {
 	return new(TSelectionField)
 }
 
-func (self *TBooleanField) Init(ctx *TFieldContext) {
+func (self *TBooleanField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 
 	fld.Base().SqlType = SQLType{Bool, 0, 0}
 	fld.Base()._attr_type = Bool
+	fld.Base()._attr_store = true
+
 	//	fld.Base()._column_type = Bool
 }
 
 // ###########################################################################
 // TODO 方法可以是任何大小写 参考https://github.com/alangpierce/go-forceexport
 // 所有的selection 函数必须是大写并返回[][]string,
-func (self *TSelectionField) Init(ctx *TFieldContext) {
+func (self *TSelectionField) Init(ctx *TTagContext) {
 	fld := self
 	params := ctx.Params
 
 	log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", fld.Name(), self.model_name, params)
-
+	fld.Base()._attr_store = true
 	fld.Base()._getter = "" //初始化
 	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
@@ -116,7 +118,7 @@ func (self *TSelectionField) setup_full(model IModel) {
 	}
 }
 
-func (self *TSelectionField) GetAttributes(ctx *TFieldContext) map[string]interface{} {
+func (self *TSelectionField) GetAttributes(ctx *TTagContext) map[string]interface{} {
 	model := ctx.Model
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 
@@ -141,7 +143,7 @@ func (self *TSelectionField) GetAttributes(ctx *TFieldContext) map[string]interf
 	return attrs
 }
 
-func (self *TSelectionField) OnRead(ctx *TFieldEventContext) error {
+func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
 

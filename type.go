@@ -99,6 +99,7 @@ var (
 	// 各数据库数据类型
 	Bit              = "BIT"
 	TinyInt          = "TINYINT"
+	UnsignedTinyInt  = "UNSIGNED TINYINT"
 	SmallInt         = "SMALLINT"
 	MediumInt        = "MEDIUMINT"
 	Int              = "INT"     // ORM
@@ -157,8 +158,10 @@ var (
 		Serial:    NUMERIC_TYPE,
 		BigSerial: NUMERIC_TYPE,
 
-		Bit:       NUMERIC_TYPE,
-		TinyInt:   NUMERIC_TYPE,
+		Bit:             NUMERIC_TYPE,
+		TinyInt:         NUMERIC_TYPE,
+		UnsignedTinyInt: NUMERIC_TYPE,
+
 		SmallInt:  NUMERIC_TYPE,
 		MediumInt: NUMERIC_TYPE,
 		Int:       NUMERIC_TYPE,
@@ -248,7 +251,8 @@ var (
 	}
 )
 
-// 转换值到字段输出数据类型
+// FIXME 优化
+// 转换数据库值到字段输出数据类型
 func value2FieldTypeValue(field IField, value interface{}) interface{} {
 	type_name := field.As()
 	if type_name == "" {

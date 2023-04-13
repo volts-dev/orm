@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/volts-dev/dataset"
-
 	"github.com/volts-dev/utils"
 )
 
@@ -19,9 +18,6 @@ type (
 		TRelational
 	}
 
-	// 主表[字段所在的表]字段值是关联表其中之一条记录,关联表字段相当于主表或其他表的补充扩展或共同字段
-	// 特性：存储,外键在主表,主表类似于继承了关联表的多有字段
-	// 例子：合作伙伴里有个人和公司,他们都有名称,联系方式,地址等共同信息 这些信息可以又关联表存储
 	TOne2OneField struct {
 		TRelational
 	}
@@ -34,26 +30,22 @@ type (
 	}
 
 	// 主表[字段所在的表]字段值是关联表其中之一条记录,关联表记录可以赋值给主表多条记录
-	// 特性：存储,外键在主表,值只有一个
-	// 例子：下拉选择菜单,性别
+	// 特性：存储,外键在主表,值只有一个,many child -> one parent 用于指定ParentID 表示本表的多条记录是关联表的某条记录的Child
+	// 例子：订单系统的主从表 从表下拉选择菜单,性别
 	TMany2OneField struct {
 		TRelational
 	}
 
-	// 字段值是中间表中绑定的多条关联表记录集(多条记录)
 	TMany2ManyField struct {
 		TRelationalMultiField
-	}
-
-	TMany2ManyFieldCtrl struct {
 	}
 )
 
 func init() {
 	RegisterField("one2one", newOne2OneField)
+	RegisterField("one2many", newOne2ManyField)
 	RegisterField("many2one", newMany2OneField)
 	RegisterField("many2many", newMany2ManyField)
-	RegisterField("one2many", newOne2ManyField)
 }
 
 func newOne2OneField() IField {
@@ -73,13 +65,13 @@ func newOne2ManyField() IField {
 	return new(TOne2ManyField)
 }
 
-func (self *TRelational) GetAttributes(ctx *TFieldContext) map[string]interface{} {
+func (self *TRelational) GetAttributes(ctx *TTagContext) map[string]interface{} {
 	attrs := self.Base().GetAttributes(ctx)
 	attrs["relation"] = self._attr_relation
 	return attrs
 }
 
-func (self *TOne2OneField) Init(ctx *TFieldContext) { //comodel_name string, inverse_name string
+func (self *TOne2OneField) Init(ctx *TTagContext) { //comodel_name string, inverse_name string
 	field_Value := ctx.FieldTypeValue
 	field := ctx.Field
 	field.Base().isRelatedField = true
@@ -93,8 +85,33 @@ func (self *TOne2OneField) Init(ctx *TFieldContext) { //comodel_name string, inv
 	}
 }
 
-func (self *TOne2OneField) OnRead(ctx *TFieldEventContext) error {
-	model, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
+func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
+	ds, err := ctx.Model.getRelate(ctx)
+	if err != nil {
+		return err
+	}
+
+	if ds.Count() > 0 {
+		field := ctx.Field
+		group := ds.GroupBy(field.RelateFieldName())
+		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
+			fieldValue := record.GetByField(field.Name())
+			grp := group[fieldValue]
+
+			if grp.Count() > 1 {
+				return fmt.Errorf(
+					"model %s's has more than 1 record for %s@%s OneToOne Id %v",
+					field.RelateModelName(), field.Name(), field.ModelName(), grp.Keys())
+			}
+
+			record.SetByField(field.Name(), grp.Record().AsItfMap())
+			return nil
+		})
+	}
+	return err
+
+	/* TODO 被替代
+	relateMode, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
 	if err != nil {
 		// # Should not happen, unless the foreign key is missing.
 		return err
@@ -117,21 +134,249 @@ func (self *TOne2OneField) OnRead(ctx *TFieldEventContext) error {
 				continue
 			}
 
-			//log.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
-			rel_ds, err := model.NameGet([]interface{}{rel_id})
+			rel_ds, err := relateMode.NameGet([]interface{}{rel_id})
 			if err != nil {
 				return err
 			}
 
-			ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(model.IdField()).AsInterface(), rel_ds.FieldByName(model.GetRecordName()).AsInterface()})
+			ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(relateMode.IdField()).AsInterface(), rel_ds.FieldByName(relateMode.GetRecordName()).AsInterface()})
 			ds.Next()
+		}
+	}
+	*/
+}
+
+func (self *TOne2ManyField) Init(ctx *TTagContext) { //comodel_name string, inverse_name string
+	field := ctx.Field
+	params := ctx.Params
+
+	log.Assert(len(params) < 2, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
+	// self.Base()._column_type = ""
+	// Field.Base()._classic_read = false
+	// Field.Base()._classic_write = false
+	field.Base().isRelatedField = true
+	field.Base()._attr_store = false
+	field.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
+	field.Base().cokey_field_name = fmtFieldName(params[1])                   //目标表关键字段
+	field.Base()._attr_relation = field.Base().comodel_name
+	field.Base()._attr_type = TYPE_O2M
+}
+
+func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
+	if self.isCompute {
+		self._computeFunc(ctx)
+	} else {
+		ds, err := ctx.Model.getRelate(ctx)
+		if err != nil {
+			return err
+		}
+
+		if ds.Count() > 0 {
+			field := ctx.Field
+
+			// 获得关系Model 以提供idfield
+			relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
+			if err != nil {
+				return err
+			}
+
+			group := ds.GroupBy(field.RelateFieldName())
+			ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
+				fieldValue := record.GetByField(ctx.Model.IdField())
+				grp := group[fieldValue]
+				if grp.Count() > 0 {
+					//var records []map[string]any
+					var records []any // 只保存ID
+					grp.Range(func(pos int, record *dataset.TRecordSet) error {
+						records = append(records, record.GetByField(relateModel.IdField()))
+						return nil
+					})
+					record.SetByField(field.Name(), records)
+				}
+
+				return nil
+			})
 		}
 	}
 
 	return nil
 }
 
-func (self *TMany2ManyField) Init(ctx *TFieldContext) {
+func (self *TOne2ManyField) _OnWrite(ctx *TFieldContext) error {
+	/* comodel = records.env[self.comodel_name].with_context(**self.context)
+	   inverse = self.inverse_name
+	   vals_list = []                  # vals for lines to create in batch
+
+	   def flush():
+	       if vals_list:
+	           comodel.create(vals_list)
+	           vals_list.clear()
+
+	   def drop(lines):
+	       if getattr(comodel._fields[inverse], 'ondelete', False) == 'cascade':
+	           lines.unlink()
+	       else:
+	           lines.write({inverse: False})
+
+	   with records.env.norecompute():
+	       for act in (value or []):
+	           if act[0] == 0:
+	               for record in records:
+	                   vals_list.append(dict(act[2], **{inverse: record.id}))
+	           elif act[0] == 1:
+	               comodel.browse(act[1]).write(act[2])
+	           elif act[0] == 2:
+	               comodel.browse(act[1]).unlink()
+	           elif act[0] == 3:
+	               drop(comodel.browse(act[1]))
+	           elif act[0] == 4:
+	               record = records[-1]
+	               line = comodel.browse(act[1])
+	               line_sudo = line.sudo().with_context(prefetch_fields=False)
+	               if int(line_sudo[inverse]) != record.id:
+	                   line.write({inverse: record.id})
+	           elif act[0] == 5:
+	               flush()
+	               domain = self.domain(records) if callable(self.domain) else self.domain
+	               domain = domain + [(inverse, 'in', records.ids)]
+	               drop(comodel.search(domain))
+	           elif act[0] == 6:
+	               flush()
+	               record = records[-1]
+	               comodel.browse(act[2]).write({inverse: record.id})
+	               domain = self.domain(records) if callable(self.domain) else self.domain
+	               domain = domain + [(inverse, 'in', records.ids), ('id', 'not in', act[2] or [0])]
+	               drop(comodel.search(domain))
+
+	       flush()
+	*/
+	return nil
+}
+
+func (self *TMany2OneField) Init(ctx *TTagContext) {
+	fld := ctx.Field
+	params := ctx.Params
+
+	// 不直接指定 采用以下tag写法
+	// field:"many2one() int()"
+	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
+	//fld.Base()._classic_write = true
+	log.Assert(len(params) < 1, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
+	fld.Base().isRelatedField = true
+	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
+	fld.Base()._attr_relation = fld.Base().comodel_name
+	fld.Base()._attr_type = TYPE_M2O
+	fld.Base()._attr_store = true
+}
+
+// TODO 未完成
+func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
+	ds, err := ctx.Model.getRelate(ctx)
+	if err != nil {
+		return err
+	}
+
+	if ds.Count() > 0 {
+		field := ctx.Field
+		relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
+		if err != nil {
+			return err
+		}
+		group := ds.GroupBy(relateModel.IdField())
+		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
+			fieldValue := record.GetByField(field.Name())
+			grp := group[fieldValue]
+
+			if grp.Count() != 1 {
+				return fmt.Errorf(
+					"model %s's has more than 1 record for %s@%s ManyToOne Id %v",
+					field.RelateModelName(), field.Name(), field.ModelName(), grp.Keys())
+			}
+
+			record.SetByField(field.Name(), grp.Record().AsItfMap())
+			return nil
+		})
+	}
+	/*
+		model, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
+		if err != nil {
+			// # Should not happen, unless the foreign key is missing.
+			return err
+		}
+
+		ds := ctx.Dataset
+		if ctx.Session.IsClassic && ds != nil {
+			//# evaluate name_get() as superuser, because the visibility of a
+			//# many2one field value (id and name) depends on the current record's
+			//# access rights, and not the value's access rights.
+			//   value_sudo = value.sudo()
+			//# performance trick: make sure that all records of the same
+			//# model as value in value.env will be prefetched in value_sudo.env
+			// value_sudo.env.prefetch[value._name].update(value.env.prefetch[value._name])
+			ds.First()
+			for !ds.Eof() {
+				// 获取关联表主键
+				rel_id := ds.FieldByName(self.Name()).AsInterface()
+
+				// igonre blank value
+				if utils.IsBlank(rel_id) {
+					if self._attr_required {
+						return fmt.Errorf("the Many2One field(%s@%s) value is required!", self.model_name, self.Name())
+					}
+
+					ds.Next()
+					continue
+				}
+
+				rel_ds, err := model.NameGet([]interface{}{rel_id})
+				if err != nil {
+					return err
+				}
+
+				id_field := model.IdField() // get the id field name
+				ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(id_field).AsInterface(), rel_ds.FieldByName("name").AsInterface()})
+
+				ds.Next()
+			}
+		}*/
+
+	return nil
+}
+
+func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
+	switch v := ctx.Value.(type) {
+	case string:
+		// 处理值为名称转为ID
+		model, err := ctx.Model.Orm().GetModel(self.RelateModelName())
+		if err != nil {
+			return err
+		}
+
+		ds, err := model.SearchName(v, "", "", 1, "", nil)
+		if err != nil {
+			return err
+		}
+
+		if ds.Count() > 0 {
+			ctx.Value = ds.FieldByName(model.IdField()).AsInterface()
+		} else {
+			if id, has := ctx.Session.CacheNameIds[v]; has {
+				ctx.Value = id
+			}
+		}
+	case []interface{}:
+		if len(v) > 0 {
+			ctx.Value = v[0]
+		}
+	default:
+		// 不修改
+		//return fmt.Errorf("%s@%s OnWrite many2one failed with value:%v", field.Name(), ctx.Model.String(), v)
+	}
+
+	return nil
+}
+
+func (self *TMany2ManyField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -187,7 +432,7 @@ func (self *TMany2ManyField) Init(ctx *TFieldContext) {
 
 // 创建关联表
 // model, columns
-func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
+func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	orm := ctx.Orm
 	fld := ctx.Field
 	model := ctx.Model
@@ -257,7 +502,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TFieldContext) {
 }
 
 // Add the foreign keys corresponding to the field's relation table.
-func (self *TMany2ManyField) update_db_foreign_keys(ctx *TFieldContext) {
+func (self *TMany2ManyField) update_db_foreign_keys(ctx *TTagContext) {
 	/*        cr = model._cr
 	          comodel = model.env[self.comodel_name]
 	          reflect = model.env['ir.model.constraint']._reflect_constraint
@@ -273,45 +518,36 @@ func (self *TMany2ManyField) update_db_foreign_keys(ctx *TFieldContext) {
 
 // 设置字段获得的值
 // TODO :未完成
-func (self *TMany2ManyField) OnRead(ctx *TFieldEventContext) error {
-	field := ctx.Field.Base()
-	ds := ctx.Dataset
-	model := ctx.Model
-	id_field := model.IdField()
-	ds.SetKeyField(id_field)
-	ids := ds.Keys()
-
-	//
-	data, err := model.Many2many(ids, field.Name())
+func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
+	ds, err := ctx.Model.getRelate(ctx)
 	if err != nil {
 		return err
 	}
 
-	ds.First()
-	for !ds.Eof() {
-		id := ds.FieldByName(id_field).AsInterface()
-		res_ds := data[id]
+	if ds.Count() > 0 {
+		field := ctx.Field
+		group := ds.GroupBy(field.RelateFieldName())
+		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
+			fieldValue := record.GetByField(field.Name())
+			grp := group[fieldValue]
+			if grp.Count() > 0 {
+				var records []map[string]any
+				grp.Range(func(pos int, record *dataset.TRecordSet) error {
+					records = append(records, record.AsItfMap())
+					return nil
+				})
+				record.SetByField(field.Name(), records)
+			}
 
-		//group := make(map[interface{}][]int64)
-		list := make([]interface{}, res_ds.Count())
-		res_ds.First()
-		for !res_ds.Eof() {
-			//list := group[key]
-			//list = append(list, res_ds.FieldByName(field.relkey_field_name).AsInteger())
-			//group[key] = list
-			list[res_ds.Position] = res_ds.FieldByName(field.relkey_field_name).AsInterface()
-			res_ds.Next()
-		}
-
-		ds.FieldByName(field.Name()).AsInterface(list) // 修改数据集
-		ds.Next()
+			return nil
+		})
 	}
 
 	return nil
 }
 
 // # beware of duplicates when inserting
-func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldEventContext) error {
+func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldContext) error {
 	orm := ctx.Session.Orm()
 	dialect := ctx.Session.Orm().dialect
 	field := ctx.Field
@@ -353,7 +589,7 @@ func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldEventContext) er
 
 // TODO 错误将IDS删除基数
 // # remove all records for which user has access rights
-func (self *TMany2ManyField) unlink_all(ids []interface{}, ctx *TFieldEventContext) error {
+func (self *TMany2ManyField) unlink_all(ids []interface{}, ctx *TFieldContext) error {
 	orm := ctx.Session.Orm()
 	dialect := ctx.Session.Orm().dialect
 	field := ctx.Field
@@ -391,7 +627,7 @@ func (self *TMany2ManyField) unlink_all(ids []interface{}, ctx *TFieldEventConte
 }
 
 // write relate data to the reference table
-func (self *TMany2ManyField) OnWrite(ctx *TFieldEventContext) error {
+func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 	ids := make([]interface{}, 0)
 
 	// TODO　更多类型
@@ -446,232 +682,5 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldEventContext) error {
 		}
 	}
 
-	return nil
-}
-
-func (self *TMany2OneField) Init(ctx *TFieldContext) {
-	fld := ctx.Field
-	params := ctx.Params
-
-	// 不直接指定 采用以下tag写法
-	// field:"many2one() int()"
-	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
-	//fld.Base()._classic_write = true
-	log.Assert(len(params) < 1, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
-	fld.Base().isRelatedField = true
-	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
-	fld.Base()._attr_relation = fld.Base().comodel_name
-	fld.Base()._attr_type = TYPE_M2O
-}
-
-func (self *TMany2OneField) OnRead(ctx *TFieldEventContext) error {
-	model, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
-	if err != nil {
-		// # Should not happen, unless the foreign key is missing.
-		return err
-	}
-
-	ds := ctx.Dataset
-	if ctx.Session.IsClassic && ds != nil {
-		//# evaluate name_get() as superuser, because the visibility of a
-		//# many2one field value (id and name) depends on the current record's
-		//# access rights, and not the value's access rights.
-		//   value_sudo = value.sudo()
-		//# performance trick: make sure that all records of the same
-		//# model as value in value.env will be prefetched in value_sudo.env
-		// value_sudo.env.prefetch[value._name].update(value.env.prefetch[value._name])
-		ds.First()
-		for !ds.Eof() {
-			// 获取关联表主键
-			rel_id := ds.FieldByName(self.Name()).AsInterface()
-
-			// igonre blank value
-			if utils.IsBlank(rel_id) {
-				if self._attr_required {
-					return fmt.Errorf("the Many2One field %s:%s is required!", self.model_name, self.Name())
-				}
-
-				ds.Next()
-				continue
-			}
-
-			//log.Dbg("CTR:", ctx.Field.Name(), ctx.Value != BlankNumItf, ctx.Value != interface{}('0'), model, ctx.Value, lId)
-			rel_ds, err := model.NameGet([]interface{}{rel_id})
-			if err != nil {
-				return err
-			}
-
-			id_field := model.IdField() // get the id field name
-			ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(id_field).AsInterface(), rel_ds.FieldByName("name").AsInterface()})
-
-			ds.Next()
-		}
-	}
-
-	return nil
-}
-
-func (self *TMany2OneField) OnWrite(ctx *TFieldEventContext) error {
-	field := ctx.Field
-	switch v := ctx.Value.(type) {
-	case string:
-		// 处理值为名称转为ID
-		// NOTE:只处理同一Model下的Name值
-		model := ctx.Model
-		if self.RelateModelName() == model.String() {
-			ds, err := model.SearchName(v, "", "", 1, "", nil)
-			if err != nil {
-				return err
-			}
-			if ds.Count() > 0 {
-				ctx.Value = ds.FieldByName(model.IdField()).AsInterface()
-			} else {
-				if id, has := ctx.Session.CacheNameIds[v]; has {
-					ctx.Value = id
-				}
-			}
-		}
-
-	case []interface{}:
-		if len(v) > 0 {
-			ctx.Value = v[0]
-		}
-
-	default:
-		return fmt.Errorf("%s@%s OnWrite many2one failed with value:%v", field.Name(), ctx.Model.String(), v)
-	}
-
-	return nil
-}
-
-func (self *TOne2ManyField) Init(ctx *TFieldContext) { //comodel_name string, inverse_name string
-	field := ctx.Field
-	params := ctx.Params
-
-	log.Assert(len(params) < 2, "One2Many(%s) of model %s must including at least 2 args!", field.Name(), self.model_name)
-	// self.Base()._column_type = ""
-	// Field.Base()._classic_read = false
-	// Field.Base()._classic_write = false
-	field.Base().isRelatedField = true
-	field.Base()._attr_store = false
-	field.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
-	field.Base().cokey_field_name = fmtFieldName(params[1])                   //目标表关键字段
-	field.Base()._attr_relation = field.Base().comodel_name
-	field.Base()._attr_type = TYPE_O2M
-}
-
-func (self *TOne2ManyField) OnRead(ctx *TFieldEventContext) error {
-	//	orm := ctx.Session.orm
-	ds := ctx.Dataset
-	field := ctx.Field
-	//idFieldName := ctx.Model.IdField()
-	model := ctx.Model
-	/*
-		// # retrieve the lines in the comodel
-		relmodel_name := self.relmodel_name
-		relkey_field_name := self.relkey_field_name
-		rel_model, err := orm.GetModel(relmodel_name)
-		if err != nil {
-			return err
-		}
-
-		rel_filed := rel_model.GetFieldByName(relkey_field_name)
-		if rel_filed.SQLType().Name != TYPE_O2M {
-			return log.Errf("the relate model %s field % is not many2one type.", relmodel_name, relkey_field_name)
-		}
-	*/
-	ids := ds.Keys()
-	sds, err := model.One2many(ids, field.Name()) // rel_model.Records().In(field.Name(), ids).Read()
-	if err != nil {
-		return err
-	}
-
-	tmap := make(map[interface{}][]*dataset.TRecordSet)
-
-	// 根据id 分配记录
-	sds.First()
-	for !sds.Eof() {
-		id := sds.FieldByName(field.RelateFieldName()).AsInterface()
-		recs := tmap[id] // 记录数组
-		recs = append(recs, sds.Record())
-		sds.Next()
-	}
-
-	// 把分配的记录存回记录集
-	for _, n := range ids {
-		recs := tmap[n] // 记录数组
-		rec := ds.RecordByKey(n)
-		rec.FieldByName(field.Name()).AsInterface(recs)
-	}
-
-	return nil
-	/*   comodel = records.env[self.comodel_name].with_context(**self.context)
-	     inverse = self.inverse_name
-	     get_id = (lambda rec: rec.id) if comodel._fields[inverse].type == 'many2one' else int
-	     domain = self.domain(records) if callable(self.domain) else self.domain
-	     domain = domain + [(inverse, 'in', records.ids)]
-	     lines = comodel.search(domain, limit=self.limit)
-
-	     # group lines by inverse field (without prefetching other fields)
-	     group = defaultdict(list)
-	     for line in lines.with_context(prefetch_fields=False):
-	         # line[inverse] may be a record or an integer
-	         group[get_id(line[inverse])].append(line.id)
-
-	     # store result in cache
-	     cache = records.env.cache
-	     for record in records:
-	         cache.set(record, self, tuple(group[record.id]))
-	*/
-}
-
-func (self *TOne2ManyField) _OnWrite(ctx *TFieldEventContext) error {
-	/* comodel = records.env[self.comodel_name].with_context(**self.context)
-	   inverse = self.inverse_name
-	   vals_list = []                  # vals for lines to create in batch
-
-	   def flush():
-	       if vals_list:
-	           comodel.create(vals_list)
-	           vals_list.clear()
-
-	   def drop(lines):
-	       if getattr(comodel._fields[inverse], 'ondelete', False) == 'cascade':
-	           lines.unlink()
-	       else:
-	           lines.write({inverse: False})
-
-	   with records.env.norecompute():
-	       for act in (value or []):
-	           if act[0] == 0:
-	               for record in records:
-	                   vals_list.append(dict(act[2], **{inverse: record.id}))
-	           elif act[0] == 1:
-	               comodel.browse(act[1]).write(act[2])
-	           elif act[0] == 2:
-	               comodel.browse(act[1]).unlink()
-	           elif act[0] == 3:
-	               drop(comodel.browse(act[1]))
-	           elif act[0] == 4:
-	               record = records[-1]
-	               line = comodel.browse(act[1])
-	               line_sudo = line.sudo().with_context(prefetch_fields=False)
-	               if int(line_sudo[inverse]) != record.id:
-	                   line.write({inverse: record.id})
-	           elif act[0] == 5:
-	               flush()
-	               domain = self.domain(records) if callable(self.domain) else self.domain
-	               domain = domain + [(inverse, 'in', records.ids)]
-	               drop(comodel.search(domain))
-	           elif act[0] == 6:
-	               flush()
-	               record = records[-1]
-	               comodel.browse(act[2]).write({inverse: record.id})
-	               domain = self.domain(records) if callable(self.domain) else self.domain
-	               domain = domain + [(inverse, 'in', records.ids), ('id', 'not in', act[2] or [0])]
-	               drop(comodel.search(domain))
-
-	       flush()
-	*/
 	return nil
 }

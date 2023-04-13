@@ -814,7 +814,7 @@ func (db *postgres) GenSqlType(field IField) string {
 	var res string
 	c := field.Base()
 	switch t := c.SqlType.Name; t {
-	case TinyInt:
+	case TinyInt, UnsignedTinyInt:
 		return SmallInt
 	case MediumInt, Int, Integer:
 		if c.isAutoIncrement {
@@ -835,6 +835,8 @@ func (db *postgres) GenSqlType(field IField) string {
 		res = Real
 	case TinyText, MediumText, LongText:
 		res = Text
+	case NChar:
+		res = Char
 	case NVarchar:
 		res = Varchar
 	case Uuid:
@@ -1063,20 +1065,26 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		}
 
 		switch dataType {
-		case "character varying", "character":
+		case "character":
+			sql_type = SQLType{Char, 0, 0}
+		case "character varying", "string":
 			sql_type = SQLType{Varchar, 0, 0}
 		case "timestamp without time zone":
 			sql_type = SQLType{DateTime, 0, 0}
 		case "timestamp with time zone":
 			sql_type = SQLType{TimeStampz, 0, 0}
+		case "time without time zone":
+			sql_type = SQLType{Time, 0, 0}
 		case "double precision":
 			sql_type = SQLType{Double, 0, 0}
 		case "boolean":
 			sql_type = SQLType{Bool, 0, 0}
-		case "time without time zone":
-			sql_type = SQLType{Time, 0, 0}
 		case "oid":
 			sql_type = SQLType{BigInt, 0, 0}
+		//case "array":
+		//	sql_type = SQLType{Array, 0, 0}
+		case "bytes":
+			sql_type = SQLType{Binary, 0, 0}
 		default:
 			sql_type = SQLType{strings.ToUpper(dataType), 0, 0}
 		}

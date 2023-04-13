@@ -209,14 +209,18 @@ func (mapper PrefixMapper) Table2Obj(name string) string {
 	return mapper.Mapper.Table2Obj(name[len(mapper.Prefix):])
 }
 
-func NewPrefixMapper(mapper IMapper, prefix string) PrefixMapper {
-	return PrefixMapper{mapper, prefix}
-}
-
 // provide suffix table name support
 type SuffixMapper struct {
 	Mapper IMapper
 	Suffix string
+}
+
+func NewPrefixMapper(mapper IMapper, prefix string) PrefixMapper {
+	return PrefixMapper{mapper, prefix}
+}
+
+func NewSuffixMapper(mapper IMapper, suffix string) SuffixMapper {
+	return SuffixMapper{mapper, suffix}
 }
 
 func (mapper SuffixMapper) Obj2Table(name string) string {
@@ -225,8 +229,4 @@ func (mapper SuffixMapper) Obj2Table(name string) string {
 
 func (mapper SuffixMapper) Table2Obj(name string) string {
 	return mapper.Mapper.Table2Obj(name[:len(name)-len(mapper.Suffix)])
-}
-
-func NewSuffixMapper(mapper IMapper, suffix string) SuffixMapper {
-	return SuffixMapper{mapper, suffix}
 }

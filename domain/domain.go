@@ -226,6 +226,22 @@ func (self *TDomainNode) IN(name string, args ...interface{}) *TDomainNode {
 	return self
 }
 
+func (self *TDomainNode) NotIn(name string, args ...interface{}) *TDomainNode {
+	if len(args) == 0 {
+		// TODO report err stack
+		return self
+	}
+
+	cond := NewDomainNode()
+	cond.Push(name)
+	cond.Push("NOT IN")
+	cond.Push(NewDomainNode(args...))
+	cond.nodeType = LEAF_NODE
+	self.OP(AND_OPERATOR, cond)
+
+	return self
+}
+
 // parse node or subnode to string. it will panice when the data is not available
 // return 'xx','xx'
 // 当self 时列表时idx有效,反则返回Text
@@ -280,7 +296,7 @@ func (self *TDomainNode) Strings(idx ...int) (result []string) {
 	return
 }
 
-//栈方法Pop :取栈方式出栈<最前一个>元素 即最后一个添加进列的元素
+// 栈方法Pop :取栈方式出栈<最前一个>元素 即最后一个添加进列的元素
 func (self *TDomainNode) Shift() *TDomainNode {
 	var node *TDomainNode
 	if len(self.children) > 0 {
@@ -297,8 +313,8 @@ func (self *TDomainNode) Shift() *TDomainNode {
 	return node
 }
 
-//""" Pop a leaf to process. """
-//栈方法Pop :取栈方式出栈<最后一个>元素 即最后一个添加进列的元素
+// """ Pop a leaf to process. """
+// 栈方法Pop :取栈方式出栈<最后一个>元素 即最后一个添加进列的元素
 func (self *TDomainNode) Pop() *TDomainNode {
 	if self.nodeType == LIST_NODE {
 		cnt := len(self.children)
@@ -342,9 +358,17 @@ func (self *TDomainNode) Push(items ...interface{}) *TDomainNode {
 					// VALUE_NODE 转 LIST_NODE 当Self是一个值时必须添加自己到items里成为列表的一部分
 					self.children = append(self.children, NewDomainNode(self.Value))
 					self.Value = nil
-				}
+				} /*else if self.nodeType == LEAF_NODE {
+					if len(self.children) < 3 {
+						self.children = append(self.children, NewDomainNode(node))
+						continue
+					}
+					self.children[2].children = append(self.children[2].children, NewDomainNode(node))
+					self.children[2].nodeType = LIST_NODE
+				} */
 				self.children = append(self.children, NewDomainNode(node))
 				self.nodeType = LIST_NODE
+
 			}
 		}
 	}
@@ -395,7 +419,7 @@ func (self *TDomainNode) Nodes(idx ...int) []*TDomainNode {
 	return nil
 }
 
-//-----------list
+// -----------list
 func (self *TDomainNode) Item(idx int) *TDomainNode {
 	if !self.IsValueNode() {
 		if idx < len(self.children) {

@@ -83,7 +83,7 @@ func (self *Testchain) CreateM2m() *Testchain {
 		self.Fatal("please add some record first!")
 	}
 
-	dataset.FieldByName("many_to_many").AsInterface([]interface{}{1, 2})
+	dataset.Record().SetByField("many_to_many", []interface{}{1, 2})
 	count, err := model.Records().Ids(dataset.FieldByName("id").AsInterface()).Write(dataset.Record().AsItfMap(), isClassic)
 	if err != nil || count == 0 {
 		self.Fatalf("create manyTomany fail: %v", err)

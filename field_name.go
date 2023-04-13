@@ -17,7 +17,7 @@ func newNameField() IField {
 	return new(TNameField)
 }
 
-func (self *TNameField) Init(ctx *TFieldContext) {
+func (self *TNameField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 	params := ctx.Params
 
@@ -30,6 +30,7 @@ func (self *TNameField) Init(ctx *TFieldContext) {
 	// set type for field
 	fld.Base().SqlType = SQLType{Varchar, 0, 0}
 	fld.Base()._attr_type = "char"
+	fld.Base()._attr_store = true
 
 	// set the id field for model
 	ctx.Model.SetRecordName(fld.Name())
