@@ -395,7 +395,7 @@ func combine(operator, unit, zero string, domains []string) (result *utils.TStri
 func normalize_domain(node *domain.TDomainNode) (*domain.TDomainNode, error) {
 	if node == nil {
 		log.Warnf("The domain is Invaild!")
-		return domain.String2Domain(domain.TRUE_DOMAIN)
+		return domain.String2Domain(domain.TRUE_DOMAIN, nil)
 	}
 
 	// must be including Terms
@@ -926,7 +926,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			//log.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			//  # res_partner.id = res_partner__bank_ids.partner_id
 			ex_leaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), fieldName)
-			node, err := domain.String2Domain(field.Domain()) //column._domain(model) if callable(column._domain) else column._domain
+			node, err := domain.String2Domain(field.Domain(), nil) //column._domain(model) if callable(column._domain) else column._domain
 			if err != nil {
 				log.Err(err)
 			}
@@ -941,7 +941,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 					self.push(create_substitution_leaf(ex_leaf, elem, comodel.GetBase(), false))
 				}
 
-				op, err := domain.String2Domain(domain.AND_OPERATOR)
+				op, err := domain.String2Domain(domain.AND_OPERATOR, nil)
 				if err != nil {
 					log.Err(err)
 				}
@@ -1001,7 +1001,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 
 			if node == nil {
-				ex_leaf.leaf, err = domain.String2Domain(domain.TRUE_LEAF)
+				ex_leaf.leaf, err = domain.String2Domain(domain.TRUE_LEAF, nil)
 				if err != nil {
 					log.Err(err)
 				}
@@ -1037,8 +1037,16 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				                           push(dom_leaf, model, alias)
 				*/
 			} else {
+				// 对多值修改为In操作
+				if _, ok := right.Value.([]any); ok {
+					ex_leaf.leaf.Item(1).Value = "in"
+					self.push_result(ex_leaf)
+
+				} else {
+					self.push_result(ex_leaf)
+
+				}
 				//expr, params = self.leaf_to_sql(ex_leaf, model, alias)
-				self.push_result(ex_leaf)
 				/*
 				   def _get_expression(comodel, left, right, operator):
 				                          #Special treatment to ill-formed domains
@@ -1313,7 +1321,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			res_params = nil
 		} else {
 			// '=?' behaves like '=' in other cases
-			lDomain, err := domain.String2Domain(fmt.Sprintf(`[('%s','=','%s')]`, left.String(), right.String()))
+			lDomain, err := domain.String2Domain(fmt.Sprintf(`[('%s','=','%s')]`, left.String(), right.String()), nil)
 			if err != nil {
 				log.Err(err)
 			}

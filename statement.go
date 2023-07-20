@@ -107,7 +107,7 @@ func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) {
 	switch v := cond.(type) {
 	case string:
 		// 添加信的条件
-		new_cond, err = domain.String2Domain(v)
+		new_cond, err = domain.String2Domain(v, nil)
 		if err != nil {
 			log.Err(err)
 		}
@@ -575,7 +575,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 			}
 			if !hasfield {
 				//domain.Insert(0, Query2StringList(`('active', '=', 1)`))
-				node, err := domain.String2Domain(`[('active', '=', 1)]`)
+				node, err := domain.String2Domain(`[('active', '=', 1)]`, nil)
 				if err != nil {
 					log.Err(err)
 				}
@@ -584,7 +584,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 		} else {
 			//domain = Query2StringList(`[('active', '=', 1)]`)
 			var err error
-			node, err = domain.String2Domain(`[('active', '=', 1)]`)
+			node, err = domain.String2Domain(`[('active', '=', 1)]`, nil)
 			if err != nil {
 				log.Err(err)
 			}

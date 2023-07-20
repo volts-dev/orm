@@ -3,6 +3,7 @@ package domain
 import (
 	"strings"
 
+	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/lexer"
 	"github.com/volts-dev/utils"
 	"github.com/volts-dev/volts/logger"
@@ -25,11 +26,11 @@ func trimQuotes(s string) string {
 	return s
 }
 
-//TODO 描述例句
+// TODO 描述例句
 // transfer string domain to a domain object
-func String2Domain(domain string) (*TDomainNode, error) {
+func String2Domain(domain string, context *dataset.TDataSet) (*TDomainNode, error) {
 	parser := newDomainParser(domain)
-	return parseQuery(parser, 0)
+	return parseQuery(parser, 0, context)
 }
 
 // transfer the domain object to string
@@ -95,6 +96,8 @@ func parseDomain(node *TDomainNode) string {
 	return ""
 }
 
+// 规则：
+//		1没有引号的字符串为值
 // s Html文件流
 /*
 [('foo', '=', 'bar')]
@@ -129,7 +132,7 @@ id in (1, 2, 3)
 // ['!', ['=', 'company_id.name', ['&', ..., ...]]]
 //	[('picking_id.picking_type_id.code', '=', 'incoming'), ('location_id.usage', '!=', 'internal'), ('location_dest_id.usage', '=', 'internal')]
 
-func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
+func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*TDomainNode, error) {
 	result := NewDomainNode() // 存储临时列表 提供给AND
 	list := NewDomainNode()   // 存储临时叶 提供给所有
 
@@ -145,7 +148,7 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 			}
 
 			//开始列表采集 { xx,xx } 处理XX,XX进List
-			new_leaf, err := parseQuery(parser, level+1)
+			new_leaf, err := parseQuery(parser, level+1, context)
 			if err != nil {
 				logger.Err(err)
 			}
@@ -187,7 +190,30 @@ func parseQuery(parser *TDomainParser, level int) (*TDomainNode, error) {
 				list = NewDomainNode() // 新建一个列表继续采集
 				break
 			} else {
+				// 匹配变量值
+				// TODO
+
+				if context != nil && value != "" && item.Pos > 0 {
+					last := parser.items[parser.Pos-1]
+					if last.Type != lexer.QUOTES {
+						// 如果ctx已经指定变量值
+						valus := context.ValueBy(item.Val)
+						ln := len(valus)
+						if ln == 1 {
+							list.Push(valus[0])
+							break
+						} else if ln > 1 {
+							list.Push(valus)
+							break
+						}
+						list.Push(item.Val)
+						break
+					}
+
+				}
+
 				v := trimQuotes(item.Val)
+
 				if vv, err := utils.IsNumeric(v); err == nil {
 					list.Push(vv)
 					break
@@ -229,7 +255,7 @@ exit:
 
 }
 
-//主要-略过特殊字符移动
+// 主要-略过特殊字符移动
 // 并返回不符合条件的Item
 // 回退Pos 到空白Item处,保持下一个有效字符
 func (self *TDomainParser) ConsumeWhitespace() (item lexer.TToken) {
@@ -308,6 +334,9 @@ func newDomainParser(sql string) *TDomainParser {
 			logger.Info(lexer.PrintToken(item))
 		}
 
+		if item.Type == lexer.SAPCE {
+			continue
+		}
 		parser.items = append(parser.items, item)
 	}
 

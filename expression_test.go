@@ -16,7 +16,7 @@ func test_leaf_1(t *testing.T) {
 	qry := `[('id', 'in', [1])]`
 	fmt.Println(qry)
 
-	node, err := domain.String2Domain(qry)
+	node, err := domain.String2Domain(qry, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

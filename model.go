@@ -24,9 +24,9 @@ var (
 )
 
 type (
-	// BaseModel 接口
+	// 基础Model接口
 	IModel interface {
-		// private
+		// --------------------- private ---------------------
 		setOrm(o *TOrm)
 		setBaseModel(model *TModel) //赋值初始化BaseModel
 		relations_reload()
@@ -34,7 +34,9 @@ type (
 		// retrieve the lines in the comodel
 		getRelate(*TFieldContext) (*dataset.TDataSet, error)
 
-		// public
+		// --------------------- public ---------------------
+		String() string // model name in orm like "base.user"
+		Table() string  // table name in database like "base_user"
 		// 获取继承的模型
 		// 用处:super 用于方便调用不同层级模型的方法/查询等
 		Super() IModel
@@ -44,17 +46,15 @@ type (
 		Init() error
 
 		// 包含指定表模型的事务 如若开启了事务这里非nil 反之亦然
+		Records() *TSession // new a orm records session for query
 		Tx(session ...*TSession) *TSession
-		Context(ctx ...*dataset.TRecordSet) *dataset.TRecordSet
+		Ctx(ctx ...*dataset.TRecordSet) *dataset.TRecordSet //Context
 		Osv() *TOsv
 		Obj() *TObj
 		Orm() *TOrm
 		//fields_get(allfields map[string]*TField, attributes []string, context map[string]string) (fields map[string]interface{})
 		//check_access_rights(operation string) bool
 		GetIndexes() map[string]*TIndex
-
-		String() string   // model name in orm like "base.user"
-		Table() string    // table name in database like "base_user"
 		GetBase() *TModel // get the base model object
 		GetColumnsSeq() []string
 		GetPrimaryKeys() []string
@@ -63,20 +63,6 @@ type (
 		GetDefault() map[string]interface{}
 		GetDefaultByName(fieldName string) (value interface{})
 		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
-		// 主表[字段所在的表]字段值是关联表其中之一条记录,关联表字段相当于主表或其他表的补充扩展或共同字段
-		// 特性：存储,外键在主表,主表类似于继承了关联表的多有字段
-		// 例子：合作伙伴里有个人和公司,他们都有名称,联系方式,地址等共同信息 这些信息可以又关联表存储
-		OneToOne(*TFieldContext) (*dataset.TDataSet, error)
-		/*	Object A can have one or many of objects B (E.g A person can have many cars).
-			Relationship: A -> B = One -> Many = One2Many
-			(You can select many cars while creating a person).	*/
-		OneToMany(*TFieldContext) (*dataset.TDataSet, error)
-		/*	Object B can only have one object of A.
-			(E.g A car is owned by one person also many cars can be owned by the same person).
-			Relationship: B -> A = Many -> One = Many2One	*/
-		ManyToOne(*TFieldContext) (*dataset.TDataSet, error)
-		// 字段值是中间表中绑定的多条关联表记录集(多条记录)
-		ManyToMany(*TFieldContext) (*dataset.TDataSet, error)
 
 		AddField(field IField)
 		// return the model name
@@ -98,36 +84,40 @@ type (
 		NameField(field ...string) string
 		IdField(field ...string) string
 
-		// new a orm records session for query
-		Records() *TSession
-
-		// Create 不带事务的
+		// CRUD 不带事务的
 		Create(req *CreateRequest) ([]any, error)
-		// Read 不带事务的
 		Read(req *ReadRequest) (*dataset.TDataSet, error)
-		//Read(domain string, ids []interface{}, fields []string, limit int, sort string) (*dataset.TDataSet, error)
-		// Update 不带事务的
 		Update(req *UpdateRequest) (int64, error)
-		// Delete 不带事务的
 		Delete(req *DeleteRequest) (int64, error)
-		// Uplaod 不带事务的
 		Uplaod(req *UploadRequest) (int64, error)
+
+		// 关联查询函数
+		// 主表[字段所在的表]字段值是关联表其中之一条记录,关联表字段相当于主表或其他表的补充扩展或共同字段
+		// 特性：存储,外键在主表,主表类似于继承了关联表的多有字段
+		// 例子：合作伙伴里有个人和公司,他们都有名称,联系方式,地址等共同信息 这些信息可以又关联表存储
+		OneToOne(*TFieldContext) (*dataset.TDataSet, error)
+		/*	Object A can have one or many of objects B (E.g A person can have many cars).
+			Relationship: A -> B = One -> Many = One2Many
+			(You can select many cars while creating a person).	*/
+		OneToMany(*TFieldContext) (*dataset.TDataSet, error)
+		/*	Object B can only have one object of A.
+			(E.g A car is owned by one person also many cars can be owned by the same person).
+			Relationship: B -> A = Many -> One = Many2One	*/
+		ManyToOne(*TFieldContext) (*dataset.TDataSet, error)
+		// 字段值是中间表中绑定的多条关联表记录集(多条记录)
+		ManyToMany(*TFieldContext) (*dataset.TDataSet, error)
+
 		// UTF file only
 		Load(field []string, records ...any) (ids []any, err error)
-
 		NameCreate(name string) (*dataset.TDataSet, error)
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
 		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
+
 		BeforeSetup()
 		AfterSetup()
-	}
-
-	// ???
-	IModelPretected interface {
-		IModel
 	}
 
 	// 所有成员都是Unexportable 小写,避免映射JSON,XML,ORM等时发生错误
@@ -216,7 +206,7 @@ func (self *TModel) Clone() (IModel, error) {
 	if err != nil {
 		return nil, err
 	}
-	model.Context(self.context)
+	model.Ctx(self.context)
 	model.Tx(self.Tx())
 	return model, nil
 }
@@ -232,7 +222,7 @@ func (self *TModel) Tx(session ...*TSession) *TSession {
 }
 
 // 上下文
-func (self *TModel) Context(ctx ...*dataset.TRecordSet) *dataset.TRecordSet {
+func (self *TModel) Ctx(ctx ...*dataset.TRecordSet) *dataset.TRecordSet {
 	if ctx != nil {
 		self.context = ctx[0]
 		return self.context

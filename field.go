@@ -38,6 +38,7 @@ type (
 		Id          interface{} // the current id of current record
 		Value       interface{} // the current value of the field
 		Field       IField      // FieldTypeValue reflect.Value
+		Fields      []string
 		Model       IModel
 		Session     *TSession
 		Dataset     *dataset.TDataSet // 数据集将被修改

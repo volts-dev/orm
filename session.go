@@ -262,7 +262,9 @@ func (self *TSession) Exec(sql_str string, args ...interface{}) (sql.Result, err
 func (self *TSession) exec(sql_str string, args ...interface{}) (sql.Result, error) {
 	defer self.resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
-		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.model.GetBase())
+		if self.Statement.model != nil {
+			sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.model.GetBase())
+		}
 	}
 
 	return self.orm.logExecSql(sql_str, args, func() (sql.Result, error) {

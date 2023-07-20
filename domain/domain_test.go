@@ -3,6 +3,8 @@ package domain
 import (
 	"fmt"
 	"testing"
+
+	"github.com/volts-dev/dataset"
 )
 
 func TestDomain2String(t *testing.T) {
@@ -61,17 +63,34 @@ func TestDomain2String(t *testing.T) {
 }
 
 func TestIsNul(t *testing.T) {
-	node, err := String2Domain("actice = true")
+	node, err := String2Domain("actice = true", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	node2, err := String2Domain("domain IS not NULL")
+	node2, err := String2Domain("domain IS not NULL", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	node.AND(node2)
+
+	result_str := Domain2String(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("New: %s", result_str)
+}
+
+func TestVar(t *testing.T) {
+	ctx := dataset.NewDataSet(dataset.WithData(map[string]any{
+		"preperty": []int64{4234234, 2342342},
+	}))
+
+	node, err := String2Domain(`['|', ('active', '=', True), ('state', 'in', preperty)`, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	result_str := Domain2String(node)
 	if err != nil {

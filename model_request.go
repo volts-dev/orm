@@ -351,7 +351,7 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, fmt.Errorf("the relate model <%s> field <%s> is not OneToMany type.", relModelName, relFieldName)
 	}
 
-	groups, err := relateModel.Records().In(relFieldName, ids...).Read(ctx.ClassicRead)
+	groups, err := relateModel.Records().Select(ctx.Fields...).In(relFieldName, ids...).Read(ctx.ClassicRead)
 	if err != nil {
 		log.Errf("OneToMany field %s search relate model %s faild", field.Name(), relateModel.String())
 		return nil, err
@@ -430,7 +430,7 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, fmt.Errorf("the models are not correctable for ManyToMany(%s,%s)!", relModelName, midModelName)
 	}
 
-	domainNode, err := domain.String2Domain(field.Domain())
+	domainNode, err := domain.String2Domain(field.Domain(), ds)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +627,7 @@ func (self *TModel) SearchName(name string, domain_str string, operator string, 
 		//	access_rights_uid = self.session.AuthInfo("id")
 	}
 
-	_domain, err := domain.String2Domain(domain_str)
+	_domain, err := domain.String2Domain(domain_str, nil)
 	if err != nil {
 		return nil, err
 	}

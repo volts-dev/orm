@@ -46,7 +46,7 @@ func TestString2Domain(t *testing.T) {
 
 	for idx, domain := range domains {
 
-		node, err := String2Domain(domain)
+		node, err := String2Domain(domain, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
