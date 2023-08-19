@@ -998,7 +998,7 @@ func (self *postgres) DropDatabase(name string) error {
 	return fmt.Errorf("drop database %s fail!", name)
 }
 
-func (db *postgres) DropIndexSql(tableName string, index *TIndex) string {
+func (db *postgres) DropIndexUniqueSql(tableName string, index *TIndex) string {
 	//quote := db.Quote
 	//var unique string
 	/*var idxName string = index.Name
@@ -1053,6 +1053,7 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 
 	cols := make(map[string]IField)
 	colSeq := make([]string, 0)
+	var pkFields []IField // 用于存储主键对复合主键进行唯一处理
 
 	for rows.Next() {
 		var sql_type SQLType
@@ -1096,7 +1097,6 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		col := NewField(strings.Trim(colName, `" `), sql_type) // new(Column)
 		//		col.Base().Indexes = make(map[string]int)
 
-		//fmt.Println(args, colName, isNullable, dataType, maxLenStr, colDefault, numPrecision, numRadix, isPK, isUnique)
 		var maxLen int
 		if maxLenStr != nil {
 			maxLen, err = strconv.Atoi(*maxLenStr)
@@ -1105,12 +1105,17 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 			}
 		}
 
-		if colDefault != nil || isPK {
-			if isPK {
-				col.Base().isPrimaryKey = true
-			} else {
-				col.Base()._attr_size = utils.StrToInt(*colDefault)
-			}
+		if isPK {
+			// pk not must be a unique column
+			col.Base().isPrimaryKey = isPK
+			col.Base().isCompositeKey = true // 默认是由下面代码最终修改
+			pkFields = append(pkFields, col)
+		} else {
+			col.Base().isUnique = isUnique
+		}
+
+		if colDefault != nil {
+			col.Base()._attr_size = utils.StrToInt(*colDefault)
 		}
 
 		if colDefault != nil && strings.HasPrefix(*colDefault, "nextval(") {
@@ -1118,7 +1123,6 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		}
 
 		col.Base()._attr_required = (isNullable == "NO")
-
 		col.Base()._attr_size = maxLen
 
 		/*
@@ -1134,6 +1138,13 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		*/
 		cols[col.Name()] = col
 		colSeq = append(colSeq, col.Name())
+	}
+
+	// 非复合主键时主键一定是唯一的
+	if len(pkFields) == 1 {
+		fld := pkFields[0]
+		fld.Base().isUnique = true
+		fld.Base().isCompositeKey = false // 默认是由下面代码最终修改
 	}
 
 	return colSeq, cols, nil

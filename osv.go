@@ -455,6 +455,10 @@ func (self *TOsv) HasModel(name string) (has bool) {
 
 // TODO  TEST 测试是否正确使用路劲作为Modul
 func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
+	if name == "" {
+		return nil, errors.New("Model name must not blank!")
+	}
+
 	module_name := "" // "web" // 默认取Web模块注册的Models
 	if len(module) > 0 && utils.Trim(module[0]) != "" {
 		module_name = utils.Trim(module[0])

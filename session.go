@@ -467,7 +467,7 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 			// 现有的idex
 			if existIndex != nil {
 				if !existIndex.Equal(index) { // 类型不同则重新创建
-					sql := orm.dialect.DropIndexSql(tableName, existIndex)
+					sql := orm.dialect.DropIndexUniqueSql(tableName, existIndex)
 					if _, err = self.Exec(sql); err != nil {
 						return err
 					}
@@ -482,7 +482,7 @@ func (self *TSession) alterTable(newModel, oldModel *TModel) (err error) {
 		// 清除已经作删除的索引
 		for name, index := range curIndexs {
 			if foundIndexNames[name] != true {
-				sql := orm.dialect.DropIndexSql(tableName, index)
+				sql := orm.dialect.DropIndexUniqueSql(tableName, index)
 				if _, err = self.Exec(sql); err != nil {
 					return err
 				}
@@ -1760,7 +1760,7 @@ func (self *TSession) addIndex(tableName, idxName string) error {
 	}
 
 	index := self.Statement.model.GetIndexes()[idxName]
-	sql := self.orm.dialect.CreateIndexSql(tableName, index)
+	sql := self.orm.dialect.CreateIndexUniqueSql(tableName, index)
 	_, err := self.exec(sql)
 	return err
 }
@@ -1771,7 +1771,7 @@ func (self *TSession) addUnique(tableName, uqeName string) error {
 		defer self.Close()
 	}
 	index := self.Statement.model.GetIndexes()[uqeName]
-	sql := self.orm.dialect.CreateIndexSql(tableName, index)
+	sql := self.orm.dialect.CreateIndexUniqueSql(tableName, index)
 	_, err := self.exec(sql)
 	return err
 }

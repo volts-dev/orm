@@ -286,7 +286,7 @@ func (self *TStatement) generate_unique() []string {
 	var sqls []string = make([]string, 0)
 	for _, index := range self.session.Statement.model.Obj().indexes {
 		if index.Type == UniqueType {
-			sql := self.session.orm.dialect.CreateIndexSql(self.session.Statement.model.Table(), index)
+			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Statement.model.Table(), index)
 			sqls = append(sqls, sql)
 		}
 	}
@@ -314,7 +314,7 @@ func (self *TStatement) generate_index() ([]string, error) {
 				continue
 			}
 
-			sql := self.session.orm.dialect.CreateIndexSql(tableName, index)
+			sql := self.session.orm.dialect.CreateIndexUniqueSql(tableName, index)
 			//sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);",
 			//	quote(idxName), quote(tableName), quote(strings.Join(index.Cols, quote(","))))
 			sqls = append(sqls, sql)

@@ -67,7 +67,7 @@ func newOne2ManyField() IField {
 
 func (self *TRelational) GetAttributes(ctx *TTagContext) map[string]interface{} {
 	attrs := self.Base().GetAttributes(ctx)
-	attrs["relation"] = self._attr_relation
+	attrs["relation"] = self.comodel_name
 	return attrs
 }
 

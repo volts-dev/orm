@@ -47,8 +47,8 @@ type (
 
 		CreateTableSql(table IModel, storeEngine, charset string) string
 		DropTableSql(tableName string) string
-		CreateIndexSql(tableName string, index *TIndex) string
-		DropIndexSql(tableName string, index *TIndex) string
+		CreateIndexUniqueSql(tableName string, index *TIndex) string
+		DropIndexUniqueSql(tableName string, index *TIndex) string
 
 		ModifyColumnSql(tableName string, col IField) string
 
@@ -211,7 +211,7 @@ func (db *TDialect) DropDatabase(tableName string) error {
 
 }
 
-func (db *TDialect) CreateIndexSql(tableName string, index *TIndex) string {
+func (db *TDialect) CreateIndexUniqueSql(tableName string, index *TIndex) string {
 	quote := db.dialect.Quote
 	var unique string
 	var idxName string

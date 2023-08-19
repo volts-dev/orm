@@ -34,12 +34,29 @@ func newIdField() IField {
 func (self *TIdField) Init(ctx *TTagContext) {
 	fld := ctx.Field
 	model := ctx.Model
+	/*field_name := fld.Name()
 
 	// set type for field
+
+		// set unique
+		var index *TIndex
+		var ok bool
+		indexName := generate_index_name(UniqueType, model.Table(), []string{field_name})
+
+		if index, ok = model.Obj().indexes[indexName]; ok {
+			index.AddColumn(field_name)
+		} else {
+			index = newIndex(indexName, UniqueType)
+			index.AddColumn(field_name)
+			model.Obj().AddIndex(index)
+		}
+	*/
 	fld.Base().isPrimaryKey = true
-	fld.Base().SqlType = SQLType{BigInt, 0, 0}
+	fld.Base().isUnique = true
+	fld.Base()._attr_required = true
 	fld.Base()._attr_type = "bigint"
 	fld.Base()._attr_store = true
+	fld.Base().SqlType = SQLType{BigInt, 0, 0}
 
 	// set the id field for model
 	model.IdField(fld.Name())

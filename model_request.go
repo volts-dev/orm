@@ -13,6 +13,12 @@ import (
 )
 
 type (
+	// Model字段请求
+	FieldRequest struct {
+		Fields []string
+		Model  string
+	}
+
 	CreateRequest struct {
 		Context context.Context
 		Data    []any // 多条数据记录
@@ -37,8 +43,10 @@ type (
 	// 支持多条数据更新
 	UpdateRequest struct {
 		Context context.Context
-		Ids     []any // 多条数据记录
-		Data    []any // 多条数据记录
+		Ids     []any    // 多条数据记录
+		Data    []any    // 多条数据记录
+		Fields  []string // 指定查询和返回字段
+		Domain  string
 		Model   string
 		Method  string
 	}
@@ -46,6 +54,7 @@ type (
 	DeleteRequest struct {
 		Context context.Context
 		Ids     []any // 多条数据记录
+		Domain  string
 		Model   string
 		Method  string
 	}
@@ -124,6 +133,10 @@ func (self *TModel) Update(req *UpdateRequest) (int64, error) {
 			effectCount += id
 		}
 		return effectCount, nil
+	}
+
+	if req.Domain != "" {
+		session.Domain(req.Domain)
 	}
 
 	for _, d := range req.Data {

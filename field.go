@@ -51,7 +51,9 @@ type (
 		String(d IDialect) string
 		StringNoPk(d IDialect) string
 		IsPrimaryKey() bool
+		IsCompositeKey() bool // 是复合主键
 		IsAutoIncrement() bool
+		IsUnique() bool
 		IsCreated() bool
 		IsDeleted() bool
 		IsUpdated() bool
@@ -122,7 +124,9 @@ type (
 	TField struct {
 		// 共同属性
 		isPrimaryKey    bool //
+		isCompositeKey  bool
 		isAutoIncrement bool
+		isUnique        bool
 		isColumn        bool
 		isCreated       bool //# 时间字段自动更新日期
 		isUpdated       bool //
@@ -461,25 +465,11 @@ func (self *TField) SQLType() *SQLType {
 	return &self.SqlType
 }
 
-func (self *TField) FieldsId() string {
-	return self._fields_id
-}
-
-func (self *TField) SymbolChar() string {
-	return self._symbol_c
-}
-
-func (self *TField) SymbolFunc() func(string) string {
-	return self._symbol_f
-}
-
-func (self *TField) Title() string {
-	return self._attr_title
-}
-
-func (self *TField) Translate() bool {
-	return self.translate
-}
+func (self *TField) FieldsId() string                { return self._fields_id }
+func (self *TField) SymbolChar() string              { return self._symbol_c }
+func (self *TField) SymbolFunc() func(string) string { return self._symbol_f }
+func (self *TField) Title() string                   { return self._attr_title }
+func (self *TField) Translate() bool                 { return self.translate }
 
 func (self *TField) Store(val ...bool) bool {
 	if len(val) > 0 {
@@ -552,8 +542,17 @@ func (self *TField) IsPrimaryKey() bool {
 	return self.isPrimaryKey
 }
 
+// 是复合主键
+func (self *TField) IsCompositeKey() bool {
+	return self.isCompositeKey
+
+}
+
 func (self *TField) IsAutoIncrement() bool {
 	return self.isAutoIncrement
+}
+func (self *TField) IsUnique() bool {
+	return self.isUnique
 }
 
 func (self *TField) IsCreated() bool {

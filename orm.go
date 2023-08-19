@@ -774,23 +774,33 @@ func (self *TOrm) modelMetas(model IModel) (IModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	if tableName == "sys_tenant" {
+		log.Dbg("")
+	}
 
 	// TODO 充实model pk id 等选项
 	for _, name := range colSeq {
 		if field, has := fields[name]; has {
-			model.AddField(field)
+			// 主键三大特征
+			// TODO 与复合主键中找到ID主键
+			if !field.IsCompositeKey() && field.IsPrimaryKey() && field.Required() && (field.IsUnique() || field.IsAutoIncrement()) {
+				model.IdField(field.Name())
+				model.Obj().uidFieldName = field.Name()
+			}
+
 			/*
-				没有起到作用
-				无法鉴别来自数据库的字段是否id字段或者name字段
-				if f, ok := field.(*TIdField); ok {
+				//没有起到作用
+				//无法鉴别来自数据库的字段是否id字段或者name字段
+				switch f := field.(type) {
+				case *TIdField:
 					model.IdField(f.Name())
 					model.Obj().uidFieldName = f.Name()
-				}
-				if f, ok := field.(*TNameField); ok {
+				case *TNameField:
 					model.NameField(f.Name())
 					model.Obj().nameField = f.Name()
 				}
 			*/
+			model.AddField(field)
 		}
 
 	}

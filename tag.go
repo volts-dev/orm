@@ -339,6 +339,7 @@ func tag_pk(ctx *TTagContext) error {
 	}
 
 	fld.Base().isPrimaryKey = val
+	fld.Base().isUnique = val
 	fld.Base()._attr_required = true
 	return nil
 }
@@ -519,29 +520,46 @@ func tag_help(ctx *TTagContext) error {
 	}
 	return nil
 }
+
+// unique(uniquename)
 func tag_unique(ctx *TTagContext) error {
 	fld := ctx.Field
 	model := ctx.Model
 	field_name := fld.Name()
+	fld.Base().isUnique = true
+
 	var index *TIndex
 	var ok bool
-	indexName := generate_index_name(UniqueType, model.Table(), []string{field_name})
 
-	if index, ok = model.Obj().indexes[indexName]; ok {
+	uniqueName := ""
+	if len(ctx.Params) > 0 {
+		uniqueName = ctx.Params[0]
+	} else {
+		uniqueName = generate_index_name(UniqueType, model.Table(), []string{field_name})
+	}
+	if index, ok = model.Obj().indexes[uniqueName]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index = newIndex(indexName, UniqueType)
+		index = newIndex(uniqueName, UniqueType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}
+
 	return nil
 }
 
+// index(indexname)
 func tag_index(ctx *TTagContext) error {
 	fld := ctx.Field
 	model := ctx.Model
 	field_name := fld.Name()
-	indexName := generate_index_name(IndexType, model.Table(), []string{field_name})
+
+	indexName := ""
+	if len(ctx.Params) > 0 {
+		indexName = ctx.Params[0]
+	} else {
+		indexName = generate_index_name(IndexType, model.Table(), []string{field_name})
+	}
 
 	if index, ok := model.Obj().indexes[indexName]; ok {
 		index.AddColumn(field_name)

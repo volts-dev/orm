@@ -214,7 +214,9 @@ func (self *TModel) Clone() (IModel, error) {
 func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
 		self.transaction = session[0]
+		return self.transaction
 	}
+
 	if self.transaction == nil {
 		self.transaction = self.Records()
 	}
@@ -386,6 +388,7 @@ func (self *TModel) GetFields() map[string]IField {
 }
 
 func (self *TModel) AddField(field IField) {
+	field.Base().model_name = self.name
 	self.obj.AddField(field)
 }
 

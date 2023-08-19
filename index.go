@@ -15,7 +15,7 @@ const (
 )
 
 type (
-	// database index
+	// database index and unique
 	TIndex struct {
 		IsRegular bool
 		Name      string
