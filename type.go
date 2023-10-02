@@ -84,77 +84,105 @@ type SQLType struct {
 const (
 	// TODO remove
 	SQLITE = "sqlite3"
-	MYSQL  = "mysql"
 	MSSQL  = "mssql"
 	ORACLE = "oracle"
 
+	// enumerates all columns types
 	UNKNOW_TYPE = iota
 	TEXT_TYPE
 	BLOB_TYPE
 	TIME_TYPE
 	NUMERIC_TYPE
+	ARRAY_TYPE
+	BOOL_TYPE
 )
 
 var (
-	// 各数据库数据类型
-	Bit              = "BIT"
-	TinyInt          = "TINYINT"
-	UnsignedTinyInt  = "UNSIGNED TINYINT"
-	SmallInt         = "SMALLINT"
-	MediumInt        = "MEDIUMINT"
-	Int              = "INT"     // ORM
-	Integer          = "INTEGER" //#
-	BigInt           = "BIGINT"  // ORM
-	Enum             = "ENUM"
-	Set              = "SET"
-	Char             = "CHAR" // ORM
-	Varchar          = "VARCHAR"
-	NChar            = "NCHAR"
-	NVarchar         = "NVARCHAR"
-	TinyText         = "TINYTEXT"
-	Text             = "TEXT" // ORM
-	NText            = "NTEXT"
-	Clob             = "CLOB"
-	MediumText       = "MEDIUMTEXT"
-	LongText         = "LONGTEXT"
-	Uuid             = "UUID"
-	UniqueIdentifier = "UNIQUEIDENTIFIER"
-	SysName          = "SYSNAME"
-	Date             = "DATE"     // ORM
-	DateTime         = "DATETIME" // ORM
-	SmallDateTime    = "SMALLDATETIME"
-	Time             = "TIME"
-	TimeStamp        = "TIMESTAMP"
-	TimeStampz       = "TIMESTAMPZ"
-	Decimal          = "DECIMAL"
-	Numeric          = "NUMERIC"
-	Money            = "MONEY"
-	SmallMoney       = "SMALLMONEY"
-	Real             = "REAL"
-	Float            = "FLOAT" // ORM
-	Double           = "DOUBLE"
-	Binary           = "BINARY"
-	VarBinary        = "VARBINARY"
-	TinyBlob         = "TINYBLOB"
-	Blob             = "BLOB" // ORM
-	MediumBlob       = "MEDIUMBLOB"
-	LongBlob         = "LONGBLOB"
-	Bytea            = "BYTEA"
-	Bool             = "BOOL"    // ORM
-	Boolean          = "BOOLEAN" //#
-	Serial           = "SERIAL"
-	BigSerial        = "BIGSERIAL"
-	Json             = "JSON" // ORM
-	Jsonb            = "JSONB"
+	// ORM使用的各数据库数据类型
+	/* 特殊类 */
+	Uuid             = "UUID"             // PG
+	UniqueIdentifier = "UNIQUEIDENTIFIER" //
+	SysName          = "SYSNAME"          //
+	SmallSerial      = "SMALLSERIAL"      // PG
+	Serial           = "SERIAL"           // PG
+	BigSerial        = "BIGSERIAL"        // PG
+	Enum             = "ENUM"             // MYSQL
+	Set              = "SET"              // MYSQL
+
+	/* 布尔类 */
+	Bool    = "BOOL"    // ORM MYSQL
+	Boolean = "BOOLEAN" // PG
+
+	/* 数字类 */
+	Bit               = "BIT"                // MYSQL
+	TinyInt           = "TINYINT"            // ORM,MYSQL
+	UnsignedTinyInt   = "UNSIGNED TINYINT"   // ORM
+	SmallInt          = "SMALLINT"           // ORM,MYSQL,PG
+	UnsignedSmallInt  = "UNSIGNED SMALLINT"  // ORM
+	MediumInt         = "MEDIUMINT"          // ORM,MYSQL
+	UnsignedMediumInt = "UNSIGNED MEDIUMINT" // ORM
+	Int               = "INT"                // ORM,MYSQL
+	UnsignedInt       = "UNSIGNED INT"       // ORM
+	Integer           = "INTEGER"            // PG
+	BigInt            = "BIGINT"             // ORM,MYSQL,PG
+	UnsignedBigInt    = "UNSIGNED BIGINT"    // ORM
+
+	/* 金融数字 */
+	Decimal    = "DECIMAL"    // MYSQL,PG
+	Numeric    = "NUMERIC"    // PG
+	Money      = "MONEY"      // PG
+	SmallMoney = "SMALLMONEY" //
+
+	/* 字符类 */
+	Clob       = "CLOB"       //
+	Char       = "CHAR"       // ORM,MYSQL,PG
+	Varchar    = "VARCHAR"    // ORM,MYSQL,PG
+	NChar      = "NCHAR"      //
+	NVarchar   = "NVARCHAR"   //
+	NText      = "NTEXT"      //
+	TinyText   = "TINYTEXT"   //
+	Text       = "TEXT"       // ORM,MYSQL,PG
+	MediumText = "MEDIUMTEXT" //
+	LongText   = "LONGTEXT"   //
+
+	/* 时间类 */
+	Date          = "DATE"     // ORM,MYSQL,PG
+	DateTime      = "DATETIME" // ORM,MYSQL
+	SmallDateTime = "SMALLDATETIME"
+	Time          = "TIME"       // MYSQL,PG
+	TimeStamp     = "TIMESTAMP"  // MYSQL,PG
+	TimeStampz    = "TIMESTAMPZ" // PG
+
+	/* 浮点类 */
+	Real   = "REAL"   // PG
+	Float  = "FLOAT"  // ORM,MYSQL
+	Double = "DOUBLE" // ORM,MYSQL,PG
+
+	/* 二进制 */
+	Binary     = "BINARY"     // MYSQL
+	VarBinary  = "VARBINARY"  // MYSQL
+	TinyBlob   = "TINYBLOB"   // MYSQL
+	Blob       = "BLOB"       // ORM,MYSQL
+	MediumBlob = "MEDIUMBLOB" // MYSQL
+	LongBlob   = "LONGBLOB"   // MYSQL
+	Bytea      = "BYTEA"      // PG
+
+	/* object types */
+	XML   = "XML"
+	Json  = "JSON" // ORM
+	Jsonb = "JSONB"
+	Array = "ARRAY"
+
 	// new
-	TYPE_O2O = "one2one"
-	TYPE_O2M = "one2many"
-	TYPE_M2O = "many2one"
-	TYPE_M2M = "many2many"
+	TYPE_O2O       = "one2one"   // ORM
+	TYPE_O2M       = "one2many"  // ORM
+	TYPE_M2O       = "many2one"  // ORM
+	TYPE_M2M       = "many2many" // ORM
+	TYPE_SELECTION = "selection"
 
 	SqlTypes = map[string]int{
-		Bool: NUMERIC_TYPE,
-
+		Bool:      BOOL_TYPE,
+		Boolean:   BOOL_TYPE,
 		Serial:    NUMERIC_TYPE,
 		BigSerial: NUMERIC_TYPE,
 
@@ -210,44 +238,8 @@ var (
 		LongBlob:         BLOB_TYPE,
 		Bytea:            BLOB_TYPE,
 		UniqueIdentifier: BLOB_TYPE,
-	}
 
-	// TODO remove
-	FieldTypes = map[string]string{
-		// 布尔
-		"BOOL": "boolean",
-		// 整数
-		"INT":     "integer",
-		"INTEGER": "integer",
-		"BIGINT":  "integer",
-
-		"CHAR":     "char",
-		"VARCHAR":  "char",
-		"NVARCHAR": "char",
-		"TEXT":     "text",
-
-		"MEDIUMTEXT": "text",
-		"LONGTEXT":   "text",
-
-		"DATE":       "date",
-		"DATETIME":   "datetime",
-		"TIME":       "datetime",
-		"TIMESTAMP":  "datetime",
-		"TIMESTAMPZ": "datetime",
-
-		//Decimal = "DECIMAL"
-		//Numeric = "NUMERIC"
-		"REAL":   "float",
-		"FLOAT":  "float",
-		"DOUBLE": "float",
-
-		"VARBINARY":  "binary",
-		"TINYBLOB":   "binary",
-		"BLOB":       "binary",
-		"MEDIUMBLOB": "binary",
-		"LONGBLOB":   "binary",
-		"JSON":       "json",
-		"reference":  "reference",
+		Array: ARRAY_TYPE,
 	}
 )
 
@@ -259,7 +251,8 @@ func value2FieldTypeValue(field IField, value interface{}) interface{} {
 		type_name = field.Type()
 	}
 
-	switch strings.ToUpper(type_name) {
+	//switch strings.ToUpper(type_name) {
+	switch field.SQLType().Name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
 		return utils.Itf2Int(value)
 	case BigInt, BigSerial:
@@ -306,13 +299,19 @@ func value2SqlTypeValue(field IField, value interface{}) interface{} {
 }
 
 // Type2SQLType generate SQLType acorrding Go's type
-func Type2SQLType(t reflect.Type) (st SQLType) {
+func GoType2SQLType(t reflect.Type) (st SQLType) {
 	if typ, ok := t.(reflect.Type); ok {
 		switch k := typ.Kind(); k {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
+		case reflect.Int8:
+			st = SQLType{TinyInt, 0, 0}
+		case reflect.Int, reflect.Int16, reflect.Int32:
 			st = SQLType{Int, 0, 0}
-		case reflect.Int64, reflect.Uint64:
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
+			st = SQLType{UnsignedInt, 0, 0}
+		case reflect.Int64:
 			st = SQLType{BigInt, 0, 0}
+		case reflect.Uint64:
+			st = SQLType{UnsignedBigInt, 0, 0}
 		case reflect.Float32:
 			st = SQLType{Float, 0, 0}
 		case reflect.Float64:
@@ -337,7 +336,7 @@ func Type2SQLType(t reflect.Type) (st SQLType) {
 				st = SQLType{Text, 0, 0}
 			}
 		case reflect.Ptr:
-			st = Type2SQLType(t.Elem())
+			st = GoType2SQLType(t.Elem())
 		default:
 			st = SQLType{Text, 0, 0}
 		}
@@ -380,6 +379,11 @@ func (s *SQLType) IsType(st int) bool {
 	return false
 }
 
+// IsBool returns true if column is a boolean type
+func (s *SQLType) IsBool() bool {
+	return s.IsType(BOOL_TYPE)
+}
+
 func (s *SQLType) IsText() bool {
 	return s.IsType(TEXT_TYPE)
 }
@@ -394,6 +398,11 @@ func (s *SQLType) IsTime() bool {
 
 func (s *SQLType) IsNumeric() bool {
 	return s.IsType(NUMERIC_TYPE)
+}
+
+// IsArray returns true if column is an array type
+func (s *SQLType) IsArray() bool {
+	return s.IsType(ARRAY_TYPE)
 }
 
 func (s *SQLType) IsJson() bool {

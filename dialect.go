@@ -1,9 +1,14 @@
 package orm
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/volts-dev/orm/core"
+	"github.com/volts-dev/orm/dialect"
+	"github.com/volts-dev/utils"
 )
 
 type (
@@ -11,65 +16,64 @@ type (
 
 	// a dialect is a driver's wrapper
 	IDialect interface {
-		Init(*sql.DB, *TDataSource) error
+		String() string
+		Init(core.Queryer, *TDataSource) error
 		DataSource() *TDataSource
-		DB() *sql.DB
+		//DB() *sql.DB
+		Version(context.Context) (*core.Version, error)
 		DBType() string
-		GenSqlType(IField) string
+		SyncToSqlType(ctx *TTagContext) // 同步与数据库同步
+		GetSqlType(IField) string
 		FormatBytes(b []byte) string
 
 		DriverName() string
 		DataSourceName() string
-
-		QuoteStr() string
+		Quoter() dialect.Quoter
 		IsReserved(string) bool
-		Quote(string) string
 		AndStr() string
 		OrStr() string
 		EqStr() string
 		RollBackStr() string
 		AutoIncrStr() string
 
-		SupportInsertMany() bool
-		SupportEngine() bool
-		SupportCharset() bool
+		//SupportInsertMany() bool
+		//SupportEngine() bool
+		//SupportCharset() bool
 		SupportDropIfExists() bool
-		IndexOnTable() bool
 		ShowCreateNull() bool
 
 		IndexCheckSql(tableName, idxName string) (string, []interface{})
 		TableCheckSql(tableName string) (string, []interface{})
-
-		IsColumnExist(tableName string, colName string) (bool, error)
-		IsDatabaseExist(name string) bool
-		CreateDatabase(name string) error
-		DropDatabase(name string) error
-
 		CreateTableSql(table IModel, storeEngine, charset string) string
 		DropTableSql(tableName string) string
 		CreateIndexUniqueSql(tableName string, index *TIndex) string
 		DropIndexUniqueSql(tableName string, index *TIndex) string
-
 		ModifyColumnSql(tableName string, col IField) string
-
 		ForUpdateSql(query string) string
+		GenInsertSql(model string, fields []string, idField string) (sql string, isquery bool)
+		GenAddColumnSQL(tableName string, field IField) string
+		IsColumnExist(ctx context.Context, tableName string, colName string) (bool, error)
+		IsDatabaseExist(ctx context.Context, name string) bool
+		CreateDatabase(db *sql.DB, ctx context.Context, name string) error
+		DropDatabase(db *sql.DB, ctx context.Context, name string) error
 
 		//CreateTableIfNotExists(table *Table, tableName, storeEngine, charset string) error
 		//MustDropTable(tableName string) error
 
-		GetFields(tableName string) ([]string, map[string]IField, error)
-		GetModels() ([]IModel, error)
-		GetIndexes(tableName string) (map[string]*TIndex, error)
+		GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error)
+		GetModels(ctx context.Context) ([]IModel, error)
+		GetIndexes(ctx context.Context, tableName string) (map[string]*TIndex, error)
 
-		GenInsertSql(model string, fields []string, idField string) (sql string, isquery bool)
-		Fmter() []IFmter
+		Fmter() []IFmter // TODO 考虑移除 由于无法满足query获得model对象
 		SetParams(params map[string]string)
 	}
 
 	TDialect struct {
 		*TDataSource
-		db      *sql.DB
+		//db      *sql.DB
 		dialect IDialect
+		queryer core.Queryer
+		quoter  dialect.Quoter
 	}
 )
 
@@ -99,12 +103,12 @@ func QueryDialect(dbName string) IDialect {
 	return nil
 }
 
-func (b *TDialect) DB() *sql.DB {
-	return b.db
+func (b *TDialect) _DB() core.Queryer {
+	return b.queryer
 }
 
-func (b *TDialect) Init(db *sql.DB, dialect IDialect, datasource *TDataSource) error {
-	b.db, b.dialect, b.TDataSource = db, dialect, datasource
+func (b *TDialect) Init(queryer core.Queryer, dialect IDialect, datasource *TDataSource) error {
+	b.queryer, b.dialect, b.TDataSource = queryer, dialect, datasource
 	return nil
 }
 
@@ -116,8 +120,16 @@ func (b *TDialect) DBType() string {
 	return b.TDataSource.DbType
 }
 
+func (db *TDialect) SyncToSqlType(ctx *TTagContext) {
+
+}
+
 func (b *TDialect) FormatBytes(bs []byte) string {
 	return fmt.Sprintf("0x%x", bs)
+}
+
+func (b *TDialect) Quoter() dialect.Quoter {
+	return b.quoter
 }
 
 func (b *TDialect) DriverName() string {
@@ -153,13 +165,13 @@ func (db *TDialect) SupportDropIfExists() bool {
 }
 
 func (db *TDialect) DropTableSql(tableName string) string {
-	quote := db.dialect.Quote
-	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quote(tableName))
+	quoter := db.dialect.Quoter()
+	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoter.Quote(tableName))
 }
 
-func (db *TDialect) HasRecords(query string, args ...interface{}) (bool, error) {
+func (db *TDialect) HasRecords(ctx context.Context, query string, args ...interface{}) (bool, error) {
 	//db.LogSQL(query, args)
-	rows, err := db.DB().Query(query, args...)
+	rows, err := db.queryer.QueryContext(ctx, query, args...)
 	if err != nil {
 		return false, err
 	}
@@ -171,16 +183,16 @@ func (db *TDialect) HasRecords(query string, args ...interface{}) (bool, error) 
 	return false, nil
 }
 
-func (db *TDialect) IsColumnExist(tableName, colName string) (bool, error) {
+func (db *TDialect) IsColumnExist(ctx context.Context, tableName, colName string) (bool, error) {
 	query := "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? AND `COLUMN_NAME` = ?"
-	query = strings.Replace(query, "`", db.dialect.QuoteStr(), -1)
-	return db.HasRecords(query, db.DbName, tableName, colName)
+	query = strings.Replace(query, "`", string(db.dialect.Quoter().Prefix), -1)
+	return db.HasRecords(ctx, query, db.DbName, tableName, colName)
 }
 
 /*
 func (db *TDialect) CreateTableIfNotExists(table *Table, tableName, storeEngine, charset string) error {
 	sql, args := db.dialect.TableCheckSql(tableName)
-	rows, err := db.DB().Query(sql, args...)
+	rows, err := db.queryer.QueryContext(sql, args...)
 	if db.Logger != nil {
 		db.Logger.Info("[sql]", sql, args)
 	}
@@ -201,18 +213,18 @@ func (db *TDialect) CreateTableIfNotExists(table *Table, tableName, storeEngine,
 	return err
 }*/
 
-func (db *TDialect) CreateDatabase(tableName string) error {
+func (db *TDialect) CreateDatabase(dbx *sql.DB, ctx context.Context, tableName string) error {
 	return nil
 
 }
 
-func (db *TDialect) DropDatabase(tableName string) error {
+func (db *TDialect) DropDatabase(dbx *sql.DB, ctx context.Context, tableName string) error {
 	return nil
 
 }
 
 func (db *TDialect) CreateIndexUniqueSql(tableName string, index *TIndex) string {
-	quote := db.dialect.Quote
+	quoter := db.dialect.Quoter()
 	var unique string
 	var idxName string
 	if index.Type == UniqueType {
@@ -220,84 +232,107 @@ func (db *TDialect) CreateIndexUniqueSql(tableName string, index *TIndex) string
 	}
 	idxName = index.GetName(tableName)
 	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)", unique,
-		quote(idxName), quote(tableName),
-		quote(strings.Join(index.Cols, quote(","))))
+		quoter.Quote(idxName), quoter.Quote(tableName),
+		quoter.Quote(strings.Join(index.Cols, quoter.Quote(","))))
 }
 
-func (db *TDialect) DropIndexSql(tableName string, index *TIndex) string {
-	quote := db.dialect.Quote
+func (db *TDialect) DropIndexUniqueSql(tableName string, index *TIndex) string {
+	quoter := db.dialect.Quoter()
 	var name string
 	if index.IsRegular {
 		name = index.GetName(tableName)
 	} else {
 		name = index.Name
 	}
-	return fmt.Sprintf("DROP INDEX %v ON %s", quote(name), quote(tableName))
+	return fmt.Sprintf("DROP INDEX %v ON %s", quoter.Quote(name), quoter.Quote(tableName))
 }
 
 func (db *TDialect) ModifyColumnSql(tableName string, col IField) string {
-	return fmt.Sprintf("alter table %s MODIFY COLUMN %s", tableName, col.StringNoPk(db.dialect))
+	s, err := ColumnString(db.dialect, col, false)
+	if err != nil {
+		log.Warn(err)
+	}
+	return fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s", db.quoter.Quote(tableName), s)
 }
 
-func (b *TDialect) CreateTableSql(model IModel, storeEngine, charset string) string {
-	var sql string
-	sql = "CREATE TABLE IF NOT EXISTS "
-	sql += b.dialect.Quote(fmtTableName(model.String()))
-	sql += " ("
+func (self *TDialect) CreateTableSql(model IModel, storeEngine, charset string) string {
+	quoter := self.dialect.Quoter()
+	var b strings.Builder
+	b.WriteString("CREATE TABLE IF NOT EXISTS ")
+	quoter.QuoteTo(&b, fmtTableName(model.String()))
+	b.WriteString(" (")
 
 	fields := model.GetFields()
-	if len(fields) > 0 {
-		pkList := model.GetPrimaryKeys()
-
-		for _, field := range fields {
-			// TODO调试 store 失效原因
-			if !field.Store() {
-				continue
-			}
-
-			//col := model.GetColumn(colName)
-			col := field.Base()
-
-			if col.isPrimaryKey && len(pkList) == 1 {
-				sql += col.String(b.dialect)
-			} else {
-				sql += col.StringNoPk(b.dialect)
-			}
-			sql = strings.TrimSpace(sql)
-			if b.DriverName() == MYSQL && len(col.Comment) > 0 {
-				sql += " COMMENT '" + col.Comment + "'"
-			}
-			sql += ", "
+	lastIdx := len(fields)
+	fieldCnt := 0 /* 用于确保第一个Field之前不会添加逗号 */
+	for idx, field := range fields {
+		// TODO调试 store 失效原因
+		if !field.Store() {
+			continue
 		}
 
-		if len(pkList) > 1 {
-			sql += "PRIMARY KEY ( "
-			sql += b.dialect.Quote(strings.Join(pkList, b.dialect.Quote(",")))
-			sql += " ), "
+		if fieldCnt != 0 && idx < lastIdx {
+			b.WriteString(", ")
 		}
 
-		sql = sql[:len(sql)-2]
+		s, _ := ColumnString(self.dialect, field, field.IsPrimaryKey() && len(model.GetPrimaryKeys()) == 1)
+		b.WriteString(s)
+
+		fieldCnt++
 	}
 
-	sql += ")"
-
-	if b.dialect.SupportEngine() && storeEngine != "" {
-		sql += " ENGINE=" + storeEngine
+	if len(model.GetPrimaryKeys()) > 1 {
+		b.WriteString(", PRIMARY KEY (")
+		b.WriteString(quoter.Join(model.GetPrimaryKeys(), ","))
+		b.WriteString(")")
 	}
-	if b.dialect.SupportCharset() {
-		if len(charset) == 0 {
-			charset = b.dialect.DataSource().Charset
-		}
-		if len(charset) > 0 {
-			sql += " DEFAULT CHARSET " + charset
-		}
+	b.WriteString(")")
+
+	if len(charset) == 0 {
+		charset = self.Charset
+	}
+	if len(charset) != 0 {
+		b.WriteString(" DEFAULT CHARSET ")
+		b.WriteString(charset)
 	}
 
-	return sql
+	return b.String()
 }
 
 func (b *TDialect) ForUpdateSql(query string) string {
 	return query + " FOR UPDATE"
+}
+
+// 生成插入SQL句子
+func (db *TDialect) GenInsertSql(tableName string, fields []string, idField string) (sql string, isquery bool) {
+	cnt := len(fields)
+	field_places := strings.Repeat("?,", cnt-1) + "?"
+	field_list := ""
+
+	for i, name := range fields {
+		if i < cnt-1 {
+			field_list = field_list + db.quoter.Quote(name) + ","
+		} else {
+			field_list = field_list + db.quoter.Quote(name)
+		}
+	}
+
+	sql = fmt.Sprintf("INSERT INTO %s (%v) VALUES (%v)",
+		db.quoter.Quote(tableName),
+		field_list,
+		field_places,
+	)
+
+	if len(idField) > 0 {
+		sql = sql + " RETURNING " + db.quoter.Quote(idField)
+	}
+
+	return sql, true
+}
+
+func (db *TDialect) TableCheckSql(tableName string) (string, []interface{}) {
+	args := []interface{}{tableName}
+	return `SELECT 1 FROM $1 LIMIT 1`, args
 }
 
 func (b *TDialect) LogSQL(sql string, args []interface{}) {
@@ -311,4 +346,65 @@ func (b *TDialect) LogSQL(sql string, args []interface{}) {
 }
 
 func (b *TDialect) SetParams(params map[string]string) {
+}
+
+// ColumnString generate column description string according dialect
+func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (string, error) {
+	bd := strings.Builder{}
+
+	if field.Name() == "saleable" {
+		log.Dbg()
+	}
+	if err := dialect.Quoter().QuoteTo(&bd, field.Name()); err != nil {
+		return "", err
+	}
+
+	if err := bd.WriteByte(' '); err != nil {
+		return "", err
+	}
+
+	if _, err := bd.WriteString(dialect.GetSqlType(field)); err != nil {
+		return "", err
+	}
+
+	if includePrimaryKey && field.IsPrimaryKey() {
+		if _, err := bd.WriteString(" PRIMARY KEY"); err != nil {
+			return "", err
+		}
+		if field.IsAutoIncrement() {
+			if err := bd.WriteByte(' '); err != nil {
+				return "", err
+			}
+			if _, err := bd.WriteString(dialect.AutoIncrStr()); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	if !field.IsDefaultEmpty() {
+		if _, err := bd.WriteString(" DEFAULT "); err != nil {
+			return "", err
+		}
+		if field.Base()._attr_default == "" {
+			if _, err := bd.WriteString("''"); err != nil {
+				return "", err
+			}
+		} else {
+			if _, err := bd.WriteString(utils.ToString(field.Base()._attr_default)); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	if !field.Required() {
+		if _, err := bd.WriteString(" NULL"); err != nil {
+			return "", err
+		}
+	} else {
+		if _, err := bd.WriteString(" NOT NULL"); err != nil {
+			return "", err
+		}
+	}
+
+	return bd.String(), nil
 }

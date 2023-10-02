@@ -73,15 +73,64 @@ func (self *TRelational) GetAttributes(ctx *TTagContext) map[string]interface{} 
 
 func (self *TOne2OneField) Init(ctx *TTagContext) { //comodel_name string, inverse_name string
 	field_Value := ctx.FieldTypeValue
-	field := ctx.Field
-	field.Base().isRelatedField = true
-	field.Base().SqlType = Type2SQLType(field_Value.Type())
-	field.Base()._attr_store = true
-	field.Base()._attr_type = TYPE_O2O
+	field := ctx.Field.Base()
+	field.isRelatedField = true
+	field.SqlType = GoType2SQLType(field_Value.Type())
+	field._attr_store = true
+	field._attr_type = TYPE_O2O
 	params := ctx.Params
+
+	var modelName string
 	if len(params) > 0 {
-		field.Base().comodel_name = params[0]
-		field.Base()._attr_relation = params[0]
+		modelName = fmtModelName(utils.TitleCasedName(params[0]))
+		field.comodel_name = params[0]
+		field._attr_relation = params[0]
+	}
+
+	// 现在成员名是关联的Model名,Tag 为关联的字段
+	model := ctx.Model
+	model.Obj().SetRelationByName(modelName, field.Name())
+
+	parentModel, err := ctx.Orm.GetModel(modelName)
+	if err != nil || parentModel == nil {
+		log.Fatalf("field One2One %s@%s must including model %s name!", field.Name(), model.String(), modelName)
+	}
+
+	var (
+		parentField, newField IField
+		fieldName             string
+	)
+	for _, parentField = range parentModel.GetFields() {
+		// #限制某些字段
+		// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
+		//if lRelFieldsCnt > 1 && utils.InStrings(parentField.Name(), lRelFields...) == -1 {
+		//	continue
+		//}
+		fieldName = parentField.Name()
+		newField = utils.Clone(parentField).(IField) // 复制关联字段
+		newField.SetBase(parentField.Base())
+
+		if f := model.GetFieldByName(fieldName); f != nil {
+			// 相同字段处理
+			model.GetBase().obj.SetCommonFieldByName(fieldName, parentModel.String(), newField)
+			model.GetBase().obj.SetCommonFieldByName(fieldName, f.Base().model_name, f)
+
+		} else {
+			// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
+			newField.Base().isInheritedField = true
+			newField.Base()._attr_store = false // 关系字段不存储
+
+			if newField.IsAutoIncrement() {
+				//model.GetBase().table.AutoIncrement = fieldName
+				model.Obj().AutoIncrementField = fieldName
+			}
+
+			//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
+			if newField.Base().isPrimaryKey && newField.Base().isAutoIncrement {
+				model.GetBase().idField = fieldName
+			}
+			model.GetBase().obj.SetFieldByName(fieldName, newField)
+		}
 	}
 }
 
@@ -440,7 +489,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 
 	if _, has := orm.osv.models[fld.MiddleModelName()]; !has {
 		field := model.GetFieldByName(model.IdField())
-		sqlType := field.SQLType().Name
+		sqlType := orm.dialect.GetSqlType(field)
 		id1 := fld.RelateFieldName()
 		id2 := fld.MiddleFieldName()
 		query := fmt.Sprintf(`
@@ -501,21 +550,6 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	*/
 }
 
-// Add the foreign keys corresponding to the field's relation table.
-func (self *TMany2ManyField) update_db_foreign_keys(ctx *TTagContext) {
-	/*        cr = model._cr
-	          comodel = model.env[self.comodel_name]
-	          reflect = model.env['ir.model.constraint']._reflect_constraint
-	          # create foreign key references with ondelete=cascade, unless the targets are SQL views
-	          if sql.table_kind(cr, model._table) != 'v':
-	              sql.add_foreign_key(cr, self.relation, self.column1, model._table, 'id', 'cascade')
-	              reflect(model, '%s_%s_fkey' % (self.relation, self.column1), 'f', None, self._module)
-	          if sql.table_kind(cr, comodel._table) != 'v':
-	              sql.add_foreign_key(cr, self.relation, self.column2, comodel._table, 'id', 'cascade')
-	              reflect(model, '%s_%s_fkey' % (self.relation, self.column2), 'f', None, self._module)
-	*/
-}
-
 // 设置字段获得的值
 // TODO :未完成
 func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
@@ -543,86 +577,6 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 		})
 	}
 
-	return nil
-}
-
-// # beware of duplicates when inserting
-func (self *TMany2ManyField) link(ids []interface{}, ctx *TFieldContext) error {
-	orm := ctx.Session.Orm()
-	dialect := ctx.Session.Orm().dialect
-	field := ctx.Field
-	rec_id := ctx.Id // 字段所在记录的ID
-	session := orm.NewSession()
-	{
-		session.Begin()
-
-		middle_table_name := dialect.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
-		for _, relate_id := range ids {
-			query := fmt.Sprintf(
-				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
-				middle_table_name, dialect.Quote(field.RelateFieldName()), dialect.Quote(field.MiddleFieldName()),
-			)
-
-			/*
-			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
-			                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
-			                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
-			   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
-			   		rec_id, strings.Join(ids, ","),
-			   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
-			   	)
-			*/
-			_, err := session.Exec(query, relate_id, rec_id)
-			if err != nil {
-				return session.Rollback(err)
-			}
-		}
-
-		err := session.Commit()
-		if err != nil {
-			return session.Rollback(err)
-		}
-	}
-	session.Close()
-	return nil
-}
-
-// TODO 错误将IDS删除基数
-// # remove all records for which user has access rights
-func (self *TMany2ManyField) unlink_all(ids []interface{}, ctx *TFieldContext) error {
-	orm := ctx.Session.Orm()
-	dialect := ctx.Session.Orm().dialect
-	field := ctx.Field
-	//	model := ctx.Model
-	//	model_name := field.ModelName()
-	middle_table_name := dialect.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
-	in_sql := strings.Repeat("?,", len(ids)-1) + "?"
-	query := fmt.Sprintf(`DELETE FROM %s WHERE %s.%s IN (%s) AND %s.%s= ?`,
-		middle_table_name,
-		middle_table_name, dialect.Quote(field.RelateFieldName()), // Where
-		in_sql,                                                    // In
-		middle_table_name, dialect.Quote(field.MiddleFieldName()), // And
-		//model_name, model.IdField(),
-	)
-
-	arg := append(ids, ctx.Id)
-
-	// 提交修改
-	session := orm.NewSession()
-	{
-		session.Begin()
-		_, err := session.Exec(query, arg...)
-		if err != nil {
-			return session.Rollback(err)
-		}
-
-		session.Commit()
-		if err != nil {
-			return session.Rollback(err)
-		}
-
-	}
-	session.Close()
 	return nil
 }
 
@@ -670,17 +624,112 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 		*/
 		// TODO 读比写快 不删除原有数据 直接读取并对比再添加
 		// unlink all the relate record on the ref. table
-		err := self.unlink_all(ids, ctx)
+		err := self.unlink_all(ctx, ids)
 		if err != nil {
 			return err
 		}
 
 		// relink record from new data
-		err = self.link(ids, ctx)
+		err = self.link(ctx, ids)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// # beware of duplicates when inserting
+func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
+	quoter := ctx.Session.Orm().dialect.Quoter()
+	field := ctx.Field
+	rec_id := ctx.Id // 字段所在记录的ID
+	session := ctx.Session
+	{
+		//session.Begin()
+
+		middle_table_name := quoter.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
+		for _, relate_id := range ids {
+			query := fmt.Sprintf(
+				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
+				middle_table_name, quoter.Quote(field.RelateFieldName()), quoter.Quote(field.MiddleFieldName()),
+			)
+
+			/*
+			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
+			                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
+			                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
+			   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
+			   		rec_id, strings.Join(ids, ","),
+			   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
+			   	)
+			*/
+			_, err := session.Exec(query, relate_id, rec_id)
+			if err != nil {
+				//return session.Rollback(err)
+				return err
+			}
+		}
+
+		//err := session.Commit()
+		//if err != nil {
+		//	return session.Rollback(err)
+		//}
+	}
+	//session.Close()
+	return nil
+}
+
+// TODO 错误将IDS删除基数
+// # remove all records for which user has access rights
+func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) error {
+	quoter := ctx.Session.Orm().dialect.Quoter()
+	field := ctx.Field
+	//	model := ctx.Model
+	//	model_name := field.ModelName()
+	middle_table_name := quoter.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
+	in_sql := strings.Repeat("?,", len(ids)-1) + "?"
+	query := fmt.Sprintf(`DELETE FROM %s WHERE %s.%s IN (%s) AND %s.%s= ?`,
+		middle_table_name,
+		middle_table_name, quoter.Quote(field.RelateFieldName()), // Where
+		in_sql,                                                   // In
+		middle_table_name, quoter.Quote(field.MiddleFieldName()), // And
+		//model_name, model.IdField(),
+	)
+
+	arg := append(ids, ctx.Id)
+
+	// 提交修改
+	session := ctx.Session // orm.NewSession()
+	{
+		//session.Begin()
+		_, err := session.Exec(query, arg...)
+		if err != nil {
+			//return session.Rollback(err)
+			return err
+		}
+
+		//session.Commit()
+		//if err != nil {
+		//	return session.Rollback(err)
+		//}
+
+	}
+	//session.Close()
+	return nil
+}
+
+// Add the foreign keys corresponding to the field's relation table.
+func (self *TMany2ManyField) update_db_foreign_keys(ctx *TTagContext) {
+	/*        cr = model._cr
+	          comodel = model.env[self.comodel_name]
+	          reflect = model.env['ir.model.constraint']._reflect_constraint
+	          # create foreign key references with ondelete=cascade, unless the targets are SQL views
+	          if sql.table_kind(cr, model._table) != 'v':
+	              sql.add_foreign_key(cr, self.relation, self.column1, model._table, 'id', 'cascade')
+	              reflect(model, '%s_%s_fkey' % (self.relation, self.column1), 'f', None, self._module)
+	          if sql.table_kind(cr, comodel._table) != 'v':
+	              sql.add_foreign_key(cr, self.relation, self.column2, comodel._table, 'id', 'cascade')
+	              reflect(model, '%s_%s_fkey' % (self.relation, self.column2), 'f', None, self._module)
+	*/
 }

@@ -114,10 +114,16 @@ func (self *TObj) SetRelationByName(modelName string, fieldName string) {
 	return
 }
 
-func (self *TObj) GetFields() map[string]IField {
+func (self *TObj) GetFields() []IField {
 	self.fieldsLock.RLock()
 	defer self.fieldsLock.RUnlock()
-	return self.fields
+	fields := make([]IField, len(self.fields))
+	idx := 0
+	for _, f := range self.fields {
+		fields[idx] = f
+		idx++
+	}
+	return fields
 }
 
 func (self *TObj) GetFieldByName(name string) IField {
@@ -291,7 +297,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	val := reflect.New(model.modelType)
 	self.initObject(val, model.modelType, model.obj, model.String())
 	if m, ok := val.Interface().(IModel); ok {
-		if err := m.Init(); err != nil {
+		if err := m.OnBuildFields(); err != nil {
 			return err
 		}
 	}
@@ -391,20 +397,18 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 		delete(obj.object_types, "")
 	}
 	/*
-		//utils.Dbg("RegisterModel Method", aType, aType.NumField(), aType.NumMethod())
-		// @添加方法映射到对象里
-		var method reflect.Method
-		for i := 0; i < model.modelType.NumMethod(); i++ {
-			method = model.modelType.Method(i)
-			//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
-			// 参数验证func(self,handler)
-			//lMethod.Type.In(1).Elem().String() == handlerType.String()
-			//log.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
+		 		// @添加方法映射到对象里
+				var method reflect.Method
+				for i := 0; i < model.modelType.NumMethod(); i++ {
+					method = model.modelType.Method(i)
+					//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
+					// 参数验证func(self,handler)
+					//lMethod.Type.In(1).Elem().String() == handlerType.String()
 
-			//if lMethod.Type.NumIn() == 2 {
-			obj.methods[method.Name] = model.modelType // 添加方法对应的Object
-			//}
-		}
+					//if lMethod.Type.NumIn() == 2 {
+					obj.methods[method.Name] = model.modelType // 添加方法对应的Object
+					//}
+				}
 	*/
 	obj.mappingMethod(model)
 	obj.uidFieldName = model.idField
@@ -416,7 +420,6 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 }
 
 func (self *TObj) mappingMethod(model *TModel) {
-	//utils.Dbg("RegisterModel Method", aType, aType.NumField(), aType.NumMethod())
 	// @添加方法映射到对象里
 	var method reflect.Method
 	for i := 0; i < model.modelType.NumMethod(); i++ {
@@ -424,7 +427,6 @@ func (self *TObj) mappingMethod(model *TModel) {
 		//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
 		// 参数验证func(self,handler)
 		//lMethod.Type.In(1).Elem().String() == handlerType.String()
-		//log.Dbg("RegisterModel Method", lMethod.Type.NumIn(), lMethod.Name, lMethod.PkgPath, lMethod.Type)
 
 		//if lMethod.Type.NumIn() == 2 {
 		self.methods[method.Name] = model.modelType // 添加方法对应的Object
@@ -465,20 +467,19 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 	} else {
 		//TODO 实现智能选
 		/*
-			//_, lFilePath, _, ok := runtime.Caller(1)
-			//lAppPath := utils.AppDir()
-			//lFilePath := utils.CurPath()
-			//lFilePath := strings.TrimLeft(utils.CurPath(), utils.AppDir())
-			//lDirLst := strings.Split(lFilePath, string(filepath.Separator))
-			lFilePath := filepath.FromSlash(utils.CurFilePath()) //strings.TrimLeft(utils.CurFilePath(), utils.AppFilePath())
-			lDirLst := strings.Split(lFilePath, string(filepath.Separator))
-			if idx := utils.InStrings("module", lDirLst...); idx > -1 {
-				lModule = lDirLst[idx+1]
-			}
-			log.Dbg("getmodel", utils.CurPath(), lModule, lFilePath, utils.AppDir(), lDirLst)
-			//if len(lDirLst) > 1 { // && lDirLst[0] == AppModuleDir
-			//	lModule = lDirLst[1]
-			//}
+						//_, lFilePath, _, ok := runtime.Caller(1)
+						//lAppPath := utils.AppDir()
+						//lFilePath := utils.CurPath()
+						//lFilePath := strings.TrimLeft(utils.CurPath(), utils.AppDir())
+						//lDirLst := strings.Split(lFilePath, string(filepath.Separator))
+						lFilePath := filepath.FromSlash(utils.CurFilePath()) //strings.TrimLeft(utils.CurFilePath(), utils.AppFilePath())
+						lDirLst := strings.Split(lFilePath, string(filepath.Separator))
+						if idx := utils.InStrings("module", lDirLst...); idx > -1 {
+							lModule = lDirLst[idx+1]
+						}
+			 			//if len(lDirLst) > 1 { // && lDirLst[0] == AppModuleDir
+						//	lModule = lDirLst[1]
+						//}
 		*/
 	}
 

@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/volts-dev/orm/core"
+	"github.com/volts-dev/orm/dialect"
 	"github.com/volts-dev/utils"
 )
 
@@ -17,6 +20,8 @@ const (
 
 // from http://www.postgresql.org/docs/current/static/sql-keywords-appendix.html
 var (
+	// DefaultPostgresSchema default postgres schema
+	DefaultPostgresSchema = "public"
 	postgresReservedWords = map[string]bool{
 		"A":                                true,
 		"ABORT":                            true,
@@ -767,81 +772,130 @@ var (
 	}
 )
 
-type postgres struct {
-	TDialect
-}
+type (
+	postgres struct {
+		TDialect
+	}
+)
 
 func init() {
-	RegisterDialect("postgres", postgresDialect)
+	RegisterDialect("postgres", func() IDialect {
+		return &postgres{}
+	})
 }
 
-func postgresDialect() IDialect {
-	return &postgres{}
+func (db *postgres) Init(queryer core.Queryer, uri *TDataSource) error {
+	db.quoter = dialect.Quoter{
+		Prefix:     '"',
+		Suffix:     '"',
+		IsReserved: dialect.AlwaysReserve,
+	}
+	return db.TDialect.Init(queryer, db, uri)
 }
 
-func (db *postgres) Init(d *sql.DB, uri *TDataSource) error {
-	return db.TDialect.Init(d, db, uri)
+func (db *postgres) String() string {
+	return "postgres"
 }
 
-// 生成插入SQL句子
-func (db *postgres) GenInsertSql(tableName string, fields []string, idField string) (sql string, isquery bool) {
-	cnt := len(fields)
-	field_places := strings.Repeat("?,", cnt-1) + "?"
-	field_list := ""
+func (db *postgres) Version(ctx context.Context) (*core.Version, error) {
+	rows, err := db.queryer.QueryContext(ctx, "SELECT version()")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-	for i, name := range fields {
-		if i < cnt-1 {
-			field_list = field_list + db.Quote(name) + ","
-		} else {
-			field_list = field_list + db.Quote(name)
+	var version string
+	if !rows.Next() {
+		if rows.Err() != nil {
+			return nil, rows.Err()
+		}
+		return nil, errors.New("unknow version")
+	}
+
+	if err := rows.Scan(&version); err != nil {
+		return nil, err
+	}
+
+	// Postgres: 9.5.22 on x86_64-pc-linux-gnu (Debian 9.5.22-1.pgdg90+1), compiled by gcc (Debian 6.3.0-18+deb9u1) 6.3.0 20170516, 64-bit
+	// CockroachDB CCL v19.2.4 (x86_64-unknown-linux-gnu, built
+	if strings.HasPrefix(version, "CockroachDB") {
+		versions := strings.Split(strings.TrimPrefix(version, "CockroachDB CCL "), " ")
+		return &core.Version{
+			Number:  strings.TrimPrefix(versions[0], "v"),
+			Edition: "CockroachDB",
+		}, nil
+	} else if strings.HasPrefix(version, "PostgreSQL") {
+		versions := strings.Split(strings.TrimPrefix(version, "PostgreSQL "), " on ")
+		return &core.Version{
+			Number:  versions[0],
+			Level:   versions[1],
+			Edition: "PostgreSQL",
+		}, nil
+	}
+
+	return nil, errors.New("unknow database version")
+}
+
+func (db *postgres) SyncToSqlType(ctx *TTagContext) {
+	field := ctx.Field.Base()
+	params := ctx.Params
+
+	switch field.SqlType.Name {
+	case Float:
+		l := len(params)
+		if l == 2 {
+			// 數字的「scale」是小數點右邊的小數部分，也就是小數的位數。數字的「precision」是整數中有效位數的總數，即小數點兩邊的位數總合。所以 23.5141 的 precision 是 6，scale 是 4。整數可以被認為是 scale 為 0。
+			// Float(precision, scale)
+			precision := utils.ToInt(params[0])
+			scale := utils.ToInt(params[1])
+
+			field.SqlType.Name = Numeric
+			field.SqlType.DefaultLength = precision
+			field.SqlType.DefaultLength2 = scale
 		}
 	}
-
-	sql = fmt.Sprintf("INSERT INTO %s (%v) VALUES (%v)",
-		db.Quote(tableName),
-		field_list,
-		field_places,
-	)
-
-	if len(idField) > 0 {
-		sql = sql + " RETURNING " + db.Quote(idField)
-	}
-
-	return sql, true
 }
 
-func (db *postgres) GenSqlType(field IField) string {
+func (db *postgres) GetSqlType(field IField) string {
 	var res string
 	c := field.Base()
 	switch t := c.SqlType.Name; t {
+	case Bool:
+		return Boolean
 	case TinyInt, UnsignedTinyInt:
+		if c.isAutoIncrement {
+			return SmallSerial
+		}
 		return SmallInt
-	case MediumInt, Int, Integer:
+	case MediumInt, Int, Integer, UnsignedMediumInt, UnsignedSmallInt:
 		if c.isAutoIncrement {
 			return Serial
 		}
 		return Integer
-	case Serial, BigSerial:
+	case UnsignedInt, BigInt, UnsignedBigInt:
+		if c.isAutoIncrement {
+			return BigSerial
+		}
+		return BigInt
+	case SmallSerial, Serial, BigSerial:
 		c.isAutoIncrement = true
 		c._attr_required = true
 		res = t
-	case Binary, VarBinary:
-		return Bytea
-	case DateTime:
+	case SmallDateTime, DateTime, DateTime:
 		res = TimeStamp
 	case TimeStampz:
 		return "timestamp with time zone"
 	case Float:
 		res = Real
-	case TinyText, MediumText, LongText:
+	//case Numeric:
+	//	return fmt.Sprintf("NUMERIC(%d, %d)", c.SqlType.DefaultLength, c.SqlType.DefaultLength2)
+	case NText, TinyText, MediumText, LongText:
 		res = Text
 	case NChar:
 		res = Char
 	case NVarchar:
 		res = Varchar
-	case Uuid:
-		res = Uuid
-	case Blob, TinyBlob, MediumBlob, LongBlob:
+	case Binary, VarBinary, TinyBlob, Blob, MediumBlob, LongBlob:
 		return Bytea
 	case Double:
 		return "DOUBLE PRECISION"
@@ -852,9 +906,14 @@ func (db *postgres) GenSqlType(field IField) string {
 		res = t
 	}
 
-	var hasLen1 bool = (c._attr_size > 0)
-	if hasLen1 {
-		res += "(" + strconv.Itoa(c._attr_size) + ")"
+	c.SQLType().DefaultLength = c._attr_size
+	hasLen1 := (c.SQLType().DefaultLength > 0)
+	hasLen2 := (c.SQLType().DefaultLength2 > 0)
+
+	if hasLen2 {
+		res += "(" + strconv.FormatInt(int64(c.SQLType().DefaultLength), 10) + "," + strconv.FormatInt(int64(c.SQLType().DefaultLength2), 10) + ")"
+	} else if hasLen1 {
+		res += "(" + strconv.FormatInt(int64(c.SQLType().DefaultLength), 10) + ")"
 	}
 
 	return res
@@ -869,29 +928,8 @@ func (db *postgres) IsReserved(name string) bool {
 	return ok
 }
 
-func (db *postgres) Quote(name string) string {
-	name = strings.Replace(name, ".", `"."`, -1)
-	return "\"" + name + "\""
-}
-
-func (db *postgres) QuoteStr() string {
-	return "\""
-}
-
 func (db *postgres) AutoIncrStr() string {
 	return ""
-}
-
-func (db *postgres) SupportEngine() bool {
-	return false
-}
-
-func (db *postgres) SupportCharset() bool {
-	return false
-}
-
-func (db *postgres) IndexOnTable() bool {
-	return false
 }
 
 func (db *postgres) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
@@ -905,22 +943,92 @@ func (db *postgres) TableCheckSql(tableName string) (string, []interface{}) {
 	return `SELECT tablename FROM pg_tables WHERE tablename = $1`, args
 }
 
-/*func (db *postgres) ColumnCheckSql(tableName, colName string) (string, []interface{}) {
-	args := []interface{}{tableName, colName}
-	return "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = ?" +
-		" AND column_name = ?", args
-}*/
+func (db *postgres) CreateTableSql(model IModel, storeEngine, charset string) string {
+	quoter := db.dialect.Quoter()
+	tableName := ""
+	if len(db.getSchema()) != 0 && !strings.Contains(fmtTableName(model.String()), ".") {
+		tableName = fmt.Sprintf("%s.%s", db.getSchema(), fmtTableName(model.String()))
+	}
 
-func (db *postgres) ModifyColumnSql(tableName string, field IField) string {
-	return fmt.Sprintf("alter table %s ALTER COLUMN %s TYPE %s",
-		tableName, field.Name(), db.GenSqlType(field))
+	var b strings.Builder
+	var comments strings.Builder
+	b.WriteString("CREATE TABLE IF NOT EXISTS ")
+	quoter.QuoteTo(&b, tableName)
+	b.WriteString(" (")
+
+	fields := model.GetFields()
+	lastIdx := len(fields)
+	fieldCnt := 0 /* 用于确保第一个Field之前不会添加逗号 */
+	for idx, field := range fields {
+		// TODO调试 store 失效原因
+		if !field.Store() {
+			continue
+		}
+
+		if fieldCnt != 0 && idx < lastIdx {
+			b.WriteString(", ")
+		}
+
+		s, _ := ColumnString(db.dialect, field, field.IsPrimaryKey() && len(model.GetPrimaryKeys()) == 1)
+		b.WriteString(s)
+
+		if len(field.Title()) > 0 {
+			comments.WriteString(fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'; ", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Title()))
+		}
+		fieldCnt++
+	}
+
+	if len(model.GetPrimaryKeys()) > 1 {
+		b.WriteString(", PRIMARY KEY (")
+		b.WriteString(quoter.Join(model.GetPrimaryKeys(), ","))
+		b.WriteString(")")
+	}
+	b.WriteString(")")
+
+	b.WriteString("; ")
+	if model.GetTableDescription() != "" {
+		// support schema.table -> "schema"."table"
+		b.WriteString(fmt.Sprintf("COMMENT ON TABLE %s IS '%s'; ", quoter.Quote(tableName), model.GetTableDescription()))
+	}
+
+	b.WriteString(comments.String())
+	return b.String()
 }
 
-func (db *postgres) IsDatabaseExist(name string) bool {
-	s := fmt.Sprintf("SELECT datname FROM pg_database WHERE datname = $1")
+/*
+	func (db *postgres) ColumnCheckSql(tableName, colName string) (string, []interface{}) {
+		args := []interface{}{tableName, colName}
+		return "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = ?" +
+			" AND column_name = ?", args
+	}
+*/
+func (db *postgres) GenAddColumnSQL(tableName string, field IField) string {
+	quoter := db.dialect.Quoter()
+	s, _ := ColumnString(db.dialect, field, true)
+
+	addColumnSQL := ""
+	commentSQL := "; "
+	if len(db.getSchema()) == 0 || strings.Contains(tableName, ".") {
+		addColumnSQL = fmt.Sprintf("ALTER TABLE %s ADD %s", quoter.Quote(tableName), s)
+		commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Title())
+		return addColumnSQL + commentSQL
+	}
+
+	addColumnSQL = fmt.Sprintf("ALTER TABLE %s.%s ADD %s", quoter.Quote(db.getSchema()), quoter.Quote(tableName), s)
+	commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s.%s IS '%s'", quoter.Quote(db.getSchema()), quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Title())
+	return addColumnSQL + commentSQL
+}
+
+func (db *postgres) ModifyColumnSql(tableName string, field IField) string {
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+		tableName, field.Name(), db.GetSqlType(field))
+}
+
+func (db *postgres) IsDatabaseExist(ctx context.Context, name string) bool {
+	s := "SELECT datname FROM pg_database WHERE datname = $1"
 	db.LogSQL(s, []interface{}{name})
 
-	rows, err := db.DB().Query(s, name)
+	rows, err := db.queryer.QueryContext(ctx, s, name)
 	if err != nil {
 		return false
 	}
@@ -940,7 +1048,7 @@ func (db *postgres) IsDatabaseExist(name string) bool {
 	return false
 }
 
-func (self *postgres) CreateDatabase(name string) error {
+func (self *postgres) CreateDatabase(db *sql.DB, ctx context.Context, name string) error {
 	ds := self.TDataSource
 	ds.DbName = "postgres"
 	db_driver := ds.DbType
@@ -969,7 +1077,7 @@ func (self *postgres) CreateDatabase(name string) error {
 	return fmt.Errorf("create database %s fail!", name)
 }
 
-func (self *postgres) DropDatabase(name string) error {
+func (self *postgres) DropDatabase(db *sql.DB, ctx context.Context, name string) error {
 	ds := self.TDataSource
 	ds.DbName = "postgres"
 	db_driver := ds.DbType
@@ -1011,16 +1119,16 @@ func (db *postgres) DropIndexUniqueSql(tableName string, index *TIndex) string {
 		}
 	}*/
 	idxName := index.GetName(tableName)
-	return fmt.Sprintf("DROP INDEX %v", db.Quote(idxName))
+	return fmt.Sprintf("DROP INDEX %v", db.dialect.Quoter().Quote(idxName))
 }
 
-func (db *postgres) IsColumnExist(tableName, colName string) (bool, error) {
+func (db *postgres) IsColumnExist(ctx context.Context, tableName, colName string) (bool, error) {
 	args := []interface{}{tableName, colName}
 	query := "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = $1" +
 		" AND column_name = $2"
 	db.LogSQL(query, args)
 
-	rows, err := db.DB().Query(query, args...)
+	rows, err := db.queryer.QueryContext(ctx, query, args...)
 	if err != nil {
 		return false, err
 	}
@@ -1029,10 +1137,10 @@ func (db *postgres) IsColumnExist(tableName, colName string) (bool, error) {
 	return rows.Next(), nil
 }
 
-func (db *postgres) GetFields(tableName string) ([]string, map[string]IField, error) {
+func (db *postgres) GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error) {
 	// FIXME: the schema should be replaced by user custom's
 	args := []interface{}{tableName, "public"}
-	s := `SELECT column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision, numeric_precision_radix ,
+	s := `SELECT column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
     CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
     CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
 FROM pg_attribute f
@@ -1045,7 +1153,7 @@ FROM pg_attribute f
 WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.attnum > 0 ORDER BY f.attnum;`
 	db.LogSQL(s, args)
 
-	rows, err := db.DB().Query(s, args...)
+	rows, err := db.queryer.QueryContext(ctx, s, args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1055,21 +1163,55 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 	colSeq := make([]string, 0)
 	var pkFields []IField // 用于存储主键对复合主键进行唯一处理
 
+	if tableName == "res_country_state" {
+		log.Dbg()
+	}
 	for rows.Next() {
 		var sql_type SQLType
 		var colName, isNullable, dataType string
-		var maxLenStr, colDefault, numPrecision, numRadix *string
+		var maxLenStr, colDefault, numPrecision, numScale, numRadix *string
 		var isPK, isUnique bool
-		err = rows.Scan(&colName, &colDefault, &isNullable, &dataType, &maxLenStr, &numPrecision, &numRadix, &isPK, &isUnique)
+		err = rows.Scan(&colName, &colDefault, &isNullable, &dataType, &maxLenStr, &numPrecision, &numScale, &numRadix, &isPK, &isUnique)
 		if err != nil {
 			return nil, nil, err
 		}
+		if colName == "rate" {
+			log.Dbg()
+		}
+
+		var maxLen int
+		if maxLenStr != nil {
+			maxLen, err = strconv.Atoi(*maxLenStr)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+
+		var precision int
+		if numPrecision != nil {
+			precision, err = strconv.Atoi(*numPrecision)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+
+		var scale int
+		if numScale != nil {
+			scale, err = strconv.Atoi(*numScale)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 
 		switch dataType {
+		case "numeric":
+			sql_type = SQLType{Numeric, precision, scale}
+		case "integer":
+			sql_type = SQLType{Int, 0, 0}
 		case "character":
-			sql_type = SQLType{Char, 0, 0}
+			sql_type = SQLType{Char, maxLen, 0}
 		case "character varying", "string":
-			sql_type = SQLType{Varchar, 0, 0}
+			sql_type = SQLType{Varchar, maxLen, 0}
 		case "timestamp without time zone":
 			sql_type = SQLType{DateTime, 0, 0}
 		case "timestamp with time zone":
@@ -1082,28 +1224,31 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 			sql_type = SQLType{Bool, 0, 0}
 		case "oid":
 			sql_type = SQLType{BigInt, 0, 0}
-		//case "array":
-		//	sql_type = SQLType{Array, 0, 0}
+		case "array":
+			sql_type = SQLType{Array, 0, 0}
 		case "bytes":
 			sql_type = SQLType{Binary, 0, 0}
 		default:
-			sql_type = SQLType{strings.ToUpper(dataType), 0, 0}
+			startIdx := strings.Index(strings.ToLower(dataType), "string(")
+			if startIdx != -1 && strings.HasSuffix(dataType, ")") {
+				length := dataType[startIdx+8 : len(dataType)-1]
+				l, _ := strconv.ParseInt(length, 10, 64)
+				sql_type = SQLType{Name: "STRING", DefaultLength: int(l), DefaultLength2: 0}
+			} else {
+				sql_type = SQLType{Name: strings.ToUpper(dataType), DefaultLength: 0, DefaultLength2: 0}
+			}
+
 		}
 
 		if _, ok := SqlTypes[sql_type.Name]; !ok {
 			return nil, nil, errors.New(fmt.Sprintf("unknow colType: %v", dataType))
 		}
 
-		col := NewField(strings.Trim(colName, `" `), sql_type) // new(Column)
-		//		col.Base().Indexes = make(map[string]int)
-
-		var maxLen int
-		if maxLenStr != nil {
-			maxLen, err = strconv.Atoi(*maxLenStr)
-			if err != nil {
-				return nil, nil, err
-			}
+		col, err := NewField(strings.Trim(colName, `" `), WithSQLType(sql_type))
+		if err != nil {
+			return nil, nil, err
 		}
+		//		col.Base().Indexes = make(map[string]int)
 
 		if isPK {
 			// pk not must be a unique column
@@ -1115,15 +1260,33 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		}
 
 		if colDefault != nil {
-			col.Base()._attr_size = utils.StrToInt(*colDefault)
-		}
+			defaultValue := *colDefault
+			// cockroach has type with the default value with :::
+			// and postgres with ::, we should remove them before store them
 
-		if colDefault != nil && strings.HasPrefix(*colDefault, "nextval(") {
-			col.Base().isAutoIncrement = true
+			idx := strings.Index(defaultValue, ":::")
+			if idx == -1 {
+				idx = strings.Index(defaultValue, "::")
+			}
+			if idx > -1 {
+				defaultValue = defaultValue[:idx]
+			}
+
+			if strings.HasSuffix(defaultValue, "+00:00'") {
+				defaultValue = defaultValue[:len(defaultValue)-7] + "'"
+			}
+
+			col.Base()._attr_default = defaultValue
+
+			if strings.HasPrefix(defaultValue, "nextval(") {
+				col.Base().isAutoIncrement = true
+				col.Base()._attr_default = "" /* 自增加字段不绑定默认值 */
+				//col.Base().defaultIsEmpty = true
+			}
 		}
 
 		col.Base()._attr_required = (isNullable == "NO")
-		col.Base()._attr_size = maxLen
+		col.Base()._attr_size = sql_type.DefaultLength
 
 		/*
 			if col.SQLType().IsText() || col.SQLType().IsTime() {
@@ -1147,16 +1310,19 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		fld.Base().isCompositeKey = false // 默认是由下面代码最终修改
 	}
 
+	if rows.Err() != nil {
+		return nil, nil, rows.Err()
+	}
 	return colSeq, cols, nil
 }
 
-func (db *postgres) GetModels() ([]IModel, error) {
+func (db *postgres) GetModels(ctx context.Context) ([]IModel, error) {
 	// FIXME: replace public to user customrize schema
 	args := []interface{}{"public"}
 	s := fmt.Sprintf("SELECT tablename FROM pg_tables WHERE schemaname = $1")
 	db.LogSQL(s, args)
 
-	rows, err := db.DB().Query(s, args...)
+	rows, err := db.queryer.QueryContext(ctx, s, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1177,16 +1343,20 @@ func (db *postgres) GetModels() ([]IModel, error) {
 		model := newModel("", tableName, model_val, model_type)
 		models = append(models, model)
 	}
+
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
 	return models, nil
 }
 
-func (db *postgres) GetIndexes(tableName string) (map[string]*TIndex, error) {
+func (db *postgres) GetIndexes(ctx context.Context, tableName string) (map[string]*TIndex, error) {
 	// FIXME: replace the public schema to user specify schema
 	args := []interface{}{"public", tableName}
 	s := fmt.Sprintf("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname=$1 AND tablename=$2")
 	db.LogSQL(s, args)
 
-	rows, err := db.DB().Query(s, args...)
+	rows, err := db.queryer.QueryContext(ctx, s, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1242,4 +1412,11 @@ func (db *postgres) Fmter() []IFmter {
 		&IdFmter{},
 		&QuoteFmter{},
 		&HolderFmter{Prefix: "$", Start: 1}}
+}
+
+func (db *postgres) getSchema() string {
+	if db.Schema != "" {
+		return db.Schema
+	}
+	return DefaultPostgresSchema
 }

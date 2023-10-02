@@ -43,7 +43,8 @@ type (
 
 		// 初始化模型
 		// mapping -> init -> object
-		Init() error
+		OnBuildModel() error
+		OnBuildFields() error
 
 		// 包含指定表模型的事务 如若开启了事务这里非nil 反之亦然
 		Records() *TSession // new a orm records session for query
@@ -77,7 +78,7 @@ type (
 		//Field(field string, val ...*TField) (result *TField) // 作废
 		MethodByName(method string) *TMethod
 		GetFieldByName(name string) IField
-		GetFields() map[string]IField
+		GetFields() []IField
 		//RelateFieldByName(field string, val ...*TRelatedField) (res *TRelatedField)
 		//RelateFields() map[string]*TRelatedField
 		//Relations() map[string]string
@@ -115,9 +116,9 @@ type (
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
 		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
-
-		BeforeSetup()
-		AfterSetup()
+		// TODO 未完成
+		BeforeSetup() error
+		AfterSetup() error
 	}
 
 	// 所有成员都是Unexportable 小写,避免映射JSON,XML,ORM等时发生错误
@@ -150,6 +151,7 @@ type (
 		_transient    bool   // # 暂时的
 		_description  string // # 描述
 		is_base       bool   // #该Model是否是基Model,并非扩展Model
+
 	}
 )
 
@@ -180,7 +182,11 @@ func newModel(name, tableName string, modelValue reflect.Value, modelType reflec
 	return model
 }
 
-func (self *TModel) Init() error {
+func (self *TModel) OnBuildModel() error {
+	return nil
+}
+
+func (self *TModel) OnBuildFields() error {
 	return nil
 }
 
@@ -213,7 +219,7 @@ func (self *TModel) Clone() (IModel, error) {
 
 func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
-		self.transaction = session[0]
+		self.transaction = session[0].Model(self.String())
 		return self.transaction
 	}
 
@@ -336,11 +342,6 @@ func _generate_order_by(order_spec, query *TQuery) {
         return order_by_clause and (' ORDER BY %s ' % order_by_clause) or ''
 */
 
-// 更新单一字段
-func (self *TModel) __WriteField(id int64, field *TField, value string, rel_context map[string]interface{}) {
-	//self._update_field(id, field, value, rel_context)
-}
-
 // 删除记录
 /* unlink()
 
@@ -383,7 +384,7 @@ func (self *TModel) GetFieldByName(name string) IField {
 }
 
 // Fields returns the fields collection of this model
-func (self *TModel) GetFields() map[string]IField {
+func (self *TModel) GetFields() []IField {
 	return self.obj.GetFields()
 }
 
@@ -456,7 +457,7 @@ func (self *TModel) relations_reload() {
 	*/
 	//TODO  锁安全
 	var (
-		fielss        map[string]IField
+		fielss        []IField
 		relate_fields map[string]*TRelatedField
 	)
 
@@ -470,7 +471,8 @@ func (self *TModel) relations_reload() {
 		fielss = rel_model.GetFields()
 		relate_fields = rel_model.Obj().GetRelatedFields() //RelateFields()
 
-		for name, field := range fielss {
+		for _, field := range fielss {
+			name := field.Name()
 			self.obj.SetRelatedFieldByName(name, NewRelateField(name, tbl, fld, field, tbl))
 
 		}
@@ -508,7 +510,8 @@ func (self *TModel) _add_inherited_fields() {
 			log.Err(err, "@_add_inherited_fields")
 		}
 
-		for refname, ref := range parent.GetFields() {
+		for _, ref := range parent.GetFields() {
+			refname := ref.Name()
 			//# inherited fields are implemented as related fields, with the
 			//# following specific properties:
 			//#  - reading inherited fields should not bypass access rights
@@ -604,18 +607,17 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 			//webgo.Debug("_Validate", key, val, f._type)
 			switch f.Type() {
 			case "boolean":
-				vals[key] = utils.Itf2Bool(val)
+				vals[key] = utils.ToBool(val)
 			case "integer":
 				vals[key] = utils.ToInt(val)
 			case "float":
-				vals[key] = utils.Itf2Float(val)
+				vals[key] = utils.ToFloat64(val)
 			case "char", "text":
-				vals[key] = utils.Itf2Str(val)
+				vals[key] = utils.ToString(val)
 			//case "blob":
 			//	vals[key] = utils.Itf2Bool(val)
 			case "datetime", "date":
 				vals[key] = utils.ToTime(val)
-				//log.Dbg("datetime", key, val, utils.ToTime(val))
 			case "many2one":
 				// TODO 支持多种数据类型
 				//self.osv.GetModel(f.relModelName)
@@ -624,5 +626,5 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 		}
 	}
 }
-func (self *TModel) BeforeSetup() {}
-func (self *TModel) AfterSetup()  {}
+func (self *TModel) BeforeSetup() error { return nil }
+func (self *TModel) AfterSetup() error  { return nil }

@@ -21,36 +21,6 @@ type (
 		Link        string
 	}
 
-	TExtendedLeaf struct {
-		/*
-			            :attr [string, tuple] leaf: operator or tuple-formatted domain expression
-			            :attr obj model: current working model
-						:attr list models: list of chained models, updated when adding joins
-						:attr list context: list of join contexts. This is a list of
-				                tuples like ``(lhs, table, lhs_col, col, link)``
-
-				                where
-
-				                lhs
-				                    source (left hand) model
-				                model
-				                    destination (right hand) model
-				                lhs_col
-				                    source model column for join condition
-				                col
-				                    destination model column for join condition
-				                link
-				                    link column between source and destination model
-				                    that is not necessarily (but generally) a real column used
-				                    in the condition (i.e. in many2one); this link is used to
-				                    compute aliases
-		*/
-		join_context []TJoinContext //join_context
-		leaf         *domain.TDomainNode
-		model        *TModel
-		models       []*TModel
-	}
-
 	/*""" Parse a domain expression
 	    Use a real polish notation
 	    Leafs are still in a ('foo', '=', 'bar') format
@@ -102,178 +72,6 @@ func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context ma
 	}
 
 	return exp, nil
-}
-
-/*
-Initialize the ExtendedLeaf
-
-	:attr [string, tuple] leaf: operator or tuple-formatted domain
-	    expression
-	:attr obj model: current working model
-	:attr list models: list of chained models, updated when
-	    adding joins
-	:attr list join_context: list of join contexts. This is a list of
-	    tuples like ``(lhs, table, lhs_col, col, link)``
-
-	    where
-
-	    lhs
-	        source (left hand) model
-	    model
-	        destination (right hand) model
-	    lhs_col
-	        source model column for join condition
-	    col
-	        destination model column for join condition
-	    link
-	        link column between source and destination model
-	        that is not necessarily (but generally) a real column used
-	        in the condition (i.e. in many2one); this link is used to
-	        compute aliases
-*/
-func NewExtendedLeaf(leaf *domain.TDomainNode, model *TModel, context []TJoinContext, internal bool) *TExtendedLeaf {
-	ex_leaf := &TExtendedLeaf{
-		leaf:         leaf,
-		model:        model,
-		join_context: context,
-	}
-
-	ex_leaf.normalize_leaf()
-
-	ex_leaf.models = append(ex_leaf.models, model)
-	//# check validity
-	ex_leaf.check_leaf(internal)
-	return ex_leaf
-}
-
-/*
-" Leaf validity rules:
-  - a valid leaf is an operator or a leaf
-  - a valid leaf has a field objects unless
-  - it is not a tuple
-  - it is an inherited field
-  - left is id, operator is 'child_of'
-  - left is in MAGIC_COLUMNS
-
-"
-*/
-func (self *TExtendedLeaf) check_leaf(internal bool) {
-	//if !isOperator(self.leaf) && !isLeaf(self.leaf, internal) {
-	if !self.leaf.IsDomainOperator() && !self.leaf.IsLeafNode() {
-
-		//raise ValueError("Invalid leaf %s" % str(self.leaf))
-		//提示错误
-	}
-}
-
-func (self *TExtendedLeaf) generate_alias() (string, string) {
-	//links = [(context[1]._table, context[4]) for context in self.join_context]
-	var links [][]string
-	for _, context := range self.join_context {
-		links = append(links, []string{context.DestModel.table, context.Link})
-	}
-
-	return generate_table_alias(self.models[0].table, links)
-}
-
-func (self *TExtendedLeaf) is_true_leaf() bool {
-	if self.leaf.IsLeafNode() {
-		return domain.Domain2String(self.leaf) == domain.TRUE_LEAF
-	}
-
-	return false
-}
-
-func (self *TExtendedLeaf) is_false_leaf() bool {
-	if self.leaf.IsLeafNode() {
-		return domain.Domain2String(self.leaf) == domain.FALSE_LEAF
-	}
-
-	return false
-}
-
-func idsToSqlHolder(ids ...interface{}) string {
-	return strings.Repeat("?,", len(ids)-1) + "?"
-}
-
-// 格式化 操作符 统一使用 字母in,not in 或者字符 "=", "!="
-// 确保 操作符为小写
-// """ Change a term's operator to some canonical form, simplifying later processing. """
-func (self *TExtendedLeaf) normalize_leaf() bool {
-	if !self.leaf.IsLeafNode() {
-		return true
-	}
-
-	original := strings.ToLower(self.leaf.String(1))
-	operator := original
-	if operator == "<>" {
-		operator = "!="
-	}
-	if utils.IsBoolItf(self.leaf.Item(2)) && utils.InStrings(operator, "in", "not in") != -1 {
-		//   _log.warning("The domain term '%s' should use the '=' or '!=' operator." % ((left, original, right),))
-		if operator == "in" {
-			operator = "="
-		} else {
-			operator = "!="
-		}
-	}
-	if self.leaf.Item(2).IsListNode() && utils.InStrings(operator, "=", "!=") != -1 {
-		//  _log.warning("The domain term '%s' should use the 'in' or 'not in' operator." % ((left, original, right),))
-		if operator == "=" {
-			operator = "in"
-		} else {
-			operator = "not in"
-		}
-	}
-
-	self.leaf.Item(1).Value = operator
-
-	return true
-}
-
-// See above comments for more details. A join context is a tuple like:
-//
-//	``(lhs, model, lhs_col, col, link)``
-//
-// After adding the join, the model of the current leaf is updated.
-func (self *TExtendedLeaf) add_join_context(model *TModel, lhs_col, table_col, link string) {
-	self.join_context = append(
-		self.join_context,
-		TJoinContext{
-			SourceModel: self.model,
-			DestModel:   model,
-			SourceFiled: lhs_col,
-			DestFiled:   table_col,
-			Link:        link})
-	self.models = append(self.models, model)
-	self.model = model
-}
-
-func (self *TExtendedLeaf) get_tables() *utils.TStringList {
-	tables := utils.NewStringList()
-	links := make([][]string, 0)
-
-	for _, context := range self.join_context {
-		links = append(links, []string{context.DestModel.table, context.Link})
-		_, alias_statement := generate_table_alias(self.models[0].table, links)
-
-		tables.PushString(alias_statement)
-	}
-
-	return tables
-}
-
-func (self *TExtendedLeaf) get_join_conditions() (conditions []string) {
-	conditions = make([]string, 0) //utils.NewStringList()
-	alias := self.models[0].table
-	for _, context := range self.join_context {
-		previous_alias := alias
-		alias += "__" + context.Link
-		condition := fmt.Sprintf(`"%s"."%s"="%s"."%s"`, previous_alias, context.SourceFiled, alias, context.DestFiled)
-		conditions = append(conditions, condition)
-	}
-
-	return conditions
 }
 
 /*
@@ -329,16 +127,6 @@ def get_alias_from_query(from_query):
         return from_splitted[0].replace('"', ''), from_splitted[0].replace('"', '')
 
 */
-
-// """AND([D1,D2,...]) returns a domain representing D1 and D2 and ... """
-func ___AND(domains ...string) *utils.TStringList {
-	return combine(domain.AND_OPERATOR, domain.TRUE_DOMAIN, domain.FALSE_DOMAIN, domains)
-}
-
-// """OR([D1,D2,...]) returns a domain representing D1 or D2 or ... """
-func ___OR(domains ...string) *utils.TStringList {
-	return combine(domain.OR_OPERATOR, domain.FALSE_DOMAIN, domain.TRUE_DOMAIN, domains)
-}
 
 /*
 Returns a new domain expression where all domain components from “domains“
@@ -615,6 +403,10 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 	return srcTableName, fmt.Sprintf("%s as %s", quoteStr(joined_tables[0][0]), quoteStr(srcTableName))
 }
 
+func idsToSqlHolder(ids ...interface{}) string {
+	return strings.Repeat("?,", len(ids)-1) + "?"
+}
+
 // :param string from_query: is something like :
 //   - '"res_partner"' OR
 //   - '"res_partner" as "res_users__partner_id"”
@@ -673,6 +465,11 @@ func (self *TExpression) push(eleaf *TExtendedLeaf) {
 	self.stack = append(self.stack, eleaf)
 }
 
+// Push a leaf to the results. This leaf has been fully processed and validated.
+func (self *TExpression) push_result(leaf *TExtendedLeaf) {
+	self.result = append(self.result, leaf)
+}
+
 // 反转
 func (self *TExpression) reverse(lst []*TExtendedLeaf) {
 	var tmp []*TExtendedLeaf
@@ -681,11 +478,6 @@ func (self *TExpression) reverse(lst []*TExtendedLeaf) {
 		tmp = append(tmp, lst[i])
 	}
 	copy(lst, tmp)
-}
-
-// Push a leaf to the results. This leaf has been fully processed and validated.
-func (self *TExpression) push_result(leaf *TExtendedLeaf) {
-	self.result = append(self.result, leaf)
 }
 
 // TODO 为完成
@@ -877,15 +669,12 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 
 			// next_model = model.pool[model._inherit_fields[path[0]][0]]
 			//ex_leaf.add_join_context(next_model, model._inherits[next_model._name], 'id', model._inherits[next_model._name])
-			log.Dbg("ttt", model.obj.GetRelatedFieldByName(fieldName))
 
 			related_field := model.obj.GetRelatedFieldByName(fieldName)
 			next_model, err := model.orm.GetModel(related_field.RelateTableName)
 			if err != nil {
 				return err
 			}
-			log.Dbg("ttt", next_model, related_field)
-			//log.Dbg("IsRelatedField>>", fieldName, next_model.GetModelName())
 			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.String()), "id", model.obj.GetRelationByName(next_model.String()))
 			self.push(ex_leaf)
 
@@ -903,7 +692,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		} else if utils.InStrings(path[0], MAGIC_COLUMNS...) != -1 {
 			self.push_result(ex_leaf)
 
-		} else if len(path) > 1 && field.Type() == "many2one" && field.IsAutoJoin() {
+		} else if len(path) > 1 && field.Type() == TYPE_M2O && field.IsAutoJoin() {
 			/* # ----------------------------------------
 			   # PATH SPOTTED
 			   # -> many2one or one2many with IsAutoJoin():
@@ -917,13 +706,11 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			   #    as after transforming the column, it will go through this loop once again
 			   # ----------------------------------------*/
 
-			//log.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
 			// # res_partner.state_id = res_partner__state_id.id
 			ex_leaf.add_join_context(comodel.GetBase(), fieldName, "id", fieldName)
 			self.push(create_substitution_leaf(ex_leaf, domain.NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
 
-		} else if len(path) > 1 && field.Store() && field.Type() == "one2many" && field.IsAutoJoin() {
-			//log.Dbg(`if len(path) > 1 &&field.Type="many2one" && field.IsAutoJoin()`)
+		} else if len(path) > 1 && field.Store() && field.Type() == TYPE_O2M && field.IsAutoJoin() {
 			//  # res_partner.id = res_partner__bank_ids.partner_id
 			ex_leaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), fieldName)
 			node, err := domain.String2Domain(field.Domain(), nil) //column._domain(model) if callable(column._domain) else column._domain
@@ -951,8 +738,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		} else if len(path) > 1 && field.Store() && field.IsAutoJoin() {
 			return fmt.Errorf("_auto_join attribute not supported on many2many column %s", left.String())
 
-		} else if len(path) > 1 && field.Store() && field.Type() == "many2one" {
-			//log.Dbg(`if len(path) > 1 && field.Type == 'many2one'`)
+		} else if len(path) > 1 && field.Store() && field.Type() == TYPE_M2O {
 			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
 			lDs, _ := comodel.Records().Domain(domain_str).Read() //search(cr, uid, [(path[1], operator, right)], context=dict(context, active_test=False))
 			right_ids := lDs.Keys()
@@ -961,7 +747,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			ex_leaf.leaf.Push(right_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
-		} else if len(path) > 1 && field.Store() && utils.InStrings(field.Type(), "many2many", "one2many") != -1 {
+		} else if len(path) > 1 && field.Store() && utils.InStrings(field.Type(), TYPE_M2M, TYPE_O2M) != -1 {
 			// Making search easier when there is a left operand as column.o2m or column.m2m
 			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
 			lDs, _ := comodel.Records().Domain(domain_str).Read()
@@ -1014,18 +800,18 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 			//} else if field.IsFuncField() && !field.Store { // isinstance(column, fields.function) and not column.store
 
-		} else if field.Type() == "one2many" && (operator.String() == "child_of" || operator.String() == "parent_of") {
+		} else if field.Type() == TYPE_O2M && (operator.String() == "child_of" || operator.String() == "parent_of") {
 			// -------------------------------------------------
 			// RELATIONAL FIELDS
 			// -------------------------------------------------
 
-		} else if field.Type() == "one2many" {
+		} else if field.Type() == TYPE_O2M {
 			// TODO one2many
 			log.Errf("the one2many %s@%s is no implemented!", field.Name(), field.ModelName())
-		} else if field.Type() == "many2many" {
+		} else if field.Type() == TYPE_M2M {
 			// TODO many2many
 			log.Errf("the many2many %s@%s is no implemented!", field.Name(), field.ModelName())
-		} else if field.Type() == "many2one" {
+		} else if field.Type() == TYPE_M2O {
 			if _, has := HIERARCHY_FUNCS[operator.String()]; has {
 				/*
 				   ids2 = to_ids(right, comodel, leaf)
@@ -1127,6 +913,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	var (
 	//first_right_value interface{}   // 提供最终值以供条件判断
 	)
+	quoter := self.orm.dialect.Quoter()
 	var vals []interface{}              // 该Term 的值 每个Or,And等条件都有自己相当数量的值
 	res_params = make([]interface{}, 0) //domain.NewDomainNode()
 	res_arg = params                    // 初始化剩余参数
@@ -1141,8 +928,6 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	field := model.GetFieldByName(left.String())
 	is_field := field != nil // 是否是model字段
 	//	is_holder := false
-
-	//log.Dbg("_leaf_to_sql", is_field, left.String(), operator.String(), right.String(), right.IsList())
 
 	// 重新检查合法性 不行final sanity checks - should never fail
 	if utils.InStrings(operator.String(), append(domain.TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
@@ -1178,27 +963,23 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		} else {
 			vals = append(vals, right.Value)
 		}
-		//log.Dbg("holder2", right.String(), right.Value, vals, params, params[holder_count:1], holder_count, res_arg)
-
 	}
-	//log.Dbg("holder", vals, holder_count, res_arg)
 
 	/*	// 检测查询是否占位符?并获取值
-		if utils.InStrings(right.String(), "?", "%s") != -1 {
-			is_holder = true
-			if len(params) > 0 {
-				first_right_value = params[0]
-				le := utils.MaxInt(1, right.Count()-1)
+				if utils.InStrings(right.String(), "?", "%s") != -1 {
+					is_holder = true
+					if len(params) > 0 {
+						first_right_value = params[0]
+						le := utils.MaxInt(1, right.Count()-1)
 
-				log.Dbg("getttttttt", le, params, params[0:le], params[le:], right.Count(), right.String())
-				vals = params[0:le]
-				res_arg = params[le:] // 修改params值留到下个Term 返回
-			}
-			//res_params = append(res_params, lVal)
-		} else {
-			// 使用Vals作为right传值
-			vals = append(vals, right.Flatten()...)
-		}
+		 				vals = params[0:le]
+						res_arg = params[le:] // 修改params值留到下个Term 返回
+					}
+					//res_params = append(res_params, lVal)
+				} else {
+					// 使用Vals作为right传值
+					vals = append(vals, right.Flatten()...)
+				}
 	*/
 
 	if leaf.String() == domain.TRUE_LEAF {
@@ -1224,7 +1005,6 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			res_params = append(res_params, vals...)
 
 			check_nulls := false
-			//log.Dbg("right.IsList ", is_holder, res_params)
 			for idx, item := range res_params {
 				if utils.IsBoolItf(item) && utils.Itf2Bool(item) == false {
 					check_nulls = true
@@ -1238,7 +1018,6 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 				if left.String() == self.root_model.idField {
 					//instr = strings.Join(utils.Repeat("%s", len(res_params)), ",") // 数字不需要冒号[1,2,3]
 					holders = strings.Repeat("?,", len(vals)-1) + "?"
-					//log.Dbg("instr", instr, res_params)
 				} else {
 					// 获得字段Fortmat格式符 %s,%d 等
 					//ss := model.FieldByName(left.String()).SymbolChar()
@@ -1246,7 +1025,6 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 					// 等同于参数量重复打印格式符
 					holders = strings.Repeat("?,", len(vals)-1) + "?" // 字符串需要冒号 ['1','2','3']
 					// res_params = map(ss[1], res_params) // map(function, iterable, ...)
-					//log.Dbg("instr else", instr, res_params)
 				}
 				res_query = fmt.Sprintf(`(%s."%s" %s (%s))`, table_alias, left.String(), operator.String(), holders)
 			} else {
@@ -1367,7 +1145,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			}
 
 			//unaccent = self._unaccent if sql_operator.endswith('like') else lambda x: x
-			column := fmt.Sprintf("%s.%s", table_alias, self.orm.dialect.Quote(left.String()))
+			column := fmt.Sprintf("%s.%s", table_alias, quoter.Quote(left.String()))
 			res_query = fmt.Sprintf("(%s %s %s)", column+cast, sql_operator, format)
 
 		} else if left.ValueIn(MAGIC_COLUMNS) {
@@ -1384,18 +1162,17 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 
 		res_params = append(res_params, vals...)
 	}
-	//log.Dbg("toDQL:", res_query, res_params)
 	return res_query, res_params, res_arg
 }
 
 // to generate the SQL expression and params
 func (self *TExpression) ToSql(params ...interface{}) ([]string, []interface{}) {
-	return self.to_sql(params...)
+	return self.toSql(params...)
 }
 
 // 传递domain值并重新生成
 // params sql value
-func (self *TExpression) to_sql(params ...interface{}) ([]string, []interface{}) {
+func (self *TExpression) toSql(params ...interface{}) ([]string, []interface{}) {
 	var (
 		stack  = domain.NewDomainNode()
 		q1, q2 *domain.TDomainNode

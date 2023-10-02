@@ -28,15 +28,15 @@ type (
 )
 
 func (s *QuoteFmter) Do(sql string, dialect IDialect, model *TModel) string {
-	return strings.Replace(sql, "`", dialect.QuoteStr(), -1)
+	return strings.Replace(sql, "`", string(dialect.Quoter().Prefix), -1)
 }
 
 func (i *IdFmter) Do(sql string, dialect IDialect, model *TModel) string {
-	quoter := dialect.Quote
+	quoter := dialect.Quoter()
 	if model != nil && len(model.GetPrimaryKeys()) == 1 {
-		sql = strings.Replace(sql, " `(id)` ", " "+quoter(model.GetPrimaryKeys()[0])+" ", -1)
-		sql = strings.Replace(sql, " "+quoter("(id)")+" ", " "+quoter(model.GetPrimaryKeys()[0])+" ", -1)
-		return strings.Replace(sql, " (id) ", " "+quoter(model.GetPrimaryKeys()[0])+" ", -1)
+		sql = strings.Replace(sql, " `(id)` ", " "+quoter.Quote(model.GetPrimaryKeys()[0])+" ", -1)
+		sql = strings.Replace(sql, " "+quoter.Quote("(id)")+" ", " "+quoter.Quote(model.GetPrimaryKeys()[0])+" ", -1)
+		return strings.Replace(sql, " (id) ", " "+quoter.Quote(model.GetPrimaryKeys()[0])+" ", -1)
 	}
 	return sql
 }

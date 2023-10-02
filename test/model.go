@@ -24,7 +24,7 @@ type (
 		PartnerId    int64         `field:"one2one(partner_model)"`
 		Id           int64         `field:"pk autoincr title('ID') index"`
 		Name         string        `field:"char() unique index required"`
-		OneToMany    []interface{} `field:"one2many(user_model,many_to_one) title('Test Title') domain([('active','=',True)])"`
+		Users        []interface{} `field:"one2many(user_model,many_to_one) title('Test Title') domain([('active','=',True)])"`
 	}
 
 	UserModel struct {
@@ -32,7 +32,7 @@ type (
 		PartnerModel `field:"relate(PartnerId)"`
 		PartnerId    int64     `field:"one2one(partner_model)"`
 		CompanyId    int64     `field:"many2one(company_model)"` //-- Company
-		Id           int64     `field:"pk autoincr type(char) title('ID') index"`
+		Id           int64     `field:"pk autoincr title('ID') index"`
 		Uid          int64     `field:"Id() pk  title('ID') index"`
 		CreateTime   time.Time `field:"datetime() created"`
 		WriteTime    time.Time `field:"datetime() updated"`
@@ -46,19 +46,23 @@ type (
                  test help 4.')"`
 
 		// all data types
-		Int        int           `field:"int() default(1)"`    // --
-		Bool       bool          `field:"bool default(true)"`  // --
-		Text       string        `field:"text"`                //
-		Float      float32       `field:"float"`               //
-		Bin        []byte        `field:"binary() attachment"` //
-		Selection  string        `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
-		Func       string        `field:"selection(TestSelection)"`
-		ManyToMany []interface{} `field:"many2many(company_model,company_id,user_id)"`
+		Int       int           `field:"int() default(1)"`    // --
+		Bool      bool          `field:"bool default(true)"`  // --
+		Text      string        `field:"text"`                //
+		Float     float32       `field:"float"`               //
+		Bin       []byte        `field:"binary() attachment"` //
+		Selection string        `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
+		Func      string        `field:"selection(TestSelection)"`
+		Companies []interface{} `field:"many2many(company_model,company_id,user_id)"`
 	}
 )
 
-func (UserModel) TestSelection(str string) {
-	fmt.Println("Arg is ", str)
+func (UserModel) TestSelection() [][]string {
+	fmt.Println("Arg is T")
+	return [][]string{
+		{"AA", "aa"},
+		{"BB", "bb"},
+	}
 }
 
 func (self UserModel) SetLang() [][]string {

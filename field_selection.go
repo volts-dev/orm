@@ -32,12 +32,12 @@ func newSelectionField() IField {
 }
 
 func (self *TBooleanField) Init(ctx *TTagContext) {
-	fld := ctx.Field
-
-	fld.Base().SqlType = SQLType{Bool, 0, 0}
-	fld.Base()._attr_type = Bool
-	fld.Base()._attr_store = true
-
+	field := ctx.Field.Base()
+	if field.SqlType.Name == "" {
+		field.SqlType = SQLType{Bool, 0, 0}
+		field._attr_type = Bool
+	}
+	field._attr_store = true
 	//	fld.Base()._column_type = Bool
 }
 
@@ -45,20 +45,22 @@ func (self *TBooleanField) Init(ctx *TTagContext) {
 // TODO 方法可以是任何大小写 参考https://github.com/alangpierce/go-forceexport
 // 所有的selection 函数必须是大写并返回[][]string,
 func (self *TSelectionField) Init(ctx *TTagContext) {
-	fld := self
+	field := self.Base()
 	params := ctx.Params
 
-	log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", fld.Name(), self.model_name, params)
-	fld.Base()._attr_store = true
-	fld.Base()._getter = "" //初始化
+	log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", field.Name(), self.model_name, params)
+	field._attr_store = true
+	field._attr_type = TYPE_SELECTION
+	field._getter = "" //初始化
 	lStr := strings.Trim(params[0], "'")
 	lStr = strings.Replace(lStr, "''", "'", -1)
 	m := ctx.Model.GetBase().modelValue.MethodByName(lStr)
 	if m.IsValid() {
+		/* TODO 支持 func() [][]int */
 		if _, ok := m.Interface().(func() [][]string); !ok {
-			log.Fatalf("the selection field %s@%s method %s must func()[][]string type", fld.Name(), ctx.Model.String(), lStr)
+			log.Fatalf("the selection field %s@%s method %s must func()[][]string type", field.Name(), ctx.Model.String(), lStr)
 		}
-		fld.Base()._getter = lStr
+		field._getter = lStr
 	} else {
 		m := make(map[string]string)
 		err := json.Unmarshal([]byte(lStr), &m)
@@ -67,7 +69,7 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 		}
 
 		for k, v := range m {
-			fld._attr_selection = append(fld._attr_selection, []string{k, v})
+			field._attr_selection = append(field._attr_selection, []string{k, v})
 		}
 	}
 }
@@ -123,14 +125,10 @@ func (self *TSelectionField) GetAttributes(ctx *TTagContext) map[string]interfac
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 
 	if lMehodName := self.Compute(); lMehodName != "" {
-		//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 		if m := model_val.MethodByName(lMehodName); m.IsValid() {
-			//log.Dbg("selection:", m, self.model.modelValue)
 			//results := m.Call([]reflect.Value{model.Base().modelValue}) //
 			results := m.Call(nil) //
-			//log.Dbg("selection:", results)
 			if len(results) == 1 {
-				//fld.Selection, _ = results[0].Interface().([][]string)
 				if res, ok := results[0].Interface().([][]string); ok {
 					self._attr_selection = res
 				}
@@ -149,7 +147,6 @@ func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 
 	if mehodName := field._getter; mehodName != "" {
 		// TODO 同一记录方法到OBJECT里使用Method
-		//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 		if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
 			var results []reflect.Value
 			if method.Type().NumIn() == 1 {
@@ -161,11 +158,8 @@ func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 				results = method.Call(nil) //
 
 			}
-			//log.Dbg("selection:", m, self.model.modelValue)
 
-			//log.Dbg("selection:", results)
 			if len(results) == 1 {
-				//fld.Selection, _ = results[0].Interface().([][]string)
 				if res, ok := results[0].Interface().([][]string); ok {
 					field._attr_selection = res
 				}

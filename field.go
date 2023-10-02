@@ -2,12 +2,14 @@ package orm
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"time"
 
+	"errors"
+
 	"github.com/volts-dev/dataset"
-	"github.com/volts-dev/utils"
 )
 
 const (
@@ -26,9 +28,9 @@ type (
 	// The context for Tag
 	TTagContext struct {
 		Orm            *TOrm
-		Model          IModel // required
-		Field          IField // required
-		FieldTypeValue reflect.Value
+		Model          IModel        // required
+		Field          IField        // required
+		FieldTypeValue reflect.Value // TODO 废弃
 		ModelValue     reflect.Value
 		Params         []string // 属性参数 int(<params>)
 	}
@@ -48,11 +50,12 @@ type (
 	}
 
 	IField interface {
-		String(d IDialect) string
-		StringNoPk(d IDialect) string
+		Config() *FieldConfig
+		//String(d IDialect) string
 		IsPrimaryKey() bool
 		IsCompositeKey() bool // 是复合主键
 		IsAutoIncrement() bool
+		IsDefaultEmpty() bool
 		IsUnique() bool
 		IsCreated() bool
 		IsDeleted() bool
@@ -65,6 +68,8 @@ type (
 
 		// attributes func
 		Name() string // name of field in database
+		Title() string
+		Help() string
 		Type() string //
 		Groups() string
 		Readonly(val ...bool) bool
@@ -72,12 +77,11 @@ type (
 		Searchable(val ...bool) bool
 		Store(val ...bool) bool
 		Size(val ...int) int
-		Default(val ...interface{}) interface{}
+		Default(val ...string) string
 		States(val ...map[string]interface{}) map[string]interface{}
 		Domain() string
 		Translatable() bool
 		Search() bool
-		Title() string
 		As() string // return the type of the value format as
 		// 获取Field所有属性值
 		UpdateDb(ctx *TTagContext)
@@ -135,8 +139,9 @@ type (
 		isVersion       bool
 		isCompute       bool
 
-		defaultIsEmpty bool
-		Comment        string
+		//defaultIsEmpty bool
+		//comment        string
+		help string
 		//Default        string
 		//Length         int
 		//Length2        int
@@ -187,7 +192,7 @@ type (
 		_attr_sortable          bool                   // 可排序
 		_attr_searchable        bool                   //
 		_attr_type              string                 // #字段类型 最终存于dataset数据类型view
-		_attr_default           interface{}            // default(recs) returns the default value
+		_attr_default           string                 /* 存储默认值字符串 */ // default(recs) returns the default value
 		_attr_related           string                 // ???
 		_attr_relation          string                 // 关系表
 		_attr_states            map[string]interface{} // 传递 UI 属性
@@ -258,20 +263,18 @@ func RegisterField(type_name string, creator func() IField) {
 	field_creators[type_name] = creator
 }
 
-func newBaseField(name, field_type string) *TField {
-	return &TField{
-		//		Indexes:   make(map[string]int),
-		_symbol_c: "%s",
-		_symbol_f: _FieldFormat,
-		// _deprecated: false,
-		//_classic_read:  true,
-		//_classic_write: true,
-		// model_name:     model_name,
-		//		_column_type: field_type,
+func newBaseField(name string, opts ...FieldOption) *TField {
+	field := &TField{
+		//defaultIsEmpty: true,
+		_symbol_c:   "%s",
+		_symbol_f:   _FieldFormat,
 		_attr_name:  name,
-		_attr_type:  field_type,
 		_attr_store: false, // 默认必须是False避免于后面Tag冲突
 	}
+
+	cfg := newFieldConfig(field)
+	cfg.Init(opts...)
+	return field
 }
 
 func IsFieldType(type_name string) (res bool) {
@@ -280,56 +283,111 @@ func IsFieldType(type_name string) (res bool) {
 }
 
 // sqlType:接受数据类型SQLType/string
-func NewField(name string, sqlType interface{}) IField {
-	var type_name string
-	var new_field *TField
+func NewField(name string, opts ...FieldOption) (IField, error) {
+	/* 创建基础Field */
+	baseField := newBaseField(name, opts...)
 
-	switch v := sqlType.(type) {
-	case string:
-		type_name = v
-		new_field = newBaseField(name, v)
-	case SQLType:
-		switch v.Name {
+	/* 根据orm数据类型创建Field */
+	var field IField
+	if baseField.Type() != "" {
+		creator, ok := field_creators[baseField.Type()]
+		if !ok {
+			log.Errf("cache: unknown adapter name %q (forgot to import?)", name)
+			return nil, errors.New(fmt.Sprintf("cache: unknown adapter name %q (forgot to import?)", name))
+		}
+		field = creator()
+	} else {
+		fieldType := ""
+		switch baseField.SQLType().Name {
+		case Bool, Boolean:
+			fieldType = "bool"
 		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
-			type_name = "int"
-		case BigInt, BigSerial:
-			type_name = "bigint"
+			fieldType = "int"
+		case BigInt, UnsignedBigInt, BigSerial:
+			fieldType = "bigint"
 		case Float, Real:
-			type_name = "float"
+			fieldType = "float"
 		case Double:
-			type_name = "double"
-		case Char, Varchar, NVarchar, TinyText, Enum, Set, Uuid, Clob:
-			type_name = "char"
-		case Text, MediumText, LongText:
-			type_name = "text"
+			fieldType = "double"
+		case Char, NChar, TinyText, Enum, Set:
+			fieldType = "char"
 		case Decimal, Numeric:
-			type_name = "char"
-		case Bool:
-			type_name = "bool"
+			fieldType = "char"
+		case Varchar, NVarchar, Uuid:
+			fieldType = "varchar"
+		case Text, MediumText, LongText, Clob:
+			fieldType = "text"
 		case DateTime, Date, Time, TimeStamp, TimeStampz:
-			type_name = "datetime"
+			fieldType = "datetime"
 		case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary:
-			type_name = "binary"
+			fieldType = "binary"
 		}
 
-		new_field = newBaseField(name, type_name)
-		new_field.SqlType = v
+		creator, ok := field_creators[fieldType]
+		if !ok {
+			return nil, errors.New("could not create this new field " + name)
+		}
+		field = creator()
 	}
+	field.SetBase(newBaseField(name, opts...))
+	/*
+		var type_name string
+		var new_field *TField
 
-	if type_name == "" {
-		log.Errf("the sqltype %v is not supported!", sqlType)
-		return nil
-	}
+		switch v := sqlType.(type) {
+		case string:
+			type_name = strings.ToLower(v)
+			new_field = newBaseField(name, SQLType{Name: type_name})
+		case SQLType:
+			type_name = strings.ToLower(v.Name)
+			new_field = newBaseField(name, SQLType{Name: type_name})
+			new_field.SqlType = v
+		}
 
-	creator, ok := field_creators[type_name]
-	if !ok {
-		//fmt.Errorf("cache: unknown adapter name %q (forgot to import?)", name)
-		return nil
-	}
+		var orm_type_name string
+		v := strings.ToUpper(type_name)
+		switch v {
+		case Bool:
+			orm_type_name = "bool"
+		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
+			orm_type_name = "int"
+		case BigInt, BigSerial:
+			orm_type_name = "bigint"
+		case Float, Real:
+			orm_type_name = "float"
+		case Double:
+			orm_type_name = "double"
+		case Char, Varchar, NVarchar, TinyText, Enum, Set, Uuid, Clob:
+			orm_type_name = "char"
+		case Decimal, Numeric:
+			orm_type_name = "char"
+		case Varchar:
+			orm_type_name = "vchar"
+		case Text, MediumText, LongText:
+			orm_type_name = "text"
+		case DateTime, Date, Time, TimeStamp, TimeStampz:
+			orm_type_name = "datetime"
+		case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary:
+			orm_type_name = "binary"
+		default:
+			orm_type_name = v
+		}
 
-	fld := creator()
-	fld.SetBase(new_field)
-	return fld
+		if orm_type_name == "" {
+			log.Errf("the sqltype %v is not supported!", sqlType)
+			return nil
+		}
+
+		creator, ok := field_creators[orm_type_name]
+		if !ok {
+			log.Errf("cache: unknown adapter name %q (forgot to import?)", name)
+			return nil
+		}
+
+		fld := creator()
+		fld.SetBase(new_field)
+	*/
+	return field, nil
 }
 
 // TODO　改名外键
@@ -350,54 +408,11 @@ func _FieldFormat(str string) string {
 func _CharFormat(str string) string {
 	return str //`'` + str + `'`
 }
-
-// String generate column description string according dialect
-func (self *TField) String(d IDialect) string {
-	sql := d.QuoteStr() + self.Name() + d.QuoteStr() + " "
-
-	sql += d.GenSqlType(self) + " "
-
-	if self.isPrimaryKey {
-		sql += "PRIMARY KEY "
-		if self.isAutoIncrement {
-			sql += d.AutoIncrStr() + " "
-		}
-	}
-
-	if self._attr_size != 0 {
-		sql += "DEFAULT " + utils.IntToStr(self._attr_size) + " "
-	}
-
-	if d.ShowCreateNull() {
-		if self._attr_required {
-			sql += "NOT NULL "
-		} else {
-			sql += "NULL "
-		}
-	}
-
-	return sql
+func (self *TField) Config() *FieldConfig {
+	return self.Config()
 }
-
-// StringNoPk generate column description string according dialect without primary keys
-func (self *TField) StringNoPk(d IDialect) string {
-	sql := d.QuoteStr() + self.Name() + d.QuoteStr() + " "
-
-	sql += d.GenSqlType(self) + " "
-
-	if self._attr_size != 0 {
-		sql += "DEFAULT " + utils.IntToStr(self._attr_size) + " "
-	}
-
-	if d.ShowCreateNull() {
-		if self._attr_required {
-			sql += "NOT NULL "
-		} else {
-			sql += "NULL "
-		}
-	}
-
-	return sql
+func (self *TField) Help() string {
+	return self._attr_help
 }
 
 func (self *TField) Compute() string {
@@ -479,7 +494,7 @@ func (self *TField) Store(val ...bool) bool {
 	return self._attr_store
 }
 
-func (self *TField) Default(val ...interface{}) interface{} {
+func (self *TField) Default(val ...string) string {
 	if len(val) > 0 {
 		self._attr_default = val[0]
 	}
@@ -551,6 +566,11 @@ func (self *TField) IsCompositeKey() bool {
 func (self *TField) IsAutoIncrement() bool {
 	return self.isAutoIncrement
 }
+
+func (self *TField) IsDefaultEmpty() bool {
+	return self._attr_default == ""
+}
+
 func (self *TField) IsUnique() bool {
 	return self.isUnique
 }
@@ -695,13 +715,10 @@ func (self *TField) OnRead(ctx *TFieldContext) error {
 	if field.IsCompute() {
 		if mehodName := field._getter; mehodName != "" {
 			// TODO 同一记录方法到OBJECT里使用Method
-			//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
-				//log.Dbg("selection:", m, self.model.modelValue)
 				args := make([]reflect.Value, 0)
 				args = append(args, reflect.ValueOf(ctx))
 				results := method.Call(args) //
-				//log.Dbg("selection:", results)
 				if len(results) == 1 {
 					//fld.Selection, _ = results[0].Interface().([][]string)
 					// 返回结果nil或者错误
@@ -724,17 +741,13 @@ func (self *TField) OnRead(ctx *TFieldContext) error {
 func (self *TField) OnWrite(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
-	//dataset := ctx.Dataset
 	if field.IsCompute() {
 		if mehodName := field._setter; mehodName != "" {
 			// TODO 同一记录方法到OBJECT里使用Method
-			//log.Dbg("selection:", lMehodName, self.model.modelValue.MethodByName(lMehodName))
 			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
-				//log.Dbg("selection:", m, self.model.modelValue)
 				args := make([]reflect.Value, 0)
 				args = append(args, reflect.ValueOf(ctx))
 				results := method.Call(args) //
-				//log.Dbg("selection:", results)
 				if len(results) == 1 {
 					//fld.Selection, _ = results[0].Interface().([][]string)
 					// 返回结果nil或者错误

@@ -32,7 +32,7 @@ func newIdField() IField {
 }
 
 func (self *TIdField) Init(ctx *TTagContext) {
-	fld := ctx.Field
+	field := ctx.Field.Base()
 	model := ctx.Model
 	/*field_name := fld.Name()
 
@@ -51,15 +51,18 @@ func (self *TIdField) Init(ctx *TTagContext) {
 			model.Obj().AddIndex(index)
 		}
 	*/
-	fld.Base().isPrimaryKey = true
-	fld.Base().isUnique = true
-	fld.Base()._attr_required = true
-	fld.Base()._attr_type = "bigint"
-	fld.Base()._attr_store = true
-	fld.Base().SqlType = SQLType{BigInt, 0, 0}
+	field.isPrimaryKey = true
+	field.isUnique = true
+	field._attr_required = true
+	field._attr_store = true
+
+	//if field.SqlType.Name == "" {
+	field.SqlType = SQLType{BigInt, 0, 0}
+	field._attr_type = "bigint"
+	//}
 
 	// set the id field for model
-	model.IdField(fld.Name())
+	model.IdField(field.Name())
 }
 
 func (self *TIdField) OnCreate(ctx *TFieldContext) interface{} {

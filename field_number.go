@@ -43,45 +43,37 @@ func newDoubleField() IField {
 }
 
 func (self *TIntField) Init(ctx *TTagContext) {
-	fld := ctx.Field
-	vals := ctx.Params
-
-	if len(vals) > 0 {
-		switch vals[0] {
-		case "64":
-			fld.Base().SqlType = SQLType{BigInt, 0, 0}
-			fld.Base()._attr_type = "bigint"
-		default:
-			fld.Base().SqlType = SQLType{Int, 0, 0}
-			fld.Base()._attr_type = "int"
-		}
-	} else {
-		fld.Base().SqlType = SQLType{Int, 0, 0}
-		fld.Base()._attr_type = "int"
-	}
-	fld.Base()._attr_store = true
+	field := ctx.Field.Base()
+	field._attr_store = true
+	//if field.SqlType.Name != Int {
+	field.SqlType = SQLType{Int, 0, 0}
+	field._attr_type = Int
+	//}
 }
 
 func (self *TBigIntField) Init(ctx *TTagContext) {
-	fld := ctx.Field
-
-	fld.Base().SqlType = SQLType{BigInt, 0, 0}
-	fld.Base()._attr_type = "bigint"
-	fld.Base()._attr_store = true
+	field := ctx.Field.Base()
+	field._attr_store = true
+	//if field.SqlType.Name != BigInt {
+	field.SqlType = SQLType{BigInt, 0, 0}
+	field._attr_type = BigInt
+	//}
 }
 
 func (self *TFloatField) Init(ctx *TTagContext) {
-	fld := ctx.Field
-
-	fld.Base().SqlType = SQLType{Float, 0, 0}
-	fld.Base()._attr_type = "float"
-	fld.Base()._attr_store = true
+	field := ctx.Field.Base()
+	field._attr_store = true
+	//if field.SqlType.Name != Float {
+	field.SqlType = SQLType{Float, 0, 0}
+	field._attr_type = Float
+	//}
 }
 
 func (self *TDoubleField) Init(ctx *TTagContext) {
-	fld := ctx.Field
-
-	fld.Base().SqlType = SQLType{Double, 0, 0}
-	fld.Base()._attr_type = "double"
-	fld.Base()._attr_store = true
+	field := ctx.Field.Base()
+	field._attr_store = true
+	//if field.SqlType.Name != Double {
+	field.SqlType = SQLType{Double, 0, 0}
+	field._attr_type = Double
+	//}
 }

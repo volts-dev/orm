@@ -25,13 +25,13 @@ func newHtmlField() IField {
 }
 
 func (self *TBinField) Init(ctx *TTagContext) {
-	fld := ctx.Field
-
-	fld.Base().SqlType = SQLType{Binary, 0, 0}
+	field := ctx.Field.Base()
+	//if field.SqlType.Name == "" {
+	field.SqlType = SQLType{Binary, 0, 0}
+	field._attr_type = Binary
+	//}
 	//fld._classic_read = false
 	//fld._classic_write = false
-	self.Base()._attr_type = "binary"
-	fld.Base()._attr_store = true
-
-	self.attachment = false
+	field._attr_store = true
+	field.attachment = false
 }

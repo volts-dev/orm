@@ -18,20 +18,22 @@ func newNameField() IField {
 }
 
 func (self *TNameField) Init(ctx *TTagContext) {
-	fld := ctx.Field
+	field := ctx.Field.Base()
 	params := ctx.Params
 
 	if len(params) > 0 {
 		size := utils.ToInt(params[0])
 		if size != 0 {
-			fld.Base()._attr_size = size
+			field._attr_size = size
+			field.SqlType.DefaultLength = size
 		}
+		field.SqlType = SQLType{Varchar, size, 0}
+	} else {
+		field.SqlType = SQLType{Varchar, 0, 0}
 	}
-	// set type for field
-	fld.Base().SqlType = SQLType{Varchar, 0, 0}
-	fld.Base()._attr_type = "char"
-	fld.Base()._attr_store = true
+	field._attr_type = Varchar
+	field._attr_store = true
 
 	// set the id field for model
-	ctx.Model.SetRecordName(fld.Name())
+	ctx.Model.SetRecordName(field.Name())
 }

@@ -1,3 +1,4 @@
+Warning: This package is a work in progress. After some preliminary testing, I think I might change a lot of how this package is structured.
 The Volts'ORM library for Golang, aims to be developer friendly.
 
 #### Overview

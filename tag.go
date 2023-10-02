@@ -135,7 +135,7 @@ func init() {
 		//TAG_STATES:tag_s
 		//TAG_PRIORITY] = "priority"     // TODO
 		TAG_ON_DELETE: tag_ondelete,
-		//TAG_TRANSLATE = "translate"   // TODO
+		TAG_TRANSLATE: tag_translate, // TODO
 		//TAG_SELECT] = "select"         // #select=True （在外键字段上创建了一个索引）
 		//TAG_CLASSIC_READ:  tag_read,
 		//TAG_CLASSIC_WRITE: tag_write,
@@ -221,6 +221,7 @@ func tag_compute(ctx *TTagContext) error {
 		lStr = strings.Replace(lStr, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
 			fld.Base()._compute = lStr
+			fld.Base()._computeFunc = m.Interface().(func(ctx *TFieldContext) error)
 		}
 	} else {
 		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")
@@ -352,13 +353,13 @@ func tag_auto(ctx *TTagContext) error {
 
 // TODO test
 func tag_default(ctx *TTagContext) error {
-	fld := ctx.Field
+	field := ctx.Field.Base()
 	params := ctx.Params
 	model := ctx.Model
 
 	if len(params) > 0 {
-		//fld.Base()._attr_size = params[0]
-		model.Obj().SetDefaultByName(fld.Name(), params[0]) // save to model object
+		field._attr_default = params[0]
+		model.Obj().SetDefaultByName(field.Name(), field._attr_default) // save to model object
 	}
 	return nil
 }
@@ -458,7 +459,7 @@ func tag_deleted(ctx *TTagContext) error {
 func tag_ver(ctx *TTagContext) error {
 	fld := ctx.Field
 	fld.Base().isVersion = true
-	fld.Base()._attr_default = 1
+	fld.Base()._attr_default = "1"
 	return nil
 }
 
@@ -472,9 +473,9 @@ func tag_name(ctx *TTagContext) error {
 		name = strings.Trim(name, "'")
 
 		//  更新关联字段名称
-		for tbl, fieldName := range model.GetBase().obj.GetRelations() {
+		for modelName, fieldName := range model.GetBase().obj.GetRelations() {
 			if fld.Name() == fieldName {
-				model.GetBase().obj.SetRelationByName(tbl, name)
+				model.GetBase().obj.SetRelationByName(modelName, name)
 				break
 			}
 		}
@@ -515,7 +516,6 @@ func tag_help(ctx *TTagContext) error {
 	if len(params) > 0 {
 		help := strings.Trim(params[0], "'")
 		help = strings.Replace(help, "''", "'", -1)
-		fld.Base().Comment = help
 		fld.Base()._attr_help = help
 	}
 	return nil
@@ -622,6 +622,18 @@ func tag_ondelete(ctx *TTagContext) error {
 
 	if len(params) > 0 {
 		fld.Base().ondelete = strings.Trim(params[0], "'")
+	}
+	return nil
+}
+
+func tag_translate(ctx *TTagContext) error {
+	fld := ctx.Field
+	params := ctx.Params
+
+	if len(params) > 0 {
+		fld.Base().translate = utils.StrToBool(params[0])
+	} else {
+		fld.Base().translate = true
 	}
 	return nil
 }
@@ -768,6 +780,7 @@ func tag_relation(ctx *TTagContext) error {
 
 }
 
+// 废弃O2O
 // relate(modelName,relateField)
 func tag_table_relate(ctx *TTagContext) error {
 	model := ctx.Model

@@ -241,7 +241,8 @@ func (self *TStatement) Omit(fields ...string) {
 	for _, field := range fields {
 		self.Fields[strings.ToLower(field)] = false
 	}
-	self.OmitClause = self.session.orm.dialect.Quote(strings.Join(fields, self.session.orm.dialect.Quote(", ")))
+	quoter := self.session.orm.dialect.Quoter()
+	self.OmitClause = quoter.Quote(strings.Join(fields, quoter.Quote(", ")))
 }
 
 // Limit generate LIMIT start, limit statement
@@ -293,9 +294,8 @@ func (self *TStatement) generate_unique() []string {
 	return sqls
 }
 
-func (self *TStatement) generate_add_column(col IField) (string, []interface{}) {
-	quote := self.session.orm.dialect.Quote
-	sql := fmt.Sprintf("ALTER TABLE %v ADD %v;", quote(self.session.Statement.model.Table()), col.String(self.session.orm.dialect))
+func (self *TStatement) generate_add_column(field IField) (string, []interface{}) {
+	sql := self.session.orm.dialect.GenAddColumnSQL(self.session.Statement.model.Table(), field)
 	return sql, []interface{}{}
 }
 
@@ -602,7 +602,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 		}
 
 		tables = exp.get_tables().Strings()
-		where_clause, where_params = exp.to_sql(self.Params...)
+		where_clause, where_params = exp.toSql(self.Params...)
 
 	} else {
 		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.model.Table())
@@ -650,7 +650,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 
 				}
 
-				if field.Store() && field.Type() == "many2one" {
+				if field.Store() && field.Type() == TYPE_M2O {
 					// key = (self._name, order_column._obj, order_field)
 					// if key not in seen{
 					//     seen.add(key)
@@ -723,7 +723,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 
 			}
 
-			if field.Store() && field.Type() == "many2one" {
+			if field.Store() && field.Type() == TYPE_M2O {
 				// key = (self._name, order_column._obj, order_field)
 				// if key not in seen{
 				//     seen.add(key)
@@ -878,31 +878,33 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 
 func (self *TStatement) generate_fields() []string {
 	table := self.model
+	quoter := self.session.orm.dialect.Quoter()
+
 	var fields []string
-	for _, col := range table.GetFields() {
+	for _, field := range table.GetFields() {
 		if self.OmitClause != "" {
-			if _, ok := self.Fields[strings.ToLower(col.Name())]; ok {
+			if _, ok := self.Fields[strings.ToLower(field.Name())]; ok {
 				continue
 			}
 		}
 
-		if !col.Store() || col.Base().MapType == ONLYTODB {
+		if !field.Store() || field.Base().MapType == ONLYTODB {
 			continue
 		}
 
 		var name string
 		if self.JoinClause != "" {
 			if self.AliasTableName != "" {
-				name = self.session.orm.dialect.Quote(self.AliasTableName)
+				name = quoter.Quote(self.AliasTableName)
 			} else {
-				name = self.session.orm.dialect.Quote(self.model.Table())
+				name = quoter.Quote(self.model.Table())
 			}
-			name += "." + self.session.orm.dialect.Quote(col.Name())
+			name += "." + quoter.Quote(field.Name())
 		} else {
-			name = self.session.orm.dialect.Quote(col.Name())
+			name = quoter.Quote(field.Name())
 		}
 
-		if col.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
+		if field.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
 			fields = append(fields, "id() AS "+name)
 		} else {
 			fields = append(fields, name)
