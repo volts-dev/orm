@@ -837,37 +837,53 @@ func (db *postgres) Version(ctx context.Context) (*core.Version, error) {
 }
 
 func (db *postgres) SyncToSqlType(ctx *TTagContext) {
-	field := ctx.Field.Base()
 	params := ctx.Params
-
-	switch field.SqlType.Name {
-	case Float:
-		l := len(params)
+	l := len(params)
+	switch f := ctx.Field.(type) {
+	case *TIntField:
+		if l > 0 {
+			switch utils.ToInt(params[0]) {
+			case 16:
+				f.SqlType = SQLType{SmallInt, 0, 0}
+				f._attr_type = SmallInt
+				//f._attr_size = 2
+			case 32:
+				f.SqlType = SQLType{Int, 0, 0}
+				f._attr_type = Int
+				//f._attr_size = 4
+			case 64:
+				f.SqlType = SQLType{BigInt, 0, 0}
+				f._attr_type = BigInt
+				//f._attr_size = 8
+			}
+		}
+	case *TFloatField:
 		if l == 2 {
 			// 數字的「scale」是小數點右邊的小數部分，也就是小數的位數。數字的「precision」是整數中有效位數的總數，即小數點兩邊的位數總合。所以 23.5141 的 precision 是 6，scale 是 4。整數可以被認為是 scale 為 0。
 			// Float(precision, scale)
 			precision := utils.ToInt(params[0])
 			scale := utils.ToInt(params[1])
 
-			field.SqlType.Name = Numeric
-			field.SqlType.DefaultLength = precision
-			field.SqlType.DefaultLength2 = scale
+			f.SqlType.Name = Numeric
+			f.SqlType.DefaultLength = precision
+			f.SqlType.DefaultLength2 = scale
 		}
 	}
+
 }
 
 func (db *postgres) GetSqlType(field IField) string {
 	var res string
 	c := field.Base()
 	switch t := c.SqlType.Name; t {
-	case Bool:
+	case Bool, Boolean:
 		return Boolean
-	case TinyInt, UnsignedTinyInt:
+	case TinyInt, UnsignedTinyInt, SmallInt, UnsignedSmallInt:
 		if c.isAutoIncrement {
 			return SmallSerial
 		}
 		return SmallInt
-	case MediumInt, Int, Integer, UnsignedMediumInt, UnsignedSmallInt:
+	case MediumInt, UnsignedMediumInt, Int, UnsignedInt, Integer:
 		if c.isAutoIncrement {
 			return Serial
 		}
@@ -1163,9 +1179,6 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 	colSeq := make([]string, 0)
 	var pkFields []IField // 用于存储主键对复合主键进行唯一处理
 
-	if tableName == "res_country_state" {
-		log.Dbg()
-	}
 	for rows.Next() {
 		var sql_type SQLType
 		var colName, isNullable, dataType string
@@ -1174,9 +1187,6 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		err = rows.Scan(&colName, &colDefault, &isNullable, &dataType, &maxLenStr, &numPrecision, &numScale, &numRadix, &isPK, &isUnique)
 		if err != nil {
 			return nil, nil, err
-		}
-		if colName == "rate" {
-			log.Dbg()
 		}
 
 		var maxLen int

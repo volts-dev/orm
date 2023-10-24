@@ -19,9 +19,8 @@ type (
 )
 
 func init() {
-	// int(size)
 	RegisterField("int", newIntField)
-	RegisterField("bigint", newBigIntField)
+	//RegisterField("bigint", newBigIntField)
 	RegisterField("float", newFloatField)
 	RegisterField("double", newDoubleField)
 }
@@ -45,19 +44,26 @@ func newDoubleField() IField {
 func (self *TIntField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	field._attr_store = true
-	//if field.SqlType.Name != Int {
-	field.SqlType = SQLType{Int, 0, 0}
-	field._attr_type = Int
-	//}
+	/* 以声明类型为主 */
+	if ctx.FieldTypeValue.IsValid() {
+		field.SqlType = GoType2SQLType(ctx.FieldTypeValue.Type())
+	} else {
+		field.SqlType = SQLType{Int, 0, 0}
+	}
+	field._attr_type = field.SqlType.Name
 }
 
 func (self *TBigIntField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	field._attr_store = true
-	//if field.SqlType.Name != BigInt {
-	field.SqlType = SQLType{BigInt, 0, 0}
-	field._attr_type = BigInt
-	//}
+
+	if ctx.FieldTypeValue.IsValid() {
+		field.SqlType = GoType2SQLType(ctx.FieldTypeValue.Type())
+	} else {
+		field.SqlType = SQLType{BigInt, 0, 0}
+		field._attr_type = BigInt
+	}
+	field._attr_type = field.SqlType.Name
 }
 
 func (self *TFloatField) Init(ctx *TTagContext) {

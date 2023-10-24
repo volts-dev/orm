@@ -792,7 +792,15 @@ func (self *TSession) _separateValues(vals map[string]interface{}, mustFields ma
 
 		if field.SQLType().IsNumeric() {
 			if v, ok := value.(string); ok {
-				value = utils.ToInt(v)
+				// 过滤0值字符串
+				if v == "0" {
+					value = 0
+				} else {
+					// 如果解析成数字成功则判定为数字成功 M2O 值可能是id或者Name值
+					if v := utils.ToInt(v); v != 0 {
+						value = v
+					}
+				}
 			}
 		}
 
@@ -832,7 +840,7 @@ func (self *TSession) _separateValues(vals map[string]interface{}, mustFields ma
 
 		// --非强字段--
 		is_must_field := mustFields[name]
-		lNullableField := nullableFields[name]
+		nullableField := nullableFields[name]
 		if !has && value == nil {
 			/* Set(k,v) 指定字段*/
 			if is_must_field {
@@ -841,7 +849,13 @@ func (self *TSession) _separateValues(vals map[string]interface{}, mustFields ma
 
 		} else {
 			// 过滤可以为空的字段空字段
-			if isBlank && (!is_must_field || !lNullableField || !includeNil) {
+			if isBlank && !field.Required() && (!is_must_field || !nullableField || !includeNil) {
+				continue
+			}
+
+			/* 处理空值且Required */
+			if isBlank {
+				new_vals[name] = field.onConvertToWrite(self, value)
 				continue
 			}
 
@@ -880,16 +894,22 @@ func (self *TSession) _separateValues(vals map[string]interface{}, mustFields ma
 				if field.Store() && field.SQLType().Name != "" {
 					switch field.Type() {
 					case TYPE_M2O:
-						ctx := &TFieldContext{
-							Session: self,
-							Model:   self.Statement.model,
-							//Id:      res_id, // TODO
-							Field: field,
-							Value: vals[name]}
-						if err := field.OnWrite(ctx); err != nil {
-							return nil, nil, nil, err
+						/* 字符串为Name */
+						if v, ok := value.(string); ok {
+							ctx := &TFieldContext{
+								Session: self,
+								Model:   self.Statement.model,
+								//Id:      res_id, // TODO
+								Field: field,
+								Value: v,
+							}
+							if err := field.OnWrite(ctx); err != nil {
+								return nil, nil, nil, err
+							}
+							new_vals[name] = ctx.Value
+							break
 						}
-						new_vals[name] = ctx.Value
+						fallthrough
 					default:
 						new_vals[name] = field.onConvertToWrite(self, value) // field.SymbolFunc()(utils.Itf2Str(val))
 					}

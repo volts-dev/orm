@@ -219,7 +219,7 @@ func (self *TModel) Clone() (IModel, error) {
 
 func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
-		self.transaction = session[0].Model(self.String())
+		self.transaction = session[0].Clone().Model(self.String())
 		return self.transaction
 	}
 

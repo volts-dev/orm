@@ -411,7 +411,31 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 		} else {
 			if id, has := ctx.Session.CacheNameIds[v]; has {
 				ctx.Value = id
+				break
 			}
+
+			/* 如果是命名者 有权根据名称创建记录 且关联模型支持RecordName */
+			if ctx.Field.IsNamed() {
+				if recName := model.GetRecordName(); recName != "" {
+					model.Tx(ctx.Session)
+					ids, err := model.Create(&CreateRequest{
+						Context: ctx.Context,
+						Data: []any{map[string]interface{}{
+							recName: v,
+						}},
+					})
+					if err != nil {
+						return err
+					}
+
+					ctx.Value = ids[0]
+					if ctx.Session.CacheNameIds == nil {
+						ctx.Session.CacheNameIds = make(map[string]any)
+					}
+					ctx.Session.CacheNameIds[v] = ids[0]
+				}
+			}
+
 		}
 	case []interface{}:
 		if len(v) > 0 {

@@ -181,6 +181,10 @@ func (self *TOrm) FormatTime(sqlTypeName string, t time.Time) (v interface{}) {
 // 同步更新Model 并返回同步后表 <字段>
 // region 区分相同Model名称来自哪个模块，等级
 func (self *TOrm) SyncModel(region string, models ...IModel) (modelNames []string, err error) {
+	if len(models) == 0 {
+		return
+	}
+
 	session := self.NewSession()
 	session.Begin()
 
@@ -451,9 +455,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 		field_type = model_type.Field(i).Type
 		field_tag = string(model_type.Field(i).Tag)
 		field_type_name = ""
-		if field_name == "rate" {
-			log.Dbg()
-		}
+
 		// 解析并变更默认值
 		var tagMap map[string][]string // 记录Tag的
 		if field_tag == "" {

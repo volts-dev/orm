@@ -49,6 +49,7 @@ const (
 	TAG_CREATED       = "created"
 	TAG_UPDATED       = "updated"
 	TAG_REQUIRED      = "required"
+	TAG_NAMED         = "named"
 	TAG_DEFAULT       = "default"
 	TAG_IDX           = "index"  // #索引字段
 	TAG_UNIQUE        = "unique" // #保持唯一
@@ -128,6 +129,7 @@ func init() {
 		TAG_CREATED:    tag_created,
 		TAG_UPDATED:    tag_updated,
 		TAG_REQUIRED:   tag_required,
+		TAG_NAMED:      tag_named,
 		TAG_DEFAULT:    tag_default,
 		TAG_IDX:        tag_index,
 		TAG_UNIQUE:     tag_unique,
@@ -460,6 +462,12 @@ func tag_ver(ctx *TTagContext) error {
 	fld := ctx.Field
 	fld.Base().isVersion = true
 	fld.Base()._attr_default = "1"
+	return nil
+}
+
+func tag_named(ctx *TTagContext) error {
+	fld := ctx.Field
+	fld.Base().isNamed = true
 	return nil
 }
 

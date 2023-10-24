@@ -352,9 +352,6 @@ func (b *TDialect) SetParams(params map[string]string) {
 func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (string, error) {
 	bd := strings.Builder{}
 
-	if field.Name() == "saleable" {
-		log.Dbg()
-	}
 	if err := dialect.Quoter().QuoteTo(&bd, field.Name()); err != nil {
 		return "", err
 	}

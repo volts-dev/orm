@@ -60,6 +60,7 @@ type (
 		IsCreated() bool
 		IsDeleted() bool
 		IsUpdated() bool
+		IsNamed() bool
 		IsCascade() bool
 		IsVersion() bool
 		SQLType() *SQLType
@@ -138,6 +139,7 @@ type (
 		isCascade       bool
 		isVersion       bool
 		isCompute       bool
+		isNamed         bool
 
 		//defaultIsEmpty bool
 		//comment        string
@@ -188,7 +190,7 @@ type (
 		_attr_required          bool                   // 字段不为空
 		_attr_help              string                 //
 		_attr_title             string                 // 字段的Title
-		_attr_size              int                    // 长度大小
+		_attr_size              int                    // 考虑废弃 长度大小
 		_attr_sortable          bool                   // 可排序
 		_attr_searchable        bool                   //
 		_attr_type              string                 // #字段类型 最终存于dataset数据类型view
@@ -301,10 +303,8 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 		switch baseField.SQLType().Name {
 		case Bool, Boolean:
 			fieldType = "bool"
-		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
+		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial, BigInt, UnsignedBigInt, BigSerial:
 			fieldType = "int"
-		case BigInt, UnsignedBigInt, BigSerial:
-			fieldType = "bigint"
 		case Float, Real:
 			fieldType = "float"
 		case Double:
@@ -597,6 +597,10 @@ func (self *TField) IsVersion() bool {
 
 func (self *TField) IsCompute() bool {
 	return self.isCompute
+}
+
+func (self *TField) IsNamed() bool {
+	return self.isNamed
 }
 
 func (self *TField) IsInheritedField(arg ...bool) bool {

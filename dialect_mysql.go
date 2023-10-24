@@ -254,30 +254,33 @@ func (db *mysql) SetParams(params map[string]string) {
 	}
 }
 func (db *mysql) SyncToSqlType(ctx *TTagContext) {
-	field := ctx.Field.Base()
-	vals := ctx.Params
-
-	if len(vals) > 0 {
-		switch utils.ToInt(vals[0]) {
-		case 4:
-			field.SqlType = SQLType{TinyInt, 0, 0}
-			field._attr_type = TinyInt
-			field._attr_size = 1 // 1 byte
-		case 8:
-			field.SqlType = SQLType{SmallInt, 0, 0}
-			field._attr_type = SmallInt
-			field._attr_size = 2
-		case 16:
-			field.SqlType = SQLType{MediumInt, 0, 0}
-			field._attr_type = MediumInt
-			field._attr_size = 3
-		case 32:
-			field.SqlType = SQLType{Int, 0, 0}
-			field._attr_type = Int
-			field._attr_size = 4
-		case 64:
-			field.SqlType = SQLType{BigInt, 0, 0}
-			field._attr_type = BigInt
+	params := ctx.Params
+	l := len(params)
+	switch f := ctx.Field.(type) {
+	case *TIntField:
+		if l > 0 {
+			switch utils.ToInt(params[0]) {
+			case 8:
+				f.SqlType = SQLType{TinyInt, 0, 0}
+				f._attr_type = TinyInt
+				//f._attr_size = 1 // 1 byte
+			case 16:
+				f.SqlType = SQLType{SmallInt, 0, 0}
+				f._attr_type = SmallInt
+				//f._attr_size = 2
+			case 24:
+				f.SqlType = SQLType{MediumInt, 0, 0}
+				f._attr_type = MediumInt
+				//f._attr_size = 3
+			case 32:
+				f.SqlType = SQLType{Int, 0, 0}
+				f._attr_type = Int
+				//f._attr_size = 4
+			case 64:
+				f.SqlType = SQLType{BigInt, 0, 0}
+				f._attr_type = BigInt
+				//f._attr_size = 8
+			}
 		}
 	}
 }

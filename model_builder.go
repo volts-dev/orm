@@ -182,6 +182,11 @@ func (self *fieldStatment) Compute(fn func(ctx *TFieldContext) error) *fieldStat
 	return self
 }
 
+func (self *fieldStatment) Size(v int) *fieldStatment {
+	self.field.Base()._attr_size = v
+	return self
+}
+
 // 字段的帮助描述
 func (self *fieldStatment) Help(v string) *fieldStatment {
 	self.field.Base()._attr_help = v

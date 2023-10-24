@@ -33,12 +33,9 @@ func newSelectionField() IField {
 
 func (self *TBooleanField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
-	if field.SqlType.Name == "" {
-		field.SqlType = SQLType{Bool, 0, 0}
-		field._attr_type = Bool
-	}
+	field.SqlType = SQLType{Bool, 0, 0}
+	field._attr_type = Bool
 	field._attr_store = true
-	//	fld.Base()._column_type = Bool
 }
 
 // ###########################################################################

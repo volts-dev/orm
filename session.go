@@ -50,6 +50,18 @@ func (self *TSession) New() *TSession {
 	return session.Model(self.Statement.model.String())
 }
 
+func (self *TSession) Clone() *TSession {
+	session := self.orm.NewSession()
+	session.tx = self.tx
+	session.IsAutoCommit = self.IsAutoCommit // 默认情况下单个SQL是不用事务自动
+	session.IsAutoClose = self.IsAutoClose
+	session.AutoResetStatement = self.AutoResetStatement
+	session.IsCommitedOrRollbacked = self.IsCommitedOrRollbacked
+	session.Prepared = self.Prepared
+	session.CacheNameIds = self.CacheNameIds
+	return session
+}
+
 // Close release the connection from pool
 func (self *TSession) Close() {
 	if self.db != nil {
@@ -418,8 +430,8 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				// 如果是同是字符串 则检查长度变化 for mysql
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() < field.Size() {
-					log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n",
-						tableName, field.Name(), cur_field.Size(), field.Size())
+					log.Warnf("Table <%s> column <%s> change type from %s(%d) to %s(%d)\n",
+						tableName, field.Name(), cur_field.SQLType().Name, cur_field.Size(), field.SQLType().Name, field.Size())
 					_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 					if err != nil {
 						log.Err(err)
