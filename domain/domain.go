@@ -526,7 +526,7 @@ func (self *TDomainNode) IsStringList() bool {
 // 是否是最简单 3项列表 {xx,xx,xx}
 func (self *TDomainNode) IsIntLeaf() bool {
 	for _, node := range self.children {
-		if node.IsListNode() || !node.IsInt() {
+		if node.IsListNode() || !node.IsNumeric() {
 			return false
 		}
 	}
@@ -561,9 +561,12 @@ func (self *TDomainNode) ValueIn(strs ...interface{}) bool {
 	return false
 }
 
-func (self *TDomainNode) IsInt() bool {
-	_, ok := self.Value.(int)
-	return ok
+func (self *TDomainNode) IsNumeric() bool {
+	switch self.Value.(type) {
+	case int, uint, int16, uint16, int32, uint32, int64, uint64:
+		return true
+	}
+	return false
 }
 
 /*"Flatten a list of elements into a uniqu list

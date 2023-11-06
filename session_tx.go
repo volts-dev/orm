@@ -51,3 +51,8 @@ func (self *TSession) Rollback(e error) error {
 	}
 	return newSessionError("", e)
 }
+
+// IsInTx if current session is in a transaction
+func (self *TSession) IsTx() bool {
+	return !self.IsAutoCommit
+}

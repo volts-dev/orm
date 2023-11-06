@@ -26,6 +26,10 @@ func trimQuotes(s string) string {
 	return s
 }
 
+func Quote(s string) string {
+	return "'" + s + "'"
+}
+
 // TODO 描述例句
 // transfer string domain to a domain object
 func String2Domain(domain string, context *dataset.TDataSet) (*TDomainNode, error) {
@@ -69,7 +73,11 @@ func parseDomain(node *TDomainNode) string {
 				str_lst = append(str_lst, str)
 			} else {
 				//str_lst = append(str_lst, node.Quote(item.Text))
-				str_lst = append(str_lst, item.String())
+				if item.IsNumeric() {
+					str_lst = append(str_lst, item.String())
+				} else {
+					str_lst = append(str_lst, Quote(item.String()))
+				}
 			}
 		}
 
@@ -218,6 +226,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 					list.Push(vv)
 					break
 				}
+
 				list.Push(v)
 				break
 			}

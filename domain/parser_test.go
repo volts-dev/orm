@@ -19,7 +19,7 @@ var (
 		`['!', ['=', 'domain_id.name', ['&', '...', '...']]]`,
 		`[('domain_id.domain_type_id.code', '=', 'incoming'), ('location_id.usage', '!=', 'internal'), ('location_dest_id.usage', '=', 'internal')]`,
 		`["|","|",["mode","ilike","tens"],["active","=","true"]]`,
-		`["|",["name","ilike","m"],["domain_id","ilike","m"]]`,
+		`["|",["name","ilike","m"],["domain_id","ilike","m fasdf"]]`,
 		`[|,(&,('aa','=','cc'),('aa','=','cc')),(&,('aa','=','cc'),('aa','=','cc')]`,
 	}
 
@@ -51,17 +51,19 @@ func TestString2Domain(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		//PrintDomain(node)
-
 		result_str := Domain2String(node)
+		node, err = String2Domain(result_str, nil)
 
 		if result_str != checker[domain] {
 			fmt.Println()
 			fmt.Printf("---------------------------- #%d ----------------------------", idx)
 			fmt.Println()
-			t.Logf("Raw: %s", domain)
-			t.Logf("New: %s", result_str)
-			t.Logf(" %d result is not same!", idx)
+			fmt.Printf("Raw: %s", domain)
+			fmt.Println()
+			fmt.Printf("New: %s", result_str)
+			fmt.Println()
+			fmt.Printf(" %d result is not same!", idx)
+			fmt.Println()
 		}
 	}
 }
