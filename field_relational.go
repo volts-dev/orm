@@ -668,39 +668,29 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 	quoter := ctx.Session.Orm().dialect.Quoter()
 	field := ctx.Field
 	rec_id := ctx.Id // 字段所在记录的ID
-	session := ctx.Session
-	{
-		//session.Begin()
 
-		middle_table_name := quoter.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
-		for _, relate_id := range ids {
-			query := fmt.Sprintf(
-				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
-				middle_table_name, quoter.Quote(field.RelateFieldName()), quoter.Quote(field.MiddleFieldName()),
-			)
+	middle_table_name := quoter.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
+	for _, relate_id := range ids {
+		query := fmt.Sprintf(
+			`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
+			middle_table_name, quoter.Quote(field.RelateFieldName()), quoter.Quote(field.MiddleFieldName()),
+		)
 
-			/*
-			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
-			                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
-			                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
-			   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
-			   		rec_id, strings.Join(ids, ","),
-			   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
-			   	)
-			*/
-			_, err := session.Exec(query, relate_id, rec_id)
-			if err != nil {
-				//return session.Rollback(err)
-				return err
-			}
+		/*
+		   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
+		                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
+		                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
+		   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
+		   		rec_id, strings.Join(ids, ","),
+		   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
+		   	)
+		*/
+		_, err := ctx.Session.Exec(query, relate_id, rec_id)
+		if err != nil {
+			return err
 		}
-
-		//err := session.Commit()
-		//if err != nil {
-		//	return session.Rollback(err)
-		//}
 	}
-	//session.Close()
+
 	return nil
 }
 

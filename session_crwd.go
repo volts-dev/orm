@@ -592,7 +592,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	var (
 		query *TQuery
 		select_clause, from_clause, where_clause,
-		order_clause, limit_clause, offset_clause string
+		order_clause, limit_clause, offset_clause, groupby_clause string
 		where_clause_params []interface{}
 	)
 	{ // 生成查询条件
@@ -647,18 +647,31 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 			}
 		}
 
-		for _, f := range fields_pre {
-			qual_names = append(qual_names, query.qualify(f, self.Statement.model))
+		if len(query.tables) > 1 {
+			for _, f := range fields_pre {
+				qual_names = append(qual_names, query.qualify(f, self.Statement.model))
+			}
+		} else {
+			for _, f := range fields_pre {
+				qual_names = append(qual_names, f.Name())
+			}
 		}
+
 		//} else {
 		//	qual_names = self.Statement.generate_fields()
 		//}
 
-		select_clause = strings.Join(qual_names, ",")
+		/* Join fields and function clause */
+		select_clause = strings.Join(append(qual_names, self.Statement.FuncsClause...), ",")
+
 		// # determine the actual query to execute
 		from_clause, where_clause, where_clause_params = query.getSql()
 		if where_clause != "" {
 			where_clause = "WHERE " + where_clause
+		}
+
+		if len(self.Statement.GroupBySClause) > 0 {
+			groupby_clause = "GROUP BY " + strings.Join(self.Statement.GroupBySClause, ",")
 		}
 	}
 
@@ -671,6 +684,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		limit_clause,
 		offset_clause,
 		order_clause,
+		groupby_clause,
 	)
 
 	// 从缓存里获得数据

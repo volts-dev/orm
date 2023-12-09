@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
@@ -21,8 +22,8 @@ type (
 
 	CreateRequest struct {
 		Context context.Context
-		Data    []any // 多条数据记录
-		Model   string
+		Data    []any  // * 多条数据记录
+		Model   string // *
 		Method  string
 	}
 
@@ -31,13 +32,15 @@ type (
 		Domain      string
 		Field       string   // for relate method
 		Fields      []string // 指定查询和返回字段
+		Funcs       []string // SQL函数
+		GroupBy     []string
 		Limit       int64
 		Offset      int64
-		Model       string
+		Model       string // *
 		Sort        []string
 		Method      string
-		UseNameGet  bool
-		ClassicRead bool //
+		UseNameGet  bool // 默认为Flase One2Many字段不显示关联数据Name数据
+		ClassicRead bool // 默认为Flase 不查询关联字段数据
 	}
 
 	// 支持多条数据更新
@@ -46,21 +49,21 @@ type (
 		Ids     []any    // 多条数据记录
 		Data    []any    // 多条数据记录
 		Fields  []string // 指定查询和返回字段
-		Domain  string
-		Model   string
+		Domain  string   // update 支持查询条件
+		Model   string   // *
 		Method  string
 	}
 
 	DeleteRequest struct {
 		Context context.Context
-		Ids     []any // 多条数据记录
-		Domain  string
-		Model   string
+		Ids     []any  // 多条数据记录
+		Domain  string // delete 支持查询条件
+		Model   string // *
 		Method  string
 	}
 
 	UploadRequest struct {
-		Model    string
+		Model    string // *
 		ResModel string
 		ResField string
 		ResId    any
@@ -97,6 +100,26 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 	if session.IsAutoClose {
 		defer session.Close()
 	}
+
+	switch strings.ToLower(req.Method) {
+	case "one2many":
+		if req.Field == "" {
+			return nil, fmt.Errorf("must pionted the field name for one2many@%s read!", req.Model)
+		}
+
+		fieldCtx := &TFieldContext{
+			Ids:         req.Ids,
+			Field:       self.GetFieldByName(req.Field),
+			Fields:      req.Fields,
+			UseNameGet:  req.UseNameGet,
+			ClassicRead: req.ClassicRead,
+		}
+		return self.OneToMany(fieldCtx)
+
+	case "groupby":
+		return self.GroupBy(req)
+	}
+
 	session.Select(req.Fields...)
 
 	if len(req.Ids) > 0 {
@@ -108,6 +131,21 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 	}
 
 	return session.Limit(req.Limit, req.Offset).Sort(req.Sort...).Read(req.ClassicRead)
+}
+
+func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
+	session := self.Tx()
+	if session.IsAutoClose {
+		defer session.Close()
+	}
+
+	return session.
+		Select(req.Fields...).
+		Funcs(req.Funcs...).
+		Limit(req.Limit, req.Offset).
+		Sort(req.Sort...).
+		GroupBy(req.GroupBy...).
+		Read()
 }
 
 // #被重载接口
@@ -205,6 +243,7 @@ func (self *TModel) Uplaod(req *UploadRequest) (int64, error) {
 	}
 
 	r := csv.NewReader(bytes.NewReader(req.Content))
+	r.LazyQuotes = true // 支持引号
 	header, err := r.Read()
 	if err != nil {
 		return 0, err

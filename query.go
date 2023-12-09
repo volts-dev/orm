@@ -292,11 +292,9 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 	if field != nil && field.Translatable() { //  if translate and not callable(translate):
 		// return model.generate_translated_field(alias, field, query)
 		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
-	} else {
-		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
 	}
 
-	//return result
+	return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
 }
 
 func (self *TQuery) _get_table_aliases() (aliases []string) {

@@ -30,8 +30,9 @@ type (
 		JoinClause     string
 		FromClause     string
 		OmitClause     string
-		GroupBySClause string
+		GroupBySClause []string
 		OrderByClause  string
+		FuncsClause    []string // SQL函数
 		SortClauses    []string
 		AscFields      []string
 		DescFields     []string
@@ -186,8 +187,8 @@ func (self *TStatement) Join(joinOperator string, tablename interface{}, conditi
 }
 
 // GroupBy
-func (self *TStatement) GroupBy(keys string) *TStatement {
-	self.GroupBySClause = keys
+func (self *TStatement) GroupBy(fields ...string) *TStatement {
+	self.GroupBySClause = fields
 	return self
 }
 
@@ -198,6 +199,12 @@ func (self *TStatement) OrderBy(clause string) *TStatement {
 		self.OrderByClause += ", "
 	}
 	self.OrderByClause += clause
+	return self
+}
+
+// SQL 函数
+func (self *TStatement) Funcs(clauses ...string) *TStatement {
+	self.FuncsClause = clauses
 	return self
 }
 

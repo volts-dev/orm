@@ -152,13 +152,18 @@ func (self *TSession) Domain(domain interface{}, args ...interface{}) *TSession 
 }
 
 // GroupBy Generate Group By statement
-func (self *TSession) GroupBy(keys string) *TSession {
-	self.Statement.GroupBy(keys)
+func (self *TSession) GroupBy(fields ...string) *TSession {
+	self.Statement.GroupBy(fields...)
 	return self
 }
 
 func (self *TSession) OrderBy(order string) *TSession {
 	self.Statement.OrderBy(order)
+	return self
+}
+
+func (self *TSession) Funcs(clauses ...string) *TSession {
+	self.Statement.Funcs(clauses...)
 	return self
 }
 

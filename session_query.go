@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/core"
@@ -282,6 +283,12 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 					field = self.Statement.model.GetFieldByName(name)
 					if field != nil {
 						value = field.onConvertToRead(self, cols, vals, idx)
+					} else {
+						for _, funcName := range self.Statement.FuncsClause {
+							if strings.HasPrefix(funcName, name) { // TODO 这里需要更高效的判断
+								value = *vals[idx].(*interface{})
+							}
+						}
 					}
 				} else {
 					value = *vals[idx].(*interface{})

@@ -880,8 +880,13 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				ltemp.Push(left, operator, right)
 				self.push(create_substitution_leaf(ex_leaf, ltemp, model, false))
 
-			} else if field.Translatable() && right != nil { //column.translate and not callable(column.translate) and right:
+			} else if field.Translatable() && right != nil && !utils.IsBlank(right.Value) { //column.translate and not callable(column.translate) and right:
 				// 翻译
+				need_wildcard := operator.ValueIn("like", "ilike", "not like", "not ilike")
+				if need_wildcard {
+					right.Value = "%" + utils.ToString(right.Value) + "%"
+				}
+				self.push_result(ex_leaf)
 			} else {
 				self.push_result(ex_leaf)
 			}

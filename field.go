@@ -41,6 +41,7 @@ type (
 		Value       interface{} // the current value of the field
 		Field       IField      // FieldTypeValue reflect.Value
 		Fields      []string
+		Domain      string // update 支持查询条件
 		Model       IModel
 		Session     *TSession
 		Dataset     *dataset.TDataSet // 数据集将被修改
