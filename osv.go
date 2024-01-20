@@ -424,7 +424,6 @@ func (self *TObj) mappingMethod(model *TModel) {
 	var method reflect.Method
 	for i := 0; i < model.modelType.NumMethod(); i++ {
 		method = model.modelType.Method(i)
-		//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
 		// 参数验证func(self,handler)
 		//lMethod.Type.In(1).Elem().String() == handlerType.String()
 

@@ -1076,21 +1076,12 @@ func (self *postgres) CreateDatabase(db *sql.DB, ctx context.Context, name strin
 	}
 
 	query := fmt.Sprintf("CREATE DATABASE %v", name)
-	result, err := db.Exec(query)
+	_, err = db.Exec(query)
 	if err != nil {
 		return err
 	}
 
-	effect, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if effect == 1 {
-		return nil
-	}
-
-	return fmt.Errorf("create database %s fail!", name)
+	return nil
 }
 
 func (self *postgres) DropDatabase(db *sql.DB, ctx context.Context, name string) error {

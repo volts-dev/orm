@@ -220,7 +220,6 @@ func (self *TQuery) qualify(field IField, model IModel) string {
 			//# PG 9.2 introduces conflicting pg_size_pretty(numeric) -> need ::cast
 			res = fmt.Sprintf(`pg_size_pretty(length(%s)::bigint)`, res)
 		}*/
-	//utils.Dbg("qualify:", field.Name)
 	return fmt.Sprintf(`%s as "%s"`, res, field.Name())
 }
 
@@ -267,7 +266,6 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
 			if err != nil {
 				log.Err(err, "@inherits_join_calc")
-				//Dbg("inherits_join_calc:", field, alias, parent_model_name)
 			}
 
 			//NOTE JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id

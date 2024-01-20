@@ -98,3 +98,13 @@ func TestVar(t *testing.T) {
 	}
 	t.Logf("New: %s", result_str)
 }
+func TestVars(t *testing.T) {
+	node := NewDomainNode(
+		"&",
+		New("name", "=", `value"'`),
+		New("attribute_id", "=", `id"'`),
+	)
+	result_str := node.String()
+
+	t.Logf("New: %s", result_str)
+}
