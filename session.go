@@ -20,6 +20,7 @@ type (
 		IsAutoClose            bool
 		IsCommitedOrRollbacked bool
 		AutoResetStatement     bool
+		UseNameGet             bool
 		IsClassic              bool // #使用Model实例为参数
 		Prepared               bool
 

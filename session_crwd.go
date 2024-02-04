@@ -526,7 +526,7 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	}
 
 	// 处理经典字段数据
-	if self.IsClassic && dataset.Count() > 0 {
+	if (self.UseNameGet || self.IsClassic) && dataset.Count() > 0 {
 		// 处理那些数据库不存在的字段：company_ids...
 		//# retrieve results from records; this takes values from the cache and
 		// # computes remaining fields
@@ -554,9 +554,9 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 				Field:   field,
 				//Id:      rec_id,
 				//Value:   val,
-				Dataset:    dataset,
-				UseNameGet: self.IsClassic,
-				//ClassicRead: self.IsClassic, // FIXME 如果为True会无限循环查询
+				Dataset:     dataset,
+				UseNameGet:  self.UseNameGet,
+				ClassicRead: self.IsClassic, // FIXME 如果为True会无限循环查询
 			})
 			if err != nil {
 				log.Errf("%s@%s.OnRead:%s", field.ModelName(), field.Name(), err.Error())

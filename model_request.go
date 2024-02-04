@@ -39,8 +39,8 @@ type (
 		Model       string // *
 		Sort        []string
 		Method      string
-		UseNameGet  bool // 默认为Flase One2Many字段不显示关联数据Name数据
-		ClassicRead bool // 默认为Flase 不查询关联字段数据
+		UseNameGet  bool // 查询Many2one 字段的[Id,Name] 默认为Flase One2Many字段不显示关联数据Name数据
+		ClassicRead bool // 查询Many2one 所有字段 默认为Flase 不查询关联字段数据
 	}
 
 	// 支持多条数据更新
@@ -130,6 +130,7 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		session.Domain(req.Domain)
 	}
 
+	session.UseNameGet = req.UseNameGet
 	return session.Limit(req.Limit, req.Offset).Sort(req.Sort...).Read(req.ClassicRead)
 }
 
@@ -403,7 +404,9 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, fmt.Errorf("the relate model <%s> field <%s> is not OneToMany type.", relModelName, relFieldName)
 	}
 
-	groups, err := relateModel.Records().Select(ctx.Fields...).In(relFieldName, ids...).Read(ctx.ClassicRead)
+	session := relateModel.Records()
+	session.UseNameGet = ctx.UseNameGet /* 使用 */
+	groups, err := session.Select(ctx.Fields...).In(relFieldName, ids...).Read(false)
 	if err != nil {
 		log.Errf("OneToMany field %s search relate model %s faild", field.Name(), relateModel.String())
 		return nil, err
@@ -414,42 +417,47 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 // many child -> one parent
 func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
-	if !ctx.UseNameGet {
-		// do nothing
-		return nil, nil
-	}
-
-	field := ctx.Field
-	ds := ctx.Dataset
-	var ids []any
-	if len(ctx.Ids) > 0 {
-		ids = ctx.Ids
-	} else if ds.Count() != 0 {
-		ids = ds.Keys(field.Name())
-		if len(ids) == 0 {
-			return nil, nil
+	if ctx.ClassicRead || ctx.UseNameGet {
+		field := ctx.Field
+		ds := ctx.Dataset
+		var ids []any
+		if len(ctx.Ids) > 0 {
+			ids = ctx.Ids
+		} else if ds.Count() != 0 {
+			ids = ds.Keys(field.Name())
+			if len(ids) == 0 {
+				return nil, nil
+			}
 		}
+
+		// 检测字段是否合格
+		if !field.IsRelatedField() || field.Type() != TYPE_M2O {
+			return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
+		}
+
+		relateModelName := field.RelateModelName()
+		relateModel, err := self.orm.GetModel(relateModelName)
+		if err != nil {
+			return nil, err
+		}
+
+		var group *dataset.TDataSet
+		if ctx.ClassicRead {
+			group, err = relateModel.Records().Ids(ids...).Read(false)
+			//group, err := relateModel.Records().Ids(ids...).Read(ctx.ClassicRead)
+		} else if ctx.UseNameGet {
+			group, err = relateModel.NameGet(ids)
+		}
+		if err != nil {
+			log.Errf("Many2one field %s search relate model %s faild", field.Name(), relateModel.String())
+			return nil, err
+		}
+
+		return group, nil
 	}
 
-	// 检测字段是否合格
-	if !field.IsRelatedField() || field.Type() != TYPE_M2O {
-		return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
-	}
-
-	relateModelName := field.RelateModelName()
-	relateModel, err := self.orm.GetModel(relateModelName)
-	if err != nil {
-		return nil, err
-	}
-
-	group, err := relateModel.NameGet(ids)
-	//group, err := relateModel.Records().Ids(ids...).Read(ctx.ClassicRead)
-	if err != nil {
-		log.Errf("Many2one field %s search relate model %s faild", field.Name(), relateModel.String())
-		return nil, err
-	}
-
-	return group, nil
+	// do nothing
+	return nil, nil
 }
 
 // return : map[id]record
