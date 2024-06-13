@@ -328,7 +328,7 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 		if n.IsValueNode() {
 			if op := n.String(); op != "" {
 				if op == domain.NOT_OPERATOR {
-					stack.Push(utils.BoolToStr(!is_negate))
+					stack.Push(utils.ToString(!is_negate))
 				} else if _, has := domain.DOMAIN_OPERATORS_NEGATION[op]; has {
 					if is_negate {
 						result.Push(domain.DOMAIN_OPERATORS_NEGATION[op])
@@ -336,8 +336,8 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 						result.Push(op)
 					}
 
-					stack.Push(utils.BoolToStr(is_negate))
-					stack.Push(utils.BoolToStr(is_negate))
+					stack.Push(utils.ToString(is_negate))
+					stack.Push(utils.ToString(is_negate))
 
 				} else {
 					result.Push(op)
@@ -524,7 +524,7 @@ func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, cont
 		var name_get_list []string // 存放IDs
 		//  name_get_list = [name_get[0] for name in names for name_get in comodel.name_search(cr, uid, name, [], 'ilike', context=context, limit=limit)]
 		//for _, name := range names.Items() {
-		lRecords, _ := comodel.SearchName(strings.Join(value.Strings(), ","), "", "ilike", limit, "", context)
+		lRecords, _ := comodel.NameSearch(strings.Join(value.Strings(), ","), "", "ilike", limit, "", context)
 		for _, rec := range lRecords.Data {
 			name_get_list = append(name_get_list, rec.FieldByName(comodel.idField).AsString()) //ODO: id 可能是Rec_id
 		}

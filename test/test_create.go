@@ -42,7 +42,7 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 	}
 
 	for i := 0; i < 10; i++ {
-		user_data.Name = "Create" + utils.IntToStr(i)
+		user_data.Name = "Create" + utils.ToString(i)
 
 		// Call the API Create()
 		id, err := ss.Model("user_model").Create(user_data, isClassic)

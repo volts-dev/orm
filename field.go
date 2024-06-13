@@ -685,6 +685,7 @@ func (self *TField) GetAttributes(ctx *TTagContext) map[string]interface{} {
 		"selection":  self._attr_selection,
 		"groups":     self._attr_groups,
 		"domain":     self._attr_domain,
+		"index":      self.index,
 	}
 }
 

@@ -12,14 +12,14 @@ import (
 )
 
 // search and return the id list only
-func (self *TSession) Search() ([]interface{}, error) {
+func (self *TSession) Search() ([]interface{}, int64, error) {
 	defer self._resetStatement()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
 
 	if self.IsDeprecated {
-		return nil, ErrInvalidSession
+		return nil, 0, ErrInvalidSession
 	}
 
 	return self._search("", nil)
@@ -46,7 +46,7 @@ func (self *TSession) Exec(sql_str string, args ...interface{}) (sql.Result, err
 // 查询所有符合条件的主键/索引值
 // :param access_rights_uid: optional user ID to use when checking access rights
 // (not for ir.rules, this is only for ir.model.access)
-func (self *TSession) _search(access_rights_uid string, context map[string]interface{}) (res_ids []interface{}, err error) {
+func (self *TSession) _search(access_rights_uid string, context map[string]interface{}) (res_ids []interface{}, count int64, err error) {
 	var (
 		//fields_str string
 		//where_str    string
@@ -75,7 +75,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 
 	query, err = self.Statement.where_calc(self.Statement.domain, false, context)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	order_by = self.Statement.generate_order_by(query, context) // TODO 未完成
@@ -87,6 +87,10 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 
 	table_name := self.Statement.model.Table()
 	if self.Statement.IsCount {
+		// 添加支持Count函数
+		// TODO 优化成自动
+		self.Statement.Funcs("count")
+		var count int64
 		// Ignore order, limit and offset when just counting, they don't make sense and could
 		// hurt performance
 		query_str = `SELECT count(1) FROM ` + from_clause + where_clause
@@ -94,16 +98,18 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		if res_ds == nil {
 			lRes, err := self._query(query_str, where_clause_params...)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
-			res_ids = []interface{}{lRes.FieldByName("count").AsInterface()}
+			//res_ids = []interface{}{lRes.FieldByName("count").AsInterface()}
+			count = lRes.FieldByName("count").AsInteger()
 			// #存入缓存
 			self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, lRes)
 		} else {
-			res_ids = res_ds.Keys(self.Statement.IdKey)
+			//res_ids = res_ds.Keys(self.Statement.IdKey)
+			count = res_ds.FieldByName("count").AsInteger()
 		}
 
-		return res_ids, nil
+		return nil, count, nil
 	}
 
 	if self.Statement.LimitClause > 0 {
@@ -126,7 +132,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 	if res_ds == nil {
 		res, err := self._query(query_str, where_clause_params...)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		res_ids = res.Keys(self.Statement.IdKey)
 		self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res)
@@ -134,7 +140,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		res_ids = res_ds.Keys(self.Statement.IdKey)
 	}
 
-	return res_ids, nil
+	return res_ids, int64(len(res_ids)), nil
 }
 
 func (self *TSession) _query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error) {
@@ -263,7 +269,7 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 		for rows.Next() {
 			// TODO 优化不使用MAP
 			rec := dataset.NewRecordSet()
-			rec.Fields(cols...)
+			//rec.Fields(cols...)
 
 			// 创建数据容器
 			for idx := range cols {
@@ -284,10 +290,16 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 					if field != nil {
 						value = field.onConvertToRead(self, cols, vals, idx)
 					} else {
+						value = nil // 初始化
+						// 处理函数字段 Count 等
 						for _, funcName := range self.Statement.FuncsClause {
 							if strings.HasPrefix(funcName, name) { // TODO 这里需要更高效的判断
 								value = *vals[idx].(*interface{})
 							}
+						}
+
+						if value == nil {
+							value = *vals[idx].(*interface{})
 						}
 					}
 				} else {

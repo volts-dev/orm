@@ -20,7 +20,7 @@ func TestWrite(title string, t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
-		data.Name = "Write" + utils.IntToStr(i)
+		data.Name = "Write" + utils.ToString(i)
 		data.Title = "Write"
 
 		id, err := model.Records().Create(data)

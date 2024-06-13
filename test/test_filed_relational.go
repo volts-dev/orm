@@ -23,7 +23,7 @@ func TestFieldMany2Many(o *orm.TOrm, t *testing.T) {
 		// 创建新公司
 		var ids []int64
 		for i := 0; i < 5; i++ {
-			NewCompany := &Model2{Name: "NewCompany" + utils.IntToStr(i)}
+			NewCompany := &Model2{Name: "NewCompany" + utils.ToString(i)}
 			model, _ := o.GetModel("res.company")
 			if model == nil {
 				panic("Syncmodel error! did not found model!")

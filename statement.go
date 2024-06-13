@@ -677,6 +677,18 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 			}
 		}
 	}
+
+	for _, order_part := range strings.Split(order_spec, ",") {
+		order_split := strings.Split(order_part, " ")
+		order_field := strings.TrimSpace(order_split[0])
+		order_direction := ""
+		if len(order_split) == 2 {
+			order_direction = strings.ToUpper(strings.TrimSpace(order_split[1]))
+		} else {
+			order_direction = ""
+		}
+		generate_order([]string{order_field}, order_direction)
+	}
 	generate_order(self.AscFields, "ASC")
 	generate_order(self.DescFields, "DESC")
 	return order_by_elements

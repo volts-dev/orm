@@ -202,12 +202,12 @@ func (self *TSession) Count() (int, error) {
 
 	self.Statement.IsCount = true
 
-	ids, err := self._search("", nil)
+	_, count, err := self._search("", nil)
 	if err != nil {
 		return 0, err
 	}
 
-	return len(ids), nil
+	return int(count), nil
 }
 
 // TODO sum

@@ -32,7 +32,7 @@ type (
 		relations_reload()
 		// Pravite Interface:
 		// retrieve the lines in the comodel
-		getRelate(*TFieldContext) (*dataset.TDataSet, error)
+		//getRelate(*TFieldContext) (*dataset.TDataSet, error)
 
 		// --------------------- public ---------------------
 		String() string // model name in orm like "base.user"
@@ -90,7 +90,7 @@ type (
 		Read(req *ReadRequest) (*dataset.TDataSet, error)
 		Update(req *UpdateRequest) (int64, error)
 		Delete(req *DeleteRequest) (int64, error)
-		Uplaod(req *UploadRequest) (int64, error)
+		Upload(req *UploadRequest) (int64, error)
 
 		// 关联查询函数
 		// 主表[字段所在的表]字段值是关联表其中之一条记录,关联表字段相当于主表或其他表的补充扩展或共同字段
@@ -114,7 +114,7 @@ type (
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
-		SearchName(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
+		NameSearch(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
 		// TODO 未完成
 		BeforeSetup() error
@@ -543,7 +543,7 @@ func (self *TModel) _add_inherited_fields() {
 	*/
 }
 
-func (self *TModel) getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) {
+func (self *TModel) ___getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	field := ctx.Field
 	if !field.IsRelatedField() {
 		return nil, fmt.Errorf("the field %s must related field, but not %s!", ctx.Field.Name(), field.Type())

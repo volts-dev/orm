@@ -14,6 +14,13 @@ import (
 )
 
 type (
+	Paginator struct {
+		PageIndex int64 `json:"page"  `   //当前页数
+		PageSize  int64 `json:"limit"   ` //每页多少条
+		//Offset int64 `json:"offset" ` //偏移量
+		Total int64 `json:"total" ` //总页数
+	}
+
 	// Model字段请求
 	FieldRequest struct {
 		Fields []string
@@ -28,14 +35,18 @@ type (
 	}
 
 	ReadRequest struct {
-		Ids         []any
-		Domain      string
-		Field       string   // for relate method
-		Fields      []string // 指定查询和返回字段
-		Funcs       []string // SQL函数
-		GroupBy     []string
-		Limit       int64
-		Offset      int64
+		Paginator
+		Ids     []any
+		Domain  string
+		Field   string   // for relate method
+		Fields  []string // 指定查询和返回字段
+		Funcs   []string // SQL函数
+		GroupBy []string
+		OrderBy []string
+		//Limit       int64
+		//Offset      int64
+		PageIndex   int64  `json:"page"  `   //当前页数
+		PageSize    int64  `json:"limit"   ` //每页多少条
 		Model       string // *
 		Sort        []string
 		Method      string
@@ -100,22 +111,50 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 	if session.IsAutoClose {
 		defer session.Close()
 	}
+	// 确保第一页
+	if req.PageIndex < 1 {
+		req.PageIndex = 1
+	}
+
+	if req.Domain != "" {
+		session.Domain(req.Domain)
+	}
 
 	switch strings.ToLower(req.Method) {
+	case "count":
+		count, err := session.Count()
+		if err != nil {
+			return nil, err
+		}
+		return dataset.NewDataSet(dataset.WithData(map[string]any{
+			"count": count,
+		})), nil
 	case "one2many":
 		if req.Field == "" {
 			return nil, fmt.Errorf("must pionted the field name for one2many@%s read!", req.Model)
 		}
 
-		fieldCtx := &TFieldContext{
+		return self.OneToMany(&TFieldContext{
 			Ids:         req.Ids,
 			Field:       self.GetFieldByName(req.Field),
 			Fields:      req.Fields,
 			UseNameGet:  req.UseNameGet,
 			ClassicRead: req.ClassicRead,
+		})
+	case "many2many":
+		if req.Field == "" {
+			return nil, fmt.Errorf("must pionted the field name for many2many@%s read!", req.Model)
 		}
-		return self.OneToMany(fieldCtx)
 
+		return self.ManyToMany(&TFieldContext{
+			Model:   self,
+			Ids:     req.Ids,
+			Field:   self.GetFieldByName(req.Field),
+			Fields:  req.Fields,
+			Session: session,
+			//UseNameGet:  req.UseNameGet,
+			//ClassicRead: req.ClassicRead,
+		})
 	case "groupby":
 		return self.GroupBy(req)
 	}
@@ -126,12 +165,9 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		session.Ids(req.Ids...)
 	}
 
-	if req.Domain != "" {
-		session.Domain(req.Domain)
-	}
-
 	session.UseNameGet = req.UseNameGet
-	return session.Limit(req.Limit, req.Offset).Sort(req.Sort...).Read(req.ClassicRead)
+
+	return session.Limit(req.PageSize, req.PageIndex-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
 }
 
 func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
@@ -139,11 +175,15 @@ func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
 	if session.IsAutoClose {
 		defer session.Close()
 	}
-
+	// 确保第一页
+	if req.PageIndex < 1 {
+		req.PageIndex = 1
+	}
+	session.UseNameGet = req.UseNameGet
 	return session.
 		Select(req.Fields...).
 		Funcs(req.Funcs...).
-		Limit(req.Limit, req.Offset).
+		Limit(req.PageSize, req.PageIndex-1).
 		Sort(req.Sort...).
 		GroupBy(req.GroupBy...).
 		Read()
@@ -232,7 +272,7 @@ func (self *TModel) Load(field []string, records ...any) (ids []any, err error) 
 }
 
 // #被重载接口
-func (self *TModel) Uplaod(req *UploadRequest) (int64, error) {
+func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 	model, err := self.Clone()
 	if err != nil {
 		return 0, err
@@ -266,13 +306,35 @@ func (self *TModel) Uplaod(req *UploadRequest) (int64, error) {
 	count := 0
 	var isEOF bool
 	var total int64
+	var ids []any
 	for {
 		if count >= 1000 || isEOF {
 			count = 0
 
-			ids, err := model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
-			if err != nil {
-				return 0, err
+			// 提前提交到数据库
+			if !isEOF {
+				/* 新的事务提交到数据库 */
+				model, err := self.Clone()
+				if err != nil {
+					return 0, err
+				}
+
+				tx := model.Tx(model.Records())
+				tx.Begin()
+
+				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
+				if err != nil {
+					return 0, err
+				}
+
+				if err := tx.Commit(); err != nil {
+					return 0, tx.Rollback(err)
+				}
+			} else {
+				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
+				if err != nil {
+					return 0, err
+				}
 			}
 
 			datas = make([]map[string]any, 0)
@@ -317,9 +379,9 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		ids = ctx.Ids
 	} else if ds.Count() != 0 {
 		ids = ds.Keys(field.Name())
-		if len(ids) == 0 {
-			return nil, nil
-		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
 	}
 
 	relateModel, err := self.orm.GetModel(field.RelateModelName())
@@ -328,63 +390,29 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, err
 	}
 
-	group, err := relateModel.NameGet(ids)
-	//group, err := relateModel.Records().Ids(ids).Read(ctx.ClassicRead)
+	//group, err := relateModel.NameGet(ids)
+	group, err := relateModel.Records().Ids(ids).Read(ctx.ClassicRead)
 	if err != nil {
 		return nil, err
 	}
 
 	return group, nil
-	/*
-		if ds != nil {
-			relateModel, err := ctx.Session.Orm().osv.GetModel(field.RelateModelName())
-			if err != nil {
-				// # Should not happen, unless the foreign key is missing.
-				return nil, err
-			}
-
-			ds.First()
-			for !ds.Eof() {
-				// 获取关联表主键
-				relId := ds.FieldByName(field.Name()).AsInterface()
-
-				// igonre blank value
-				if utils.IsBlank(relId) {
-					if field.Required() {
-						return nil, fmt.Errorf("the Many2One field %s:%s is required!", field.ModelName(), field.Name())
-					}
-
-					ds.Next()
-					continue
-				}
-
-				relateDataset, err := relateModel.NameGet([]interface{}{relId})
-				if err != nil {
-					return nil, err
-				}
-
-				ds.FieldByName(field.Name()).AsInterface([]interface{}{relateDataset.FieldByName(relateModel.IdField()).AsInterface(), relateDataset.FieldByName(relateModel.GetRecordName()).AsInterface()})
-				ds.Next()
-			}
-		}
-
-		return data, nil
-	*/
 }
 
 // 获取外键所有Child关联记录
 func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
-	field := ctx.Field
 	ds := ctx.Dataset
 	var ids []any
 	if len(ctx.Ids) > 0 {
 		ids = ctx.Ids
 	} else if ds.Count() != 0 {
 		ids = ds.Keys(ctx.Model.IdField())
-		if len(ids) == 0 {
-			return nil, nil
-		}
 	}
+
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	field := ctx.Field
 
 	if !field.IsRelatedField() || field.Type() != TYPE_O2M {
 		return nil, fmt.Errorf("could not call model func OneToMany(%v,%v) from a not OneToMany field %v@%v!", ids, ctx.Field.Name(), field.IsRelatedField(), field.Type())
@@ -425,9 +453,9 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			ids = ctx.Ids
 		} else if ds.Count() != 0 {
 			ids = ds.Keys(field.Name())
-			if len(ids) == 0 {
-				return nil, nil
-			}
+		}
+		if len(ids) == 0 {
+			return nil, nil
 		}
 
 		// 检测字段是否合格
@@ -462,30 +490,30 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 // return : map[id]record
 func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
-	field := ctx.Field
 	ds := ctx.Dataset
 	var ids []any
 	if len(ctx.Ids) > 0 {
 		ids = ctx.Ids
 	} else if ds.Count() != 0 {
 		ids = ds.Keys(ctx.Model.IdField())
-		if len(ids) == 0 {
-			return nil, nil
-		}
 	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	field := ctx.Field
 
 	if !field.IsRelatedField() || field.Type() != TYPE_M2M {
 		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
 	}
 
 	// # retrieve the lines in the comodel
-	orm := self.orm
 	relModelName := field.RelateModelName() //# 字段关联表名
 	relFieldName := field.RelateFieldName()
 	midModelName := field.MiddleModelName() //# 字段M2m关系表名
 	midFieldName := field.MiddleFieldName()
 
 	// 检测关联Model合法性
+	orm := self.orm
 	if !orm.HasModel(relModelName) || !orm.HasModel(midModelName) {
 		return nil, fmt.Errorf("the models are not correctable for ManyToMany(%s,%s)!", relModelName, midModelName)
 	}
@@ -522,11 +550,21 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	// the table name in cacher
 	cacher_table_name := relTableName + "_" + from_c
 	placeholder := JoinPlaceholder("?", ",", len(ids))
+
 	//Many2many('res.lang', 'website_lang_rel', 'website_id', 'lang_id')
 	//SELECT {rel}.{id1}, {rel}.{id2} FROM {rel}, {from_c} WHERE {where_c} AND {rel}.{id1} IN %s AND {rel}.{id2} = {tbl}.id {order_by} {limit} OFFSET {offset}
+
+	// 经典模式返回关联表数据
+	selectFields := ""
+	if ctx.ClassicRead {
+		selectFields = midTableName + ".*," + relTableName + ".*"
+	} else {
+		selectFields = midTableName + "." + relFieldName + "," + midTableName + "." + midFieldName
+	}
+
 	query := JoinClause(
 		"SELECT",
-		midTableName+"."+relFieldName+","+midTableName+"."+midFieldName,
+		selectFields,
 		"FROM",
 		midTableName+","+from_c,
 		"WHERE",
@@ -537,6 +575,7 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		midTableName+"."+midFieldName+"="+relTableName+".id",
 		order_by, limit, offset,
 	)
+
 	params := append(where_params, ids...) // # 添加 IDs 作为参数
 
 	// # 获取字段关联表的字符
@@ -544,6 +583,7 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	if group == nil {
 		// TODO 只查询缺的记录不查询所有
 		// # 如果缺省缓存记录重新查询
+
 		group, err = sess.Query(query, params...)
 		if err != nil {
 			return nil, err
@@ -674,7 +714,7 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 }
 
 // search record by name field only
-func (self *TModel) SearchName(name string, domain_str string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
+func (self *TModel) NameSearch(name string, domain_str string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
 	if operator == "" {
 		operator = "ilike"
 	}

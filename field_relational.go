@@ -135,16 +135,31 @@ func (self *TOne2OneField) Init(ctx *TTagContext) { //comodel_name string, inver
 }
 
 func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
-	ds, err := ctx.Model.getRelate(ctx)
+	field := ctx.Field
+	if !field.IsRelatedField() {
+		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+	}
+
+	ds, err := ctx.Model.OneToOne(ctx)
 	if err != nil {
 		return err
 	}
 
 	if ds.Count() > 0 {
 		field := ctx.Field
-		group := ds.GroupBy(field.RelateFieldName())
+
+		relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
+		if err != nil {
+			// # Should not happen, unless the foreign key is missing.
+			return err
+		}
+
+		//group := ds.GroupBy(field.RelateFieldName())
+		group := ds.GroupBy(relateModel.IdField())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
-			fieldValue := record.GetByField(field.Name())
+			// 获取关联表主键
+			//fieldValue := record.GetByField(field.Name())
+			fieldValue := record.GetByField(field.RelateFieldName())
 			grp := group[fieldValue]
 
 			if grp.Count() > 1 {
@@ -153,46 +168,18 @@ func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 					field.RelateModelName(), field.Name(), field.ModelName(), grp.Keys())
 			}
 
-			record.SetByField(field.Name(), grp.Record().AsItfMap())
+			//record.SetByField(field.Name(), grp.Record().AsItfMap())
+			for _, f := range grp.Record().Fields() {
+				if !record.FieldByName(f).IsValid {
+					record.SetByField(f, grp.Record().GetByField(f))
+				}
+			}
+
 			return nil
 		})
 	}
-	return err
 
-	/* TODO 被替代
-	relateMode, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
-	if err != nil {
-		// # Should not happen, unless the foreign key is missing.
-		return err
-	}
-
-	ds := ctx.Dataset
-	if ds != nil {
-		ds.First()
-		for !ds.Eof() {
-			// 获取关联表主键
-			rel_id := ds.FieldByName(self.Name()).AsInterface()
-
-			// igonre blank value
-			if utils.IsBlank(rel_id) {
-				if self._attr_required {
-					return fmt.Errorf("the Many2One field %s:%s is required!", self.model_name, self.Name())
-				}
-
-				ds.Next()
-				continue
-			}
-
-			rel_ds, err := relateMode.NameGet([]interface{}{rel_id})
-			if err != nil {
-				return err
-			}
-
-			ds.FieldByName(self.Name()).AsInterface([]interface{}{rel_ds.FieldByName(relateMode.IdField()).AsInterface(), rel_ds.FieldByName(relateMode.GetRecordName()).AsInterface()})
-			ds.Next()
-		}
-	}
-	*/
+	return nil
 }
 
 func (self *TOne2ManyField) Init(ctx *TTagContext) { //comodel_name string, inverse_name string
@@ -212,17 +199,24 @@ func (self *TOne2ManyField) Init(ctx *TTagContext) { //comodel_name string, inve
 }
 
 func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
+	// 字段计算步获取任何关系值
+	ctx.UseNameGet = false
+	ctx.ClassicRead = false
+
 	if self.isCompute {
 		self._computeFunc(ctx)
 	} else {
-		ds, err := ctx.Model.getRelate(ctx)
+		field := ctx.Field
+		if !field.IsRelatedField() {
+			return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+		}
+
+		ds, err := ctx.Model.OneToMany(ctx)
 		if err != nil {
 			return err
 		}
 
 		if ds.Count() > 0 {
-			field := ctx.Field
-
 			// 获得关系Model 以提供idfield
 			relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
 			if err != nil {
@@ -320,13 +314,17 @@ func (self *TMany2OneField) Init(ctx *TTagContext) {
 
 // TODO 未完成
 func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
-	ds, err := ctx.Model.getRelate(ctx)
+	field := ctx.Field
+	if !field.IsRelatedField() {
+		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+	}
+
+	ds, err := ctx.Model.ManyToOne(ctx)
 	if err != nil {
 		return err
 	}
 
 	if ds.Count() > 0 {
-		field := ctx.Field
 		relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
 		if err != nil {
 			return err
@@ -401,7 +399,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 			return err
 		}
 
-		ds, err := model.SearchName(v, "", "", 1, "", nil)
+		ds, err := model.NameSearch(v, "", "", 1, "", nil)
 		if err != nil {
 			return err
 		}
@@ -491,11 +489,11 @@ func (self *TMany2ManyField) Init(ctx *TTagContext) {
 	} else if cnt == 4 { // many2many(关联表,关系表,字段1,字段2)
 		//model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
 		model2 := fmtModelName(utils.TitleCasedName(params[0]))    // 字段链接的Model
-		rel_model := fmtModelName(utils.TitleCasedName(params[3])) // 表字段关系的Model
+		rel_model := fmtModelName(utils.TitleCasedName(params[1])) // 表字段关系的Model
 		fld.Base().comodel_name = model2                           //目标表
 		fld.Base().relmodel_name = rel_model                       //提供目标表格关系的表
-		fld.Base().cokey_field_name = fmtFieldName(params[1])      //目标表关键字段
-		fld.Base().relkey_field_name = fmtFieldName(params[2])     // 关系表关键字段
+		fld.Base().cokey_field_name = fmtFieldName(params[2])      //目标表关键字段
+		fld.Base().relkey_field_name = fmtFieldName(params[3])     // 关系表关键字段
 		fld.Base()._attr_relation = fld.Base().comodel_name
 		fld.Base()._attr_type = TYPE_M2M
 	} else {
@@ -577,20 +575,25 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 // 设置字段获得的值
 // TODO :未完成
 func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
-	ds, err := ctx.Model.getRelate(ctx)
+	field := ctx.Field
+	if !field.IsRelatedField() {
+		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+	}
+
+	ds, err := ctx.Model.ManyToMany(ctx)
 	if err != nil {
 		return err
 	}
 
 	if ds.Count() > 0 {
-		field := ctx.Field
 		group := ds.GroupBy(field.RelateFieldName())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
-			fieldValue := record.GetByField(field.Name())
-			grp := group[fieldValue]
-			if grp.Count() > 0 {
+			//fieldValue := record.GetByField(field.Name()) // 货得many2many字段值
+			fieldValue := record.GetByField(ctx.Model.IdField()) // 货得many2many字段值
+			fieldRecord := group[fieldValue]
+			if fieldRecord.Count() > 0 {
 				var records []map[string]any
-				grp.Range(func(pos int, record *dataset.TRecordSet) error {
+				fieldRecord.Range(func(pos int, record *dataset.TRecordSet) error {
 					records = append(records, record.AsItfMap())
 					return nil
 				})

@@ -91,7 +91,7 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 		self.Statement.IdParam = append(self.Statement.IdParam, ids...)
 	} else {
 		var err error
-		ids, err = self._search("", nil)
+		ids, _, err = self._search("", nil)
 		if err != nil {
 			return 0, err
 		}
@@ -249,7 +249,7 @@ func (self *TSession) _create(src interface{}) (res_id interface{}, res_err erro
 		//更新缓存
 		table_name := self.Statement.model.Table()
 		lRec := dataset.NewRecordSet(nil, newValues)
-		self.orm.Cacher.PutById(table_name, utils.IntToStr(res_id), lRec) //for create
+		self.orm.Cacher.PutById(table_name, utils.ToString(res_id), lRec) //for create
 
 		// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
 		self.orm.Cacher.ClearByTable(table_name) //for create
@@ -681,10 +681,10 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		"FROM",
 		from_clause,
 		where_clause,
-		limit_clause,
-		offset_clause,
 		order_clause,
 		groupby_clause,
+		limit_clause,
+		offset_clause,
 	)
 
 	// 从缓存里获得数据
