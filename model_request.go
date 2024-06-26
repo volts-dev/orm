@@ -376,9 +376,9 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	ds := ctx.Dataset
 	var ids []any
 	if len(ctx.Ids) > 0 {
-		ids = ctx.Ids
+		ids = unique(ctx.Ids)
 	} else if ds.Count() != 0 {
-		ids = ds.Keys(field.Name())
+		ids = unique(ds.Keys(field.Name()))
 	}
 	if len(ids) == 0 {
 		return nil, nil
@@ -404,9 +404,9 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	ds := ctx.Dataset
 	var ids []any
 	if len(ctx.Ids) > 0 {
-		ids = ctx.Ids
+		ids = unique(ctx.Ids)
 	} else if ds.Count() != 0 {
-		ids = ds.Keys(ctx.Model.IdField())
+		ids = unique(ds.Keys(ctx.Model.IdField()))
 	}
 
 	if len(ids) == 0 {
@@ -450,9 +450,9 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		ds := ctx.Dataset
 		var ids []any
 		if len(ctx.Ids) > 0 {
-			ids = ctx.Ids
+			ids = unique(ctx.Ids)
 		} else if ds.Count() != 0 {
-			ids = ds.Keys(field.Name())
+			ids = unique(ds.Keys(field.Name()))
 		}
 		if len(ids) == 0 {
 			return nil, nil
@@ -493,9 +493,9 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	ds := ctx.Dataset
 	var ids []any
 	if len(ctx.Ids) > 0 {
-		ids = ctx.Ids
+		ids = unique(ctx.Ids)
 	} else if ds.Count() != 0 {
-		ids = ds.Keys(ctx.Model.IdField())
+		ids = unique(ds.Keys(ctx.Model.IdField()))
 	}
 	if len(ids) == 0 {
 		return nil, nil

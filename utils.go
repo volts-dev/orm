@@ -9,6 +9,21 @@ import (
 	"github.com/volts-dev/utils"
 )
 
+// Ints returns a unique subset of the int slice provided.
+func unique[T comparable](input []T) []T {
+	u := make([]T, 0, len(input))
+	m := make(map[T]bool)
+
+	for _, val := range input {
+		if _, ok := m[val]; !ok {
+			m[val] = true
+			u = append(u, val)
+		}
+	}
+
+	return u
+}
+
 func JoinPlaceholder(placeholder string, s string, n int) string {
 	var b strings.Builder
 	for i := 0; i < n; i++ {
