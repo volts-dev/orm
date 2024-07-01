@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/domain"
 
 	"github.com/volts-dev/utils"
 )
@@ -114,7 +115,7 @@ type (
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
-		NameSearch(name string, domain string, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
+		NameSearch(name string, domain *domain.TDomainNode, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
 		// TODO 未完成
 		BeforeSetup() error
@@ -137,16 +138,16 @@ type (
 		context     *dataset.TRecordSet
 		transaction *TSession
 
-		name  string // # xx.xx 映射在OSV的名称
-		table string // mapping table name
+		name      string // xx.xx 映射在OSV的名称
+		table     string // mapping table name
+		nameField string // the field name which is the name represent a record @examples: Name,Title,PartNo
+		idField   string // the field name which is the UID represent a record
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
 		_parent_name  string // #! 父表中的字段名称
 		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
 		_sequence     string //
 		_order        string //
 		_module       string // # 属于哪个模块所有
-		nameField     string // the field name which is the name represent a record @examples: Name,Title,PartNo
-		idField       string // the field name which is the UID represent a record
 		_auto         bool   // # True # create database backend
 		_transient    bool   // # 暂时的
 		_description  string // # 描述

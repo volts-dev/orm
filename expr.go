@@ -496,7 +496,7 @@ func (self *TExpression) reverse(lst []*TExtendedLeaf) {
 func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, context map[string]interface{}, limit int64) *domain.TDomainNode {
 	var names []string
 
-	// 分类 id 直接返回 Name 则需要查询获得其Id
+	/* 分类 id 直接返回 Name 则需要查询获得其Id */
 	if value != nil {
 		// 如果是字符
 		if !value.IsListNode() && value.String() != "" {
@@ -519,12 +519,14 @@ func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, cont
 
 	}
 
-	// 将分类出来名称查询并传回ID
+	/* 将分类出来名称查询并传回ID */
 	if names != nil {
 		var name_get_list []string // 存放IDs
 		//  name_get_list = [name_get[0] for name in names for name_get in comodel.name_search(cr, uid, name, [], 'ilike', context=context, limit=limit)]
 		//for _, name := range names.Items() {
-		lRecords, _ := comodel.NameSearch(strings.Join(value.Strings(), ","), "", "ilike", limit, "", context)
+		// 这里使用精准名称“in”查询
+		_domain := domain.New(comodel.nameField, "in", value.Flatten()...)
+		lRecords, _ := comodel.NameSearch("", _domain, "ilike", limit, "", context)
 		for _, rec := range lRecords.Data {
 			name_get_list = append(name_get_list, rec.FieldByName(comodel.idField).AsString()) //ODO: id 可能是Rec_id
 		}

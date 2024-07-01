@@ -611,9 +611,11 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		order_clause = self.Statement.generate_order_by(query, nil) // TODO 未完成
 
 		// limit clause
-		if self.Statement.LimitClause > 0 {
-			limit_clause = "LIMIT " + utils.ToString(self.Statement.LimitClause)
+		limit := self.Statement.LimitClause
+		if self.Statement.LimitClause == 0 {
+			limit = DefaultLimit
 		}
+		limit_clause = "LIMIT " + utils.ToString(limit)
 
 		// offset clause
 		if self.Statement.OffsetClause > 0 {

@@ -676,21 +676,21 @@ behavior of :meth:`~.create` applies.
 */
 func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
 	if self.obj.GetFieldByName(self.nameField) != nil {
-		id, err := self.Create(&CreateRequest{Data: []any{map[string]interface{}{
+		id, err := self.Create(&CreateRequest{Data: []any{map[string]any{
 			self.nameField: name,
 		}}})
 		if err != nil {
 			return nil, fmt.Errorf("cannot execute name_create, create name faild %s", err.Error())
 
 		}
-		return self.NameGet([]interface{}{id})
+		return self.NameGet([]any{id})
 	} else {
 		return nil, fmt.Errorf("Cannot execute name_create, no nameField defined on %s", self.name)
 	}
 }
 
 // 获得id和名称
-func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
+func (self *TModel) NameGet(ids []any) (*dataset.TDataSet, error) {
 	name := self.GetRecordName()
 	id_field := self.idField
 	if f := self.GetFieldByName(name); f != nil {
@@ -714,40 +714,45 @@ func (self *TModel) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
 }
 
 // search record by name field only
-func (self *TModel) NameSearch(name string, domain_str string, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
+func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
 	if operator == "" {
 		operator = "ilike"
 	}
 
 	if limit == 0 {
-		limit = 100
+		limit = DefaultLimit
 	}
 
 	if access_rights_uid == "" {
 		//	access_rights_uid = self.session.AuthInfo("id")
 	}
 
-	_domain, err := domain.String2Domain(domain_str, nil)
-	if err != nil {
-		return nil, err
+	/* */
+	if domainNode.Count() == 0 && name == "" {
+		return nil, log.Errf("Cannot execute name_search without the query params such like Name value or Domain!")
 	}
 
 	// 使用默认 name 字段
 	rec_name_field := self.GetRecordName()
 	if rec_name_field == "" {
-		return nil, log.Errf("Cannot execute name_search, no nameField defined on %s", self.name)
+		return nil, log.Errf("Cannot execute name_search, no nameField defined on model %s", self.name)
 	}
 
-	if name == "" && operator != "ilike" {
-		lNew := utils.NewStringList()
-		lNew.PushString(rec_name_field, operator, name)
-		_domain.Push(lNew)
+	/* 添加 name 查询语句 */
+	if name != "" {
+		if operator == "" {
+			operator = "ilike"
+		}
+		if domainNode == nil {
+			domainNode = domain.New(rec_name_field, operator, name)
+		} else {
+			domainNode.AND(domain.New(rec_name_field, operator, name))
+		}
 	}
 
 	//access_rights_uid = name_get_uid or user
 	// 获取匹配的Ids
-	//lIds := self._search(lDomain, nil, 0, limit, "", false, access_rights_uid, context)
-	result, err = self.Records().Select(self.idField, rec_name_field).Domain(_domain.String()).Limit(limit).Read()
+	result, err = self.Records().Select(self.idField, rec_name_field).Domain(domainNode).Limit(limit).Read()
 	if err != nil {
 		return nil, err
 	}

@@ -196,7 +196,7 @@ func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause 
 	if tablelst, has := self.joins[lhs]; has {
 		for _, table := range tablelst {
 			rhs, lhs_col, rhs_col, join := table.String(0), table.String(1), table.String(2), table.String(3)
-			utils.StringsDel(tables_to_process, self.alias_mapping[table.String(0)]) //     tables_to_process.remove()
+			utils.SliceDelete(tables_to_process, self.alias_mapping[table.String(0)]) //     tables_to_process.remove()
 			from_clause = append(from_clause, fmt.Sprintf(` %s %s ON ("%s"."%s" = "%s"."%s"`,
 				join, self.alias_mapping[rhs], lhs, lhs_col, rhs, rhs_col))
 			extra := self.extras[lhs] //.get((lhs, (table.String(0), lhs_col, rhs_col, join)))

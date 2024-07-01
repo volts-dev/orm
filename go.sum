@@ -183,6 +183,8 @@ github.com/volts-dev/lexer v0.0.0-20220306192306-681167f68bb3 h1:8gHN6q/CJpvSf0O
 github.com/volts-dev/lexer v0.0.0-20220306192306-681167f68bb3/go.mod h1:vCgKI36YGJpEdS60I6+ljiMUd+MfSr9udDaBl7hb9+I=
 github.com/volts-dev/utils v0.0.0-20240219154825-d1eba93edd3f h1:rRPxSynQ+NxJTn1vDiZu3lT1MdZFFfYIJdS4BiCjAO4=
 github.com/volts-dev/utils v0.0.0-20240219154825-d1eba93edd3f/go.mod h1:TODvPD1m6eFUenwyxUSS1unXP95G4RMa6oLy7AwX33E=
+github.com/volts-dev/utils v0.0.0-20240701185618-78901418ef24 h1:H5oT9+uiWAGSPIHRBbU3jKKZM8MNJOIR1LJjt4Q4q+Q=
+github.com/volts-dev/utils v0.0.0-20240701185618-78901418ef24/go.mod h1:TODvPD1m6eFUenwyxUSS1unXP95G4RMa6oLy7AwX33E=
 github.com/volts-dev/volts v0.0.0-20230819060003-5a0e4871b737 h1:CHQUEks2besZ6qtkeIpYZhf1sOZOjenFhSUfOkPIfhw=
 github.com/volts-dev/volts v0.0.0-20230819060003-5a0e4871b737/go.mod h1:0Kzx7pN5WqijVpdNKBhfS3C35YDLmwc4vU8OkIwJuXY=
 github.com/yuin/goldmark v1.1.25/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

@@ -454,6 +454,9 @@ func (self *TDomainNode) Reversed() *TDomainNode {
 
 // return the list length
 func (self *TDomainNode) Count() int {
+	if self == nil {
+		return 0
+	}
 	return len(self.children)
 }
 

@@ -399,7 +399,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 			return err
 		}
 
-		ds, err := model.NameSearch(v, "", "", 1, "", nil)
+		ds, err := model.NameSearch(v, nil, "", 1, "", nil)
 		if err != nil {
 			return err
 		}
