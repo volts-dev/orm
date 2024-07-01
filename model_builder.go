@@ -34,7 +34,7 @@ func (self *ModelBuilder) Field(name, fieldType string) *fieldStatment {
 			log.Err(err)
 		}
 
-		if utils.In(field.Type(), TYPE_O2O, TYPE_O2M, TYPE_M2O, TYPE_M2M, TYPE_SELECTION) == -1 {
+		if utils.IndexOf(field.Type(), TYPE_O2O, TYPE_O2M, TYPE_M2O, TYPE_M2M, TYPE_SELECTION) == -1 {
 			fieldContext := &TTagContext{
 				Orm:        self.Orm,
 				Model:      self.model,

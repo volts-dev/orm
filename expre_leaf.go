@@ -141,7 +141,7 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 	if operator == "<>" {
 		operator = "!="
 	}
-	if utils.IsBoolItf(self.leaf.Item(2)) && utils.InStrings(operator, "in", "not in") != -1 {
+	if utils.IsBoolItf(self.leaf.Item(2)) && utils.IndexOf(operator, "in", "not in") != -1 {
 		//   _log.warning("The domain term '%s' should use the '=' or '!=' operator." % ((left, original, right),))
 		if operator == "in" {
 			operator = "="
@@ -149,7 +149,7 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 			operator = "!="
 		}
 	}
-	if self.leaf.Item(2).IsListNode() && utils.InStrings(operator, "=", "!=") != -1 {
+	if self.leaf.Item(2).IsListNode() && utils.IndexOf(operator, "=", "!=") != -1 {
 		//  _log.warning("The domain term '%s' should use the 'in' or 'not in' operator." % ((left, original, right),))
 		if operator == "=" {
 			operator = "in"

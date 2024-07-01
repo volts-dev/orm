@@ -338,7 +338,7 @@ func tag_pk(ctx *TTagContext) error {
 	params := ctx.Params
 	val := true
 	if len(params) > 0 {
-		val = utils.Itf2Bool(params[0])
+		val = utils.ToBool(params[0])
 	}
 
 	fld.Base().isPrimaryKey = val
@@ -404,7 +404,7 @@ func ___tag_relate(ctx *TTagContext) error {
 		for _, parent_field = range parentModel.GetFields() {
 			// #限制某些字段
 			// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
-			if lRelFieldsCnt > 1 && utils.InStrings(parent_field.Name(), lRelFields...) == -1 {
+			if lRelFieldsCnt > 1 && utils.IndexOf(parent_field.Name(), lRelFields...) == -1 {
 				continue
 			}
 			field_name = parent_field.Name()
@@ -585,7 +585,7 @@ func tag_required(ctx *TTagContext) error {
 
 	fld.Base()._attr_required = true
 	if len(params) > 0 {
-		fld.Base()._attr_required = utils.StrToBool(params[0])
+		fld.Base()._attr_required = utils.ToBool(params[0])
 	}
 	return nil
 }
@@ -597,7 +597,7 @@ func tag_read_only(ctx *TTagContext) error {
 	fld.Base()._attr_readonly = true
 	fld.Base().MapType = ONLYFROMDB
 	if len(params) > 0 {
-		fld.Base()._attr_readonly = utils.StrToBool(params[0])
+		fld.Base()._attr_readonly = utils.ToBool(params[0])
 	}
 	return nil
 }
@@ -609,7 +609,7 @@ func tag_write_only(ctx *TTagContext) error {
 	fld.Base()._attr_writeonly = true
 	fld.Base().MapType = ONLYTODB
 	if len(params) > 0 {
-		fld.Base()._attr_writeonly = utils.StrToBool(params[0])
+		fld.Base()._attr_writeonly = utils.ToBool(params[0])
 	}
 	return nil
 }
@@ -619,7 +619,7 @@ func tag_size(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		fld.Base()._attr_size = utils.StrToInt(params[0])
+		fld.Base()._attr_size = utils.ToInt(params[0])
 	}
 	return nil
 }
@@ -639,7 +639,7 @@ func tag_translate(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		fld.Base().translate = utils.StrToBool(params[0])
+		fld.Base().translate = utils.ToBool(params[0])
 	} else {
 		fld.Base().translate = true
 	}
@@ -651,7 +651,7 @@ func tag_store(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		fld.Base()._attr_store = utils.StrToBool(params[0])
+		fld.Base()._attr_store = utils.ToBool(params[0])
 	} else {
 		fld.Base()._attr_store = true
 	}
@@ -751,7 +751,7 @@ func tag_table_extends(ctx *TTagContext) error {
 		for _, fld := range parentModel.obj.GetFields() {
 			// #限制某些字段
 			// @ 当参数多余1个时判断为限制字段　例如：`field:"extends(PartnerId,Name)"`
-			if lRelFieldsCnt > 1 && utils.InStrings(fld.Name(), lRelFields...) == -1 {
+			if lRelFieldsCnt > 1 && utils.IndexOf(fld.Name(), lRelFields...) == -1 {
 				continue
 			}
 
@@ -818,7 +818,7 @@ func tag_table_relate(ctx *TTagContext) error {
 	for _, parentField = range parentModel.GetFields() {
 		// #限制某些字段
 		// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
-		//if lRelFieldsCnt > 1 && utils.InStrings(parentField.Name(), lRelFields...) == -1 {
+		//if lRelFieldsCnt > 1 && utils.IndexOf(parentField.Name(), lRelFields...) == -1 {
 		//	continue
 		//}
 		fieldName = parentField.Name()

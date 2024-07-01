@@ -322,7 +322,7 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 		is_negate := false
 		negate := stack.Pop()
 		if negate != nil {
-			is_negate = utils.StrToBool(negate.String())
+			is_negate = utils.ToBool(negate.String())
 		}
 
 		if n.IsValueNode() {
@@ -691,7 +691,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				self.push(new_leaf)
 			}
 
-		} else if utils.InStrings(path[0], MAGIC_COLUMNS...) != -1 {
+		} else if utils.IndexOf(path[0], MAGIC_COLUMNS...) != -1 {
 			self.push_result(ex_leaf)
 
 		} else if len(path) > 1 && field.Type() == TYPE_M2O && field.IsAutoJoin() {
@@ -749,7 +749,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			ex_leaf.leaf.Push(right_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
-		} else if len(path) > 1 && field.Store() && utils.InStrings(field.Type(), TYPE_M2M, TYPE_O2M) != -1 {
+		} else if len(path) > 1 && field.Store() && utils.IndexOf(field.Type(), TYPE_M2M, TYPE_O2M) != -1 {
 			// Making search easier when there is a left operand as column.o2m or column.m2m
 			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
 			lDs, _ := comodel.Records().Domain(domain_str).Read()
@@ -937,7 +937,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	//	is_holder := false
 
 	// 重新检查合法性 不行final sanity checks - should never fail
-	if utils.InStrings(operator.String(), append(domain.TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
+	if utils.IndexOf(operator.String(), append(domain.TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
 		log.Errf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
 	}
 
@@ -952,7 +952,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	if right.IsListNode() {
 		for _, node := range right.Nodes() {
 			// 识别SQL占位符并切取值
-			if utils.InStrings(node.String(), "?", "%s") != -1 {
+			if utils.IndexOf(node.String(), "?", "%s") != -1 {
 				vals = append(vals, params[holder_count:1]...)
 				holder_count++
 				res_arg = params[holder_count:] // 修改params值留到下个Term 返回
@@ -963,7 +963,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			}
 		}
 	} else {
-		if utils.InStrings(right.String(), "?", "%s") != -1 {
+		if utils.IndexOf(right.String(), "?", "%s") != -1 {
 			vals = append(vals, params[holder_count:1]...)
 			holder_count++
 			res_arg = params[holder_count:] // 修改params值留到下个Term 返回
@@ -973,7 +973,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	}
 
 	/*	// 检测查询是否占位符?并获取值
-				if utils.InStrings(right.String(), "?", "%s") != -1 {
+				if utils.IndexOf(right.String(), "?", "%s") != -1 {
 					is_holder = true
 					if len(params) > 0 {
 						first_right_value = params[0]
@@ -1013,9 +1013,9 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 
 			check_nulls := false
 			for idx, item := range res_params {
-				if utils.IsBoolItf(item) && utils.Itf2Bool(item) == false {
+				if utils.IsBoolItf(item) && utils.ToBool(item) == false {
 					check_nulls = true
-					res_params = utils.SlicRemove(res_params, idx)
+					res_params = utils.SliceDelete(res_params, any(idx))
 				}
 			}
 
@@ -1058,13 +1058,13 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			r := ""
 			log.Errf(`The domain term "%s" should use the '=' or '!=' operator.`, leaf.String())
 			if operator.String() == "in" {
-				if utils.Itf2Bool(vals[0]) {
+				if utils.ToBool(vals[0]) {
 					r = "NOT NULL"
 				} else {
 					r = "NULL"
 				}
 			} else {
-				if utils.Itf2Bool(vals[0]) {
+				if utils.ToBool(vals[0]) {
 					r = "NULL"
 				} else {
 					r = "NOT NULL"
@@ -1081,21 +1081,21 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 
 		}
 	} else if is_field && (field.Type() == Bool) &&
-		((operator.String() == "=" && utils.Itf2Bool(vals[0]) == false) || (operator.String() == "!=" && utils.Itf2Bool(vals[0]) == true)) {
+		((operator.String() == "=" && utils.ToBool(vals[0]) == false) || (operator.String() == "!=" && utils.ToBool(vals[0]) == true)) {
 		// 字段是否Bool类型
 		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, table_alias, left.String(), table_alias, left.String())
 		res_params = nil
 
-	} else if (vals == nil || utils.Itf2Str(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && operator.String() == "=" {
+	} else if (vals == nil || utils.ToString(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && operator.String() == "=" {
 		res_query = fmt.Sprintf(`%s."%s" IS NULL `, table_alias, left.String())
 		res_params = nil
 
 	} else if is_field && field.Type() == Bool &&
-		((operator.String() == "!=" && utils.Itf2Bool(vals[0]) == false) || (operator.String() == "==" && utils.Itf2Bool(vals[0]) == true)) {
+		((operator.String() == "!=" && utils.ToBool(vals[0]) == false) || (operator.String() == "==" && utils.ToBool(vals[0]) == true)) {
 		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, table_alias, left.String(), table_alias, left.String())
 		res_params = nil
 
-	} else if (vals == nil || utils.Itf2Str(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && (operator.String() == "!=") {
+	} else if (vals == nil || utils.ToString(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && (operator.String() == "!=") {
 		res_query = fmt.Sprintf(`%s."%s" IS NOT NULL`, table_alias, left.String())
 		res_params = nil
 

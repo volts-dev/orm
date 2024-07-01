@@ -262,7 +262,7 @@ func (self *TDomainNode) String(idx ...int) string {
 		return parseDomain(self)
 	}
 
-	return utils.Itf2Str(self.Value)
+	return utils.ToString(self.Value)
 }
 
 func (self *TDomainNode) Clear() {
@@ -491,7 +491,7 @@ func (self *TDomainNode) IsLeafNode() bool {
 	}
 
 	result := self.nodeType == LIST_NODE && len(self.children) == 3 &&
-		utils.InStrings(self.String(1), TERM_OPERATORS...) != -1
+		utils.IndexOf(self.String(1), TERM_OPERATORS...) != -1
 	if result {
 		self.nodeType = LEAF_NODE
 	}
@@ -539,11 +539,11 @@ func (self *TDomainNode) IsIntLeaf() bool {
 
 /*""" Test whether an object is a valid domain operator. """*/
 func (self *TDomainNode) IsDomainOperator() bool {
-	return utils.InStrings(self.String(), DOMAIN_OPERATORS...) != -1
+	return utils.IndexOf(self.String(), DOMAIN_OPERATORS...) != -1
 }
 
 func (self *TDomainNode) IsTermOperator() bool {
-	return utils.InStrings(self.String(), TERM_OPERATORS...) != -1
+	return utils.IndexOf(self.String(), TERM_OPERATORS...) != -1
 }
 
 func (self *TDomainNode) ValueIn(strs ...interface{}) bool {

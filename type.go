@@ -254,19 +254,19 @@ func value2FieldTypeValue(field IField, value interface{}) interface{} {
 	//switch strings.ToUpper(type_name) {
 	switch field.SQLType().Name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
-		return utils.Itf2Int(value)
+		return utils.ToInt(value)
 	case BigInt, BigSerial:
-		return utils.Itf2Int64(value)
+		return utils.ToInt64(value)
 	case Float, Real:
-		return utils.Itf2Float32(value)
+		return utils.ToFloat32(value)
 	case Double:
-		return utils.Itf2Float(value)
+		return utils.ToFloat64(value)
 	case Char, NChar, Varchar, NVarchar, TinyText, Text, NText, MediumText, LongText, Enum, Set, Uuid, Clob, SysName:
-		return utils.Itf2Str(value)
+		return utils.ToString(value)
 	case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary, UniqueIdentifier:
 		return value // TODO 1
 	case Bool:
-		return utils.Itf2Bool(value)
+		return utils.ToBool(value)
 	case DateTime, Date, Time, TimeStamp, TimeStampz, SmallDateTime:
 		return utils.ToTime(value)
 	case Decimal, Numeric, Money, SmallMoney:
@@ -281,11 +281,11 @@ func value2SqlTypeValue(field IField, value interface{}) interface{} {
 	type_name := strings.ToUpper(field.SQLType().Name)
 	switch type_name {
 	case Bool:
-		return utils.Itf2Bool(value)
+		return utils.ToBool(value)
 	case Int, BigInt:
 		return utils.ToInt64(value)
 	case Char, Text:
-		return utils.Itf2Str(value)
+		return utils.ToString(value)
 	//case Blob: // TODO Blob
 	case Time:
 		return utils.ToTime(value)

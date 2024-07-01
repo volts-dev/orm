@@ -47,7 +47,7 @@ func parseDomain(node *TDomainNode) string {
 	//STEP  如果是Value Object 不处理
 	if node.IsValueNode() {
 		if node.Value != nil {
-			return utils.Itf2Str(node.Value)
+			return utils.ToString(node.Value)
 		}
 	} else {
 
@@ -181,7 +181,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 				}
 
 				break
-			} else if utils.InStrings(value, "and", "or") != -1 {
+			} else if utils.IndexOf(value, "and", "or") != -1 {
 				if value == "and" {
 					result.Insert(0, AND_OPERATOR)
 				} else if value == "or" {

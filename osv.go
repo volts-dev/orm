@@ -135,7 +135,7 @@ func (self *TObj) GetFieldByName(name string) IField {
 func (self *TObj) SetFieldByName(name string, field IField) {
 	self.fieldsLock.Lock()
 	if field.IsPrimaryKey() {
-		if utils.In(name, self.PrimaryKeys...) == -1 {
+		if utils.IndexOf(name, self.PrimaryKeys...) == -1 {
 			self.PrimaryKeys = append(self.PrimaryKeys, name)
 		}
 	}
@@ -321,7 +321,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 
 		// # 复制 Key
 		for _, key := range new_obj.PrimaryKeys {
-			if utils.InStrings(key, obj.PrimaryKeys...) == -1 {
+			if utils.IndexOf(key, obj.PrimaryKeys...) == -1 {
 				obj.PrimaryKeys = append(obj.PrimaryKeys, key)
 			}
 		}
@@ -473,7 +473,7 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 						//lDirLst := strings.Split(lFilePath, string(filepath.Separator))
 						lFilePath := filepath.FromSlash(utils.CurFilePath()) //strings.TrimLeft(utils.CurFilePath(), utils.AppFilePath())
 						lDirLst := strings.Split(lFilePath, string(filepath.Separator))
-						if idx := utils.InStrings("module", lDirLst...); idx > -1 {
+						if idx := utils.IndexOf("module", lDirLst...); idx > -1 {
 							lModule = lDirLst[idx+1]
 						}
 			 			//if len(lDirLst) > 1 { // && lDirLst[0] == AppModuleDir

@@ -616,13 +616,13 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 			case "char", "text":
 				vals[key] = utils.ToString(val)
 			//case "blob":
-			//	vals[key] = utils.Itf2Bool(val)
+			//	vals[key] = utils.ToBool(val)
 			case "datetime", "date":
 				vals[key] = utils.ToTime(val)
 			case "many2one":
 				// TODO 支持多种数据类型
 				//self.osv.GetModel(f.relModelName)
-				vals[key] = utils.Itf2Int(val)
+				vals[key] = utils.ToInt(val)
 			}
 		}
 	}

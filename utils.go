@@ -153,7 +153,7 @@ func lookup(tag string, key ...string) (value string) {
 		qvalue := string(tag[:i+1])
 		tag = tag[i+1:]
 		//fmt.Println("key", key, name, qvalue)
-		if utils.InStrings(name, key...) != -1 {
+		if utils.IndexOf(name, key...) != -1 {
 			value, err := unquote(qvalue)
 			if err != nil {
 				log.Errf("parse Tag error: %s, %s : %s", qvalue, value, err.Error())

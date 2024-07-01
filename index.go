@@ -100,7 +100,7 @@ func (index *TIndex) ___XName(tableName string) string {
 // add columns which will be composite index
 func (index *TIndex) AddColumn(cols ...string) {
 	for _, col := range cols {
-		if utils.InStrings(col, index.Cols...) > -1 {
+		if utils.IndexOf(col, index.Cols...) > -1 {
 			continue
 		}
 

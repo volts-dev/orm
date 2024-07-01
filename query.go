@@ -148,7 +148,7 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 	alias, alias_statement := generate_table_alias(lhs, [][]string{{table, link}})
 
 	if implicit {
-		if utils.InStrings(alias_statement, self.tables...) == -1 {
+		if utils.IndexOf(alias_statement, self.tables...) == -1 {
 			self.tables = append(self.tables, alias_statement)
 			condition := fmt.Sprintf(`("%s"."%s" = "%s"."%s")`, lhs, lhs_col, alias, col)
 			self.where_clause = append(self.where_clause, condition)
@@ -161,7 +161,7 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 	} else {
 		//aliases := self._get_table_aliases()
 		// assert lhs in aliases, "Left-hand-side table %s must already be part of the query tables %s!" % (lhs, str(self.tables))
-		if utils.InStrings(alias_statement, self.tables...) != -1 {
+		if utils.IndexOf(alias_statement, self.tables...) != -1 {
 			// already joined, must ignore (promotion to outer and multiple joins not supported yet)
 		} else {
 			// add JOIN
