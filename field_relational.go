@@ -340,7 +340,7 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 					field.RelateModelName(), field.Name(), field.ModelName(), grp.Keys())
 			}
 
-			record.SetByField(field.Name(), grp.Record().AsItfMap())
+			record.SetByField(field.Name(), grp.Record().AsMap())
 			return nil
 		})
 	}
@@ -405,7 +405,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 		}
 
 		if ds.Count() > 0 {
-			ctx.Value = ds.FieldByName(model.IdField()).AsInterface()
+			ctx.Value = ds.Record().GetByField(model.IdField())
 		} else {
 			if id, has := ctx.Session.CacheNameIds[v]; has {
 				ctx.Value = id
@@ -594,7 +594,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 			if fieldRecord.Count() > 0 {
 				var records []map[string]any
 				fieldRecord.Range(func(pos int, record *dataset.TRecordSet) error {
-					records = append(records, record.AsItfMap())
+					records = append(records, record.AsMap())
 					return nil
 				})
 				record.SetByField(field.Name(), records)
@@ -670,27 +670,28 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 	quoter := ctx.Session.Orm().dialect.Quoter()
 	field := ctx.Field
-	rec_id := ctx.Id // 字段所在记录的ID
 
 	middle_table_name := quoter.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
-	for _, relate_id := range ids {
-		query := fmt.Sprintf(
-			`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
-			middle_table_name, quoter.Quote(field.RelateFieldName()), quoter.Quote(field.MiddleFieldName()),
-		)
+	for _, rec_id := range ctx.Ids {
+		for _, relate_id := range ids {
+			query := fmt.Sprintf(
+				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
+				middle_table_name, quoter.Quote(field.RelateFieldName()), quoter.Quote(field.MiddleFieldName()),
+			)
 
-		/*
-		   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
-		                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
-		                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
-		   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
-		   		rec_id, strings.Join(ids, ","),
-		   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
-		   	)
-		*/
-		_, err := ctx.Session.Exec(query, relate_id, rec_id)
-		if err != nil {
-			return err
+			/*
+			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
+			                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
+			                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
+			   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
+			   		rec_id, strings.Join(ids, ","),
+			   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
+			   	)
+			*/
+			_, err := ctx.Session.Exec(query, relate_id, rec_id)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -700,39 +701,28 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 // TODO 错误将IDS删除基数
 // # remove all records for which user has access rights
 func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) error {
-	quoter := ctx.Session.Orm().dialect.Quoter()
+	quote := ctx.Session.Orm().dialect.Quoter().Quote
 	field := ctx.Field
 	//	model := ctx.Model
 	//	model_name := field.ModelName()
-	middle_table_name := quoter.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
-	in_sql := strings.Repeat("?,", len(ids)-1) + "?"
-	query := fmt.Sprintf(`DELETE FROM %s WHERE %s.%s IN (%s) AND %s.%s= ?`,
+	middle_table_name := quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
+	insql := strings.Repeat("?,", len(ids)-1) + "?"
+	and_insql := strings.Repeat("?,", len(ctx.Ids)-1) + "?"
+	query := fmt.Sprintf(`DELETE FROM %s WHERE %s.%s IN (%s) AND %s.%s IN (%s)`,
 		middle_table_name,
-		middle_table_name, quoter.Quote(field.RelateFieldName()), // Where
-		in_sql,                                                   // In
-		middle_table_name, quoter.Quote(field.MiddleFieldName()), // And
-		//model_name, model.IdField(),
+		middle_table_name, quote(field.RelateFieldName()), // Where
+		insql,                                             // In
+		middle_table_name, quote(field.MiddleFieldName()), // And
+		and_insql, //model_name, model.IdField(),
 	)
-
-	arg := append(ids, ctx.Id)
 
 	// 提交修改
 	session := ctx.Session // orm.NewSession()
-	{
-		//session.Begin()
-		_, err := session.Exec(query, arg...)
-		if err != nil {
-			//return session.Rollback(err)
-			return err
-		}
-
-		//session.Commit()
-		//if err != nil {
-		//	return session.Rollback(err)
-		//}
-
+	_, err := session.Exec(query, append(ids, ctx.Ids)...)
+	if err != nil {
+		return err
 	}
-	//session.Close()
+
 	return nil
 }
 
