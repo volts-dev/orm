@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/volts-dev/dataset"
@@ -21,13 +22,18 @@ type (
 var printToken bool = false // print token
 
 func trimQuotes(s string) string {
-	s = strings.Trim(s, `'`)
+	//s = strings.Trim(s, `'`)
 	s = strings.Trim(s, `"`)
 	return s
 }
 
 func Quote(s string) string {
-	return "'" + s + "'"
+	return strconv.Quote(s)
+}
+
+func Unquote(s string) string {
+	s, _ = strconv.Unquote(`"` + s + `"`)
+	return s
 }
 
 // TODO 描述例句
@@ -50,7 +56,6 @@ func parseDomain(node *TDomainNode) string {
 			return utils.ToString(node.Value)
 		}
 	} else {
-
 		// 处理有Child的Object
 		lStr := ""
 		str_lst := make([]string, 0)
@@ -214,13 +219,13 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 							list.Push(valus)
 							break
 						}
-						list.Push(item.Val)
+						list.Push(Unquote(item.Val))
 						break
 					}
 
 				}
 
-				v := trimQuotes(item.Val)
+				v := Unquote(trimQuotes(item.Val))
 
 				if vv, err := utils.IsNumeric(v); err == nil {
 					list.Push(vv)
@@ -239,7 +244,6 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 	}
 
 exit:
-
 	if list.IsValueNode() && result.IsValueNode() {
 		// 当括号里面是单个值的时候需要将其直接返回
 		// for (Id,in,[1])

@@ -222,8 +222,11 @@ func tag_compute(ctx *TTagContext) error {
 		lStr := strings.Trim(params[0], "'")
 		lStr = strings.Replace(lStr, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
-			fld.Base()._compute = lStr
-			fld.Base()._computeFunc = m.Interface().(func(ctx *TFieldContext) error)
+			if fn, ok := m.Interface().(func(ctx *TFieldContext) ([]any, error)); ok {
+				fld.Base()._model = ctx.Model.GetBase().modelValue.Interface()
+				fld.Base()._compute = lStr
+				fld.Base()._computeFunc = fn
+			}
 		}
 	} else {
 		log.Err("Compute tag ", fld.Name(), "'s Args can no be blank!")

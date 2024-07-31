@@ -7,5 +7,5 @@ import (
 )
 
 func TestWrite(t *testing.T) {
-	test.TestWrite("", t)
+	test.NewTest(t).Write()
 }

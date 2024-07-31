@@ -108,3 +108,12 @@ func TestVars(t *testing.T) {
 
 	t.Logf("New: %s", result_str)
 }
+func TestEncode(t *testing.T) {
+	node := NewDomainNode("attribute_id", "=", `id"'`)
+
+	result_str := node.String()
+	fmt.Printf("New: %s", result_str)
+
+	node, _ = String2Domain(result_str, nil)
+	fmt.Printf("New: %v %v", node.String(), node.Item(2).Value)
+}

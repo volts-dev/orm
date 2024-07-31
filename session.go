@@ -368,7 +368,6 @@ func (self *TSession) IsIndexExist(tableName, idxName string, unique bool) (bool
 // IsTableEmpty if table have any records
 func (self *TSession) IsEmpty(model string) (bool, error) {
 	defer self.Statement.Init()
-
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -577,6 +576,7 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 	if self.IsAutoClose {
 		defer self.Close()
 	}
+
 	index := self.Statement.model.GetIndexes()[uqeName]
 	sql := self.orm.dialect.CreateIndexUniqueSql(tableName, index)
 	_, err := self._exec(sql)

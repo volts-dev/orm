@@ -30,7 +30,7 @@ type (
 		JoinClause     string
 		FromClause     string
 		OmitClause     string
-		GroupBySClause []string
+		GroupByClause  []string
 		OrderByClause  string
 		FuncsClause    []string // SQL函数
 		SortClauses    []string
@@ -70,6 +70,7 @@ func (self *TStatement) Ids(ids ...interface{}) *TStatement {
 }
 
 func (self *TStatement) Select(fields ...string) *TStatement {
+	obj := self.session.Statement.model.Obj()
 	for idx, name := range fields {
 		name = fmtFieldName(name) //# 支持输入结构字段名称
 		if idx == 0 && (name == "*" || name == "'*'" || name == `"*"`) {
@@ -78,7 +79,7 @@ func (self *TStatement) Select(fields ...string) *TStatement {
 		}
 
 		// 安全代码应该由开发者自己检查
-		if field := self.session.Statement.model.Obj().GetFieldByName(name); field != nil {
+		if field := obj.GetFieldByName(name); field != nil {
 			self.Fields[name] = true
 		}
 	}
@@ -92,17 +93,14 @@ func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
 		query = strings.Replace(query, "=", self.session.orm.dialect.EqStr(), -1)
 	}
 
-	self.Op(domain.AND_OPERATOR, query, args...)
-
-	return self
+	return self.Op(domain.AND_OPERATOR, query, args...)
 }
 
 func (self *TStatement) Domain(dom interface{}, args ...interface{}) *TStatement {
-	self.Op(domain.AND_OPERATOR, dom, args...)
-	return self
+	return self.Op(domain.AND_OPERATOR, dom, args...)
 }
 
-func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) {
+func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) *TStatement {
 	var new_cond *domain.TDomainNode
 	var err error
 	switch v := cond.(type) {
@@ -122,18 +120,18 @@ func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) {
 	if args != nil {
 		self.Params = append(self.Params, args...)
 	}
+
+	return self
 }
 
 // And add Where & and statment
 func (self *TStatement) And(query string, args ...interface{}) *TStatement {
-	self.Op(domain.AND_OPERATOR, query, args...)
-	return self
+	return self.Op(domain.AND_OPERATOR, query, args...)
 }
 
 // Or add Where & Or statment
 func (self *TStatement) Or(query string, args ...interface{}) *TStatement {
-	self.Op(domain.OR_OPERATOR, query, args...)
-	return self
+	return self.Op(domain.OR_OPERATOR, query, args...)
 }
 
 // In generate "Where column IN (?) " statement
@@ -188,7 +186,7 @@ func (self *TStatement) Join(joinOperator string, tablename interface{}, conditi
 
 // GroupBy
 func (self *TStatement) GroupBy(fields ...string) *TStatement {
-	self.GroupBySClause = fields
+	self.GroupByClause = fields
 	return self
 }
 
@@ -216,30 +214,11 @@ func (self *TStatement) Sort(clauses ...string) *TStatement {
 // Desc generate `ORDER BY xx DESC`
 func (self *TStatement) Desc(fileds ...string) *TStatement {
 	self.DescFields = append(self.DescFields, fileds...)
-	/*
-		var buf bytes.Buffer
-		if len(self.OrderByClause) > 0 {
-			fmt.Fprint(&buf, self.OrderByClause, ", ")
-		}
-		//newColNames := statement.col2NewColsWithQuote(colNames...)
-		fmt.Fprintf(&buf, "%v DESC", strings.Join(fileds, " DESC, "))
-		self.OrderByClause = buf.String()
-	*/
 	return self
 }
 
 func (self *TStatement) Asc(fileds ...string) *TStatement {
 	self.AscFields = append(self.AscFields, fileds...)
-	/*
-		var buf bytes.Buffer
-		if len(self.OrderByClause) > 0 {
-			fmt.Fprint(&buf, self.OrderByClause, ", ")
-		}
-
-		//newColNames := statement.col2NewColsWithQuote(colNames...)
-		fmt.Fprintf(&buf, "%v ASC", strings.Join(fileds, " ASC, "))
-		self.OrderByClause = buf.String()
-	*/
 	return self
 }
 
@@ -570,7 +549,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 	// domain = domain[:]
 	// if the object has a field named 'active', filter out all inactive
 	// records unless they were explicitely asked for
-	if has := self.session.Statement.model.Obj().GetFieldByName("active"); has != nil && active_test {
+	if field := self.session.Statement.model.Obj().GetFieldByName("active"); field != nil && active_test {
 		if node != nil {
 			// the item[0] trick below works for domain items and '&'/'|'/'!'
 			// operators too

@@ -125,7 +125,6 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 	//}
 	quoter := self.orm.dialect.Quoter()
 	query_str = fmt.Sprintf(`SELECT %s.%s FROM `, quoter.Quote(self.Statement.model.Table()), quoter.Quote(self.Statement.IdKey)) + from_clause + where_clause + order_by + limit_str + offset_str
-	//	web.Debug("_search", query_str, where_clause_params)
 
 	// #调用缓存
 	res_ds := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)

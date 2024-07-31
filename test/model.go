@@ -37,9 +37,10 @@ type (
 		CreateTime   time.Time `field:"datetime() created"`
 		WriteTime    time.Time `field:"datetime() updated"`
 
-		Name  string `field:"char() size(15) unique index required"`
-		Title string `field:"title('Test Title.')"`
-		Help  string `field:"help('Technical field, used only to display a help string using multi-rows. 
+		Name     string `field:"char() size(15) unique index required"`
+		FullName string
+		Title    string `field:"title('Test Title.')"`
+		Help     string `field:"help('Technical field, used only to display a help string using multi-rows. 
 				 test help 1\"
                  test help 2''
                  test help 3''''
@@ -56,6 +57,18 @@ type (
 		Companies []interface{} `field:"many2many(company_model,company_id,user_id)"`
 	}
 )
+
+func (self *UserModel) OnBuildFields() error {
+	b := self.Builder()
+	b.Field("full_name", "varchar").Compute(self._compute_parent_name).Store(true)
+
+	return nil
+}
+
+func (self *UserModel) _compute_parent_name(ctx *orm.TFieldContext) ([]any, error) {
+
+	return nil, nil
+}
 
 func (UserModel) TestSelection() [][]string {
 	fmt.Println("Arg is T")

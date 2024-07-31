@@ -439,10 +439,18 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 		field_type_name string
 		sql_type        SQLType
 		member_name     string
+		tagMaps         map[string][]string // 记录Tag的
+		tagsOrder       []string
+		isSuper         bool
+		tagCtx          *TTagContext
 	)
 
 	for i := 0; i < model_type.NumField(); i++ {
-		isSuper := false
+		{ // 初始化循环变量值
+			isSuper = false
+			field_type_name = ""
+		}
+
 		member_name = model_type.Field(i).Name
 
 		// filter out the unexport field
@@ -454,11 +462,11 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 		field_value = model_value.Field(i)
 		field_type = model_type.Field(i).Type
 		field_tag = string(model_type.Field(i).Tag)
-		field_type_name = ""
 
-		// 解析并变更默认值
-		var tagMap map[string][]string // 记录Tag的
 		if field_tag == "" {
+			tagMaps = nil
+			tagsOrder = nil
+
 			// # 忽略无Tag的匿名继承结构
 			if member_name == field_type.Name() {
 				isSuper = true
@@ -467,8 +475,10 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 			}
 		} else {
 			// 识别拆分Tag字符串
-			var is_table_tag bool
+			tagMaps = make(map[string][]string)
+			tagsOrder = make([]string, 0)
 
+			var is_table_tag bool
 			tag_str := lookup(string(field_tag), self.config.FieldIdentifier)
 			if tag_str == "" {
 				tag_str = lookup(string(field_tag), self.config.TableIdentifier)
@@ -482,7 +492,6 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 			// 排序Tag并_确保优先执行字段类型属性
 			var type_name string
 			var attrs []string
-			tagMap = make(map[string][]string)
 			for _, key := range tags {
 				//****************************************
 				//NOTE 以下代码是为了避免解析不规则字符串为字段名提醒使用者规范Tag数据格式应该注意不用空格
@@ -506,7 +515,9 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 					}
 				}
 				//****************************************
-				tagMap[type_name] = attrs[1:] //
+				tagMaps[type_name] = attrs[1:] //
+				tagsOrder = append(tagsOrder, type_name)
+
 				if !is_table_tag && IsFieldType(type_name) {
 					field_type_name = type_name
 				}
@@ -521,18 +532,20 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 		}
 
 		// # 忽略TModel类字段
-		field_context := &TTagContext{
+		tagCtx = &TTagContext{
 			Orm:            self,
 			Model:          res_model,
 			FieldTypeValue: field_value,
 			ModelValue:     model_value,
 		}
+
 		if strings.Index(strings.ToLower(member_name), "tmodel") != -1 {
 			// 执行tag处理
-			err := self.handleTags(field_context, tagMap, "table")
+			err = self.handleTags(tagCtx, tagMaps, tagsOrder, "table")
 			if err != nil {
 				return nil, err
 			}
+
 			// 更新model新名称 并传递给其他Field
 			if res_model.String() != model_alt_name {
 				model_alt_name = res_model.String()
@@ -547,6 +560,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 				if err != nil {
 					return nil, err
 				}
+
 			} else {
 				//** 如果是继承的字段则替换
 				//原因：Join时导致Select到的字段为关联表字段而获取不到原本Model的字段如Id,write_time...
@@ -593,15 +607,15 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 			field.Base().model_name = model_alt_name
 
 			/* 执行field初始化 */
-			field_context.Field = field
-			field_context.Params = tagMap[field.Type()]
-			field.Init(field_context)
+			tagCtx.Field = field
+			tagCtx.Params = tagMaps[field.Type()]
+			field.Init(tagCtx)
 
 			/* 同步model和数据库的SqlType */
-			self.dialect.SyncToSqlType(field_context)
+			self.dialect.SyncToSqlType(tagCtx)
 
 			// 执行tag处理
-			err := self.handleTags(field_context, tagMap, "")
+			err := self.handleTags(tagCtx, tagMaps, tagsOrder, "")
 			if err != nil {
 				return nil, err
 			}
@@ -642,14 +656,14 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 				}
 			*/
 
-			field.UpdateDb(field_context)
+			field.UpdateDb(tagCtx)
 
 			// 添加字段进Table
 			if field.Type() != "" && field.Name() != "" {
 				res_model.obj.SetFieldByName(field_name, field) // !!!替代方式
 			}
 		}
-	} // end for
+	}
 
 	return res_model, nil
 }
@@ -822,32 +836,35 @@ func (self *TOrm) nowTime(sqlTypeName string) (res_val interface{}, res_time tim
 	return
 }
 
-func (self *TOrm) handleTags(fieldCtx *TTagContext, tags map[string][]string, prefix string) error {
-	field := fieldCtx.Field
+func (self *TOrm) handleTags(fieldCtx *TTagContext, tags map[string][]string, order []string, prefix string) error {
+	if tags == nil {
+		return nil
+	}
 
-	for attr, vals := range tags {
-		if field != nil && attr == field.Type() {
+	field := fieldCtx.Field
+	var tag_str string
+	var tagCtrl ITagController
+	for _, tagName := range order {
+		if field != nil && tagName == field.Type() {
 			continue // 忽略该Tag
 		}
 
 		// 原始ORM映射,理论上无需再次解析只需修改Tag和扩展后的一致即可
-		switch strings.ToLower(attr) {
+		switch tagName {
 		case "-": // 忽略某些继承者成员
-			goto EXIT
+			return nil
 		default:
-			// 执行
-			tag_str := attr // 获取属性名称
-
 			// 切换到TableTag模式
 			if prefix != "" {
-				tag_str = prefix + "_" + tag_str
+				tag_str = prefix + "_" + tagName
+			} else {
+				tag_str = tagName // 获取属性名称
 			}
 
 			// 执行自定义Tag初始化
-			tag_ctrl := GetTagControllerByName(tag_str)
-			if tag_ctrl != nil {
-				fieldCtx.Params = vals
-				if err := tag_ctrl(fieldCtx); err != nil {
+			if tagCtrl = GetTagControllerByName(tag_str); tagCtrl != nil {
+				fieldCtx.Params = tags[tagName]
+				if err := tagCtrl(fieldCtx); err != nil {
 					return err
 				}
 			} else {
@@ -857,12 +874,11 @@ func (self *TOrm) handleTags(fieldCtx *TTagContext, tags map[string][]string, pr
 					break
 				}
 
-				log.Warnf("unknown tag < %s > from %s@%s", tag_str, fieldCtx.Model.String(), field.Name())
+				log.Warnf("Couldn't handle unknown tag < %s > on %s@%s", tag_str, fieldCtx.Model.String(), field.Name())
 			}
 		}
 	}
 
-EXIT:
 	return nil
 }
 
@@ -872,9 +888,9 @@ func (self *TOrm) logExecSql(sql string, args []interface{}, executionBlock func
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			log.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			log.Infof("[SQL][%vms] %s [args] %v", execDuration.Microseconds(), sql, args)
 		} else {
-			log.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			log.Infof("[SQL][%vms] %s", execDuration.Microseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -888,9 +904,9 @@ func (self *TOrm) logQuerySql(sql string, args []interface{}, executionBlock fun
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			log.Infof("[SQL][%vns] %s [args] %v", execDuration.Nanoseconds(), sql, args)
+			log.Infof("[SQL][%vms] %s [args] %v", execDuration.Microseconds(), sql, args)
 		} else {
-			log.Infof("[SQL][%vns] %s", execDuration.Nanoseconds(), sql)
+			log.Infof("[SQL][%vms] %s", execDuration.Microseconds(), sql)
 		}
 		return res, err
 	} else {

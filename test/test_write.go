@@ -7,8 +7,35 @@ import (
 	"github.com/volts-dev/utils"
 )
 
-//TODO 无ID
-//TODO 带条件和字段
+// TODO 无ID
+// TODO 带条件和字段
+func (self *Testchain) Write(classic ...bool) *Testchain {
+	data := new(UserModel)
+	*data = *user
+
+	model, err := self.Orm.GetModel("user_model")
+	if err != nil {
+		self.T.Fatal(err)
+	}
+
+	for i := 0; i < 10; i++ {
+		data.Name = "Write" + utils.ToString(i)
+		data.Title = "Write"
+
+		id, err := model.Records().Create(data)
+		if err != nil {
+			self.T.Fatalf("Create data failue %d %v", id, err)
+		}
+	}
+
+	PrintSubject("Write", "Write()")
+	test_write(test_orm, self.T)
+
+	PrintSubject("Write", "write by id")
+	test_write_by_id(test_orm, self.T)
+
+	return self
+}
 
 func TestWrite(title string, t *testing.T) {
 	data := new(UserModel)
@@ -54,7 +81,7 @@ func test_write(o *orm.TOrm, t *testing.T) {
 	ds.Record().SetByField("title", title)
 
 	// write data
-	effect, err := model.Records().Write(ds.Record().AsItfMap())
+	effect, err := model.Records().Write(ds.Record().AsMap())
 	if err != nil {
 		t.Fatal(err)
 	}

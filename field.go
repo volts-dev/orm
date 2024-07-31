@@ -36,8 +36,8 @@ type (
 	}
 
 	TFieldContext struct {
-		Ids         []any       // 提供查询所有指定外键绑定的Ids
-		Id          interface{} // the current id of current record
+		Ids []any // 提供查询所有指定外键绑定的Ids
+		//Id          interface{} // the current id of current record
 		Value       interface{} // the current value of the field
 		Field       IField      // FieldTypeValue reflect.Value
 		Fields      []string
@@ -89,10 +89,12 @@ type (
 		UpdateDb(ctx *TTagContext)
 		GetAttributes(ctx *TTagContext) map[string]interface{}
 		SetName(name string)
-		SetModel(name string)
+		SetModelName(name string)
+		SetModel(IModel)
 		SetBase(field *TField)
 		//ColumnType() string // the sql type
 		Compute() string
+		ComputeFunc(*TFieldContext) ([]any, error)
 		SymbolChar() string
 		SymbolFunc() func(string) string
 		ModelName() string
@@ -203,23 +205,24 @@ type (
 		_attr_company_dependent bool                   // ???
 		_attr_change_default    bool                   // ???
 		_attr_domain            string
-		// private membership
-		_attr_groups string //???
-		deprecated   string //???
-		ondelete     string // 当这个字段指向的资源删除时将发生。预定义值：cascade，set null，restrict，no action，set default。默认值：set null
+		_attr_groups            string //???// private membership
+		deprecated              string //???
+		ondelete                string // 当这个字段指向的资源删除时将发生。预定义值：cascade，set null，restrict，no action，set default。默认值：set null
 
 		//# Tag标记变量
 		//_column_type string // #存储 column 类型 当该字段值非空时数据将直接存入数据库,而非计算值
 		//_func          string      //是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
-		_func_inv     interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
-		_func_multi   string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
-		_func_search  string      //允许你在这个字段上定义搜索功能
-		_compute      string      //# 字段值的计算函数函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
-		_computeFunc  func(*TFieldContext) error
-		_setter       string // 写入计算格式化函数
-		_getter       string // 读取计算格式化函数
-		_compute_sudo bool   //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
-		_oldname      string //# the previous name of this field, so that ORM can rename it automatically at migration
+		_func_inv     interface{}                         // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
+		_func_multi   string                              //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
+		_func_search  string                              //允许你在这个字段上定义搜索功能
+		_compute      string                              // 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
+		_computeFunc  func(*TFieldContext) ([]any, error) //
+		_model        any                                 // 提供给compute使用
+		_depends      []string                            // 约束 compute 计算依赖哪些字段来触发
+		_setter       string                              // 写入计算格式化函数
+		_getter       string                              // 读取计算格式化函数
+		_compute_sudo bool                                //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
+		_oldname      string                              //# the previous name of this field, so that ORM can rename it automatically at migration
 
 		// # one2many
 		_fields_id string
@@ -268,11 +271,14 @@ func RegisterField(type_name string, creator func() IField) {
 
 func newBaseField(name string, opts ...FieldOption) *TField {
 	field := &TField{
+
 		//defaultIsEmpty: true,
-		_symbol_c:   "%s",
-		_symbol_f:   _FieldFormat,
-		_attr_name:  name,
-		_attr_store: false, // 默认必须是False避免于后面Tag冲突
+		_symbol_c:        "%s",
+		_symbol_f:        _FieldFormat,
+		_attr_name:       name,
+		_attr_store:      false, // 默认必须是False避免于后面Tag冲突
+		_attr_searchable: true,
+		_attr_required:   false,
 	}
 
 	cfg := newFieldConfig(field)
@@ -330,6 +336,7 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 		}
 		field = creator()
 	}
+
 	field.SetBase(newBaseField(name, opts...))
 	/*
 		var type_name string
@@ -487,6 +494,10 @@ func (self *TField) SymbolFunc() func(string) string { return self._symbol_f }
 func (self *TField) Title() string                   { return self._attr_title }
 func (self *TField) Translate() bool                 { return self.translate }
 
+func (self *TField) ComputeFunc(ctx *TFieldContext) ([]any, error) {
+	return self._computeFunc(ctx)
+}
+
 func (self *TField) Store(val ...bool) bool {
 	if len(val) > 0 {
 		self._attr_store = val[0]
@@ -621,6 +632,7 @@ func (self *TField) IsAutoJoin() bool {
 
 // 复制一个新的一样的
 func (self *TField) New() (res *TField) {
+	res = &TField{}
 	*res = *self
 	return
 }
@@ -653,8 +665,12 @@ func (self *TField) SetName(name string) {
 	self._attr_name = name
 }
 
-func (self *TField) SetModel(name string) {
+func (self *TField) SetModelName(name string) {
 	self.model_name = name
+}
+
+func (self *TField) SetModel(model IModel) {
+	self._model = model
 }
 
 // 跟新字段到数据库 索引 唯一等

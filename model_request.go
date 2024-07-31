@@ -11,6 +11,8 @@ import (
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
 	"github.com/volts-dev/utils"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 type (
@@ -46,7 +48,7 @@ type (
 		//Limit       int64
 		//Offset      int64
 		PageIndex   int64  `json:"page"  `   //当前页数
-		PageSize    int64  `json:"limit"   ` //每页多少条
+		PageSize    int64  `json:"limit"   ` //每页多少条 -1则无限制
 		Model       string // *
 		Sort        []string
 		Method      string
@@ -283,7 +285,11 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 		defer tx.Close()
 	}
 
-	r := csv.NewReader(bytes.NewReader(req.Content))
+	fallback := unicode.UTF8.NewDecoder()
+	unicode.BOMOverride(fallback)
+	rd := transform.NewReader(bytes.NewReader(req.Content), unicode.BOMOverride(fallback))
+
+	r := csv.NewReader(rd)
 	r.LazyQuotes = true // 支持引号
 	header, err := r.Read()
 	if err != nil {

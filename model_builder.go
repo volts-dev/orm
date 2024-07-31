@@ -171,7 +171,7 @@ func (self *ModelBuilder) ManyToManyField(name, relateModel string, midModel ...
 	}
 }
 
-func (self *fieldStatment) Compute(fn func(ctx *TFieldContext) error) *fieldStatment {
+func (self *fieldStatment) Compute(fn func(ctx *TFieldContext) ([]any, error)) *fieldStatment {
 	field := self.field.Base()
 	field.isCompute = true
 	field._compute = ""

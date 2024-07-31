@@ -12,6 +12,7 @@ import (
 
 const (
 	// Domain operators.
+	QUOTES       = `"`
 	NOT_OPERATOR = "!"
 	OR_OPERATOR  = "|"
 	AND_OPERATOR = "&"

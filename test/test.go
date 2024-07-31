@@ -11,7 +11,7 @@ const TEST_DB_NAME = "test_orm"
 
 var (
 	test_orm   *orm.TOrm
-	ShowSql    bool
+	ShowSql    bool = true
 	DataSource *orm.TDataSource
 )
 

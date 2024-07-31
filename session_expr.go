@@ -50,13 +50,11 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 // TODO 在生成的SQL语句前加sql
 func (self *TSession) Prefix(sql string) *TSession {
 	return self
-
 }
 
 // TODO 在生成的SQL语句后加sqlS
 func (self *TSession) Suffix(sql string) *TSession {
 	return self
-
 }
 
 // select filed or select all using * symbol
@@ -185,6 +183,7 @@ func (session *TSession) Asc(colNames ...string) *TSession {
 	return session
 }
 
+// set reutrn count 0 = default  -1 = unlimit
 func (self *TSession) Limit(limit int64, offset ...int64) *TSession {
 	self.Statement.Limit(limit, offset...)
 	return self

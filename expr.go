@@ -599,6 +599,9 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			operator = ex_leaf.leaf.Item(1) // =
 			right = ex_leaf.leaf.Item(2)    // 1
 		} else {
+			if ex_leaf.leaf.Count() == 0 {
+				return nil
+			}
 			left = ex_leaf.leaf.Item(0)
 			operator = ex_leaf.leaf.Item(1)
 			right = ex_leaf.leaf.Item(2)

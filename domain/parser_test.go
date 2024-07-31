@@ -21,6 +21,7 @@ var (
 		`["|","|",["mode","ilike","tens"],["active","=","true"]]`,
 		`["|",["name","ilike","m"],["domain_id","ilike","m fasdf"]]`,
 		`[|,(&,('aa','=','cc'),('aa','=','cc')),(&,('aa','=','cc'),('aa','=','cc')]`,
+		`('complete_name','=','Prototyping, Fabrication Products>Custom Configurable PCB's')`,
 	}
 
 	checker = map[string]string{
