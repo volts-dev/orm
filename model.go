@@ -3,6 +3,7 @@ package orm
 import (
 	"fmt"
 	"reflect"
+	"sync"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
@@ -52,7 +53,7 @@ type (
 		Tx(session ...*TSession) *TSession
 		Ctx(ctx ...*dataset.TRecordSet) *dataset.TRecordSet //Context
 		Osv() *TOsv
-		Obj() *TObj
+		Obj() *TModelObject
 		Orm() *TOrm
 		//fields_get(allfields map[string]*TField, attributes []string, context map[string]string) (fields map[string]interface{})
 		//check_access_rights(operation string) bool
@@ -62,7 +63,7 @@ type (
 		GetPrimaryKeys() []string
 
 		// 对象被创建时
-		GetDefault() map[string]interface{}
+		GetDefault() *sync.Map // map[string]interface{}
 		GetDefaultByName(fieldName string) (value interface{})
 		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
 
@@ -134,24 +135,26 @@ type (
 		modelValue  reflect.Value // # Model 反射值 供某些程序调用方法
 		orm         *TOrm
 		osv         *TOsv
-		obj         *TObj
+		obj         *TModelObject
 		context     *dataset.TRecordSet
 		transaction *TSession
 
-		name      string // xx.xx 映射在OSV的名称
-		table     string // mapping table name
-		nameField string // the field name which is the name represent a record @examples: Name,Title,PartNo
-		idField   string // the field name which is the UID represent a record
+		name        string // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
+		table       string // mapping table name
+		description string // # 描述
+		module      string // # 属于哪个模块所有
+
+		idField string // the field name which is the UID represent a record
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
-		_parent_name  string // #! 父表中的字段名称
-		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
-		_sequence     string //
-		_order        string //
-		_module       string // # 属于哪个模块所有
-		_auto         bool   // # True # create database backend
-		_transient    bool   // # 暂时的
-		_description  string // # 描述
-		is_base       bool   // #该Model是否是基Model,并非扩展Model
+		recName        string // the field name which is the name represent a record @examples: Name,Title,PartNo
+		recNamesSearch string // names_search会搜索的字段
+		_parent_name   string // #! 父表中的字段名称
+		_parent_store  bool   // #! 是否有父系关联 比如类目，菜单
+		_sequence      string //
+		_order         string // default order field for searching results
+		_auto          bool   // # True # create database backend
+		_transient     bool   // # 暂时的
+		isBase         bool   // #该Model是否是基Model,并非扩展Model
 
 	}
 )
@@ -169,13 +172,14 @@ func newModel(name, tableName string, modelValue reflect.Value, modelType reflec
 	}
 
 	model = &TModel{
-		name:       name,
-		table:      tableName,
-		modelType:  modelType,
-		modelValue: modelValue,
-		context:    dataset.NewRecordSet(),
-		_order:     "id",
-		_auto:      true,
+		name:           name,
+		table:          tableName,
+		modelType:      modelType,
+		modelValue:     modelValue,
+		context:        dataset.NewRecordSet(),
+		recNamesSearch: "name",
+		_order:         "id",
+		_auto:          true,
 	}
 
 	//mdl._sequence = mdl._table + "_id_seq"
@@ -257,23 +261,23 @@ func (self *TModel) setBaseModel(model *TModel) {
 }
 
 func (self *TModel) SetRecordName(fieldName string) {
-	self.nameField = fieldName
+	self.recName = fieldName
 }
 
 // return the field name of record's name field
 func (self *TModel) GetRecordName() string {
-	// # if self.nameField is set, it belongs to self._fields
-	if fld := self.GetFieldByName(self.nameField); fld == nil {
-		if self.nameField == "" {
+	// # if self.recName is set, it belongs to self._fields
+	if fld := self.GetFieldByName(self.recName); fld == nil {
+		if self.recName == "" {
 			if fld := self.GetFieldByName("name"); fld != nil {
-				self.nameField = "name"
+				self.recName = "name"
 			} else {
-				self.nameField = self.idField
+				self.recName = self.idField
 			}
 		}
 	}
 
-	return self.nameField
+	return self.recName
 }
 
 // TODO 优化
@@ -293,7 +297,7 @@ func (self *TModel) SetName(name string) {
 
 // 返回Model的描述字符串
 func (self *TModel) GetTableDescription() string {
-	return self._description
+	return self.description
 }
 
 func (self *TModel) GetIndexes() map[string]*TIndex {
@@ -310,7 +314,7 @@ func (self *TModel) GetBase() *TModel {
 }
 
 func (self *TModel) Module() string {
-	return self._module
+	return self.module
 }
 
 // return the method object of model by name
@@ -368,7 +372,7 @@ func (self *TModel) String() string {
 	return self.name
 }
 
-func (self *TModel) GetDefault() map[string]interface{} {
+func (self *TModel) GetDefault() *sync.Map {
 	return self.obj.GetDefault()
 }
 
@@ -396,9 +400,9 @@ func (self *TModel) AddField(field IField) {
 
 func (self *TModel) NameField(field ...string) string {
 	if len(field) > 0 {
-		self.nameField = field[0]
+		self.recName = field[0]
 	}
-	return self.nameField
+	return self.recName
 }
 
 func (self *TModel) IdField(field ...string) string {
@@ -419,7 +423,7 @@ func (self *TModel) Osv() *TOsv {
 	return self.osv
 }
 
-func (self *TModel) Obj() *TObj {
+func (self *TModel) Obj() *TModelObject {
 	return self.obj
 }
 
@@ -460,9 +464,13 @@ func (self *TModel) relations_reload() {
 	var (
 		fielss        []IField
 		relate_fields map[string]*TRelatedField
+		tbl, fld      string
 	)
 
-	for tbl, fld := range self.obj.GetRelations() {
+	self.obj.GetRelations().Range(func(key, value any) bool {
+		tbl = key.(string)
+		fld = value.(string)
+
 		rel_model, err := self.osv.GetModel(tbl) //
 		if err != nil {
 			log.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.String())
@@ -493,8 +501,8 @@ func (self *TModel) relations_reload() {
 			}
 			self._relate_fields_lock.Unlock()
 		*/
-	}
-
+		return true
+	})
 }
 
 //	""" Determine inherited fields. """
@@ -505,7 +513,9 @@ func (self *TModel) _add_inherited_fields() {
 	//# determine candidate inherited fields
 	//	var fields = make([]*TField, 0)
 	var lNew IField
-	for parent_model := range self.obj.GetRelations() {
+	var parent_model string
+	self.obj.GetRelations().Range(func(key, value any) bool {
+		parent_model = key.(string)
 		parent, err := self.osv.GetModel(parent_model) // #i
 		if err != nil {
 			log.Err(err, "@_add_inherited_fields")
@@ -523,7 +533,9 @@ func (self *TModel) _add_inherited_fields() {
 				self.obj.SetFieldByName(refname, ref)
 			}
 		}
-	}
+
+		return true
+	})
 
 	/*
 	   for parent_model, parent_field in self._inherits.iteritems():

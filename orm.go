@@ -427,7 +427,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 
 	res_model := newModel(model_name, "", model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
 	res_model.obj = model_object
-	res_model.is_base = false
+	res_model.isBase = false
 
 	var (
 		err             error

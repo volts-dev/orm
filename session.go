@@ -289,7 +289,7 @@ func (self *TSession) DropTable(name string) (err error) {
 				return err
 			}
 
-			if model.GetBase().is_base { // 只移除Table生成的Model
+			if model.GetBase().isBase { // 只移除Table生成的Model
 				self.orm.osv.RemoveModel(name)
 			}
 		}

@@ -619,7 +619,7 @@ func (db *mysql) GetModels(ctx context.Context) ([]IModel, error) {
 		model_type := model_val.Type()
 		model := newModel("", name, model_val, model_type)
 		if comment != nil {
-			model.GetBase()._description = *comment
+			model.GetBase().description = *comment
 		}
 
 		models = append(models, model)

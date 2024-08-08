@@ -681,9 +681,9 @@ behavior of :meth:`~.create` applies.
 :return: the :meth:`~.name_get` pair value of the created record
 */
 func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
-	if self.obj.GetFieldByName(self.nameField) != nil {
+	if self.obj.GetFieldByName(self.recName) != nil {
 		id, err := self.Create(&CreateRequest{Data: []any{map[string]any{
-			self.nameField: name,
+			self.recName: name,
 		}}})
 		if err != nil {
 			return nil, fmt.Errorf("cannot execute name_create, create name faild %s", err.Error())

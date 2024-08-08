@@ -222,7 +222,7 @@ func tag_compute(ctx *TTagContext) error {
 		lStr := strings.Trim(params[0], "'")
 		lStr = strings.Replace(lStr, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(lStr); m.IsValid() {
-			if fn, ok := m.Interface().(func(ctx *TFieldContext) ([]any, error)); ok {
+			if fn, ok := m.Interface().(FieldFunc); ok {
 				fld.Base()._model = ctx.Model.GetBase().modelValue.Interface()
 				fld.Base()._compute = lStr
 				fld.Base()._computeFunc = fn
@@ -484,12 +484,16 @@ func tag_name(ctx *TTagContext) error {
 		name = strings.Trim(name, "'")
 
 		//  更新关联字段名称
-		for modelName, fieldName := range model.GetBase().obj.GetRelations() {
+		var modelName, fieldName string
+		model.GetBase().Obj().GetRelations().Range(func(key, value any) bool {
+			modelName = key.(string)
+			fieldName = value.(string)
 			if fld.Name() == fieldName {
 				model.GetBase().obj.SetRelationByName(modelName, name)
-				break
+				return true
 			}
-		}
+			return true
+		})
 
 		// 完成修改
 		//col.Name = name
@@ -706,7 +710,7 @@ func tag_table_description(ctx *TTagContext) error {
 	if len(params) > 0 {
 		description := strings.Trim(params[0], "'")
 		description = strings.Replace(description, "''", "'", -1)
-		model.GetBase()._description = description
+		model.GetBase().description = description
 	}
 	return nil
 

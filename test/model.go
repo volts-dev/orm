@@ -12,7 +12,7 @@ type (
 	PartnerModel struct {
 		orm.TModel `table:"name('partner_model')"`
 		Id         int64  `field:"pk autoincr title('ID') index"`
-		Name       string `field:"char() unique index required"`
+		Name       string `field:"varchar() unique index required"`
 		Homepage   string `field:"char() size(25)"`
 	}
 
@@ -23,7 +23,7 @@ type (
 		PartnerModel `field:"relate(PartnerId)"`
 		PartnerId    int64         `field:"one2one(partner_model)"`
 		Id           int64         `field:"pk autoincr title('ID') index"`
-		Name         string        `field:"char() unique index required"`
+		Name         string        `field:"varchar() unique index required"`
 		Users        []interface{} `field:"one2many(user_model,many_to_one) title('Test Title') domain([('active','=',True)])"`
 	}
 
@@ -37,7 +37,7 @@ type (
 		CreateTime   time.Time `field:"datetime() created"`
 		WriteTime    time.Time `field:"datetime() updated"`
 
-		Name     string `field:"char() size(15) unique index required"`
+		Name     string `field:"varchar() size(128) unique index required"`
 		FullName string
 		Title    string `field:"title('Test Title.')"`
 		Help     string `field:"help('Technical field, used only to display a help string using multi-rows. 
@@ -65,9 +65,9 @@ func (self *UserModel) OnBuildFields() error {
 	return nil
 }
 
-func (self *UserModel) _compute_parent_name(ctx *orm.TFieldContext) ([]any, error) {
-
-	return nil, nil
+func (self *UserModel) _compute_parent_name(ctx *orm.TFieldContext) error {
+	name := ctx.Dataset.FieldByName("name").AsString()
+	return ctx.SetValue(name + "fdfd")
 }
 
 func (UserModel) TestSelection() [][]string {

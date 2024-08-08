@@ -31,7 +31,7 @@ type (
 	// 存储一个Model的 多层继承
 	// TObj 是一个多个同名不同体Model集合，这些不同体(结构体/继承结构)的MOdel最终只是同一个数据表的表现
 	// fields：存储所有结构体的字段，即这个对象表的所有字段
-	TObj struct {
+	TModelObject struct {
 		// 相同参数
 		name               string // model 名称
 		Charset            string
@@ -52,145 +52,142 @@ type (
 		//StoreEngine string
 
 		// object 属性
-		uidFieldName      string
-		nameField         string
-		fields            map[string]IField                  // map[field]
-		relations         map[string]string                  // many2many many2one... 等关联表
-		relatedFields     map[string]*TRelatedField          // 关联字段如 UserId CompanyID
-		commonFields      map[string]map[string]IField       //
-		methods           map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
-		object_val        map[reflect.Type]*TModel           // map[Model] 备份对象
-		object_types      map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
-		defaultValues     map[string]interface{}             // store the default values of model
-		fieldsLock        sync.RWMutex
-		relationsLock     sync.RWMutex
-		defaultValuesLock sync.RWMutex
+		uidFieldName  string
+		nameField     string
+		fields        sync.Map                           // map[string]IField                  // map[field]
+		relations     sync.Map                           //map[string]string                  // many2many many2one... 等关联表
+		relatedFields map[string]*TRelatedField          // 关联字段如 UserId CompanyID
+		commonFields  map[string]map[string]IField       //
+		methods       map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
+		object_val    map[reflect.Type]*TModel           // map[Model] 备份对象
+		object_types  map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
+		defaultValues sync.Map                           // map[string]interface{}             // store the default values of model
+		fieldsLock    sync.RWMutex
+		relationsLock sync.RWMutex
+		//defaultValuesLock sync.RWMutex
 		relatedFieldsLock sync.RWMutex
 		commonFieldsLock  sync.RWMutex
 		indexesLock       sync.RWMutex
 	}
 
 	TOsv struct {
-		orm        *TOrm
-		models     map[string]*TObj // 为每个Model存储BaseModel // TODO 名称或许为Objects
-		modelsLock sync.RWMutex
-
+		orm    *TOrm
+		models sync.Map // map[string]*TModelObject // 为每个Model存储BaseModel // TODO 名称或许为Objects
+		//modelsLock sync.RWMutex
 		//_models_pool   map[string]sync.Pool // model 对象池
 		//_models_fields map[string]map[string]*TField
 	}
 )
 
 // add an index or an unique to table
-func (self *TObj) AddIndex(index *TIndex) {
+func (self *TModelObject) AddIndex(index *TIndex) {
 	self.indexesLock.Lock()
 	self.indexes[index.Name] = index
 	self.indexesLock.Unlock()
 }
 
 // add an index or an unique to table
-func (self *TObj) AddField(filed IField) {
-	self.fieldsLock.Lock()
-	self.fields[filed.Name()] = filed
-	self.fieldsLock.Unlock()
+func (self *TModelObject) AddField(filed IField) {
+	//self.fieldsLock.Lock()
+	//self.fields[filed.Name()] = filed
+	//self.fieldsLock.Unlock()
+
+	self.fields.Store(filed.Name(), filed)
 }
 
-func (self *TObj) GetRelations() map[string]string {
+func (self *TModelObject) GetRelations() *sync.Map {
 	self.relationsLock.RLock()
 	defer self.relationsLock.RUnlock()
-	return self.relations
+	return &self.relations
 }
 
-func (self *TObj) GetRelationByName(modelName string) (fieldName string) {
-	self.relationsLock.RLock()
-	fieldName = self.relations[modelName]
-	self.relationsLock.RUnlock()
-	return
-}
-
-func (self *TObj) SetRelationByName(modelName string, fieldName string) {
-	self.relationsLock.Lock()
-	self.relations[modelName] = fieldName
-	self.relationsLock.Unlock()
-	return
-}
-
-func (self *TObj) GetFields() []IField {
-	self.fieldsLock.RLock()
-	defer self.fieldsLock.RUnlock()
-	fields := make([]IField, len(self.fields))
-	idx := 0
-	for _, f := range self.fields {
-		fields[idx] = f
-		idx++
+func (self *TModelObject) GetRelationByName(modelName string) string {
+	if fieldName, ok := self.relations.Load(modelName); ok {
+		return fieldName.(string)
 	}
+	return ""
+}
+
+func (self *TModelObject) SetRelationByName(modelName string, fieldName string) {
+	self.relations.Store(modelName, fieldName)
+}
+
+func (self *TModelObject) GetFields() []IField {
+	fields := make([]IField, 0)
+	self.fields.Range(func(key, value any) bool {
+		fields = append(fields, value.(IField))
+		return true
+	})
 	return fields
 }
 
-func (self *TObj) GetFieldByName(name string) IField {
-	self.fieldsLock.RLock()
-	defer self.fieldsLock.RUnlock()
-	return self.fields[name]
+func (self *TModelObject) GetFieldByName(name string) IField {
+	if field, ok := self.fields.Load(name); ok {
+		return field.(IField)
+	}
+	return nil
 }
 
-func (self *TObj) SetFieldByName(name string, field IField) {
-	self.fieldsLock.Lock()
+func (self *TModelObject) SetFieldByName(name string, field IField) {
 	if field.IsPrimaryKey() {
 		if utils.IndexOf(name, self.PrimaryKeys...) == -1 {
 			self.PrimaryKeys = append(self.PrimaryKeys, name)
 		}
 	}
-	self.fields[name] = field
-	self.fieldsLock.Unlock()
+	self.fields.Store(name, field)
 }
 
-func (self *TObj) GetDefault() map[string]interface{} {
-	self.defaultValuesLock.RLock()
-	defer self.defaultValuesLock.RUnlock()
-	return self.defaultValues
+func (self *TModelObject) GetDefault() *sync.Map {
+	return &self.defaultValues
 }
 
-func (self *TObj) GetDefaultByName(fieldName string) (value interface{}) {
-	self.defaultValuesLock.RLock()
-	value = self.defaultValues[fieldName]
-	self.defaultValuesLock.RUnlock()
-	return
+func (self *TModelObject) GetDefaultByName(fieldName string) any {
+	//self.defaultValuesLock.RLock()
+	//value = self.defaultValues[fieldName]
+	//self.defaultValuesLock.RUnlock()
+
+	if value, ok := self.defaultValues.Load(fieldName); ok {
+		return value
+	}
+
+	return nil
 }
 
-func (self *TObj) SetDefaultByName(fieldName string, value interface{}) {
-	self.defaultValuesLock.Lock()
-	self.defaultValues[fieldName] = value
-	self.defaultValuesLock.Unlock()
-	return
+func (self *TModelObject) SetDefaultByName(fieldName string, value interface{}) {
+	//self.defaultValuesLock.Lock()
+	//self.defaultValues[fieldName] = value
+	//self.defaultValuesLock.Unlock()
+	self.defaultValues.Store(fieldName, value)
 }
 
-func (self *TObj) GetRelatedFields() (all map[string]*TRelatedField) {
+func (self *TModelObject) GetRelatedFields() (all map[string]*TRelatedField) {
 	self.relatedFieldsLock.RLock()
 	all = self.relatedFields
 	self.relatedFieldsLock.RUnlock()
 	return
 }
 
-func (self *TObj) GetRelatedFieldByName(fieldName string) (field *TRelatedField) {
+func (self *TModelObject) GetRelatedFieldByName(fieldName string) (field *TRelatedField) {
 	self.relatedFieldsLock.RLock()
 	field = self.relatedFields[fieldName]
 	self.relatedFieldsLock.RUnlock()
 	return
 }
 
-func (self *TObj) SetRelatedFieldByName(fieldName string, field *TRelatedField) {
+func (self *TModelObject) SetRelatedFieldByName(fieldName string, field *TRelatedField) {
 	self.relatedFieldsLock.Lock()
 	self.relatedFields[fieldName] = field
 	self.relatedFieldsLock.Unlock()
 	return
 }
-func (self *TObj) GetCommonFieldByName(fieldName string) (tableField map[string]IField) {
+func (self *TModelObject) GetCommonFieldByName(fieldName string) (tableField map[string]IField) {
 	self.commonFieldsLock.RLock()
 	tableField = self.commonFields[fieldName]
 	self.commonFieldsLock.RUnlock()
 	return
 }
 
-func (self *TObj) SetCommonFieldByName(fieldName string, tableName string, field IField) {
+func (self *TModelObject) SetCommonFieldByName(fieldName string, tableName string, field IField) {
 	if self.commonFields[fieldName] == nil {
 		self.commonFields[fieldName] = make(map[string]IField)
 	}
@@ -204,8 +201,8 @@ func (self *TObj) SetCommonFieldByName(fieldName string, tableName string, field
 // 创建一个Objects Services
 func newOsv(orm *TOrm) (osv *TOsv) {
 	osv = &TOsv{
-		models: make(map[string]*TObj),
-		orm:    orm,
+		//models: make(map[string]*TModelObject),
+		orm: orm,
 		//	_models_types: make(map[string]map[string]reflect.Type), // 存储Models的Type
 		//	_models_pool:  make(map[string]sync.Pool),               //@@@ 改进改为接口 String
 	}
@@ -264,18 +261,18 @@ func (self *TOsv) ___SetupModels() {
 }
 
 // New an object for restore
-func (self *TOsv) newObject(name string) *TObj {
-	obj := &TObj{
-		name:          name,                    // model 名称
-		fields:        make(map[string]IField), // map[field]
-		relations:     make(map[string]string),
+func (self *TOsv) newObject(name string) *TModelObject {
+	obj := &TModelObject{
+		name: name, // model 名称
+		//fields:        make(map[string]IField), // map[field]
+		//relations:     make(map[string]string),
 		relatedFields: make(map[string]*TRelatedField),
 		commonFields:  make(map[string]map[string]IField),
 		//common_fields :make(map[string]*TRelatedField)
-		methods:       make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
-		object_val:    make(map[reflect.Type]*TModel),           // map[Model] 备份对象
-		object_types:  make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
-		defaultValues: make(map[string]interface{}),
+		methods:      make(map[string]reflect.Type),            // map[func][] 存储对应的Model 类型 string:函数所在的Models
+		object_val:   make(map[reflect.Type]*TModel),           // map[Model] 备份对象
+		object_types: make(map[string]map[string]reflect.Type), // map[Modul][Model] 存储Models的Type
+		//defaultValues: make(map[string]interface{}),
 
 		CreatedField: make(map[string]bool),
 		indexes:      make(map[string]*TIndex),
@@ -303,13 +300,12 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	}
 
 	//获得Object 检查是否存在，不存在则创建
-	self.modelsLock.RLock()
-	obj := self.models[model.name]
-	self.modelsLock.RUnlock()
-
-	if obj == nil && model.obj != nil {
+	//self.modelsLock.RLock()
+	var obj *TModelObject
+	old, ok := self.models.Load(model.name)
+	if !ok || old == nil {
 		obj = model.obj
-	} else {
+	} else if obj, ok = old.(*TModelObject); ok {
 		new_obj := model.obj
 
 		// # 复制 Indx
@@ -353,25 +349,22 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 		}
 
 		// 覆盖默认值
-		obj.defaultValuesLock.Lock()
-		for key, val := range new_obj.defaultValues {
-			obj.defaultValues[key] = val
-		}
-		obj.defaultValuesLock.Unlock()
+		new_obj.defaultValues.Range(func(key, value any) bool {
+			obj.defaultValues.Store(key, value)
+			return true
+		})
 
 		// #添加字段
-		obj.fieldsLock.Lock()
-		for name, field := range new_obj.fields {
-			obj.fields[name] = field
-		}
-		obj.fieldsLock.Unlock()
+		new_obj.fields.Range(func(key, value any) bool {
+			obj.fields.Store(key, value)
+			return true
+		})
 
 		// #关联表
-		obj.relationsLock.Lock()
-		for name, field := range new_obj.relations {
-			obj.relations[name] = field
-		}
-		obj.relationsLock.Unlock()
+		new_obj.relations.Range(func(key, value any) bool {
+			obj.relations.Store(key, value)
+			return true
+		})
 
 		// #共同字段
 		obj.commonFieldsLock.Lock()
@@ -412,14 +405,14 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	*/
 	obj.mappingMethod(model)
 	obj.uidFieldName = model.idField
-	obj.nameField = model.nameField
-	self.modelsLock.Lock()
-	self.models[model.name] = obj
-	self.modelsLock.Unlock()
+	obj.nameField = model.recName
+	//self.modelsLock.Lock()
+	self.models.Store(model.name, obj)
+	//self.modelsLock.Unlock()
 	return nil
 }
 
-func (self *TObj) mappingMethod(model *TModel) {
+func (self *TModelObject) mappingMethod(model *TModel) {
 	// @添加方法映射到对象里
 	var method reflect.Method
 	for i := 0; i < model.modelType.NumMethod(); i++ {
@@ -450,7 +443,7 @@ func (self *TOsv) GetMethod(modelName, methodName string) (method *TMethod) {
 }
 
 func (self *TOsv) HasModel(name string) (has bool) {
-	_, has = self.models[name]
+	_, has = self.models.Load(name)
 	return
 }
 
@@ -495,20 +488,28 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 }
 
 func (self *TOsv) RemoveModel(name string) {
-	self.modelsLock.Lock()
-	delete(self.models, name)
-	self.modelsLock.RUnlock()
+	//self.modelsLock.Lock()
+	//delete(self.models, name)
+	//self.modelsLock.RUnlock()
+	self.models.Delete(name)
 }
 
-func (self *TOsv) GetModels() (models []string) {
-	models = make([]string, len(self.models))
+func (self *TOsv) GetModels() []string {
+	/*
+		models = make([]string, len(self.models))
 
-	idx := 0
-	for name := range self.models {
-		models[idx] = name
-		idx++
-	}
+		idx := 0
+		for name := range self.models {
+			models[idx] = name
+			idx++
+		}
+	*/
 
+	models := make([]string, 0)
+	self.models.Range(func(key, value any) bool {
+		models = append(models, key.(string))
+		return true
+	})
 	return models
 }
 
@@ -529,12 +530,12 @@ func (self *TOsv) NewModel(name string) (model *TModel) {
 
 // TODO　优化更简洁
 // 每次GetModel都会激活初始化对象
-func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TObj, modelName string) {
+func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TModelObject, modelName string) {
 	if m, ok := val.Interface().(IModel); ok {
 		// NOTE <以下代码严格遵守执行顺序>
 		model := newModel(modelName, "", val, atype) //self.newModel(sess, model)
 		model.idField = obj.uidFieldName
-		model.nameField = obj.nameField
+		model.recName = obj.nameField
 		model.obj = obj
 		model.osv = self
 		model.orm = self.orm
@@ -544,7 +545,7 @@ func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TObj, m
 }
 
 // #module 可以为空取默认
-func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
+func (self *TOsv) getModelByModule(region, model string) (value reflect.Value) {
 	var (
 		region_name string
 		module_map  map[string]reflect.Type
@@ -552,39 +553,50 @@ func (self *TOsv) getModelByModule(region, model string) (val reflect.Value) {
 	)
 
 	//获取Model的Object对象
-	if obj, has := self.models[model]; has {
-		// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
-		for region_name, module_map = range obj.object_types {
-			if region_name == region {
-				break
+	if v, has := self.models.Load(model); has {
+		if obj, ok := v.(*TModelObject); ok {
+			//if obj, has := self.models[model]; has {
+			// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
+			for region_name, module_map = range obj.object_types {
+				if region_name == region {
+					break
+				}
+			}
+
+			if model_type, has = module_map[model]; has {
+				value = reflect.New(model_type) // 创建对象
+				self.initObject(value, model_type, obj, model)
+				return value
 			}
 		}
 
-		if model_type, has = module_map[model]; has {
-			val = reflect.New(model_type) // 创建对象
-			self.initObject(val, model_type, obj, model)
-			return val
-		}
 	}
 
 	return
 }
 
 // TODO 继承类Model 的方法调用顺序提取
-func (self *TOsv) getModelByMethod(model string, method string) (val reflect.Value) {
-	if obj, has := self.models[model]; has {
-		if typ, has := obj.methods[utils.TitleCasedName(method)]; has {
-			val = reflect.New(typ)
-			self.initObject(val, typ, obj, model)
-			return
+func (self *TOsv) getModelByMethod(model string, method string) (value reflect.Value) {
+	if v, has := self.models.Load(model); has {
+		if obj, ok := v.(*TModelObject); ok {
+			if typ, has := obj.methods[utils.TitleCasedName(method)]; has {
+				value = reflect.New(typ)
+				self.initObject(value, typ, obj, model)
+				return
+			}
 		}
 	}
 
 	return
 }
 
-func (self *TOsv) Models() map[string]*TObj {
-	return self.models
+func (self *TOsv) Models() map[string]*TModelObject {
+	m := make(map[string]*TModelObject)
+	self.models.Range(func(key, value any) bool {
+		m[key.(string)] = value.(*TModelObject)
+		return true
+	})
+	return m
 }
 
 func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error) {

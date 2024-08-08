@@ -171,7 +171,10 @@ func (self *ModelBuilder) ManyToManyField(name, relateModel string, midModel ...
 	}
 }
 
-func (self *fieldStatment) Compute(fn func(ctx *TFieldContext) ([]any, error)) *fieldStatment {
+// 写入值需要计算的字段
+// 最终结果由Ctx。SetValue 返回
+// 返回值包含 any,[]any,map[string]any
+func (self *fieldStatment) Compute(fn func(ctx *TFieldContext) error) *fieldStatment {
 	field := self.field.Base()
 	field.isCompute = true
 	field._compute = ""

@@ -525,7 +525,7 @@ func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, cont
 		//  name_get_list = [name_get[0] for name in names for name_get in comodel.name_search(cr, uid, name, [], 'ilike', context=context, limit=limit)]
 		//for _, name := range names.Items() {
 		// 这里使用精准名称“in”查询
-		_domain := domain.New(comodel.nameField, "in", value.Flatten()...)
+		_domain := domain.New(comodel.recName, "in", value.Flatten()...)
 		lRecords, _ := comodel.NameSearch("", _domain, "ilike", limit, "", context)
 		for _, rec := range lRecords.Data {
 			name_get_list = append(name_get_list, rec.FieldByName(comodel.idField).AsString()) //ODO: id 可能是Rec_id

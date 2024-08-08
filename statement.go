@@ -334,9 +334,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 	)
 
 	for name, val := range vals {
-
-		//field = self.session.model.FieldByName(name)
-		col = self.model.GetFieldByName(name) // field.column
+		col = self.model.GetFieldByName(name)
 		if col == nil {
 			continue
 		}
@@ -361,6 +359,15 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 		}
 
 		if val == nil {
+			if lFieldType.Kind() == reflect.Ptr {
+				if includeNil {
+					//args = append(args, nil)
+					//colNames = append(colNames, fmt.Sprintf("%v %s ?", colName, engine.dialect.EqStr()))
+					lClauses = append(lClauses, fmt.Sprintf("%v %s ?", name, self.session.orm.dialect.EqStr()))
+					//res_domain.AddSubList(name, self.session.orm.dialect.EqStr(), "?")
+					res_params = append(res_params, nil)
+				}
+			}
 			continue
 		}
 
@@ -378,22 +385,10 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 
 		// 处理指针结构
 		if lFieldType.Kind() == reflect.Ptr {
-			if val == nil {
-				if includeNil {
-					//args = append(args, nil)
-					//colNames = append(colNames, fmt.Sprintf("%v %s ?", colName, engine.dialect.EqStr()))
-					lClauses = append(lClauses, fmt.Sprintf("%v %s ?", name, self.session.orm.dialect.EqStr()))
-					//res_domain.AddSubList(name, self.session.orm.dialect.EqStr(), "?")
-					res_params = append(res_params, nil)
-				}
-				continue
-
-			} else {
-				// dereference ptr type to instance type
-				lFieldVal = lFieldVal.Elem()
-				lFieldType = reflect.TypeOf(lFieldVal.Interface())
-				lIsRequiredField = true
-			}
+			// dereference ptr type to instance type
+			lFieldVal = lFieldVal.Elem()
+			lFieldType = reflect.TypeOf(lFieldVal.Interface())
+			lIsRequiredField = true
 		}
 
 		switch lFieldType.Kind() {
@@ -495,7 +490,6 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 				} else {
 					bytes, err = json.Marshal(lFieldVal.Interface())
 					if err != nil {
-						log.Err("1", err)
 						continue
 					}
 					val = bytes
@@ -527,8 +521,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 		res_params = append(res_params, val)
 	}
 
-	res_clause = strings.Join(lClauses, " "+self.session.orm.dialect.AndStr()+" ")
-	return
+	return strings.Join(lClauses, " "+self.session.orm.dialect.AndStr()+" "), res_params
 }
 
 /*
@@ -574,7 +567,6 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 			if err != nil {
 				log.Err(err)
 			}
-
 		}
 	}
 
@@ -592,10 +584,9 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 
 	} else {
 		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.model.Table())
-
 	}
 
-	return NewQuery(tables, where_clause, where_params, nil, nil), nil //self.Registry.r Query(tables, where_clause, where_params)
+	return NewQuery(tables, where_clause, where_params, nil, nil), nil
 }
 
 func (self *TStatement) _check_qorder(word string) (result bool) {
@@ -668,6 +659,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 		}
 		generate_order([]string{order_field}, order_direction)
 	}
+
 	generate_order(self.AscFields, "ASC")
 	generate_order(self.DescFields, "DESC")
 	return order_by_elements
@@ -857,7 +849,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 *
 *        :raise ValueError in case order_spec is malformed
  */
-func (self *TStatement) generate_order_by(query *TQuery, context map[string]interface{}) (result string) {
+func (self *TStatement) generate_order_by(query *TQuery, context map[string]interface{}) string {
 	order_by_clause := ""
 
 	if self.OrderByClause != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0 {
@@ -871,7 +863,7 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 		return fmt.Sprintf(` ORDER BY %s `, order_by_clause)
 	}
 
-	return
+	return ""
 }
 
 func (self *TStatement) generate_fields() []string {
@@ -890,16 +882,17 @@ func (self *TStatement) generate_fields() []string {
 			continue
 		}
 
+		quote := quoter.Quote
 		var name string
 		if self.JoinClause != "" {
 			if self.AliasTableName != "" {
-				name = quoter.Quote(self.AliasTableName)
+				name = quote(self.AliasTableName)
 			} else {
-				name = quoter.Quote(self.model.Table())
+				name = quote(self.model.Table())
 			}
-			name += "." + quoter.Quote(field.Name())
+			name += "." + quote(field.Name())
 		} else {
-			name = quoter.Quote(field.Name())
+			name = quote(field.Name())
 		}
 
 		if field.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
@@ -908,5 +901,6 @@ func (self *TStatement) generate_fields() []string {
 			fields = append(fields, name)
 		}
 	}
+
 	return fields
 }

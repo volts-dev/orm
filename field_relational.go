@@ -509,7 +509,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	model := ctx.Model
 	rel := strings.Replace(fld.MiddleModelName(), ".", "_", -1)
 
-	if _, has := orm.osv.models[fld.MiddleModelName()]; !has {
+	if _, has := orm.osv.models.Load(fld.MiddleModelName()); !has {
 		field := model.GetFieldByName(model.IdField())
 		sqlType := orm.dialect.GetSqlType(field)
 		id1 := fld.RelateFieldName()

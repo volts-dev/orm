@@ -67,6 +67,7 @@ func (self *TSession) Write(data interface{}, classic_write ...bool) (effect int
 	if len(classic_write) > 0 {
 		self.IsClassic = classic_write[0]
 	}
+
 	return self._write(data)
 }
 
@@ -140,7 +141,7 @@ func (self *TSession) _create(src any) (any, error) {
 	}
 
 	/* 拆分数据 */
-	newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil)
+	newValues, refValues, newTodo, err := self._separateValues(data.Record().AsMap(), self.Statement.Fields, self.Statement.NullableFields, true, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -203,11 +204,13 @@ func (self *TSession) _create(src any) (any, error) {
 	}
 
 	// 被设置默认值的字段赋值给Val
-	for k, v := range self.Statement.model.Obj().GetDefault() {
+	self.Statement.model.Obj().GetDefault().Range(func(key, value any) bool {
+		k := key.(string)
 		if newValues[k] == nil {
-			newValues[k] = v //fmt. lFld._symbol_c
+			newValues[k] = value //fmt. lFld._symbol_c
 		}
-	}
+		return true
+	})
 
 	// #验证数据类型
 	//TODO 需要更准确安全
@@ -222,6 +225,11 @@ func (self *TSession) _create(src any) (any, error) {
 		// 字段,值
 		for k, v := range newValues {
 			if v == nil {
+				continue
+			}
+
+			// 避免计算字段重复
+			if _, has := datas[k]; has {
 				continue
 			}
 
@@ -290,70 +298,6 @@ func (self *TSession) _create(src any) (any, error) {
 	}
 
 	return id, nil
-}
-
-func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []IField) (map[string][]any, int, error) {
-	// 根据字段计算数据值
-	var multiSql int = 1
-	datas := make(map[string][]any)
-	for _, field := range newTodo {
-		name := field.Name()
-		value := data.Record().GetByField(field.Name())
-		ctx := &TFieldContext{
-			Session: self,
-			Model:   self.Statement.model,
-			Dataset: data,
-			Field:   field,
-			Value:   value,
-			Ids:     ids,
-		}
-
-		if field.Store() {
-			if field.IsCompute() {
-				values, err := field.ComputeFunc(ctx)
-				if err != nil {
-					return nil, multiSql, err
-				}
-
-				// 返回值应该是和IDS同等或者只有一个共同值
-				count := len(values)
-				if count == len(ids) {
-					datas[name] = values //记录计算数据值
-					multiSql = count
-				} else if count == 1 {
-					datas[name] = values
-				} else {
-					return nil, multiSql, fmt.Errorf("the %s ComputeFunc return values is not matching records count!", field.Name())
-				}
-
-				// 结束Compute
-				continue
-			}
-
-			switch field.Type() {
-			case TYPE_M2O:
-				/* 字符串为Name */
-				if v, ok := value.(string); ok {
-					ctx.Value = v
-					if err := field.OnWrite(ctx); err != nil {
-						return nil, multiSql, err
-					}
-					datas[name] = []any{ctx.Value}
-					break
-				}
-				fallthrough
-			default:
-				datas[name] = []any{field.onConvertToWrite(self, value)} // field.SymbolFunc()(utils.Itf2Str(val))
-			}
-		} else {
-			err := field.OnWrite(ctx)
-			if err != nil {
-				return nil, multiSql, err
-			}
-		}
-	}
-
-	return datas, multiSql, nil
 }
 
 // Low-level implementation of write()
@@ -436,7 +380,7 @@ func (self *TSession) _write(src any) (int64, error) {
 		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}
 
-	newVals, refVals, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, false, ids)
+	newVals, refVals, newTodo, err := self._separateValues(data.Record().AsMap(), self.Statement.Fields, self.Statement.NullableFields, false, ids)
 	if err != nil {
 		return 0, err
 	}
@@ -462,7 +406,6 @@ func (self *TSession) _write(src any) (int64, error) {
 			//self._validate(lNewVals)
 
 			// 拼SQL
-
 			var sql strings.Builder
 			sql.WriteString("UPDATE ")
 			sql.WriteString(from_clause)
@@ -473,6 +416,11 @@ func (self *TSession) _write(src any) (int64, error) {
 			for k, v := range newVals {
 				if comma {
 					sql.WriteString(",")
+				}
+
+				// 避免计算字段重复
+				if _, has := datas[k]; has {
+					continue
 				}
 
 				// 更新里不予许多条唯一记录
@@ -715,8 +663,7 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 
 // # ids_less 缺少的ID
 func (self *TSession) _readFromCache(ids []interface{}) (res []*dataset.TRecordSet, ids_less []interface{}) {
-	res, ids_less = self.orm.Cacher.GetByIds(self.Statement.model.Table(), ids...)
-	return
+	return self.orm.Cacher.GetByIds(self.Statement.model.Table(), ids...)
 }
 
 /*
@@ -875,6 +822,74 @@ func (self *TSession) _validateValues(values interface{}) (*dataset.TDataSet, er
 	return result, nil
 }
 
+func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []IField) (map[string][]any, int, error) {
+	// 根据字段计算数据值
+	var multiSql int = 1
+	datas := make(map[string][]any)
+	for _, field := range newTodo {
+		name := field.Name()
+		value := data.Record().GetByField(field.Name())
+		ctx := &TFieldContext{
+			Session: self,
+			Model:   self.Statement.model,
+			Dataset: data,
+			Field:   field,
+			Value:   value,
+			Ids:     ids,
+		}
+
+		if field.Store() {
+			if field.IsCompute() {
+				if err := field.ComputeFunc(ctx); err != nil {
+					return nil, multiSql, err
+				}
+
+				switch v := ctx.value.(type) {
+				case map[string]any:
+					datas[name] = []any{v}
+				case []any:
+					count := len(v)
+					if count == len(ids) {
+						datas[name] = v //记录计算数据值
+						multiSql = count
+					} else if count == 1 {
+						datas[name] = v
+					} else {
+						return nil, multiSql, fmt.Errorf("the %s ComputeFunc return values is not matching records count!", field.Name())
+					}
+				default:
+					return nil, multiSql, fmt.Errorf("the %s ComputeFunc return values is not matching records count!", field.Name())
+				}
+
+				// 结束Compute
+				continue
+			}
+
+			switch field.Type() {
+			case TYPE_M2O:
+				/* 字符串为Name */
+				if v, ok := value.(string); ok {
+					ctx.Value = v
+					if err := field.OnWrite(ctx); err != nil {
+						return nil, multiSql, err
+					}
+					datas[name] = []any{ctx.Value}
+					break
+				}
+				fallthrough
+			default:
+				datas[name] = []any{field.onConvertToWrite(self, value)} // field.SymbolFunc()(utils.Itf2Str(val))
+			}
+		} else {
+			if err := field.OnWrite(ctx); err != nil {
+				return nil, multiSql, err
+			}
+		}
+	}
+
+	return datas, multiSql, nil
+}
+
 // TODO FN
 // 分配值并补全ID,Update,Create字段值
 // separate data for difference type of update
@@ -885,14 +900,177 @@ func (self *TSession) _validateValues(values interface{}) (*dataset.TDataSet, er
 //	columnMap map[string]bool, update, unscoped bool
 //
 // needID is the values inclduing key
-func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]interface{}, map[string]map[string]interface{}, []IField, error) {
+func (self *TSession) _separateValues(data map[string]any, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]interface{}, map[string]map[string]interface{}, []IField, error) {
 	/* 用于更新本Model的实际数据 */
 	new_vals := make(map[string]interface{})
 	rel_vals := make(map[string]map[string]interface{})
 	upd_todo := make([]IField, 0) // function 字段组 采用其他存储方式
 
 	// 初始化保存关联表用于更新创建关联表数据
-	for tbl, field_name := range self.Statement.model.Obj().GetRelations() {
+	var tbl, field_name string
+	self.Statement.model.Obj().GetRelations().Range(func(key, value any) bool {
+		tbl = key.(string)
+		field_name = value.(string)
+		rel_vals[tbl] = make(map[string]interface{}) //NOTE 新建空Map以防Nil导致内存出错
+
+		if val, has := data[field_name]; has && val != nil {
+			//if val, has := vals[self.Statement.model.Obj().GetRelationByName(tbl)]; has && val != nil {
+			rel_id := val                                          //新建新的并存入已经知道的ID
+			rel_vals[tbl][self.Statement.model.IdField()] = rel_id //utils.Itf2Str(vals[self.model._relations[tbl]])
+		}
+		return true
+	})
+
+	// 格式化IdField数据生成唯一ID
+	idKey := self.Statement.IdKey
+	includedIds := ids != nil || len(ids) != 0
+
+	/* 处理常规字段 */
+	var field IField
+	var name string
+	var value any
+	var isBlank, has bool
+	for _, field = range self.Statement.model.GetFields() {
+		// ignore AutoIncrement field
+		if field == nil || field.IsAutoIncrement() {
+			// do no use any AutoIncrement field's value
+			continue
+		}
+
+		name = field.Name()
+		if name == idKey {
+			continue
+		}
+
+		value, has = data[name]
+		isBlank = !has || utils.IsBlank(value)
+
+		if field.Base().isUpdated {
+			value, _ = self.orm.nowTime(field.Type()) //TODO 优化预先生成日期
+			isBlank = false
+		}
+
+		isMustField := mustFields[name] // --非强字段--
+		nullableField := nullableFields[name]
+		if isBlank {
+			/* 填补默认值 */
+			if !field.IsDefaultEmpty() {
+				value = value2FieldTypeValue(field, field.Default())
+				isBlank = false
+			}
+
+			if field.Base().isCreated {
+				if includedIds {
+					// 包含主键的数据,说明已经是被创建过了,则不补全该字段
+					continue
+				}
+
+				value, _ = self.orm.nowTime(field.Type()) //TODO 优化预先生成日期
+				isBlank = false
+
+			} else if !isMustField && !field.IsCompute() && !field.Required() {
+				/* 处理空值 */
+				if has && !nullableField && (includeNil || includedIds) {
+					new_vals[name] = field.onConvertToWrite(self, value)
+				}
+
+				continue
+
+			} else if includedIds {
+				continue
+			}
+		}
+
+		if field.SQLType().IsNumeric() {
+			if v, ok := value.(string); ok {
+				// 过滤0值字符串
+				if v == "0" {
+					value = 0
+				} else {
+					// 如果解析成数字成功则判定为数字成功 M2O 值可能是id或者Name值
+					if v := utils.ToInt(v); v != 0 {
+						value = v
+					}
+				}
+			}
+		}
+
+		/* 过滤可以为空的字段空字段 */
+		if isBlank {
+
+		}
+
+		// TODO 优化确认代码位置  !NOTE! 转换值为数据库类型
+		//val = field.onConvertToWrite(self, val)
+
+		/* #相同名称的字段分配给对应表 */
+		if comm_models := self.Statement.model.Obj().GetCommonFieldByName(name); comm_models != nil { // 获得拥有该字段的所有表
+			// 为各表预存值
+			for tbl := range comm_models {
+				if tbl == self.Statement.model.String() {
+					new_vals[name] = field.onConvertToWrite(self, value) // 为当前表添加共同字段值
+
+				} else if rel_vals[tbl] != nil {
+					rel_vals[tbl][name] = field.onConvertToWrite(self, value) // 为关联表添加共同字段值
+				}
+			}
+
+			continue //* 字段分配完毕
+		}
+
+		//#*** 非Model固有字段归为关联表字段 2个判断缺一不可
+		//#1 判断是否是关联表可能性
+		//#2 判断是否Model和关联Model都有该字段
+		///rel_fld := self.model.RelateFieldByName(name)
+		///if rel_fld != nil && field.IsRelatedField() {
+		//comm_field := self.model.obj.GetCommonFieldByName(name)
+		if field.IsInheritedField() {
+			// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
+			tableName := field.ModelName() // rel_fld.RelateTableName
+			rel_vals[tableName][name] = field.onConvertToWrite(self, value)
+
+		} else {
+			if field.Store() && !field.IsCompute() && !field.IsRelatedField() && field.SQLType().Name != "" {
+				new_vals[name] = field.onConvertToWrite(self, value)
+			} else {
+				//# 大型复杂计算字段
+				upd_todo = append(upd_todo, field)
+			}
+
+			/*
+				if field.IsClassicWrite() && field.Base().Fnct_inv() == nil {
+					if !field.Translatable() { //TODO totranslate &&
+
+						new_vals[name] = field.SymbolFunc()(utils.Itf2Str(val))
+
+						//direct = append(direct, name)
+					} else {
+						upd_todo = append(upd_todo, name)
+					}
+				}
+			*/
+			/* check selection */
+			if !field.IsInheritedField() && field.Type() == "selection" && value != nil {
+				self._check_selection_field_value(field, value) //context
+			}
+		}
+
+	}
+
+	return new_vals, rel_vals, upd_todo, nil
+}
+
+func (self *TSession) __separateValues(data *dataset.TDataSet, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]interface{}, map[string]map[string]interface{}, []IField, error) {
+	/* 用于更新本Model的实际数据 */
+	new_vals := make(map[string]interface{})
+	rel_vals := make(map[string]map[string]interface{})
+	upd_todo := make([]IField, 0) // function 字段组 采用其他存储方式
+
+	// 初始化保存关联表用于更新创建关联表数据
+	var tbl, field_name string
+	self.Statement.model.Obj().GetRelations().Range(func(key, value any) bool {
+		tbl = key.(string)
+		field_name = value.(string)
 		rel_vals[tbl] = make(map[string]interface{}) //NOTE 新建空Map以防Nil导致内存出错
 
 		if val := data.Record().GetByField(field_name); val != nil {
@@ -900,11 +1078,12 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 			rel_id := val                                          //新建新的并存入已经知道的ID
 			rel_vals[tbl][self.Statement.model.IdField()] = rel_id //utils.Itf2Str(vals[self.model._relations[tbl]])
 		}
-	}
+		return true
+	})
 
 	// 格式化IdField数据生成唯一ID
 	idKey := self.Statement.IdKey
-	needID := ids == nil || len(ids) == 0
+	includedIds := ids != nil || len(ids) != 0
 	/*
 		if needID { //
 			var idValue any
@@ -960,28 +1139,26 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 			continue
 		}
 
-		value = data.Record().GetByField(name)
 		isBlank = utils.IsBlank(value)
-
-		/* 填补默认值 */
-		if isBlank && !field.IsDefaultEmpty() {
-			value = value2FieldTypeValue(field, field.Default())
-		}
-
-		/* update time zone to create and update tags' fields */
-		if isBlank && field.Base().isCreated {
-			if !needID {
-				// 包含主键的数据,说明已经是被创建过了,则不补全该字段
-				continue
+		if isBlank {
+			/* 填补默认值 */
+			if !field.IsDefaultEmpty() {
+				value = value2FieldTypeValue(field, field.Default())
 			}
 
-			value, _ = self.orm.nowTime(field.Type()) //TODO 优化预先生成日期
+			if field.Base().isCreated {
+				if includedIds {
+					// 包含主键的数据,说明已经是被创建过了,则不补全该字段
+					continue
+				}
+
+				value, _ = self.orm.nowTime(field.Type()) //TODO 优化预先生成日期
+			}
+
 		} else if field.Base().isUpdated {
 			value, _ = self.orm.nowTime(field.Type()) //TODO 优化预先生成日期
-		}
 
-		/* */
-		if field.SQLType().IsNumeric() {
+		} else if field.SQLType().IsNumeric() {
 			if v, ok := value.(string); ok {
 				// 过滤0值字符串
 				if v == "0" {
@@ -1006,12 +1183,14 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 			/* 过滤可以为空的字段空字段 */
 			if !is_must_field && !field.IsCompute() && !field.Required() {
 				if isBlank {
-					if !nullableField || !includeNil {
+					if nullableField || includeNil {
 						continue
 					}
 
 					/* 处理空值且Required */
-					new_vals[name] = field.onConvertToWrite(self, value)
+					if !includedIds { // write 不写入空值
+						new_vals[name] = field.onConvertToWrite(self, value)
+					}
 					continue
 				}
 			}
