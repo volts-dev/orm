@@ -8,7 +8,7 @@ import (
 // IFmter is an interface to Formatter SQL
 type (
 	IFmter interface {
-		Do(sql string, dialect IDialect, model *TModel) string
+		Do(sql string, dialect IDialect, model IModel) string
 	}
 
 	// TODO remove 考虑移除一般用不到
@@ -27,21 +27,21 @@ type (
 	}
 )
 
-func (s *QuoteFmter) Do(sql string, dialect IDialect, model *TModel) string {
+func (s *QuoteFmter) Do(sql string, dialect IDialect, model IModel) string {
 	return strings.Replace(sql, "`", string(dialect.Quoter().Prefix), -1)
 }
 
-func (i *IdFmter) Do(sql string, dialect IDialect, model *TModel) string {
-	quoter := dialect.Quoter()
+func (i *IdFmter) Do(sql string, dialect IDialect, model IModel) string {
 	if model != nil && len(model.GetPrimaryKeys()) == 1 {
-		sql = strings.Replace(sql, " `(id)` ", " "+quoter.Quote(model.GetPrimaryKeys()[0])+" ", -1)
-		sql = strings.Replace(sql, " "+quoter.Quote("(id)")+" ", " "+quoter.Quote(model.GetPrimaryKeys()[0])+" ", -1)
-		return strings.Replace(sql, " (id) ", " "+quoter.Quote(model.GetPrimaryKeys()[0])+" ", -1)
+		quoter := dialect.Quoter().Quote
+		sql = strings.Replace(sql, " `(id)` ", " "+quoter(model.GetPrimaryKeys()[0])+" ", -1)
+		sql = strings.Replace(sql, " "+quoter("(id)")+" ", " "+quoter(model.GetPrimaryKeys()[0])+" ", -1)
+		return strings.Replace(sql, " (id) ", " "+quoter(model.GetPrimaryKeys()[0])+" ", -1)
 	}
 	return sql
 }
 
-func (s *HolderFmter) Do(sql string, dialect IDialect, model *TModel) string {
+func (s *HolderFmter) Do(sql string, dialect IDialect, model IModel) string {
 	segs := strings.Split(sql, "?")
 	size := len(segs)
 	res := ""

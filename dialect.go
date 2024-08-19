@@ -351,8 +351,8 @@ func (b *TDialect) SetParams(params map[string]string) {
 // ColumnString generate column description string according dialect
 func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (string, error) {
 	bd := strings.Builder{}
-
-	if err := dialect.Quoter().QuoteTo(&bd, field.Name()); err != nil {
+	quoter := dialect.Quoter()
+	if err := quoter.QuoteTo(&bd, field.Name()); err != nil {
 		return "", err
 	}
 
@@ -382,12 +382,17 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 		if _, err := bd.WriteString(" DEFAULT "); err != nil {
 			return "", err
 		}
-		if field.Base()._attr_default == "" {
+
+		dv := utils.ToString(field.Base()._attr_default)
+		if dv == "" {
 			if _, err := bd.WriteString("''"); err != nil {
 				return "", err
 			}
 		} else {
-			if _, err := bd.WriteString(utils.ToString(field.Base()._attr_default)); err != nil {
+			if field.SQLType().IsText() {
+				dv = quoter.Quote(dv)
+			}
+			if _, err := bd.WriteString(dv); err != nil {
 				return "", err
 			}
 		}

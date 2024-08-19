@@ -43,6 +43,68 @@ func (self *TSession) Exec(sql_str string, args ...interface{}) (sql.Result, err
 	return self._exec(sql_str, args...)
 }
 
+func (self *TSession) Count() (int, error) {
+	model := self.Statement.Model
+	if _, err := model.BeforeSession(self); err != nil {
+		return 0, err
+	}
+	defer func() {
+		model.AfterSession(self)
+		self._resetStatement()
+	}()
+
+	//defer self.Statement.Init()
+	if self.IsAutoClose {
+		defer self.Close()
+	}
+
+	if self.IsDeprecated {
+		return -1, ErrInvalidSession
+	}
+
+	self.Statement.IsCount = true
+
+	_, count, err := self._search("", nil)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(count), nil
+}
+
+// TODO sum
+// Sum sum the records by some column. bean's non-empty fields are conditions.
+func (self *TSession) Sum(fieldName string) (float64, error) {
+	model := self.Statement.Model
+	if _, err := model.BeforeSession(self); err != nil {
+		return 0, err
+	}
+	defer func() {
+		model.AfterSession(self)
+		self._resetStatement()
+	}()
+
+	if self.IsAutoClose {
+		defer self.Close()
+	}
+
+	sql, args, err := self.Statement.generate_sum(fieldName)
+	if err != nil {
+		return 0, err
+	}
+
+	ds, err := self._query(sql, args...)
+	if err != nil {
+		return 0, err
+	}
+
+	if ds.Count() > 0 {
+		return ds.FieldByName("sum").AsFloat(), nil
+	}
+
+	return 0, nil
+}
+
 // 查询所有符合条件的主键/索引值
 // :param access_rights_uid: optional user ID to use when checking access rights
 // (not for ir.rules, this is only for ir.model.access)
@@ -85,7 +147,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		where_clause = fmt.Sprintf(` WHERE %s`, where_clause)
 	}
 
-	table_name := self.Statement.model.Table()
+	table_name := self.Statement.Model.Table()
 	if self.Statement.IsCount {
 		// 添加支持Count函数
 		// TODO 优化成自动
@@ -124,7 +186,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 	//	lAutoIncrKey = col.Name
 	//}
 	quoter := self.orm.dialect.Quoter()
-	query_str = fmt.Sprintf(`SELECT %s.%s FROM `, quoter.Quote(self.Statement.model.Table()), quoter.Quote(self.Statement.IdKey)) + from_clause + where_clause + order_by + limit_str + offset_str
+	query_str = fmt.Sprintf(`SELECT %s.%s FROM `, quoter.Quote(self.Statement.Model.Table()), quoter.Quote(self.Statement.IdKey)) + from_clause + where_clause + order_by + limit_str + offset_str
 
 	// #调用缓存
 	res_ds := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
@@ -145,9 +207,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 func (self *TSession) _query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error) {
 	defer self._resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
-		if self.Statement.model != nil {
-			sql = filter.Do(sql, self.orm.dialect, self.Statement.model.GetBase())
-		}
+		sql = filter.Do(sql, self.orm.dialect, self.Statement.Model)
 	}
 
 	return self.orm.logQuerySql(sql, paramStr, func() (*dataset.TDataSet, error) {
@@ -193,9 +253,7 @@ func (self *TSession) _queryWithTx(query string, params ...interface{}) (*datase
 func (self *TSession) _exec(sql_str string, args ...interface{}) (sql.Result, error) {
 	defer self._resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
-		if self.Statement.model != nil {
-			sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.model.GetBase())
-		}
+		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.Model)
 	}
 
 	return self.orm.logExecSql(sql_str, args, func() (sql.Result, error) {
@@ -203,15 +261,21 @@ func (self *TSession) _exec(sql_str string, args ...interface{}) (sql.Result, er
 			// FIXME: oci8 can not auto commit (github.com/mattn/go-oci8)
 			if self.orm.dialect.DBType() == ORACLE {
 				self.Begin()
-				r, err := self.tx.Exec(sql_str, args...)
-				self.Commit()
+				r, err := self.tx.ExecContext(self.context, sql_str, args...)
+				if err != nil {
+					return nil, err
+				}
+
+				if err = self.Commit(); err != nil {
+					return nil, err
+				}
+
 				return r, err
 			}
 			return self._execWithOrg(sql_str, args...)
 		}
 		return self._execWithTx(sql_str, args...)
 	})
-
 }
 
 // Execute sql
@@ -224,24 +288,18 @@ func (self *TSession) _execWithOrg(query string, args ...interface{}) (sql.Resul
 			return nil, err
 		}
 
-		return stmt.Exec(args...)
+		return stmt.ExecContext(self.context, args...)
 	}
 
-	return self.db.Exec(query, args...)
+	return self.db.ExecContext(self.context, query, args...)
 }
 
 func (self *TSession) _execWithTx(sql string, args ...interface{}) (sql.Result, error) {
-	return self.tx.Exec(sql, args...)
-
+	return self.tx.ExecContext(self.context, sql, args...)
 }
 
 func (self *TSession) _doPrepare(sql string) (*core.Stmt, error) {
-	stmt, err := self.db.Prepare(sql)
-	if err != nil {
-		return nil, err
-	}
-
-	return stmt, err
+	return self.db.PrepareContext(self.context, sql)
 }
 
 // scan data to a slice's pointer, slice's length should equal to columns' number
@@ -284,8 +342,8 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 			// 存储到数据集
 			for idx, name := range cols {
 				// !NOTE! 转换数据类型输出
-				if self.Statement.model != nil { // TODO exec,query 的SQL不包含Model
-					field = self.Statement.model.GetFieldByName(name)
+				if self.Statement.Model != nil { // TODO exec,query 的SQL不包含Model
+					field = self.Statement.Model.GetFieldByName(name)
 					if field != nil {
 						value = field.onConvertToRead(self, cols, vals, idx)
 					} else {

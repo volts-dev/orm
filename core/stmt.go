@@ -24,16 +24,19 @@ func (db *DB) PrepareContext(ctx context.Context, query string) (*Stmt, error) {
 		i++
 		return "?"
 	})
+
 	hookCtx := NewContextHook(ctx, "PREPARE", nil)
 	ctx, err := db.beforeProcess(hookCtx)
 	if err != nil {
 		return nil, err
 	}
+
 	stmt, err := db.DB.PrepareContext(ctx, query)
 	hookCtx.End(ctx, nil, err)
 	if err := db.afterProcess(hookCtx); err != nil {
 		return nil, err
 	}
+
 	return &Stmt{stmt, db, names, query}, nil
 }
 
@@ -53,6 +56,7 @@ func (s *Stmt) ExecMapContext(ctx context.Context, mp interface{}) (sql.Result, 
 	for k, i := range s.names {
 		args[i] = vv.Elem().MapIndex(reflect.ValueOf(k)).Interface()
 	}
+
 	return s.ExecContext(ctx, args...)
 }
 
@@ -72,6 +76,7 @@ func (s *Stmt) ExecStructContext(ctx context.Context, st interface{}) (sql.Resul
 	for k, i := range s.names {
 		args[i] = vv.Elem().FieldByName(k).Interface()
 	}
+
 	return s.ExecContext(ctx, args...)
 }
 
@@ -87,11 +92,13 @@ func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (sql.Result
 	if err != nil {
 		return nil, err
 	}
+
 	res, err := s.Stmt.ExecContext(ctx, args...)
 	hookCtx.End(ctx, res, err)
 	if err := s.db.afterProcess(hookCtx); err != nil {
 		return nil, err
 	}
+
 	return res, nil
 }
 
@@ -102,11 +109,13 @@ func (s *Stmt) QueryContext(ctx context.Context, args ...interface{}) (*Rows, er
 	if err != nil {
 		return nil, err
 	}
+
 	rows, err := s.Stmt.QueryContext(ctx, args...)
 	hookCtx.End(ctx, nil, err)
 	if err := s.db.afterProcess(hookCtx); err != nil {
 		return nil, err
 	}
+
 	return &Rows{rows, s.db}, nil
 }
 

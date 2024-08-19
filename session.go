@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -10,11 +11,11 @@ import (
 
 type (
 	TSession struct {
-		orm *TOrm
-		db  *core.DB
-		tx  *core.Tx // 由Begin 传递而来
-
+		orm                    *TOrm
+		db                     *core.DB
+		tx                     *core.Tx // 由Begin 传递而来
 		Statement              TStatement
+		context                context.Context
 		IsDeprecated           bool // sometime the session did not reach the request it shoud be deprecated
 		IsAutoCommit           bool // dflt is true
 		IsAutoClose            bool
@@ -23,36 +24,46 @@ type (
 		UseNameGet             bool
 		IsClassic              bool // #使用Model实例为参数
 		Prepared               bool
-
-		lastSQL     string
-		lastSQLArgs []interface{} // 储存有序值
-
 		// 存储Create创建时Name字段索引缓存供Many2One.OnWrite使用
 		// @格式:[field]id
-		CacheNameIds map[string]any
+		CacheNameIds map[string]any         //
+		Sets         map[string]TFieldValue // 预存数据值 供更新或者限制字段 如多租户字段
+		lastSQL      string                 //
+		lastSQLArgs  []interface{}          // 储存有序值
 	}
 )
 
+func NewSession(orm *TOrm) *TSession {
+	session := &TSession{
+		db:      orm.db,
+		orm:     orm,
+		context: orm.context,
+	}
+
+	session.init()
+	return session
+}
+
 func (self *TSession) init() error {
-	self.Statement.Init()
-	self.Statement.session = self
 	self.IsAutoCommit = true // 默认情况下单个SQL是不用事务自动
 	self.IsAutoClose = false
 	self.AutoResetStatement = true
 	self.IsCommitedOrRollbacked = false
 	self.Prepared = false
 	self.CacheNameIds = nil
+	self.Statement.session = self
+	self.Statement.Init()
 	return nil
 }
 
 func (self *TSession) New() *TSession {
-	session := self.orm.NewSession()
+	session := NewSession(self.orm)
 	session.IsClassic = true
-	return session.Model(self.Statement.model.String())
+	return session.Model(self.Statement.Model.String())
 }
 
 func (self *TSession) Clone() *TSession {
-	session := self.orm.NewSession()
+	session := NewSession(self.orm)
 	session.tx = self.tx
 	session.IsAutoCommit = self.IsAutoCommit // 默认情况下单个SQL是不用事务自动
 	session.IsAutoClose = self.IsAutoClose
@@ -60,6 +71,10 @@ func (self *TSession) Clone() *TSession {
 	session.IsCommitedOrRollbacked = self.IsCommitedOrRollbacked
 	session.Prepared = self.Prepared
 	session.CacheNameIds = self.CacheNameIds
+	// TODO 优化掉无用的字段
+	//session.Statement = self.Statement
+	session.Statement.session = self
+	session.Statement.Init()
 	return session
 }
 
@@ -167,6 +182,18 @@ func (self *TSession) Models() *TSession {
 	return self
 }
 
+// 预存数据值 供更新或者限制字段 如多租户字段
+func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) {
+	if self.Sets == nil {
+		self.Sets = make(map[string]TFieldValue)
+	}
+	self.Sets[name] = TFieldValue{
+		Name:      name,
+		Value:     value,
+		Queryable: queryable,
+	}
+}
+
 // CreateTable create a table according a bean
 // TODO考虑添加参数 达到INHERITS
 func (self *TSession) CreateTable(model string) error {
@@ -180,7 +207,7 @@ func (self *TSession) CreateTable(model string) error {
 		return err
 	}
 
-	self.Statement.model = mod
+	self.Statement.Model = mod
 
 	/*未完成
 	for _,tb_name:=range self.model.Inherits(){
@@ -225,7 +252,7 @@ func (self *TSession) CreateUniques(model string) error {
 		return err
 	}
 
-	self.Statement.model = mod
+	self.Statement.Model = mod
 	for _, sql := range self.Statement.generate_unique() {
 		_, err := self._exec(sql)
 		if err != nil {
@@ -248,7 +275,7 @@ func (self *TSession) CreateIndexes(model string) error {
 		return err
 	}
 
-	self.Statement.model = mod
+	self.Statement.Model = mod
 
 	sqls, err := self.Statement.generate_index()
 	if err != nil {
@@ -277,22 +304,23 @@ func (self *TSession) DropTable(name string) (err error) {
 	}
 
 	if needDrop {
+		name = fmtTableName(name) /**/
 		sql := self.orm.dialect.DropTableSql(name)
-		res, err := self._exec(sql)
+		_, err := self._exec(sql)
 		if err != nil {
 			return err
 		}
 
-		if cnt, err := res.RowsAffected(); err == nil && cnt > 0 {
-			model, err := self.orm.GetModel(name)
-			if err != nil {
-				return err
-			}
-
-			if model.GetBase().isBase { // 只移除Table生成的Model
-				self.orm.osv.RemoveModel(name)
-			}
+		//if cnt, err := res.RowsAffected(); err == nil && cnt > 0 {
+		model, err := self.orm.GetModel(name)
+		if err != nil {
+			return err
 		}
+
+		if !model.GetBase().isCustomModel { // 只移除Table生成的Model
+			self.orm.osv.RemoveModel(model.String())
+		}
+		//}
 
 		return err
 	}
@@ -327,8 +355,8 @@ func (self *TSession) IsExist(model ...string) (bool, error) {
 	model_name := ""
 	if len(model) > 0 {
 		model_name = model[0]
-	} else if self.Statement.model != nil {
-		model_name = self.Statement.model.String()
+	} else if self.Statement.Model != nil {
+		model_name = self.Statement.Model.String()
 	} else {
 		return false, errors.New("model should not be blank")
 	}
@@ -372,8 +400,8 @@ func (self *TSession) IsEmpty(model string) (bool, error) {
 		defer self.Close()
 	}
 
-	lCount, err := self.Model(model).Count()
-	return lCount == 0, err
+	count, err := self.Model(model).Count()
+	return count == 0, err
 }
 
 // 重制Statement防止参数重用
@@ -441,7 +469,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				//}
 
 				//
-				if strings.ToLower(field.Default()) != strings.ToLower(cur_field.Default()) {
+				if field.Default() != cur_field.Default() {
 					log.Warnf("nochange: Table <%s> Column <%s> db default is <%v>, model default is <%v>",
 						tableName, field.Name(), cur_field.Default(), field.Default())
 				}
@@ -455,7 +483,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 			} else {
 				/* 这里必须过滤掉 NOTE [SyncModel] 里提及的特殊字段 */
 				if field.Store() && !field.IsInheritedField() {
-					//session := self.orm.NewSession()
+					//session := NewSession(self.orm)
 					//session.Model(newModel.String())
 					//TODO # 修正上面指向错误Model
 					//session.Statement.model = newModel
@@ -513,7 +541,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 			//session := orm.NewSession()
 			//self.Model(newModel.String())
 			//TODO # 修正上面指向错误Model
-			//self.Statement.model = newModel
+			//self.Statement.Model = newModel
 			if index.Type == UniqueType {
 				err = self._addUnique(tableName, name)
 
@@ -553,7 +581,7 @@ func (self *TSession) _addColumn(colName string) error {
 		defer self.Close()
 	}
 
-	col := self.Statement.model.GetFieldByName(colName)
+	col := self.Statement.Model.GetFieldByName(colName)
 	sql, args := self.Statement.generate_add_column(col)
 	_, err := self._exec(sql, args...)
 	return err
@@ -565,7 +593,7 @@ func (self *TSession) _addIndex(tableName, idxName string) error {
 		defer self.Close()
 	}
 
-	index := self.Statement.model.GetIndexes()[idxName]
+	index := self.Statement.Model.GetIndexes()[idxName]
 	sql := self.orm.dialect.CreateIndexUniqueSql(tableName, index)
 	_, err := self._exec(sql)
 	return err
@@ -577,7 +605,7 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 		defer self.Close()
 	}
 
-	index := self.Statement.model.GetIndexes()[uqeName]
+	index := self.Statement.Model.GetIndexes()[uqeName]
 	sql := self.orm.dialect.CreateIndexUniqueSql(tableName, index)
 	_, err := self._exec(sql)
 	return err

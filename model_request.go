@@ -88,7 +88,12 @@ type (
 
 // #被重载接口 创建记录 提供给继承
 func (self *TModel) Create(req *CreateRequest) ([]any, error) {
-	session := self.Tx()
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
+	if err != nil {
+		return nil, err
+	}
+
+	session := model.Tx()
 	if session.IsAutoClose {
 		defer session.Close()
 	}
@@ -109,7 +114,12 @@ func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 
 // func (self *TModel) Read(domain string, ids []interface{}, fields []string, limit int, sort string) (*dataset.TDataSet, error) {
 func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
-	session := self.Tx()
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
+	if err != nil {
+		return nil, err
+	}
+
+	session := model.Tx()
 	if session.IsAutoClose {
 		defer session.Close()
 	}
@@ -172,100 +182,24 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 	return session.Limit(req.PageSize, req.PageIndex-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
 }
 
-func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
-	session := self.Tx()
-	if session.IsAutoClose {
-		defer session.Close()
-	}
-	// 确保第一页
-	if req.PageIndex < 1 {
-		req.PageIndex = 1
-	}
-	session.UseNameGet = req.UseNameGet
-	return session.
-		Select(req.Fields...).
-		Funcs(req.Funcs...).
-		Limit(req.PageSize, req.PageIndex-1).
-		Sort(req.Sort...).
-		GroupBy(req.GroupBy...).
-		Read()
-}
-
-// #被重载接口
-func (self *TModel) Update(req *UpdateRequest) (int64, error) {
-	session := self.Tx()
-	if session.IsAutoClose {
-		defer session.Close()
-	}
-
-	var effectCount int64
-
-	// 更新多个ID上的数据
-	if len(req.Ids) > 0 {
-		if len(req.Data) != 1 {
-			return 0, fmt.Errorf("can't update multi data to multi ids!")
-		}
-		data := req.Data[0]
-		for _, id := range req.Ids {
-			id, err := session.Ids(id).Write(data)
-			if err != nil {
-				return 0, err
-			}
-			effectCount += id
-		}
-		return effectCount, nil
-	}
-
-	if req.Domain != "" {
-		session.Domain(req.Domain)
-	}
-
-	for _, d := range req.Data {
-		id, err := session.Write(d)
-		if err != nil {
-			return 0, err
-		}
-		effectCount += id
-	}
-
-	return effectCount, nil
-}
-
-// #被重载接口
-func (self *TModel) Delete(req *DeleteRequest) (int64, error) {
-	session := self.Tx()
-	if session.IsAutoClose {
-		defer session.Close()
-	}
-
-	effectCount, err := session.Delete(req.Ids...)
-	if err != nil {
-		return 0, err
-	}
-
-	return effectCount, nil
-}
-
 // 带事务加载上传数据
 // @Return map: row index in csv file fail and error message
-func (self *TModel) Load(field []string, records ...any) (ids []any, err error) {
-	// 写入记录
-	model, err := self.Orm().GetModel(self.String())
+func (self *TModel) Load(field []string, records ...any) ([]any, error) {
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
 	if err != nil {
 		return nil, err
 	}
 
-	// 由model初始化事物
-	tx := model.Tx()
-	tx.Begin()
+	session := model.Tx()
+	session.Begin()
 
-	ids, err = model.Create(&CreateRequest{Data: records})
+	ids, err := model.Create(&CreateRequest{Data: records})
 	if err != nil {
 		return nil, err
 	}
 
-	if err = tx.Commit(); err != nil {
-		if e := tx.Rollback(err); e != nil {
+	if err = session.Commit(); err != nil {
+		if e := session.Rollback(err); e != nil {
 			return nil, err
 		}
 	}
@@ -275,14 +209,14 @@ func (self *TModel) Load(field []string, records ...any) (ids []any, err error) 
 
 // #被重载接口
 func (self *TModel) Upload(req *UploadRequest) (int64, error) {
-	model, err := self.Clone()
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
 	if err != nil {
 		return 0, err
 	}
 
-	tx := model.Tx()
-	if tx.IsAutoClose {
-		defer tx.Close()
+	session := model.Tx()
+	if session.IsAutoClose {
+		defer session.Close()
 	}
 
 	fallback := unicode.UTF8.NewDecoder()
@@ -325,16 +259,16 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 					return 0, err
 				}
 
-				tx := model.Tx(model.Records())
-				tx.Begin()
+				tx2 := model.Tx(session.Clone())
+				tx2.Begin()
 
 				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
 				if err != nil {
 					return 0, err
 				}
 
-				if err := tx.Commit(); err != nil {
-					return 0, tx.Rollback(err)
+				if err := tx2.Commit(); err != nil {
+					return 0, tx2.Rollback(err)
 				}
 			} else {
 				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
@@ -529,8 +463,10 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, err
 	}
 
-	sess := orm.NewSession()
+	sess := NewSession(orm)
 	defer sess.Close()
+	/* 复制必要字段 */
+	sess.Sets = ctx.Session.Sets
 
 	//table_name := field.comodel_name//sess.Statement.TableName()
 	sess.Model(relModelName)
@@ -682,7 +618,12 @@ behavior of :meth:`~.create` applies.
 */
 func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
 	if self.obj.GetFieldByName(self.recName) != nil {
-		id, err := self.Create(&CreateRequest{Data: []any{map[string]any{
+		model, err := self.Clone()
+		if err != nil {
+			return nil, err
+		}
+
+		id, err := model.Create(&CreateRequest{Data: []any{map[string]any{
 			self.recName: name,
 		}}})
 		if err != nil {
@@ -700,7 +641,12 @@ func (self *TModel) NameGet(ids []any) (*dataset.TDataSet, error) {
 	name := self.GetRecordName()
 	id_field := self.idField
 	if f := self.GetFieldByName(name); f != nil {
-		ds, err := self.Records().Select(id_field, name).Ids(ids...).Read()
+		model, err := self.Clone()
+		if err != nil {
+			return nil, err
+		}
+
+		ds, err := model.Records().Select(id_field, name).Ids(ids...).Read()
 		if err != nil {
 			return nil, err
 		}
@@ -758,10 +704,104 @@ func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, oper
 
 	//access_rights_uid = name_get_uid or user
 	// 获取匹配的Ids
-	result, err = self.Records().Select(self.idField, rec_name_field).Domain(domainNode).Limit(limit).Read()
+	model, err := self.Clone()
+	if err != nil {
+		return nil, err
+	}
+
+	result, err = model.Records().Select(self.idField, rec_name_field).Domain(domainNode).Limit(limit).Read()
 	if err != nil {
 		return nil, err
 	}
 
 	return result, nil //self.name_get(lIds, []string{"id", lNameField}) //self.SearchRead(lDomain.String(), []string{"id", lNameField}, 0, limit, "", context)
+}
+
+func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
+	if err != nil {
+		return nil, err
+	}
+
+	session := model.Tx()
+	if session.IsAutoClose {
+		defer session.Close()
+	}
+	// 确保第一页
+	if req.PageIndex < 1 {
+		req.PageIndex = 1
+	}
+	session.UseNameGet = req.UseNameGet
+	return session.
+		Select(req.Fields...).
+		Funcs(req.Funcs...).
+		Limit(req.PageSize, req.PageIndex-1).
+		Sort(req.Sort...).
+		GroupBy(req.GroupBy...).
+		Read()
+}
+
+// #被重载接口
+func (self *TModel) Update(req *UpdateRequest) (int64, error) {
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
+	if err != nil {
+		return 0, err
+	}
+
+	session := model.Tx()
+	if session.IsAutoClose {
+		defer session.Close()
+	}
+
+	var effectCount int64
+
+	// 更新多个ID上的数据
+	if len(req.Ids) > 0 {
+		if len(req.Data) != 1 {
+			return 0, fmt.Errorf("can't update multi data to multi ids!")
+		}
+		data := req.Data[0]
+		for _, id := range req.Ids {
+			id, err := session.Ids(id).Write(data)
+			if err != nil {
+				return 0, err
+			}
+			effectCount += id
+		}
+		return effectCount, nil
+	}
+
+	if req.Domain != "" {
+		session.Domain(req.Domain)
+	}
+
+	for _, d := range req.Data {
+		id, err := session.Write(d)
+		if err != nil {
+			return 0, err
+		}
+		effectCount += id
+	}
+
+	return effectCount, nil
+}
+
+// #被重载接口
+func (self *TModel) Delete(req *DeleteRequest) (int64, error) {
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
+	if err != nil {
+		return 0, err
+	}
+
+	session := model.Tx()
+	if session.IsAutoClose {
+		defer session.Close()
+	}
+
+	effectCount, err := session.Delete(req.Ids...)
+	if err != nil {
+		return 0, err
+	}
+
+	return effectCount, nil
 }

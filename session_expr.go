@@ -2,9 +2,9 @@ package orm
 
 func (self *TSession) Model(model string, region ...string) *TSession {
 	// #如果Session已经预先指定Model
-	if self.Statement.model == nil || (self.Statement.model != nil && self.Statement.model.String() != model) {
+	if self.Statement.Model == nil || (self.Statement.Model != nil && self.Statement.Model.String() != model) {
 		var err error
-		self.Statement.model, err = self.orm.GetModel(model, region...)
+		self.Statement.Model, err = self.orm.GetModel(model, region...)
 		if err != nil {
 			log.Panicf(err.Error())
 			self.IsDeprecated = true
@@ -12,7 +12,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 	}
 
 	// set IdKey
-	self.Statement.IdKey = self.Statement.model.IdField() // # 主键
+	self.Statement.IdKey = self.Statement.Model.IdField() // # 主键
 
 	/* TODO 删除  不可能会出现
 	if md = nil {
@@ -40,7 +40,7 @@ func (self *TSession) Model(model string, region ...string) *TSession {
 
 	// ### id key must exist
 	if self.Statement.IdKey == "" {
-		log.Errf("the statement of %s must have a Id key field is existed! please check the sync of model!", self.Statement.model.String())
+		log.Errf("the statement of %s must have a Id key field is existed! please check the sync of model!", self.Statement.Model.String())
 		self.IsDeprecated = true
 	}
 
@@ -187,76 +187,6 @@ func (session *TSession) Asc(colNames ...string) *TSession {
 func (self *TSession) Limit(limit int64, offset ...int64) *TSession {
 	self.Statement.Limit(limit, offset...)
 	return self
-}
-
-func (self *TSession) Count() (int, error) {
-	defer self.Statement.Init()
-	if self.IsAutoClose {
-		defer self.Close()
-	}
-
-	if self.IsDeprecated {
-		return -1, ErrInvalidSession
-	}
-
-	self.Statement.IsCount = true
-
-	_, count, err := self._search("", nil)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(count), nil
-}
-
-// TODO sum
-// Sum sum the records by some column. bean's non-empty fields are conditions.
-func (self *TSession) Sum(colName string) (float64, error) {
-	/*	defer self.Statement.Init()
-		if self.IsAutoClose {
-			defer self.Close()
-		}
-
-		v := reflect.ValueOf(res)
-		if v.Kind() != reflect.Ptr {
-			return errors.New("need a pointer to a variable")
-		}
-
-		var isSlice = v.Elem().Kind() == reflect.Slice
-		var sql string
-		var args []interface{}
-		var err error
-		if len(self.statement.RawSQL) == 0 {
-			sql, args, err = self.statement.generate_sum(columnNames...)
-			if err != nil {
-				return err
-			}
-		} else {
-			sql = self.statement.RawSQL
-			args = self.statement.RawParams
-		}
-
-		session.queryPreprocess(&sql, args...)
-
-		if isSlice {
-			if session.isAutoCommit {
-				err = session.DB().QueryRow(sql, args...).ScanSlice(res)
-			} else {
-				err = session.tx.QueryRow(sql, args...).ScanSlice(res)
-			}
-		} else {
-			if session.isAutoCommit {
-				err = session.DB().QueryRow(sql, args...).Scan(res)
-			} else {
-				err = session.tx.QueryRow(sql, args...).Scan(res)
-			}
-		}
-
-		if err == sql.ErrNoRows || err == nil {
-			return nil
-		}
-	*/
-	return 0, nil
 }
 
 // NoCascade indicate that no cascade load child object

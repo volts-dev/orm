@@ -84,19 +84,6 @@ func (index *TIndex) GetName(tableName string) string {
 	return index.Name
 }
 
-func (index *TIndex) ___XName(tableName string) string {
-	if !strings.HasPrefix(index.Name, "UQE_") &&
-		!strings.HasPrefix(index.Name, "IDX_") {
-		tableName = strings.Replace(tableName, `"`, "", -1)
-		tableName = strings.Replace(tableName, `.`, "_", -1)
-		if index.Type == UniqueType {
-			return fmt.Sprintf("UQE_%v_%v", tableName, index.Name)
-		}
-		return fmt.Sprintf("IDX_%v_%v", tableName, index.Name)
-	}
-	return index.Name
-}
-
 // add columns which will be composite index
 func (index *TIndex) AddColumn(cols ...string) {
 	for _, col := range cols {

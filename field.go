@@ -82,7 +82,8 @@ type (
 		Searchable(val ...bool) bool
 		Store(val ...bool) bool
 		Size(val ...int) int
-		Default(val ...string) string
+		Default(val ...any) any
+		DefaultFunc(ctx *TFieldContext) error
 		States(val ...map[string]interface{}) map[string]interface{}
 		Domain() string
 		Translatable() bool
@@ -200,7 +201,7 @@ type (
 		_attr_sortable          bool                   // 可排序
 		_attr_searchable        bool                   //
 		_attr_type              string                 // #字段类型 最终存于dataset数据类型view
-		_attr_default           string                 /* 存储默认值字符串 */ // default(recs) returns the default value
+		_attr_default           any                    /* 存储默认值字符串 */ // default(recs) returns the default value
 		_attr_related           string                 // ???
 		_attr_relation          string                 // 关系表
 		_attr_states            map[string]interface{} // 传递 UI 属性
@@ -215,17 +216,18 @@ type (
 		//# Tag标记变量
 		//_column_type string // #存储 column 类型 当该字段值非空时数据将直接存入数据库,而非计算值
 		//_func          string      //是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
-		_func_inv     interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
-		_func_multi   string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
-		_func_search  string      //允许你在这个字段上定义搜索功能
-		_compute      string      // 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
-		_computeFunc  FieldFunc   //
-		_model        any         // 提供给compute使用
-		_depends      []string    // 约束 compute 计算依赖哪些字段来触发
-		_setter       string      // 写入计算格式化函数
-		_getter       string      // 读取计算格式化函数
-		_compute_sudo bool        //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
-		_oldname      string      //# the previous name of this field, so that ORM can rename it automatically at migration
+		_func_inv       interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
+		_func_multi     string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
+		_func_search    string      //允许你在这个字段上定义搜索功能
+		_compute        string      // 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
+		_computeFunc    FieldFunc   //
+		_computeDefault FieldFunc   //
+		_model          any         // 提供给compute使用
+		_depends        []string    // 约束 compute 计算依赖哪些字段来触发
+		_setter         string      // 写入计算格式化函数
+		_getter         string      // 读取计算格式化函数
+		_compute_sudo   bool        //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
+		_oldname        string      //# the previous name of this field, so that ORM can rename it automatically at migration
 
 		// # one2many
 		_fields_id string
@@ -255,6 +257,12 @@ type (
 		RelateFieldName   string //idx:1
 		RelateField       IField //idx:2
 		RelateTopestTable string //idx:3 //关联字段由那个表产生
+	}
+
+	TFieldValue struct {
+		Name      string
+		Value     any
+		Queryable bool // 是否可以查询
 	}
 )
 
@@ -509,12 +517,16 @@ func (self *TField) Store(val ...bool) bool {
 	return self._attr_store
 }
 
-func (self *TField) Default(val ...string) string {
+func (self *TField) Default(val ...any) any {
 	if len(val) > 0 {
 		self._attr_default = val[0]
 	}
 
 	return self._attr_default
+}
+
+func (self *TField) DefaultFunc(ctx *TFieldContext) error {
+	return self._computeDefault(ctx)
 }
 
 func (self *TField) Size(val ...int) int {
@@ -583,7 +595,7 @@ func (self *TField) IsAutoIncrement() bool {
 }
 
 func (self *TField) IsDefaultEmpty() bool {
-	return self._attr_default == ""
+	return self._attr_default == nil && self._computeDefault == nil
 }
 
 func (self *TField) IsUnique() bool {

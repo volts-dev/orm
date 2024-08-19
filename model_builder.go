@@ -56,13 +56,6 @@ func (self *ModelBuilder) SetName(name string) *ModelBuilder {
 	return self
 }
 
-func (self *ModelBuilder) ___AddFields(fields ...*fieldStatment) *ModelBuilder {
-	for _, statment := range fields {
-		self.model.AddField(statment.field)
-	}
-	return self
-}
-
 func (self *ModelBuilder) IdField(name ...string) *fieldStatment {
 	fieldName := "id"
 	if len(name) > 0 {
@@ -206,11 +199,20 @@ func (self *fieldStatment) Required(v bool) *fieldStatment {
 	return self
 }
 
-func (self *fieldStatment) Default(value string) *fieldStatment {
+func (self *fieldStatment) Default(value any) *fieldStatment {
 	self.field.Base()._attr_default = value
 	return self
 }
+func (self *fieldStatment) ComputeDefault(fn func(ctx *TFieldContext) error) *fieldStatment {
+	field := self.field.Base()
+	//field.isCompute = true
+	//field._compute = ""
+	field._computeDefault = fn
+	//field._attr_store = false
+	//field._attr_readonly = field._attr_readonly || false
 
+	return self
+}
 func (self *fieldStatment) Domain(value string) *fieldStatment {
 	self.field.Base()._attr_domain = value
 	return self

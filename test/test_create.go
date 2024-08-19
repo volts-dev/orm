@@ -19,7 +19,9 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 	*company_data = *company
 
 	ss := self.Orm.NewSession()
+	defer ss.Close()
 	ss.Begin()
+
 	model, err := self.Orm.GetModel("company_model")
 	if err != nil {
 		self.Fatal(err)
@@ -55,17 +57,14 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 		}
 	}
 
-	err = ss.Commit()
-	if err != nil {
+	if err = ss.Commit(); err != nil {
 		self.Log(err)
 
-		e := ss.Rollback(err)
-		if e != nil {
+		if e := ss.Rollback(err); e != nil {
 			self.Fatal(e)
 		}
 	}
 
-	ss.Close()
 	return self
 }
 
@@ -83,8 +82,8 @@ func (self *Testchain) CreateM2m() *Testchain {
 		self.Fatal("please add some record first!")
 	}
 
-	dataset.Record().SetByField("many_to_many", []interface{}{1, 2})
-	count, err := model.Records().Ids(dataset.FieldByName("id").AsInterface()).Write(dataset.Record().AsMap(), isClassic)
+	dataset.Record().SetByField("companies", []interface{}{1, 2})
+	count, err := model.Records().Ids(dataset.FieldByName(model.IdField()).AsInterface()).Write(dataset.Record().AsMap(), isClassic)
 	if err != nil || count == 0 {
 		self.Fatalf("create manyTomany fail: %v", err)
 	}

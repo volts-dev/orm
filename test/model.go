@@ -58,8 +58,13 @@ type (
 	}
 )
 
+func _compute_default_int(ctx *orm.TFieldContext) error {
+	ctx.SetValue(1)
+	return nil
+}
 func (self *UserModel) OnBuildFields() error {
 	b := self.Builder()
+	b.VarcharField("title").ComputeDefault(_compute_default_int)
 	b.Field("full_name", "varchar").Compute(self._compute_parent_name).Store(true)
 
 	return nil
@@ -96,8 +101,8 @@ var (
 	}
 
 	user *UserModel = &UserModel{
-		Name:  "Admin",
-		Title: "Admin",
+		Name: "Admin",
+		//Title: "Admin",
 		//Help:      "",
 		//Bool: true,
 		//Text:      "",

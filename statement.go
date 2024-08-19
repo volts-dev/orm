@@ -16,7 +16,7 @@ type (
 	// TODO 添加错误信息使整个statement 无法执行错误不合法查询
 	TStatement struct {
 		session        *TSession
-		model          IModel              //*TModel
+		Model          IModel              //*TModel
 		domain         *domain.TDomainNode // 查询条件
 		Params         []interface{}       // 储存有序值
 		IdKey          string              // 开发者决定的数据表主键
@@ -49,7 +49,6 @@ type (
 // Init reset all the statment's fields
 func (self *TStatement) Init() {
 	self.domain = domain.NewDomainNode()
-	self.Sets = nil // 不预先创建添加GC负担
 	self.IdParam = make([]interface{}, 0)
 	self.Fields = make(map[string]bool)         // TODO 优化
 	self.NullableFields = make(map[string]bool) // TODO 优化
@@ -61,6 +60,16 @@ func (self *TStatement) Init() {
 	self.OffsetClause = 0
 	self.IsCount = false
 	self.Params = make([]interface{}, 0)
+	self.Sets = nil // 不预先创建添加GC负担
+
+	/* 复制session */
+	for _, f := range self.session.Sets {
+		if f.Queryable {
+			self.Where(f.Name+"=?", f.Value)
+		}
+
+		self.Set(f.Name, f.Value)
+	}
 }
 
 // Id generate "where id = ? " statment or for composite key "where key1 = ? and key2 = ?"
@@ -70,7 +79,7 @@ func (self *TStatement) Ids(ids ...interface{}) *TStatement {
 }
 
 func (self *TStatement) Select(fields ...string) *TStatement {
-	obj := self.session.Statement.model.Obj()
+	obj := self.Model.Obj()
 	for idx, name := range fields {
 		name = fmtFieldName(name) //# 支持输入结构字段名称
 		if idx == 0 && (name == "*" || name == "'*'" || name == `"*"`) {
@@ -241,7 +250,7 @@ func (self *TStatement) Limit(limit int64, offset ...int64) *TStatement {
 }
 
 func (self *TStatement) generate_create_table() string {
-	return self.session.orm.dialect.CreateTableSql(self.session.Statement.model, self.StoreEngine, self.Charset)
+	return self.session.orm.dialect.CreateTableSql(self.Model, self.StoreEngine, self.Charset)
 }
 
 func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, error) {
@@ -271,9 +280,9 @@ func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, 
 
 func (self *TStatement) generate_unique() []string {
 	var sqls []string = make([]string, 0)
-	for _, index := range self.session.Statement.model.Obj().indexes {
+	for _, index := range self.Model.Obj().indexes {
 		if index.Type == UniqueType {
-			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Statement.model.Table(), index)
+			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.Model.Table(), index)
 			sqls = append(sqls, sql)
 		}
 	}
@@ -281,15 +290,15 @@ func (self *TStatement) generate_unique() []string {
 }
 
 func (self *TStatement) generate_add_column(field IField) (string, []interface{}) {
-	sql := self.session.orm.dialect.GenAddColumnSQL(self.session.Statement.model.Table(), field)
+	sql := self.session.orm.dialect.GenAddColumnSQL(self.Model.Table(), field)
 	return sql, []interface{}{}
 }
 
 func (self *TStatement) generate_index() ([]string, error) {
 	var sqls []string = make([]string, 0)
-	tableName := fmtTableName(self.session.Statement.model.String())
+	tableName := fmtTableName(self.Model.String())
 
-	for idxName, index := range self.session.Statement.model.Obj().indexes {
+	for idxName, index := range self.Model.Obj().indexes {
 		if index.Type == IndexType {
 			exist, err := self.session.IsIndexExist(tableName, idxName, false)
 			if err != nil {
@@ -310,10 +319,8 @@ func (self *TStatement) generate_index() ([]string, error) {
 	return sqls, nil
 }
 
-func (self *TStatement) generate_insert(fields []string) (query string, isQuery bool) {
-	id_field := self.model.IdField()
-	sqlStr, isQuery := self.session.orm.dialect.GenInsertSql(self.model.Table(), fields, id_field)
-	return sqlStr, isQuery
+func (self *TStatement) generate_insert(fields []string) (string, bool) {
+	return self.session.orm.dialect.GenInsertSql(self.Model.Table(), fields, self.Model.IdField())
 }
 
 // Auto generating conditions according a struct
@@ -334,7 +341,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 	)
 
 	for name, val := range vals {
-		col = self.model.GetFieldByName(name)
+		col = self.Model.GetFieldByName(name)
 		if col == nil {
 			continue
 		}
@@ -542,7 +549,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 	// domain = domain[:]
 	// if the object has a field named 'active', filter out all inactive
 	// records unless they were explicitely asked for
-	if field := self.session.Statement.model.Obj().GetFieldByName("active"); field != nil && active_test {
+	if field := self.Model.Obj().GetFieldByName("active"); field != nil && active_test {
 		if node != nil {
 			// the item[0] trick below works for domain items and '&'/'|'/'!'
 			// operators too
@@ -574,7 +581,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 	var where_clause []string
 	var where_params []interface{}
 	if node != nil && node.Count() > 0 {
-		exp, err := NewExpression(self.session.orm, self.session.Statement.model.GetBase(), node, context)
+		exp, err := NewExpression(self.session.orm, self.Model.GetBase(), node, context)
 		if err != nil {
 			return nil, err
 		}
@@ -583,7 +590,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 		where_clause, where_params = exp.toSql(self.Params...)
 
 	} else {
-		where_clause, where_params, tables = nil, nil, append(tables, self.session.Statement.model.Table())
+		where_clause, where_params, tables = nil, nil, append(tables, self.Model.Table())
 	}
 
 	return NewQuery(tables, where_clause, where_params, nil, nil), nil
@@ -616,10 +623,10 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				order_by_elements = append(order_by_elements, lStr)
 
 			} else {
-				field := self.session.Statement.model.Obj().GetFieldByName(fieldName)
+				field := self.Model.Obj().GetFieldByName(fieldName)
 				if field == nil {
 					//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-					log.Warnf("Sorting field %s not found on model %s", fieldName, self.model.String())
+					log.Warnf("Sorting field %s not found on model %s", fieldName, self.Model.String())
 					continue
 				}
 
@@ -634,7 +641,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 					//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 					//	}
 				} else if field.Store() && field.SQLType().Name != "" {
-					qualifield_name := query.inherits_join_calc(fieldName, self.session.Statement.model)
+					qualifield_name := query.inherits_join_calc(fieldName, self.Model)
 					if field.Type() == "boolean" {
 						qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 					}
@@ -702,10 +709,10 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 			order_by_elements = append(order_by_elements, lStr)
 
 		} else {
-			field := self.session.Statement.model.Obj().GetFieldByName(order_field)
+			field := self.Model.Obj().GetFieldByName(order_field)
 			if field == nil {
 				//raise ValueError(_("Sorting field %s not found on model %s") % (order_field, self._name))
-				log.Warnf("Sorting field %s not found on model %s", order_field, self.model.String())
+				log.Warnf("Sorting field %s not found on model %s", order_field, self.Model.String())
 				continue
 			}
 
@@ -720,7 +727,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 				//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
 				//	}
 			} else if field.Store() && field.SQLType().Name != "" {
-				qualifield_name := query.inherits_join_calc(order_field, self.session.Statement.model)
+				qualifield_name := query.inherits_join_calc(order_field, self.Model)
 				if field.Type() == "boolean" {
 					qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 				}
@@ -853,7 +860,7 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 	order_by_clause := ""
 
 	if self.OrderByClause != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0 {
-		order_by_elements := self.generate_order_by_inner(self.session.Statement.model.Table(), self.OrderByClause, query, false, nil)
+		order_by_elements := self.generate_order_by_inner(self.Model.Table(), self.OrderByClause, query, false, nil)
 		if len(order_by_elements) > 0 {
 			order_by_clause = strings.Join(order_by_elements, ",")
 		}
@@ -867,7 +874,7 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 }
 
 func (self *TStatement) generate_fields() []string {
-	table := self.model
+	table := self.Model
 	quoter := self.session.orm.dialect.Quoter()
 
 	var fields []string
@@ -888,7 +895,7 @@ func (self *TStatement) generate_fields() []string {
 			if self.AliasTableName != "" {
 				name = quote(self.AliasTableName)
 			} else {
-				name = quote(self.model.Table())
+				name = quote(self.Model.Table())
 			}
 			name += "." + quote(field.Name())
 		} else {

@@ -63,6 +63,7 @@ func StructToSlice(query string, st interface{}) (string, []interface{}, error) 
 	if err != nil {
 		return "", []interface{}{}, err
 	}
+
 	return query, args, nil
 }
 
@@ -130,6 +131,7 @@ func (db *DB) reflectNew(typ reflect.Type) reflect.Value {
 	} else {
 		cs.idx++
 	}
+
 	return cs.value.Index(cs.idx).Addr()
 }
 
@@ -140,6 +142,7 @@ func (db *DB) QueryContext(ctx context.Context, query string, args ...interface{
 	if err != nil {
 		return nil, err
 	}
+
 	rows, err := db.DB.QueryContext(ctx, query, args...)
 	hookCtx.End(ctx, nil, err)
 	if err := db.afterProcess(hookCtx); err != nil {
@@ -148,6 +151,7 @@ func (db *DB) QueryContext(ctx context.Context, query string, args ...interface{
 		}
 		return nil, err
 	}
+
 	return &Rows{rows, db}, nil
 }
 
@@ -162,6 +166,7 @@ func (db *DB) QueryMapContext(ctx context.Context, query string, mp interface{})
 	if err != nil {
 		return nil, err
 	}
+
 	return db.QueryContext(ctx, query, args...)
 }
 
@@ -176,6 +181,7 @@ func (db *DB) QueryStructContext(ctx context.Context, query string, st interface
 	if err != nil {
 		return nil, err
 	}
+
 	return db.QueryContext(ctx, query, args...)
 }
 
@@ -190,6 +196,7 @@ func (db *DB) QueryRowContext(ctx context.Context, query string, args ...interfa
 	if err != nil {
 		return &Row{nil, err}
 	}
+
 	return &Row{rows, nil}
 }
 
@@ -204,6 +211,7 @@ func (db *DB) QueryRowMapContext(ctx context.Context, query string, mp interface
 	if err != nil {
 		return &Row{nil, err}
 	}
+
 	return db.QueryRowContext(ctx, query, args...)
 }
 
@@ -218,6 +226,7 @@ func (db *DB) QueryRowStructContext(ctx context.Context, query string, st interf
 	if err != nil {
 		return &Row{nil, err}
 	}
+
 	return db.QueryRowContext(ctx, query, args...)
 }
 
@@ -238,6 +247,7 @@ func (db *DB) ExecMapContext(ctx context.Context, query string, mp interface{}) 
 	if err != nil {
 		return nil, err
 	}
+
 	return db.ExecContext(ctx, query, args...)
 }
 
@@ -252,6 +262,7 @@ func (db *DB) ExecStructContext(ctx context.Context, query string, st interface{
 	if err != nil {
 		return nil, err
 	}
+
 	return db.ExecContext(ctx, query, args...)
 }
 
@@ -262,11 +273,13 @@ func (db *DB) ExecContext(ctx context.Context, query string, args ...interface{}
 	if err != nil {
 		return nil, err
 	}
+
 	res, err := db.DB.ExecContext(ctx, query, args...)
 	hookCtx.End(ctx, res, err)
 	if err := db.afterProcess(hookCtx); err != nil {
 		return nil, err
 	}
+
 	return res, nil
 }
 
@@ -279,10 +292,12 @@ func (db *DB) beforeProcess(c *ContextHook) (context.Context, error) {
 	if db.NeedLogSQL(c.Ctx) {
 		//db.Logger.BeforeSQL(log.LogContext(*c))
 	}
+
 	ctx, err := db.hooks.BeforeProcess(c)
 	if err != nil {
 		return nil, err
 	}
+
 	return ctx, nil
 }
 
@@ -291,6 +306,7 @@ func (db *DB) afterProcess(c *ContextHook) error {
 	if db.NeedLogSQL(c.Ctx) {
 		//db.Logger.AfterSQL(log.LogContext(*c))
 	}
+
 	return err
 }
 

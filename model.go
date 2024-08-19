@@ -42,7 +42,7 @@ type (
 		// 获取继承的模型
 		// 用处:super 用于方便调用不同层级模型的方法/查询等
 		Super() IModel
-
+		Clone() (IModel, error)
 		// 初始化模型
 		// mapping -> init -> object
 		OnBuildModel() error
@@ -50,7 +50,9 @@ type (
 
 		// 包含指定表模型的事务 如若开启了事务这里非nil 反之亦然
 		Records() *TSession // new a orm records session for query
+		// 返回/配置当前会话事物
 		Tx(session ...*TSession) *TSession
+		Transaction() *TSession
 		Ctx(ctx ...*dataset.TRecordSet) *dataset.TRecordSet //Context
 		Osv() *TOsv
 		Obj() *TModelObject
@@ -119,6 +121,8 @@ type (
 		NameSearch(name string, domain *domain.TDomainNode, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
 		// TODO 未完成
+		BeforeSession(*TSession) (*TSession, error)
+		AfterSession(*TSession) (*TSession, error)
 		BeforeSetup() error
 		AfterSetup() error
 	}
@@ -129,33 +133,33 @@ type (
 	* 	方法命名规格 ："GetXXX","SetXXX","XXByXX"
 	 */
 	TModel struct {
-		// # 核心对象
-		super       IModel        // 继承的Model名称
-		modelType   reflect.Type  // # Model 反射类
-		modelValue  reflect.Value // # Model 反射值 供某些程序调用方法
-		orm         *TOrm
-		osv         *TOsv
-		obj         *TModelObject
-		context     *dataset.TRecordSet
-		transaction *TSession
+		super          IModel              // 继承的Model
+		modelType      reflect.Type        // Model 反射类
+		modelValue     reflect.Value       // Model 反射值 供某些程序调用方法
+		orm            *TOrm               //
+		osv            *TOsv               // 对象服务
+		obj            *TModelObject       //
+		context        *dataset.TRecordSet //
+		transaction    *TSession           //
+		name           string              // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
+		table          string              // mapping table name
+		description    string              // 描述
+		module         string              // 属于哪个模块所有
+		idField        string              // the field name which is the UID represent a record
+		recName        string              // the field name which is the name represent a record @examples: Name,Title,PartNo
+		recNamesSearch string              // names_search会搜索的字段
+		isCustomModel  bool                // 该Model是否是基Model,并非扩展Model
+		beforeSession  func(*TSession) error
+		afterSession   func(*TSession) error
 
-		name        string // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
-		table       string // mapping table name
-		description string // # 描述
-		module      string // # 属于哪个模块所有
-
-		idField string // the field name which is the UID represent a record
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
-		recName        string // the field name which is the name represent a record @examples: Name,Title,PartNo
-		recNamesSearch string // names_search会搜索的字段
-		_parent_name   string // #! 父表中的字段名称
-		_parent_store  bool   // #! 是否有父系关联 比如类目，菜单
-		_sequence      string //
-		_order         string // default order field for searching results
-		_auto          bool   // # True # create database backend
-		_transient     bool   // # 暂时的
-		isBase         bool   // #该Model是否是基Model,并非扩展Model
-
+		_parent_name  string // #! 父表中的字段名称
+		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
+		_sequence     string //
+		_order        string // default order field for searching results
+		_auto         bool   // # True # create database backend
+		_transient    bool   // # 暂时的
+		//_relate       bool
 	}
 )
 
@@ -202,12 +206,6 @@ super 是用来解决多重继承问题的，直接用类名调用父类方法�
 MRO 就是类的方法解析顺序表, 其实也就是继承父类方法时的顺序表。
 */
 func (self *TModel) Super() IModel {
-	/*//mod, err := self.Session().GetModel(self.GetName())
-	su, err := self.Orm().GetModel(self.super)
-	if err != nil {
-		log.Errf("create product record failed:%s", err.Error())
-	}
-	return su*/
 	return self.super
 }
 
@@ -218,46 +216,83 @@ func (self *TModel) Clone() (IModel, error) {
 		return nil, err
 	}
 	model.Ctx(self.context)
-	model.Tx(self.Tx())
+	model.Tx(self.transaction)
+	//model.Clone()
 	return model, nil
+}
+
+// TODO 废除因为继承的一致性冲突
+func (self *TModel) Osv() *TOsv {
+	return self.osv
+}
+
+func (self *TModel) Obj() *TModelObject {
+	return self.obj
+}
+
+// TODO 废除因为继承的一致性冲突
+func (self *TModel) Orm() *TOrm {
+	return self.orm
+}
+
+// Provide api to query records from cache or database
+func (self *TModel) Db() *TSession {
+	session := NewSession(self.orm)
+	/* 提供参考Model*/
+	session.Statement.Model = self.super
+	/* 从Model获取必要信息 */
+	return session.Model(self.String())
+}
+
+// Provide api to query records from cache or database
+func (self *TModel) Records() *TSession {
+	session := NewSession(self.orm)
+	/* 提供参考Model*/
+	session.Statement.Model = self.super
+	/* 从Model获取必要信息 */
+	return session.Model(self.String())
 }
 
 func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
-		self.transaction = session[0].Clone().Model(self.String())
-		return self.transaction
+		if s := session[0]; s != nil {
+			/* 提供参考Model*/
+			s.Statement.Model = self.super
+			/* 从Model获取必要信息 */
+			self.transaction = s.Model(self.String())
+			return self.transaction
+		}
 	}
 
 	if self.transaction == nil {
 		self.transaction = self.Records()
 	}
+
 	return self.transaction
 }
 
 // 上下文
-func (self *TModel) Ctx(ctx ...*dataset.TRecordSet) *dataset.TRecordSet {
-	if ctx != nil {
-		self.context = ctx[0]
-		return self.context
+func (self *TModel) Ctx(context ...*dataset.TRecordSet) *dataset.TRecordSet {
+	if len(context) > 0 {
+		if ctx := context[0]; ctx != nil {
+			self.context = ctx
+			return self.context
+		}
 	}
 
 	if self.context == nil {
 		self.context = dataset.NewRecordSet()
 	}
+
 	return self.context
+}
+
+func (self *TModel) Transaction() *TSession {
+	return self.transaction
 }
 
 func (self *TModel) Builder() *ModelBuilder {
 	return newModelBuilder(self.orm, self)
-}
-
-func (self *TModel) setOrm(o *TOrm) {
-	self.orm = o
-}
-
-func (self *TModel) setBaseModel(model *TModel) {
-	*self = *model
-	self._sequence = self.name + "_id_seq"
 }
 
 func (self *TModel) SetRecordName(fieldName string) {
@@ -416,33 +451,6 @@ func (self *TModel) IdField(field ...string) string {
 func (self *TModel) GetMethods() *TMethodsSet {
 	//TODO
 	return nil // self.methods
-}
-
-// TODO 废除因为继承的一致性冲突
-func (self *TModel) Osv() *TOsv {
-	return self.osv
-}
-
-func (self *TModel) Obj() *TModelObject {
-	return self.obj
-}
-
-// TODO 废除因为继承的一致性冲突
-func (self *TModel) Orm() *TOrm {
-	return self.orm
-}
-
-// Provide api to query records from cache or database
-func (self *TModel) Db() *TSession {
-	session := self.orm.NewSession()
-	session.Statement.model = self
-	return session
-}
-
-// Provide api to query records from cache or database
-func (self *TModel) Records() *TSession {
-	session := self.orm.NewSession()
-	return session.Model(self.String())
 }
 
 // """ Recompute the _inherit_fields mapping. """
@@ -617,7 +625,6 @@ func (self *TModel) __select_column_data() *dataset.TDataSet {
 func (self *TModel) _validate(vals map[string]interface{}) {
 	for key, val := range vals {
 		if f := self.GetFieldByName(key); f != nil && !f.IsRelatedField() {
-			//webgo.Debug("_Validate", key, val, f._type)
 			switch f.Type() {
 			case "boolean":
 				vals[key] = utils.ToBool(val)
@@ -639,5 +646,23 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 		}
 	}
 }
+
+func (self *TModel) BeforeSession(session *TSession) (*TSession, error) {
+	return session, nil
+}
+
+func (self *TModel) AfterSession(session *TSession) (*TSession, error) {
+	return session, nil
+}
+
 func (self *TModel) BeforeSetup() error { return nil }
 func (self *TModel) AfterSetup() error  { return nil }
+
+func (self *TModel) setOrm(o *TOrm) {
+	self.orm = o
+}
+
+func (self *TModel) setBaseModel(model *TModel) {
+	*self = *model
+	self._sequence = self.name + "_id_seq"
+}

@@ -123,7 +123,7 @@ func (self *TOrm) DriverName() string {
 
 // Ping tests if database is alive
 func (self *TOrm) Ping() error {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	log.Infof("Ping database %s@%s", self.config.DataSource.DbName, self.DriverName())
 	return session.Ping()
@@ -145,22 +145,18 @@ func (self *TOrm) FormatTimeZone(t time.Time) time.Time {
 
 // @classic_mode : 使用Model实例为基础
 func (self *TOrm) NewSession(classic_mode ...bool) *TSession {
-	session := &TSession{
-		db:  self.db,
-		orm: self,
-	}
+	session := NewSession(self)
 
 	if len(classic_mode) > 0 {
 		session.IsClassic = classic_mode[0]
 	}
 
-	session.init()
 	return session
 }
 
 // 使用Model实例为基础
 func (self *TOrm) Model(modelName string) *TSession {
-	session := self.NewSession()
+	session := NewSession(self)
 	session.IsAutoClose = true
 	return session.Model(modelName)
 }
@@ -181,11 +177,12 @@ func (self *TOrm) FormatTime(sqlTypeName string, t time.Time) (v interface{}) {
 // 同步更新Model 并返回同步后表 <字段>
 // region 区分相同Model名称来自哪个模块，等级
 func (self *TOrm) SyncModel(region string, models ...IModel) (modelNames []string, err error) {
-	if len(models) == 0 {
+	if models == nil {
 		return
 	}
 
-	session := self.NewSession()
+	session := NewSession(self)
+	defer session.Close()
 	session.Begin()
 
 	modelNames, err = session.SyncModel(region, models...)
@@ -269,21 +266,21 @@ func (self *TOrm) Connected() bool {
 }
 
 func (self *TOrm) IsIndexExist(tableName string, idxName string, unique bool) (bool, error) {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	return session.IsIndexExist(tableName, idxName, unique)
 }
 
 // If a table has any reocrd
 func (self *TOrm) IsTableEmpty(tableName string) (bool, error) {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	return session.IsEmpty(tableName)
 }
 
 // If a table is exist
 func (self *TOrm) IsTableExist(tableName string) (bool, error) {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	return session.IsExist(tableName)
 }
@@ -295,7 +292,7 @@ func (self *TOrm) IsExist(name string) bool {
 
 // 删除表
 func (self *TOrm) DropTables(names ...string) error {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 
 	err := session.Begin()
@@ -321,9 +318,10 @@ func (self *TOrm) DropTables(names ...string) error {
 // TODO 根据表依赖关系顺序创建表
 // CreateTables create tabls according bean
 func (self *TOrm) CreateTables(names ...string) error {
-	session := self.NewSession()
-	err := session.Begin()
+	session := NewSession(self)
 	defer session.Close()
+
+	err := session.Begin()
 	if err != nil {
 		return err
 	}
@@ -356,14 +354,14 @@ func (self *TOrm) CreateDatabase(name string) error {
 
 // build the indexes for model
 func (self *TOrm) CreateIndexes(modelName string) error {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	return session.CreateIndexes(modelName)
 }
 
 // build the uniques for model
 func (self *TOrm) CreateUniques(modelName string) error {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	return session.CreateUniques(modelName)
 }
@@ -400,14 +398,14 @@ func (self *TOrm) DBMetas() (map[string]IModel, error) {
 }
 
 func (self *TOrm) Query(sql string, params ...interface{}) (*TDataset, error) {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	return session.Query(sql, params...)
 }
 
 // Exec raw sql directly
 func (self *TOrm) Exec(sql string, params ...interface{}) (sql.Result, error) {
-	session := self.NewSession()
+	session := NewSession(self)
 	defer session.Close()
 	return session.Exec(sql, params...)
 }
@@ -427,7 +425,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 
 	res_model := newModel(model_name, "", model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
 	res_model.obj = model_object
-	res_model.isBase = false
+	res_model.isCustomModel = true
 
 	var (
 		err             error
@@ -710,6 +708,7 @@ func (self *TOrm) modelMetas(model IModel) (IModel, error) {
 	tableName := model.Table()
 	modelObject := self.osv.newObject(model.String())
 	model.GetBase().obj = modelObject
+	model.GetBase().isCustomModel = false
 
 	colSeq, fields, err := self.dialect.GetFields(self.context, tableName)
 	if err != nil {
@@ -888,9 +887,9 @@ func (self *TOrm) logExecSql(sql string, args []interface{}, executionBlock func
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			log.Infof("[SQL][%vms] %s [args] %v", execDuration.Microseconds(), sql, args)
+			log.Infof("[SQL][%d ms] %s [args] %v", execDuration.Microseconds(), sql, args)
 		} else {
-			log.Infof("[SQL][%vms] %s", execDuration.Microseconds(), sql)
+			log.Infof("[SQL][%d ms] %s", execDuration.Microseconds(), sql)
 		}
 		return res, err
 	} else {
@@ -904,9 +903,9 @@ func (self *TOrm) logQuerySql(sql string, args []interface{}, executionBlock fun
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			log.Infof("[SQL][%vms] %s [args] %v", execDuration.Microseconds(), sql, args)
+			log.Infof("[SQL][%d ms] %s [args] %v", execDuration.Microseconds(), sql, args)
 		} else {
-			log.Infof("[SQL][%vms] %s", execDuration.Microseconds(), sql)
+			log.Infof("[SQL][%d ms] %s", execDuration.Microseconds(), sql)
 		}
 		return res, err
 	} else {

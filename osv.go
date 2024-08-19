@@ -43,7 +43,6 @@ type (
 		DeletedField       string
 		VersionField       string
 		AutoIncrementField string
-
 		// SQL 参数
 		columnsSeq []string //TODO 存储COl名称考虑Remove
 		//columnsMap  map[string][]*Column
@@ -52,6 +51,7 @@ type (
 		//StoreEngine string
 
 		// object 属性
+		isCustomModel bool
 		uidFieldName  string
 		nameField     string
 		fields        sync.Map                           // map[string]IField                  // map[field]
@@ -63,7 +63,7 @@ type (
 		object_types  map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
 		defaultValues sync.Map                           // map[string]interface{}             // store the default values of model
 		fieldsLock    sync.RWMutex
-		relationsLock sync.RWMutex
+		//relationsLock sync.RWMutex
 		//defaultValuesLock sync.RWMutex
 		relatedFieldsLock sync.RWMutex
 		commonFieldsLock  sync.RWMutex
@@ -96,8 +96,6 @@ func (self *TModelObject) AddField(filed IField) {
 }
 
 func (self *TModelObject) GetRelations() *sync.Map {
-	self.relationsLock.RLock()
-	defer self.relationsLock.RUnlock()
 	return &self.relations
 }
 
@@ -404,11 +402,10 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 				}
 	*/
 	obj.mappingMethod(model)
+	obj.isCustomModel = model.isCustomModel
 	obj.uidFieldName = model.idField
 	obj.nameField = model.recName
-	//self.modelsLock.Lock()
 	self.models.Store(model.name, obj)
-	//self.modelsLock.Unlock()
 	return nil
 }
 
@@ -488,23 +485,10 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 }
 
 func (self *TOsv) RemoveModel(name string) {
-	//self.modelsLock.Lock()
-	//delete(self.models, name)
-	//self.modelsLock.RUnlock()
 	self.models.Delete(name)
 }
 
 func (self *TOsv) GetModels() []string {
-	/*
-		models = make([]string, len(self.models))
-
-		idx := 0
-		for name := range self.models {
-			models[idx] = name
-			idx++
-		}
-	*/
-
 	models := make([]string, 0)
 	self.models.Range(func(key, value any) bool {
 		models = append(models, key.(string))
@@ -528,14 +512,43 @@ func (self *TOsv) NewModel(name string) (model *TModel) {
 	return
 }
 
+func (self *TOsv) Models() map[string]*TModelObject {
+	m := make(map[string]*TModelObject)
+	self.models.Range(func(key, value any) bool {
+		m[key.(string)] = value.(*TModelObject)
+		return true
+	})
+	return m
+}
+
+func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error) {
+	if model == "" {
+		return nil, errors.New("Must enter a model name!")
+	}
+
+	mod := self.getModelByModule(region, model)
+	if mod.IsValid() && !mod.IsNil() {
+		if m, ok := mod.Interface().(IModel); ok {
+			return m, nil
+		}
+
+		log.Panicf(`Model %s@%s is not a standard orm.IModel type,
+		please check the name of Fields and Methods,make sure they are correct and not same each other`, model, region)
+	}
+
+	return nil, fmt.Errorf("Model %s@%s is not a standard model type of this system", model, region)
+}
+
 // TODO　优化更简洁
 // 每次GetModel都会激活初始化对象
 func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TModelObject, modelName string) {
 	if m, ok := val.Interface().(IModel); ok {
 		// NOTE <以下代码严格遵守执行顺序>
 		model := newModel(modelName, "", val, atype) //self.newModel(sess, model)
+		model.isCustomModel = obj.isCustomModel
 		model.idField = obj.uidFieldName
 		model.recName = obj.nameField
+		model.super = m /* 保存当前模型到ORM.TModel里 */
 		model.obj = obj
 		model.osv = self
 		model.orm = self.orm
@@ -588,31 +601,4 @@ func (self *TOsv) getModelByMethod(model string, method string) (value reflect.V
 	}
 
 	return
-}
-
-func (self *TOsv) Models() map[string]*TModelObject {
-	m := make(map[string]*TModelObject)
-	self.models.Range(func(key, value any) bool {
-		m[key.(string)] = value.(*TModelObject)
-		return true
-	})
-	return m
-}
-
-func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error) {
-	if model == "" {
-		return nil, errors.New("Must enter a model name!")
-	}
-
-	mod := self.getModelByModule(region, model)
-	if mod.IsValid() && !mod.IsNil() {
-		if m, ok := mod.Interface().(IModel); ok {
-			return m, nil
-		}
-
-		log.Panicf(`Model %s@%s is not a standard orm.IModel type,
-		please check the name of Fields and Methods,make sure they are correct and not same each other`, model, region)
-	}
-
-	return nil, fmt.Errorf("Model %s@%s is not a standard model type of this system", model, region)
 }

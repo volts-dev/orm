@@ -33,7 +33,8 @@ func (self *TSession) Commit() error {
 	}
 
 	/* 关闭事务 */
-	self.Statement.model.GetBase().transaction = nil
+	//BUG 导致Model nil
+	// self.Statement.Model.GetBase().transaction = nil
 	// TODO 是否重置Session
 	return nil
 }
@@ -49,6 +50,7 @@ func (self *TSession) Rollback(e error) error {
 			return newSessionError("", e, err)
 		}
 	}
+
 	return newSessionError("", e)
 }
 

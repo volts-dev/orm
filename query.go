@@ -22,8 +22,7 @@ type (
 	TQuery struct {
 		// holds the list of tables joined using default JOIN.
 		// the table names are stored double-quoted (backwards compatibility)
-		tables []string
-
+		tables              []string
 		where_clause        []string
 		where_clause_params []interface{}
 		joins               map[string][]*utils.TStringList
@@ -82,19 +81,21 @@ func NewQuery(tables []string, where_clause []string, params []interface{}, join
 
 // Returns (query_from, query_where, query_params).
 func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams []interface{}) {
-	tables_to_process := self.tables
 	self.alias_mapping = self.getAliasMapping()
+
+	var table_alias string
+	var has bool
+	tables_to_process := self.tables
 	from_clause := make([]string, 0)
 	from_params := make([]interface{}, 0)
-
 	for pos, table := range tables_to_process {
 		if pos > 0 {
 			from_clause = append(from_clause, ",")
 		}
 
 		from_clause = append(from_clause, table)
-		_, table_alias := get_alias_from_query(table)
-		if _, has := self.joins[table_alias]; has {
+		_, table_alias = get_alias_from_query(table)
+		if _, has = self.joins[table_alias]; has {
 			self.addJoinsForTable(table_alias, tables_to_process, from_clause, from_params)
 		}
 	}
@@ -307,11 +308,12 @@ func (self *TQuery) _get_table_aliases() (aliases []string) {
 }
 
 // 获得表别名枚举
-func (self *TQuery) getAliasMapping() (mapping map[string]string) {
-	mapping = make(map[string]string)
+func (self *TQuery) getAliasMapping() map[string]string {
+	mapping := make(map[string]string)
+	var statement string
 	for _, table := range self.tables {
-		_, statement := get_alias_from_query(table)
+		_, statement = get_alias_from_query(table)
 		mapping[statement] = table
 	}
-	return
+	return mapping
 }

@@ -93,7 +93,7 @@ func (self *TOne2OneField) Init(ctx *TTagContext) { //comodel_name string, inver
 
 	parentModel, err := ctx.Orm.GetModel(modelName)
 	if err != nil || parentModel == nil {
-		log.Fatalf("field One2One %s@%s must including model %s name!", field.Name(), model.String(), modelName)
+		log.Fatalf("field One2One %s@%s must including model name %s registered in orm!", field.Name(), model.String(), modelName)
 	}
 
 	var (
@@ -391,8 +391,20 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 }
 
 func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
-	switch v := ctx.Value.(type) {
+	value := ctx.Value
+
+	/* 读取默认 */
+	if utils.IsBlank(value) {
+		value = ctx.Field.Default()
+	}
+
+	switch v := value.(type) {
 	case string:
+		/* 空字符串不进行Name搜索 */
+		if v == "" {
+			return nil
+		}
+
 		// 处理值为名称转为ID
 		model, err := ctx.Model.Orm().GetModel(self.RelateModelName())
 		if err != nil {
@@ -405,10 +417,10 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 		}
 
 		if ds.Count() > 0 {
-			ctx.Value = ds.Record().GetByField(model.IdField())
+			ctx.SetValue(ds.Record().GetByField(model.IdField()))
 		} else {
 			if id, has := ctx.Session.CacheNameIds[v]; has {
-				ctx.Value = id
+				ctx.SetValue(id)
 				break
 			}
 
@@ -426,7 +438,8 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 						return err
 					}
 
-					ctx.Value = ids[0]
+					ctx.SetValue(ids[0])
+
 					if ctx.Session.CacheNameIds == nil {
 						ctx.Session.CacheNameIds = make(map[string]any)
 					}
@@ -437,7 +450,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 		}
 	case []interface{}:
 		if len(v) > 0 {
-			ctx.Value = v[0]
+			ctx.SetValue(v[0])
 		}
 	default:
 		// 不修改
@@ -524,7 +537,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 			rel,
 			id1, sqlType,
 			id2, sqlType, id1, id2,
-			rel, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.ModelName(), rel),
+			rel, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.model_name, rel),
 			rel, id1,
 			rel, id2)
 		_, err := orm.Exec(query)
@@ -535,7 +548,8 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 		self.update_db_foreign_keys(ctx)
 
 		// 新建模型
-		model_val := reflect.Indirect(reflect.ValueOf(new(TModel)))
+		relModel := new(TModel)
+		model_val := reflect.Indirect(reflect.ValueOf(relModel))
 		model_type := model_val.Type()
 		model, err := orm.modelMetas(newModel(fld.MiddleModelName(), rel, model_val, model_type))
 		if err != nil {
@@ -609,20 +623,21 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 
 // write relate data to the reference table
 func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
-	ids := make([]interface{}, 0)
+	/* 空值不处理 */
+	if ctx.Value == nil {
+		return nil
+	}
+
+	ids := make([]any, 0)
 
 	// TODO　更多类型
 	// 支持一下几种M2M数据类型
 	switch v := ctx.Value.(type) {
 	case []int:
-		for _, v := range v {
-			ids = append(ids, v)
-		}
+		ids = utils.ToAnySlice(v...)
 	case []int64:
-		for _, v := range v {
-			ids = append(ids, v)
-		}
-	case []interface{}:
+		ids = utils.ToAnySlice(v...)
+	case []any:
 		ids = v
 	default:
 		log.Errf("M2M field name <%s> could not support this type of value %v", ctx.Field.Name(), ctx.Value)
@@ -649,6 +664,7 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 				            cond=" AND ".join(clauses) if clauses else "1=1",
 				        )
 		*/
+
 		// TODO 读比写快 不删除原有数据 直接读取并对比再添加
 		// unlink all the relate record on the ref. table
 		err := self.unlink_all(ctx, ids)
@@ -718,7 +734,7 @@ func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) e
 
 	// 提交修改
 	session := ctx.Session // orm.NewSession()
-	_, err := session.Exec(query, append(ids, ctx.Ids)...)
+	_, err := session.Exec(query, append(ids, ctx.Ids...)...)
 	if err != nil {
 		return err
 	}

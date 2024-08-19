@@ -1000,8 +1000,8 @@ func (db *postgres) CreateTableSql(model IModel, storeEngine, charset string) st
 		b.WriteString(")")
 	}
 	b.WriteString(")")
-
 	b.WriteString("; ")
+
 	if model.GetTableDescription() != "" {
 		// support schema.table -> "schema"."table"
 		b.WriteString(fmt.Sprintf("COMMENT ON TABLE %s IS '%s'; ", quoter.Quote(tableName), model.GetTableDescription()))

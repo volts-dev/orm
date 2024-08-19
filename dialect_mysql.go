@@ -577,9 +577,9 @@ func (db *mysql) GetFields(ctx context.Context, tableName string) ([]string, map
 
 		if !col.IsDefaultEmpty() {
 			if !alreadyQuoted && col.SQLType().IsText() {
-				col.Base()._attr_default = "'" + col.Default() + "'"
+				col.Base()._attr_default = "'" + utils.ToString(col.Default()) + "'"
 			} else if col.SQLType().IsTime() && !alreadyQuoted && col.Default() != "CURRENT_TIMESTAMP" {
-				col.Base()._attr_default = "'" + col.Default() + "'"
+				col.Base()._attr_default = "'" + utils.ToString(col.Default()) + "'"
 			}
 		}
 
