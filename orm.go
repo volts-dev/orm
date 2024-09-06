@@ -204,8 +204,8 @@ func (self *TOrm) HasModel(name string) bool {
 }
 
 // get model object from the orm which registed
-func (self *TOrm) GetModel(modelName string, origin ...string) (model IModel, err error) {
-	return self.osv.GetModel(modelName, origin...)
+func (self *TOrm) GetModel(modelName string, opts ...ModelOption) (model IModel, err error) {
+	return self.osv.GetModel(modelName, opts...)
 }
 
 // return the mane of all models
@@ -423,7 +423,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 	model_alt_name := model_name // model别名,当Model使用别名Tag时作用
 	model_object := self.osv.newObject(model_name)
 
-	res_model := newModel(model_name, "", model_value, model_type) // 不检测是否已经存在于ORM中 直接替换旧
+	res_model := newModel(model_name, "", model_value, model_type, nil) // 不检测是否已经存在于ORM中 直接替换旧
 	res_model.obj = model_object
 	res_model.isCustomModel = true
 
@@ -741,7 +741,7 @@ func (self *TOrm) modelMetas(model IModel) (IModel, error) {
 			field.Base().isColumn = true
 			// 数据库的字段都是存储类型
 			field.Base()._attr_store = true
-			model.AddField(field)
+			model.addField(field)
 		}
 
 	}

@@ -861,13 +861,16 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 			Ids:     ids,
 		}
 
-		if utils.IsBlank(value) && !field.IsDefaultEmpty() {
-			if err := field.DefaultFunc(ctx); err != nil {
-				return nil, multiSql, err
-			}
+		if utils.IsBlank(value) {
+			if defaultFunc := field.DefaultFunc(); defaultFunc != nil {
+				//if utils.IsBlank(value) && !field.IsDefaultEmpty() {
+				if err := defaultFunc(ctx); err != nil {
+					return nil, multiSql, err
+				}
 
-			datas[name] = []any{ctx.value}
-			continue
+				datas[name] = []any{ctx.value}
+				continue
+			}
 		}
 
 		if field.Store() {

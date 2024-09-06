@@ -617,7 +617,7 @@ func (db *mysql) GetModels(ctx context.Context) ([]IModel, error) {
 		// new a base model instance
 		model_val := reflect.Indirect(reflect.ValueOf(new(TModel)))
 		model_type := model_val.Type()
-		model := newModel("", name, model_val, model_type)
+		model := newModel("", name, model_val, model_type, nil)
 		if comment != nil {
 			model.GetBase().description = *comment
 		}

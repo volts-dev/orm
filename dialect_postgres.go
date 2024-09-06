@@ -1341,7 +1341,7 @@ func (db *postgres) GetModels(ctx context.Context) ([]IModel, error) {
 		model_type := model_val.Type()
 
 		// new a base model instance
-		model := newModel("", tableName, model_val, model_type)
+		model := newModel("", tableName, model_val, model_type, nil)
 		models = append(models, model)
 	}
 

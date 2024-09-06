@@ -1,10 +1,10 @@
 package orm
 
-func (self *TSession) Model(model string, region ...string) *TSession {
+func (self *TSession) Model(model string, options ...ModelOption) *TSession {
 	// #如果Session已经预先指定Model
 	if self.Statement.Model == nil || (self.Statement.Model != nil && self.Statement.Model.String() != model) {
 		var err error
-		self.Statement.Model, err = self.orm.GetModel(model, region...)
+		self.Statement.Model, err = self.orm.GetModel(model, options...)
 		if err != nil {
 			log.Panicf(err.Error())
 			self.IsDeprecated = true

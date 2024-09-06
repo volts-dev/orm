@@ -1,13 +1,13 @@
 package orm
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sync"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
-
 	"github.com/volts-dev/utils"
 )
 
@@ -28,13 +28,13 @@ var (
 type (
 	// 基础Model接口
 	IModel interface {
+		// Pravite Interface:
+		// retrieve the lines in the comodel
 		// --------------------- private ---------------------
 		setOrm(o *TOrm)
 		setBaseModel(model *TModel) //赋值初始化BaseModel
 		relations_reload()
-		// Pravite Interface:
-		// retrieve the lines in the comodel
-		//getRelate(*TFieldContext) (*dataset.TDataSet, error)
+		addField(field IField)
 
 		// --------------------- public ---------------------
 		String() string // model name in orm like "base.user"
@@ -42,23 +42,23 @@ type (
 		// 获取继承的模型
 		// 用处:super 用于方便调用不同层级模型的方法/查询等
 		Super() IModel
-		Clone() (IModel, error)
+		Clone(options ...ModelOption) (IModel, error)
 		// 初始化模型
 		// mapping -> init -> object
 		OnBuildModel() error
 		OnBuildFields() error
 
 		// 包含指定表模型的事务 如若开启了事务这里非nil 反之亦然
-		Records() *TSession // new a orm records session for query
-		// 返回/配置当前会话事物
-		Tx(session ...*TSession) *TSession
-		Transaction() *TSession
-		Ctx(ctx ...*dataset.TRecordSet) *dataset.TRecordSet //Context
+		Records() *TSession                // new a orm records session for query
+		Tx(session ...*TSession) *TSession // 返回/配置当前会话事物
+		Transaction() *TSession            //
 		Osv() *TOsv
 		Obj() *TModelObject
 		Orm() *TOrm
+		Options(Option ...ModelOption) *ModelOptions
 		//fields_get(allfields map[string]*TField, attributes []string, context map[string]string) (fields map[string]interface{})
 		//check_access_rights(operation string) bool
+		Ctx(...context.Context) context.Context //Context
 		GetIndexes() map[string]*TIndex
 		GetBase() *TModel // get the base model object
 		GetColumnsSeq() []string
@@ -69,7 +69,6 @@ type (
 		GetDefaultByName(fieldName string) (value interface{})
 		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
 
-		AddField(field IField)
 		// return the model name
 		//GetModelName() string
 		//GetTableName() string
@@ -116,6 +115,7 @@ type (
 		Load(field []string, records ...any) (ids []any, err error)
 		NameCreate(name string) (*dataset.TDataSet, error)
 		NameGet(ids []interface{}) (*dataset.TDataSet, error)
+		DefaultGet(...string) (map[string]any, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
 		NameSearch(name string, domain *domain.TDomainNode, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
@@ -126,6 +126,11 @@ type (
 		BeforeSetup() error
 		AfterSetup() error
 	}
+	ModelOption  func(*ModelOptions)
+	ModelOptions struct {
+		Module  string // 属于哪个模块所有
+		Context context.Context
+	}
 
 	// 所有成员都是Unexportable 小写,避免映射JSON,XML,ORM等时发生错误
 	/*
@@ -133,22 +138,23 @@ type (
 	* 	方法命名规格 ："GetXXX","SetXXX","XXByXX"
 	 */
 	TModel struct {
-		super          IModel              // 继承的Model
-		modelType      reflect.Type        // Model 反射类
-		modelValue     reflect.Value       // Model 反射值 供某些程序调用方法
-		orm            *TOrm               //
-		osv            *TOsv               // 对象服务
-		obj            *TModelObject       //
-		context        *dataset.TRecordSet //
-		transaction    *TSession           //
-		name           string              // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
-		table          string              // mapping table name
-		description    string              // 描述
-		module         string              // 属于哪个模块所有
-		idField        string              // the field name which is the UID represent a record
-		recName        string              // the field name which is the name represent a record @examples: Name,Title,PartNo
-		recNamesSearch string              // names_search会搜索的字段
-		isCustomModel  bool                // 该Model是否是基Model,并非扩展Model
+		super      IModel        // 继承的Model
+		modelType  reflect.Type  // Model 反射类
+		modelValue reflect.Value // Model 反射值 供某些程序调用方法
+		orm        *TOrm         //
+		osv        *TOsv         // 对象服务
+		obj        *TModelObject //
+		//context        *dataset.TRecordSet //
+		options     *ModelOptions
+		transaction *TSession //
+		name        string    // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
+		table       string    // mapping table name
+		description string    // 描述
+		//module         string    // 属于哪个模块所有
+		idField        string // the field name which is the UID represent a record
+		recName        string // the field name which is the name represent a record @examples: Name,Title,PartNo
+		recNamesSearch string // names_search会搜索的字段
+		isCustomModel  bool   // 该Model是否是基Model,并非扩展Model
 		beforeSession  func(*TSession) error
 		afterSession   func(*TSession) error
 
@@ -160,13 +166,26 @@ type (
 		_auto         bool   // # True # create database backend
 		_transient    bool   // # 暂时的
 		//_relate       bool
+
 	}
 )
+
+func WithContext(ctx context.Context) ModelOption {
+	return func(opts *ModelOptions) {
+		opts.Context = ctx
+	}
+}
+
+func WithModuleName(name string) ModelOption {
+	return func(opts *ModelOptions) {
+		opts.Module = name
+	}
+}
 
 // 新建模型 不带其他信息
 // @ Session
 // @ Registry
-func newModel(name, tableName string, modelValue reflect.Value, modelType reflect.Type) (model *TModel) {
+func newModel(name, tableName string, modelValue reflect.Value, modelType reflect.Type, options *ModelOptions) (model *TModel) {
 	if len(name) > 0 && len(tableName) == 0 {
 		tableName = fmtTableName(name)
 	}
@@ -175,12 +194,20 @@ func newModel(name, tableName string, modelValue reflect.Value, modelType reflec
 		name = fmtModelName(tableName)
 	}
 
+	if options == nil {
+		options = &ModelOptions{
+			Context: context.Background(),
+		}
+	} else if options.Context == nil {
+		options.Context = context.Background()
+	}
+
 	model = &TModel{
 		name:           name,
 		table:          tableName,
 		modelType:      modelType,
 		modelValue:     modelValue,
-		context:        dataset.NewRecordSet(),
+		options:        options,
 		recNamesSearch: "name",
 		_order:         "id",
 		_auto:          true,
@@ -210,14 +237,14 @@ func (self *TModel) Super() IModel {
 }
 
 // 克隆一个新的Model包含现有事物Tx和Context
-func (self *TModel) Clone() (IModel, error) {
+func (self *TModel) Clone(options ...ModelOption) (IModel, error) {
 	model, err := self.osv.GetModel(self.String())
 	if err != nil {
 		return nil, err
 	}
-	model.Ctx(self.context)
-	model.Tx(self.transaction)
-	//model.Clone()
+	model.Ctx(self.options.Context)
+	//model.Tx(self.transaction.Clone())
+	model.Options(options...)
 	return model, nil
 }
 
@@ -244,15 +271,6 @@ func (self *TModel) Db() *TSession {
 	return session.Model(self.String())
 }
 
-// Provide api to query records from cache or database
-func (self *TModel) Records() *TSession {
-	session := NewSession(self.orm)
-	/* 提供参考Model*/
-	session.Statement.Model = self.super
-	/* 从Model获取必要信息 */
-	return session.Model(self.String())
-}
-
 func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
 		if s := session[0]; s != nil {
@@ -272,19 +290,15 @@ func (self *TModel) Tx(session ...*TSession) *TSession {
 }
 
 // 上下文
-func (self *TModel) Ctx(context ...*dataset.TRecordSet) *dataset.TRecordSet {
+func (self *TModel) Ctx(context ...context.Context) context.Context {
 	if len(context) > 0 {
 		if ctx := context[0]; ctx != nil {
-			self.context = ctx
-			return self.context
+			self.options.Context = ctx
+			return self.options.Context
 		}
 	}
 
-	if self.context == nil {
-		self.context = dataset.NewRecordSet()
-	}
-
-	return self.context
+	return self.options.Context
 }
 
 func (self *TModel) Transaction() *TSession {
@@ -293,6 +307,15 @@ func (self *TModel) Transaction() *TSession {
 
 func (self *TModel) Builder() *ModelBuilder {
 	return newModelBuilder(self.orm, self)
+}
+
+// Provide api to query records from cache or database
+func (self *TModel) Records() *TSession {
+	session := NewSession(self.orm)
+	/* 提供参考Model*/
+	session.Statement.Model = self.super
+	/* 从Model获取必要信息 */
+	return session.Model(self.String())
 }
 
 func (self *TModel) SetRecordName(fieldName string) {
@@ -349,7 +372,7 @@ func (self *TModel) GetBase() *TModel {
 }
 
 func (self *TModel) Module() string {
-	return self.module
+	return self.options.Module
 }
 
 // return the method object of model by name
@@ -407,6 +430,18 @@ func (self *TModel) String() string {
 	return self.name
 }
 
+func (self *TModel) Options(options ...ModelOption) *ModelOptions {
+	if self.options == nil {
+		self.options = &ModelOptions{}
+	}
+
+	for _, opt := range options {
+		opt(self.options)
+	}
+
+	return self.options
+}
+
 func (self *TModel) GetDefault() *sync.Map {
 	return self.obj.GetDefault()
 }
@@ -428,11 +463,6 @@ func (self *TModel) GetFields() []IField {
 	return self.obj.GetFields()
 }
 
-func (self *TModel) AddField(field IField) {
-	field.Base().model_name = self.name
-	self.obj.AddField(field)
-}
-
 func (self *TModel) NameField(field ...string) string {
 	if len(field) > 0 {
 		self.recName = field[0]
@@ -451,6 +481,31 @@ func (self *TModel) IdField(field ...string) string {
 func (self *TModel) GetMethods() *TMethodsSet {
 	//TODO
 	return nil // self.methods
+}
+
+func (self *TModel) BeforeSession(session *TSession) (*TSession, error) {
+	return session, nil
+}
+
+func (self *TModel) AfterSession(session *TSession) (*TSession, error) {
+	return session, nil
+}
+
+func (self *TModel) BeforeSetup() error { return nil }
+func (self *TModel) AfterSetup() error  { return nil }
+
+func (self *TModel) addField(field IField) {
+	field.Base().model_name = self.name
+	self.obj.AddField(field)
+}
+
+func (self *TModel) setOrm(o *TOrm) {
+	self.orm = o
+}
+
+func (self *TModel) setBaseModel(model *TModel) {
+	*self = *model
+	self._sequence = self.name + "_id_seq"
 }
 
 // """ Recompute the _inherit_fields mapping. """
@@ -645,24 +700,4 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 			}
 		}
 	}
-}
-
-func (self *TModel) BeforeSession(session *TSession) (*TSession, error) {
-	return session, nil
-}
-
-func (self *TModel) AfterSession(session *TSession) (*TSession, error) {
-	return session, nil
-}
-
-func (self *TModel) BeforeSetup() error { return nil }
-func (self *TModel) AfterSetup() error  { return nil }
-
-func (self *TModel) setOrm(o *TOrm) {
-	self.orm = o
-}
-
-func (self *TModel) setBaseModel(model *TModel) {
-	*self = *model
-	self._sequence = self.name + "_id_seq"
 }

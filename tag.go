@@ -464,7 +464,7 @@ func tag_deleted(ctx *TTagContext) error {
 func tag_ver(ctx *TTagContext) error {
 	fld := ctx.Field
 	fld.Base().isVersion = true
-	fld.Base()._attr_default = "1"
+	fld.Base()._attr_default = 1
 	return nil
 }
 
@@ -769,7 +769,7 @@ func tag_table_extends(ctx *TTagContext) error {
 
 				// db:读写锁
 				//model.GetBase().table.AddColumn(lNewFld.Column())
-				model.GetBase().AddField(lNewFld)
+				model.GetBase().addField(lNewFld)
 
 				if lNewFld.IsAutoIncrement() {
 					model.Obj().AutoIncrementField = lNewFld.Name()

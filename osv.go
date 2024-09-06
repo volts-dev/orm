@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -196,6 +197,20 @@ func (self *TModelObject) SetCommonFieldByName(fieldName string, tableName strin
 	return
 }
 
+func (self *TModelObject) mappingMethod(model *TModel) {
+	// @添加方法映射到对象里
+	var method reflect.Method
+	for i := 0; i < model.modelType.NumMethod(); i++ {
+		method = model.modelType.Method(i)
+		// 参数验证func(self,handler)
+		//lMethod.Type.In(1).Elem().String() == handlerType.String()
+
+		//if lMethod.Type.NumIn() == 2 {
+		self.methods[method.Name] = model.modelType // 添加方法对应的Object
+		//}
+	}
+}
+
 // 创建一个Objects Services
 func newOsv(orm *TOrm) (osv *TOsv) {
 	osv = &TOsv{
@@ -290,11 +305,9 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	// 初始化模块
 	// 重建一个全新model以执行init
 	val := reflect.New(model.modelType)
-	self.initObject(val, model.modelType, model.obj, model.String())
-	if m, ok := val.Interface().(IModel); ok {
-		if err := m.OnBuildFields(); err != nil {
-			return err
-		}
+	m := self.initObject(val, model.modelType, model.obj, model.String(), &ModelOptions{Module: region})
+	if err := m.OnBuildFields(); err != nil {
+		return err
 	}
 
 	//获得Object 检查是否存在，不存在则创建
@@ -409,24 +422,10 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	return nil
 }
 
-func (self *TModelObject) mappingMethod(model *TModel) {
-	// @添加方法映射到对象里
-	var method reflect.Method
-	for i := 0; i < model.modelType.NumMethod(); i++ {
-		method = model.modelType.Method(i)
-		// 参数验证func(self,handler)
-		//lMethod.Type.In(1).Elem().String() == handlerType.String()
-
-		//if lMethod.Type.NumIn() == 2 {
-		self.methods[method.Name] = model.modelType // 添加方法对应的Object
-		//}
-	}
-}
-
 // 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
 func (self *TOsv) GetMethod(modelName, methodName string) (method *TMethod) {
-	modelVal := self.getModelByMethod(modelName, methodName)
+	modelVal := self.getModelByMethod(nil, modelName, methodName)
 	if modelVal.IsValid() { //|| !lM.IsNil()
 		// 转换method
 		// #必须使用Type才能获取到方法原型已经参数
@@ -445,14 +444,21 @@ func (self *TOsv) HasModel(name string) (has bool) {
 }
 
 // TODO  TEST 测试是否正确使用路劲作为Modul
-func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
+func (self *TOsv) GetModel(name string, opts ...ModelOption) (IModel, error) {
 	if name == "" {
 		return nil, errors.New("Model name must not blank!")
 	}
 
-	module_name := "" // "web" // 默认取Web模块注册的Models
-	if len(module) > 0 && utils.Trim(module[0]) != "" {
-		module_name = utils.Trim(module[0])
+	options := &ModelOptions{
+		Context: context.Background(),
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// 默认取Web模块注册的Models
+	if len(options.Module) > 0 && utils.Trim(options.Module) != "" {
+		options.Module = utils.Trim(options.Module)
 	} else {
 		//TODO 实现智能选
 		/*
@@ -472,16 +478,20 @@ func (self *TOsv) GetModel(name string, module ...string) (IModel, error) {
 		*/
 	}
 
-	model, err := self.GetModelByModule(module_name, fmtModelName(name))
+	model, err := self.GetModelByModule(fmtModelName(name), options)
 	if err != nil {
 		return nil, err
 	}
 
-	if m, ok := model.(IModel); ok {
-		return m, nil
-	}
+	model.Options(opts...)
+	return model, nil
+	/*
+		if m, ok := model.(IModel); ok {
+			return m, nil
+		}
 
-	return nil, errors.New("Model is not a interface of IModel")
+		return nil, errors.New("Model is not a interface of IModel")
+	*/
 }
 
 func (self *TOsv) RemoveModel(name string) {
@@ -521,30 +531,25 @@ func (self *TOsv) Models() map[string]*TModelObject {
 	return m
 }
 
-func (self *TOsv) GetModelByModule(region, model string) (res IModel, err error) {
+func (self *TOsv) GetModelByModule(model string, options *ModelOptions) (res IModel, err error) {
 	if model == "" {
 		return nil, errors.New("Must enter a model name!")
 	}
 
-	mod := self.getModelByModule(region, model)
-	if mod.IsValid() && !mod.IsNil() {
-		if m, ok := mod.Interface().(IModel); ok {
-			return m, nil
-		}
-
-		log.Panicf(`Model %s@%s is not a standard orm.IModel type,
-		please check the name of Fields and Methods,make sure they are correct and not same each other`, model, region)
+	if mod := self.getModelByModule(model, options); mod != nil {
+		return mod, nil
 	}
 
-	return nil, fmt.Errorf("Model %s@%s is not a standard model type of this system", model, region)
+	return nil, fmt.Errorf(`Model %s@%s is not a standard orm.IModel type,
+		please check the name of Fields and Methods,make sure they are correct and not same each other`, model, options.Module)
 }
 
 // TODO　优化更简洁
 // 每次GetModel都会激活初始化对象
-func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TModelObject, modelName string) {
+func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TModelObject, modelName string, options *ModelOptions) IModel {
 	if m, ok := val.Interface().(IModel); ok {
 		// NOTE <以下代码严格遵守执行顺序>
-		model := newModel(modelName, "", val, atype) //self.newModel(sess, model)
+		model := newModel(modelName, "", val, atype, nil) //self.newModel(sess, model)
 		model.isCustomModel = obj.isCustomModel
 		model.idField = obj.uidFieldName
 		model.recName = obj.nameField
@@ -553,12 +558,17 @@ func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TModelO
 		model.osv = self
 		model.orm = self.orm
 		model.relations_reload()
+		model.options = options
 		m.setBaseModel(model)
+
+		return m
 	}
+
+	return nil
 }
 
 // #module 可以为空取默认
-func (self *TOsv) getModelByModule(region, model string) (value reflect.Value) {
+func (self *TOsv) getModelByModule(model string, options *ModelOptions) IModel {
 	var (
 		region_name string
 		module_map  map[string]reflect.Type
@@ -571,31 +581,30 @@ func (self *TOsv) getModelByModule(region, model string) (value reflect.Value) {
 			//if obj, has := self.models[model]; has {
 			// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
 			for region_name, module_map = range obj.object_types {
-				if region_name == region {
+				if region_name == options.Module {
 					break
 				}
 			}
 
 			if model_type, has = module_map[model]; has {
-				value = reflect.New(model_type) // 创建对象
-				self.initObject(value, model_type, obj, model)
-				return value
+				value := reflect.New(model_type) // 创建对象
+				return self.initObject(value, model_type, obj, model, options)
 			}
 		}
 
 	}
 
-	return
+	return nil
 }
 
 // TODO 继承类Model 的方法调用顺序提取
-func (self *TOsv) getModelByMethod(model string, method string) (value reflect.Value) {
+func (self *TOsv) getModelByMethod(options *ModelOptions, model string, method string) (value reflect.Value) {
 	if v, has := self.models.Load(model); has {
 		if obj, ok := v.(*TModelObject); ok {
 			if typ, has := obj.methods[utils.TitleCasedName(method)]; has {
 				value = reflect.New(typ)
-				self.initObject(value, typ, obj, model)
-				return
+				self.initObject(value, typ, obj, model, options)
+				return value
 			}
 		}
 	}

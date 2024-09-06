@@ -389,9 +389,9 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 				return "", err
 			}
 		} else {
-			if field.SQLType().IsText() {
-				dv = quoter.Quote(dv)
-			}
+			///if field.SQLType().IsText() {
+			//	dv = quoter.Quote(dv)
+			//}
 			if _, err := bd.WriteString(dv); err != nil {
 				return "", err
 			}

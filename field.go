@@ -53,6 +53,8 @@ type (
 
 	}
 
+	// IField represents a field interface in a data model.
+	// It defines the behaviors and properties of a field, including its configuration, constraints, and interactions with other fields or models.
 	IField interface {
 		Config() *FieldConfig
 		//String(d IDialect) string
@@ -68,8 +70,8 @@ type (
 		IsCascade() bool
 		IsVersion() bool
 		SQLType() *SQLType
-		Init(ctx *TTagContext) // call when parse the field tag
-		Base() *TField         // return itself
+		Init(*TTagContext) // call when parse the field tag
+		Base() *TField     // return itself
 
 		// attributes func
 		Name() string // name of field in database
@@ -83,7 +85,7 @@ type (
 		Store(val ...bool) bool
 		Size(val ...int) int
 		Default(val ...any) any
-		DefaultFunc(ctx *TFieldContext) error
+		DefaultFunc() FieldFunc
 		States(val ...map[string]interface{}) map[string]interface{}
 		Domain() string
 		Translatable() bool
@@ -525,8 +527,8 @@ func (self *TField) Default(val ...any) any {
 	return self._attr_default
 }
 
-func (self *TField) DefaultFunc(ctx *TFieldContext) error {
-	return self._computeDefault(ctx)
+func (self *TField) DefaultFunc() FieldFunc {
+	return self._computeDefault
 }
 
 func (self *TField) Size(val ...int) int {
@@ -595,7 +597,7 @@ func (self *TField) IsAutoIncrement() bool {
 }
 
 func (self *TField) IsDefaultEmpty() bool {
-	return self._attr_default == nil && self._computeDefault == nil
+	return self._attr_default == nil //&& self._computeDefault == nil
 }
 
 func (self *TField) IsUnique() bool {

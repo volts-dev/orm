@@ -406,7 +406,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 		}
 
 		// 处理值为名称转为ID
-		model, err := ctx.Model.Orm().GetModel(self.RelateModelName())
+		model, err := ctx.Model.Orm().GetModel(self.RelateModelName(), WithContext(ctx.Model.Options().Context))
 		if err != nil {
 			return err
 		}
@@ -427,7 +427,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 			/* 如果是命名者 有权根据名称创建记录 且关联模型支持RecordName */
 			if ctx.Field.IsNamed() {
 				if recName := model.GetRecordName(); recName != "" {
-					model.Tx(ctx.Session)
+					model.Tx(ctx.Session.Clone())
 					ids, err := model.Create(&CreateRequest{
 						Context: ctx.Context,
 						Data: []any{map[string]interface{}{
@@ -551,7 +551,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 		relModel := new(TModel)
 		model_val := reflect.Indirect(reflect.ValueOf(relModel))
 		model_type := model_val.Type()
-		model, err := orm.modelMetas(newModel(fld.MiddleModelName(), rel, model_val, model_type))
+		model, err := orm.modelMetas(newModel(fld.MiddleModelName(), rel, model_val, model_type, nil))
 		if err != nil {
 			log.Err(err)
 		}

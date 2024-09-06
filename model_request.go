@@ -16,7 +16,7 @@ import (
 )
 
 type (
-	Paginator struct {
+	___Paginator struct {
 		PageIndex int64 `json:"page"  `   //当前页数
 		PageSize  int64 `json:"limit"   ` //每页多少条
 		//Offset int64 `json:"offset" ` //偏移量
@@ -36,24 +36,52 @@ type (
 		Method  string
 	}
 
+	// ReadRequest 结构体用于定义读取请求的参数，它扩展了 Paginator 结构体的功能并增加了特定的查询和排序选项。
 	ReadRequest struct {
-		Paginator
-		Ids     []any
-		Domain  string
-		Field   string   // for relate method
-		Fields  []string // 指定查询和返回字段
-		Funcs   []string // SQL函数
+		// Paginator 是一个可以被继承的结构，用于分页查询
+		//Paginator
+
+		// Ids 是一个切片，可以存放任何类型的ID
+		Ids []any
+
+		// Domain 是一个字符串，用于指定查询的域
+		Domain string
+
+		// Field 是一个字符串，用于关联方法
+		Field string
+
+		// Fields 是一个字符串切片，用于指定查询和返回的字段
+		Fields []string
+
+		// Funcs 是一个字符串切片，表示要应用的SQL函数
+		Funcs []string
+
+		// GroupBy 是一个字符串切片，用于指定分组依据的字段
 		GroupBy []string
+
+		// OrderBy 是一个字符串切片，用于指定排序依据的字段
 		OrderBy []string
-		//Limit       int64
-		//Offset      int64
-		PageIndex   int64  `json:"page"  `   //当前页数
-		PageSize    int64  `json:"limit"   ` //每页多少条 -1则无限制
-		Model       string // *
-		Sort        []string
-		Method      string
-		UseNameGet  bool // 查询Many2one 字段的[Id,Name] 默认为Flase One2Many字段不显示关联数据Name数据
-		ClassicRead bool // 查询Many2one 所有字段 默认为Flase 不查询关联字段数据
+
+		// Page 当前页数
+		Page int64 `json:"page"`
+
+		// Limit 每页多少条记录，-1则无限制
+		Limit int64 `json:"limit"`
+
+		// Model 是一个字符串，用于指定查询的模型
+		Model string
+
+		// Sort 是一个字符串切片，用于指定排序方式
+		Sort []string
+
+		// Method 是一个字符串，用于指定查询方法
+		Method string
+
+		// UseNameGet 是一个布尔值，用于控制是否查询Many2one字段的[Id,Name]，默认为false
+		UseNameGet bool
+
+		// ClassicRead 是一个布尔值，用于控制是否查询Many2one的所有字段，默认为false
+		ClassicRead bool
 	}
 
 	// 支持多条数据更新
@@ -124,8 +152,8 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		defer session.Close()
 	}
 	// 确保第一页
-	if req.PageIndex < 1 {
-		req.PageIndex = 1
+	if req.Page < 1 {
+		req.Page = 1
 	}
 
 	if req.Domain != "" {
@@ -179,7 +207,7 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 
 	session.UseNameGet = req.UseNameGet
 
-	return session.Limit(req.PageSize, req.PageIndex-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
+	return session.Limit(req.Limit, req.Page-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
 }
 
 // 带事务加载上传数据
@@ -259,7 +287,8 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 					return 0, err
 				}
 
-				tx2 := model.Tx(session.Clone())
+				//tx2 := model.Tx(session.Clone())
+				tx2 := model.Tx()
 				tx2.Begin()
 
 				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
@@ -324,7 +353,7 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, nil
 	}
 
-	relateModel, err := self.orm.GetModel(field.RelateModelName())
+	relateModel, err := self.orm.GetModel(field.RelateModelName(), WithContext(ctx.Model.Options().Context))
 	if err != nil {
 		// # Should not happen, unless the foreign key is missing.
 		return nil, err
@@ -404,7 +433,7 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 
 		relateModelName := field.RelateModelName()
-		relateModel, err := self.orm.GetModel(relateModelName)
+		relateModel, err := self.orm.GetModel(relateModelName, WithContext(ctx.Model.Options().Context))
 		if err != nil {
 			return nil, err
 		}
@@ -630,7 +659,7 @@ func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
 			return nil, fmt.Errorf("cannot execute name_create, create name faild %s", err.Error())
 
 		}
-		return self.NameGet([]any{id})
+		return self.NameGet(id)
 	} else {
 		return nil, fmt.Errorf("Cannot execute name_create, no nameField defined on %s", self.name)
 	}
@@ -717,6 +746,41 @@ func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, oper
 	return result, nil //self.name_get(lIds, []string{"id", lNameField}) //self.SearchRead(lDomain.String(), []string{"id", lNameField}, 0, limit, "", context)
 }
 
+// 计算并获得字段默认值
+func (self *TModel) DefaultGet(fields ...string) (map[string]any, error) {
+	data := make(map[string]any)
+	for _, fieldName := range fields {
+		field := self.GetFieldByName(fieldName)
+		if field == nil {
+			continue
+		}
+
+		var value any
+		if fn := field.DefaultFunc(); fn != nil {
+			ctx := &TFieldContext{
+				//Session: self,
+				Model: self.super,
+				//Dataset: data,
+				Field: field,
+				//Value:   value,
+				//Ids:     ids,
+			}
+
+			if err := fn(ctx); err != nil {
+				return nil, err
+			}
+
+			value = ctx.value
+		} else if v := self.GetDefaultByName(fieldName); v != nil {
+			value = v
+		}
+
+		data[fieldName] = field.onConvertToWrite(nil, value)
+	}
+
+	return data, nil
+}
+
 func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
 	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
 	if err != nil {
@@ -728,14 +792,14 @@ func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
 		defer session.Close()
 	}
 	// 确保第一页
-	if req.PageIndex < 1 {
-		req.PageIndex = 1
+	if req.Page < 1 {
+		req.Page = 1
 	}
 	session.UseNameGet = req.UseNameGet
 	return session.
 		Select(req.Fields...).
 		Funcs(req.Funcs...).
-		Limit(req.PageSize, req.PageIndex-1).
+		Limit(req.Limit, req.Page-1).
 		Sort(req.Sort...).
 		GroupBy(req.GroupBy...).
 		Read()

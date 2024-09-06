@@ -65,7 +65,7 @@ func (self *TSession) New() *TSession {
 func (self *TSession) Clone() *TSession {
 	session := NewSession(self.orm)
 	session.tx = self.tx
-	session.IsAutoCommit = self.IsAutoCommit // 默认情况下单个SQL是不用事务自动
+	//session.IsAutoCommit = self.IsAutoCommit // 默认情况下单个SQL是不用事务自动
 	session.IsAutoClose = self.IsAutoClose
 	session.AutoResetStatement = self.AutoResetStatement
 	session.IsCommitedOrRollbacked = self.IsCommitedOrRollbacked
@@ -73,8 +73,8 @@ func (self *TSession) Clone() *TSession {
 	session.CacheNameIds = self.CacheNameIds
 	// TODO 优化掉无用的字段
 	//session.Statement = self.Statement
-	session.Statement.session = self
-	session.Statement.Init()
+	//session.Statement.session = self
+	//session.Statement.Init()
 	return session
 }
 
@@ -128,8 +128,8 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 		}
 
 		modelName := model.String()
-		self.Model(modelName, region)        // #设置该Session的Model/Table
-		exitsModel := exitsModels[modelName] // 数据库存在的
+		self.Model(modelName, WithModuleName(region)) // #设置该Session的Model/Table
+		exitsModel := exitsModels[modelName]          // 数据库存在的
 		if exitsModel == nil {
 			model.BeforeSetup()
 
@@ -559,8 +559,8 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 }
 
 // 内部调用
-func (self *TSession) _getModel(modelName string, origin ...string) (model IModel, err error) {
-	model, err = self.orm.osv.GetModel(modelName, origin...)
+func (self *TSession) _getModel(modelName string, options ...ModelOption) (model IModel, err error) {
+	model, err = self.orm.osv.GetModel(modelName, options...)
 
 	/* 继承事务状态 */
 	if model != nil {

@@ -44,7 +44,7 @@ func (self *ModelBuilder) Field(name, fieldType string) *fieldStatment {
 			field.Init(fieldContext)
 		}
 
-		self.model.AddField(field)
+		self.model.addField(field)
 	}
 
 	return &fieldStatment{
@@ -203,6 +203,7 @@ func (self *fieldStatment) Default(value any) *fieldStatment {
 	self.field.Base()._attr_default = value
 	return self
 }
+
 func (self *fieldStatment) ComputeDefault(fn func(ctx *TFieldContext) error) *fieldStatment {
 	field := self.field.Base()
 	//field.isCompute = true
