@@ -8,7 +8,6 @@ import (
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
-	"github.com/volts-dev/utils"
 )
 
 type (
@@ -50,7 +49,7 @@ type (
 		DropIndexUniqueSql(tableName string, index *TIndex) string
 		ModifyColumnSql(tableName string, col IField) string
 		ForUpdateSql(query string) string
-		GenInsertSql(model string, fields []string, idField string) (sql string, isquery bool)
+		GenInsertSql(model string, fields, uniqueFields []string, idField string, onConflict *OnConflict) (sql string)
 		GenAddColumnSQL(tableName string, field IField) string
 		IsColumnExist(ctx context.Context, tableName string, colName string) (bool, error)
 		IsDatabaseExist(ctx context.Context, name string) bool
@@ -224,7 +223,7 @@ func (db *TDialect) DropDatabase(dbx *sql.DB, ctx context.Context, tableName str
 }
 
 func (db *TDialect) CreateIndexUniqueSql(tableName string, index *TIndex) string {
-	quoter := db.dialect.Quoter()
+	quoter := db.dialect.Quoter().Quote
 	var unique string
 	var idxName string
 	if index.Type == UniqueType {
@@ -232,19 +231,19 @@ func (db *TDialect) CreateIndexUniqueSql(tableName string, index *TIndex) string
 	}
 	idxName = index.GetName(tableName)
 	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)", unique,
-		quoter.Quote(idxName), quoter.Quote(tableName),
-		quoter.Quote(strings.Join(index.Cols, quoter.Quote(","))))
+		quoter(idxName), quoter(tableName),
+		quoter(strings.Join(index.Cols, quoter(","))))
 }
 
 func (db *TDialect) DropIndexUniqueSql(tableName string, index *TIndex) string {
-	quoter := db.dialect.Quoter()
+	quoter := db.dialect.Quoter().Quote
 	var name string
 	if index.IsRegular {
 		name = index.GetName(tableName)
 	} else {
 		name = index.Name
 	}
-	return fmt.Sprintf("DROP INDEX %v ON %s", quoter.Quote(name), quoter.Quote(tableName))
+	return fmt.Sprintf("DROP INDEX %v ON %s", quoter(name), quoter(tableName))
 }
 
 func (db *TDialect) ModifyColumnSql(tableName string, col IField) string {
@@ -304,7 +303,8 @@ func (b *TDialect) ForUpdateSql(query string) string {
 }
 
 // 生成插入SQL句子
-func (db *TDialect) GenInsertSql(tableName string, fields []string, idField string) (sql string, isquery bool) {
+func (db *TDialect) GenInsertSql(tableName string, fields []string, uniqueFields []string, idField string, onConflict *OnConflict) string {
+	var sql strings.Builder
 	cnt := len(fields)
 	field_places := strings.Repeat("?,", cnt-1) + "?"
 	field_list := ""
@@ -317,17 +317,21 @@ func (db *TDialect) GenInsertSql(tableName string, fields []string, idField stri
 		}
 	}
 
-	sql = fmt.Sprintf("INSERT INTO %s (%v) VALUES (%v)",
-		db.quoter.Quote(tableName),
-		field_list,
-		field_places,
-	)
+	sql.WriteString("INSERT INTO ")
+	sql.WriteString(tableName)
+	sql.WriteString(" (")
+	sql.WriteString(field_list)
+	sql.WriteString(") ")
+	sql.WriteString("VALUES (")
+	sql.WriteString(field_places)
+	sql.WriteString(") ")
 
 	if len(idField) > 0 {
-		sql = sql + " RETURNING " + db.quoter.Quote(idField)
+		sql.WriteString("RETURNING ")
+		sql.WriteString(db.quoter.Quote(idField))
 	}
 
-	return sql, true
+	return sql.String()
 }
 
 func (db *TDialect) TableCheckSql(tableName string) (string, []interface{}) {
@@ -383,19 +387,39 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 			return "", err
 		}
 
-		dv := utils.ToString(field.Base()._attr_default)
+		dv := field.Base()._attr_default
 		if dv == "" {
 			if _, err := bd.WriteString("''"); err != nil {
 				return "", err
 			}
 		} else {
-			///if field.SQLType().IsText() {
-			//	dv = quoter.Quote(dv)
-			//}
-			if _, err := bd.WriteString(dv); err != nil {
-				return "", err
+			if field.SQLType().IsText() {
+				bd.WriteByte('\'')
+				bd.WriteString(dv)
+				bd.WriteByte('\'')
+				//dv = quoter.Quote(dv)
+			} else {
+				if _, err := bd.WriteString(dv); err != nil {
+					return "", err
+				}
 			}
 		}
+
+		/*
+			dv := utils.ToString(field.Base()._attr_default)
+			if dv == "" {
+				if _, err := bd.WriteString("''"); err != nil {
+					return "", err
+				}
+			} else {
+				///if field.SQLType().IsText() {
+				//	dv = quoter.Quote(dv)
+				//}
+				if _, err := bd.WriteString(dv); err != nil {
+					return "", err
+				}
+			}
+		*/
 	}
 
 	if !field.Required() {

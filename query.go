@@ -20,6 +20,7 @@ type (
 	      - etc.
 	    """*/
 	TQuery struct {
+		session *TSession
 		// holds the list of tables joined using default JOIN.
 		// the table names are stored double-quoted (backwards compatibility)
 		tables              []string
@@ -31,8 +32,8 @@ type (
 	}
 )
 
-func NewQuery(tables []string, where_clause []string, params []interface{}, joins map[string][]*utils.TStringList, extras map[string]*utils.TStringList) (q *TQuery) {
-	q = &TQuery{}
+func NewQuery(session *TSession, tables []string, where_clause []string, params []interface{}, joins map[string][]*utils.TStringList, extras map[string]*utils.TStringList) (q *TQuery) {
+	q = &TQuery{session: session}
 
 	//# holds the list of tables joined using default JOIN.
 	//# the table names are stored double-quoted (backwards compatibility)
@@ -215,13 +216,19 @@ func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause 
 // 验证字段并添加关系表到from
 // # the query may involve several tables: we need fully-qualified names
 func (self *TQuery) qualify(field IField, model IModel) string {
-	res := self.inherits_join_calc(field.Name(), model)
-	/*
-		if field.Type == "binary" { // && (context.get('bin_size') or context.get('bin_size_' + col)):
-			//# PG 9.2 introduces conflicting pg_size_pretty(numeric) -> need ::cast
-			res = fmt.Sprintf(`pg_size_pretty(length(%s)::bigint)`, res)
-		}*/
-	return fmt.Sprintf(`%s as "%s"`, res, field.Name())
+	dialect := self.session.orm.dialect
+	fieldName := dialect.Quoter().Quote(field.Name())
+	if model != nil {
+		res := self.inherits_join_calc(fieldName, model)
+		/*
+			if field.Type == "binary" { // && (context.get('bin_size') or context.get('bin_size_' + col)):
+				//# PG 9.2 introduces conflicting pg_size_pretty(numeric) -> need ::cast
+				res = fmt.Sprintf(`pg_size_pretty(length(%s)::bigint)`, res)
+			}*/
+		return fmt.Sprintf(`%s as "%s"`, res, fieldName)
+	}
+
+	return fieldName
 }
 
 /*
@@ -288,7 +295,7 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 	}
 	//# handle the case where the field is translated
 	field := model.GetFieldByName(fieldName)
-	if field != nil && field.Translatable() { //  if translate and not callable(translate):
+	if field != nil && field.Translate() { //  if translate and not callable(translate):
 		// return model.generate_translated_field(alias, field, query)
 		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
 	}

@@ -1,0 +1,145 @@
+Date : 2024-11-26 19:30:57
+Directory : /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm
+Total : 108 files,  15474 codes, 3990 comments, 3000 blanks, all 22464 lines
+
+Languages
++------------------+------------+------------+------------+------------+------------+
+| language         | files      | code       | comment    | blank      | total      |
++------------------+------------+------------+------------+------------+------------+
+| Go               |        103 |     14,748 |      3,990 |      2,970 |     21,708 |
+| Go Checksum File |          1 |        514 |          0 |          1 |        515 |
+| Markdown         |          1 |        150 |          0 |         25 |        175 |
+| Go Module File   |          1 |         34 |          0 |          4 |         38 |
+| JSON             |          2 |         28 |          0 |          0 |         28 |
++------------------+------------+------------+------------+------------+------------+
+
+Directories
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                              | files      | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                 |        108 |     15,474 |      3,990 |      3,000 |     22,464 |
+| . (Files)                                                                                         |         48 |     12,109 |      3,305 |      2,195 |     17,609 |
+| cacher                                                                                            |          1 |        164 |         62 |         40 |        266 |
+| core                                                                                              |         11 |      1,160 |        133 |        244 |      1,537 |
+| dialect                                                                                           |          2 |        192 |         25 |         32 |        249 |
+| domain                                                                                            |          5 |        860 |        209 |        180 |      1,249 |
+| errors                                                                                            |          1 |         21 |          0 |          6 |         27 |
+| test                                                                                              |         40 |        968 |        256 |        303 |      1,527 |
+| test (Files)                                                                                      |         25 |        822 |        241 |        245 |      1,308 |
+| test/postgres                                                                                     |         15 |        146 |         15 |         58 |        219 |
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++---------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| filename                                                                                          | language         | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/README.md                                | Markdown         |        150 |          0 |         25 |        175 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/benchmark.go                             | Go               |         20 |        116 |          6 |        142 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/cacher/cacher.go                         | Go               |        164 |         62 |         40 |        266 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/config.go                                | Go               |         48 |          0 |         10 |         58 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/const.go                                 | Go               |         10 |          0 |          3 |         13 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/context.go                          | Go               |         60 |          8 |         10 |         78 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/core.go                             | Go               |         15 |          3 |          5 |         23 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/db.go                               | Go               |        230 |         35 |         52 |        317 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/error.go                            | Go               |          6 |          2 |          3 |         11 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/log.go                              | Go               |          3 |          0 |          3 |          6 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/mapper.go                           | Go               |        185 |         10 |         38 |        233 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/row.go                              | Go               |        269 |         22 |         52 |        343 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/scan.go                             | Go               |         52 |          6 |          9 |         67 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/stmt.go                             | Go               |        156 |         20 |         41 |        217 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/tx.go                               | Go               |        178 |         26 |         29 |        233 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/core/ver.go                              | Go               |          6 |          1 |          2 |          9 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/dataset.go                               | Go               |          7 |          0 |          3 |         10 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/datasource.go                            | Go               |         82 |          2 |         15 |         99 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/dialect.go                               | Go               |        305 |         60 |         72 |        437 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/dialect/funcs.go                         | Go               |          5 |          0 |          2 |          7 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/dialect/quoter.go                        | Go               |        187 |         25 |         30 |        242 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/dialect_mysql.go                         | Go               |        737 |         27 |         82 |        846 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/dialect_postgres.go                      | Go               |      1,358 |         77 |        118 |      1,553 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/domain/config.json                       | JSON             |         12 |          0 |          0 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/domain/domain.go                         | Go               |        450 |        125 |         98 |        673 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/domain/domain_test.go                    | Go               |         99 |          0 |         21 |        120 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/domain/parser.go                         | Go               |        227 |         83 |         49 |        359 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/domain/parser_test.go                    | Go               |         72 |          1 |         12 |         85 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/driver.go                                | Go               |         21 |          0 |          7 |         28 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/driver_mysql.go                          | Go               |        116 |          4 |         11 |        131 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/driver_postgres.go                       | Go               |         95 |          4 |         23 |        122 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/error.go                                 | Go               |         42 |          1 |         10 |         53 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/errors/errors.go                         | Go               |         21 |          0 |          6 |         27 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/expr.go                                  | Go               |        637 |        470 |        147 |      1,254 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/expr_leaf.go                             | Go               |        108 |         76 |         26 |        210 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/expr_test.go                             | Go               |         26 |          0 |          8 |         34 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field.go                                 | Go               |        542 |        168 |        105 |        815 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_chars.go                           | Go               |         74 |          2 |         16 |         92 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_config.go                          | Go               |         29 |          1 |          7 |         37 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_id.go                              | Go               |         59 |         27 |         13 |         99 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_name.go                            | Go               |         27 |          2 |          8 |         37 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_number.go                          | Go               |         66 |          1 |         15 |         82 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_object.go                          | Go               |         27 |          4 |          7 |         38 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_relational.go                      | Go               |        473 |        184 |        103 |        760 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_selection.go                       | Go               |        111 |         38 |         24 |        173 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/field_time.go                            | Go               |         31 |          0 |          8 |         39 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/go.mod                                   | Go Module File   |         34 |          0 |          4 |         38 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/go.sum                                   | Go Checksum File |        514 |          0 |          1 |        515 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/index.go                                 | Go               |         79 |         24 |         15 |        118 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/model.go                                 | Go               |        435 |        218 |        106 |        759 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/model_builder.go                         | Go               |        244 |         19 |         54 |        317 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/model_request.go                         | Go               |        613 |        153 |        139 |        905 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/mothod.go                                | Go               |         67 |         21 |         17 |        105 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/orm.go                                   | Go               |        625 |        156 |        135 |        916 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/orm_test.go                              | Go               |        165 |         33 |         17 |        215 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/osv.go                                   | Go               |        373 |        160 |         84 |        617 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/osv_test.go                              | Go               |          1 |         65 |          3 |         69 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/query.go                                 | Go               |        159 |        136 |         32 |        327 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/session.go                               | Go               |        432 |         99 |         90 |        621 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/session_crwd.go                          | Go               |      1,027 |        343 |        208 |      1,578 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/session_expr.go                          | Go               |        109 |         79 |         29 |        217 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/session_query.go                         | Go               |        273 |         44 |         61 |        378 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/session_tx.go                            | Go               |         35 |         16 |         10 |         61 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/sql.go                                   | Go               |         42 |          5 |          9 |         56 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/statement.go                             | Go               |        522 |        290 |        103 |        915 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/tag.go                                   | Go               |        594 |        111 |        129 |        834 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/model.go                            | Go               |         95 |         11 |         16 |        122 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/0_delete_test.go           | Go               |          8 |          0 |          4 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/0_read_test.go             | Go               |          8 |          2 |          4 |         14 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/0_write_test.go            | Go               |          8 |          0 |          4 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/1_and_test.go              | Go               |          6 |          2 |          3 |         11 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/1_in_test.go               | Go               |          9 |          0 |          4 |         13 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/1_notin_test.go            | Go               |          8 |          0 |          4 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/1_or_test.go               | Go               |          8 |          0 |          4 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/1_where_test.go            | Go               |          6 |          2 |          3 |         11 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/3_field_selection_test.go  | Go               |          7 |          1 |          4 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/3_filed_relational_test.go | Go               |          6 |          1 |          3 |         10 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/config.json                | JSON             |         16 |          0 |          0 |         16 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/conn_test.go               | Go               |          8 |          0 |          4 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/create_test.go             | Go               |         21 |          0 |          7 |         28 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/postgres.go                | Go               |         15 |          1 |          4 |         20 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/postgres/postgres_test.go           | Go               |         12 |          6 |          6 |         24 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test.go                             | Go               |        116 |         71 |         31 |        218 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_and.go                         | Go               |         27 |          1 |          6 |         34 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_conn.go                        | Go               |          8 |          0 |          3 |         11 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_count.go                       | Go               |         19 |          1 |          6 |         26 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_create.go                      | Go               |        153 |          4 |         43 |        200 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_delete.go                      | Go               |         11 |          0 |          6 |         17 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_domain.go                      | Go               |         20 |          1 |          7 |         28 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_drop.go                        | Go               |          1 |          0 |          1 |          2 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_dump.go                        | Go               |          6 |          0 |          4 |         10 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_field_selection.go             | Go               |          6 |         16 |          3 |         25 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_filed_relational.go            | Go               |          7 |         66 |          4 |         77 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_in.go                          | Go               |         16 |          0 |          6 |         22 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_limit.go                       | Go               |          6 |          1 |          4 |         11 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_method.go                      | Go               |          9 |          0 |          3 |         12 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_notin.go                       | Go               |          6 |         29 |          3 |         38 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_or.go                          | Go               |          6 |         28 |          3 |         37 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_read.go                        | Go               |         46 |          2 |         12 |         60 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_search.go                      | Go               |         17 |          0 |          6 |         23 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_sum.go                         | Go               |          6 |          0 |          4 |         10 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_sync.go                        | Go               |         89 |          2 |         12 |        103 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_table_name.go                  | Go               |          6 |          1 |          3 |         10 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_tag.go                         | Go               |         35 |          0 |         25 |         60 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_where.go                       | Go               |         35 |          1 |         10 |         46 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/test/test_write.go                       | Go               |         76 |          6 |         24 |        106 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/type.go                                  | Go               |        337 |         27 |         46 |        410 |
+| /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/utils.go                                 | Go               |        228 |         42 |         31 |        301 |
+| Total                                                                                             |                  |     15,474 |      3,990 |      3,000 |     22,464 |
++---------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+

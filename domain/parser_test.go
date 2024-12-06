@@ -42,6 +42,20 @@ var (
 	}
 )
 
+// 测试空白字符串
+func TestDomainBlankString(t *testing.T) {
+	node, err := String2Domain("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result_str := Domain2String(node)
+
+	if result_str != "" {
+		fmt.Println(result_str)
+	}
+}
+
 func TestString2Domain(t *testing.T) {
 	printToken = false // print token
 

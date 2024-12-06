@@ -19,8 +19,8 @@ func newConfig(opts ...Option) *Config {
 	cfg := &Config{
 		TimeZone:        time.Local,
 		ShowSqlTime:     true,
-		FieldIdentifier: "field",
-		TableIdentifier: "table",
+		FieldIdentifier: FieldIdentifier,
+		TableIdentifier: TableIdentifier,
 	}
 
 	cfg.Init(opts...)

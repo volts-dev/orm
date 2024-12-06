@@ -31,16 +31,17 @@ type (
 		FromClause     string
 		OmitClause     string
 		GroupByClause  []string
-		OrderByClause  string
 		FuncsClause    []string // SQL函数
 		SortClauses    []string
 		AscFields      []string
 		DescFields     []string
+		OrderByClause  string
 		LimitClause    int64
 		OffsetClause   int64
 		IsCount        bool
 		IsForUpdate    bool
 		UseCascade     bool
+		OnConflict     *OnConflict
 		Charset        string //???
 		StoreEngine    string //???
 	}
@@ -319,8 +320,8 @@ func (self *TStatement) generate_index() ([]string, error) {
 	return sqls, nil
 }
 
-func (self *TStatement) generate_insert(fields []string) (string, bool) {
-	return self.session.orm.dialect.GenInsertSql(self.Model.Table(), fields, self.Model.IdField())
+func (self *TStatement) generate_insert(fields, uniqueFields []string) (string, bool) {
+	return self.session.orm.dialect.GenInsertSql(self.Model.Table(), fields, uniqueFields, self.Model.IdField(), self.OnConflict), true
 }
 
 // Auto generating conditions according a struct
@@ -593,7 +594,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 		where_clause, where_params, tables = nil, nil, append(tables, self.Model.Table())
 	}
 
-	return NewQuery(tables, where_clause, where_params, nil, nil), nil
+	return NewQuery(self.session, tables, where_clause, where_params, nil, nil), nil
 }
 
 func (self *TStatement) _check_qorder(word string) (result bool) {

@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -46,15 +45,13 @@ type (
 		AutoIncrementField string
 		// SQL 参数
 		columnsSeq []string //TODO 存储COl名称考虑Remove
-		//columnsMap  map[string][]*Column
-		//columns     []*Column
-		//Cacher      Cacher
-		//StoreEngine string
 
 		// object 属性
+		pkgName       string // 所在源码包名
 		isCustomModel bool
 		uidFieldName  string
 		nameField     string
+		orderFields   []string
 		fields        sync.Map                           // map[string]IField                  // map[field]
 		relations     sync.Map                           //map[string]string                  // many2many many2one... 等关联表
 		relatedFields map[string]*TRelatedField          // 关联字段如 UserId CompanyID
@@ -72,11 +69,9 @@ type (
 	}
 
 	TOsv struct {
-		orm    *TOrm
-		models sync.Map // map[string]*TModelObject // 为每个Model存储BaseModel // TODO 名称或许为Objects
-		//modelsLock sync.RWMutex
-		//_models_pool   map[string]sync.Pool // model 对象池
-		//_models_fields map[string]map[string]*TField
+		orm         *TOrm
+		models      sync.Map // map[string]*TModelObject // 为每个Model存储BaseModel // TODO 名称或许为Objects
+		middleModel sync.Map // 标识中间表
 	}
 )
 
@@ -89,10 +84,6 @@ func (self *TModelObject) AddIndex(index *TIndex) {
 
 // add an index or an unique to table
 func (self *TModelObject) AddField(filed IField) {
-	//self.fieldsLock.Lock()
-	//self.fields[filed.Name()] = filed
-	//self.fieldsLock.Unlock()
-
 	self.fields.Store(filed.Name(), filed)
 }
 
@@ -214,10 +205,7 @@ func (self *TModelObject) mappingMethod(model *TModel) {
 // 创建一个Objects Services
 func newOsv(orm *TOrm) (osv *TOsv) {
 	osv = &TOsv{
-		//models: make(map[string]*TModelObject),
 		orm: orm,
-		//	_models_types: make(map[string]map[string]reflect.Type), // 存储Models的Type
-		//	_models_pool:  make(map[string]sync.Pool),               //@@@ 改进改为接口 String
 	}
 
 	return osv
@@ -302,16 +290,8 @@ func (self *TOsv) newObject(name string) *TModelObject {
 
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, model *TModel) error {
-	// 初始化模块
-	// 重建一个全新model以执行init
-	val := reflect.New(model.modelType)
-	m := self.initObject(val, model.modelType, model.obj, model.String(), &ModelOptions{Module: region})
-	if err := m.OnBuildFields(); err != nil {
-		return err
-	}
-
+	/* 初始化ModelObject */
 	//获得Object 检查是否存在，不存在则创建
-	//self.modelsLock.RLock()
 	var obj *TModelObject
 	old, ok := self.models.Load(model.name)
 	if !ok || old == nil {
@@ -405,7 +385,6 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 				var method reflect.Method
 				for i := 0; i < model.modelType.NumMethod(); i++ {
 					method = model.modelType.Method(i)
-					//utils.Dbg("RegisterModel Method", lMethod.Type.In(1).Elem(), handlerType)
 					// 参数验证func(self,handler)
 					//lMethod.Type.In(1).Elem().String() == handlerType.String()
 
@@ -414,18 +393,40 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 					//}
 				}
 	*/
+	obj.pkgName = region
 	obj.mappingMethod(model)
 	obj.isCustomModel = model.isCustomModel
 	obj.uidFieldName = model.idField
 	obj.nameField = model.recName
+	obj.orderFields = model.options.Order
 	self.models.Store(model.name, obj)
+
+	/* 初始化原型 */
+	{
+		// 重建一个全新model以执行init
+		val := reflect.New(model.modelType)
+		m := self._initObject(val, model.modelType, obj, model.String(), &ModelOptions{Module: region})
+		if err := m._onBuildFields(); err != nil {
+			return err
+		}
+
+		/* 更新字段/创建关联中间表 */
+		for _, field := range m.GetFields() {
+			field.UpdateDb(&TTagContext{
+				Orm:   self.orm,
+				Field: field,
+				Model: m,
+			})
+		}
+	}
+
 	return nil
 }
 
 // 根据Model和Action 执行方法
 // Action 必须是XxxXxxx格式
 func (self *TOsv) GetMethod(modelName, methodName string) (method *TMethod) {
-	modelVal := self.getModelByMethod(nil, modelName, methodName)
+	modelVal := self._getModelByMethod(nil, modelName, methodName)
 	if modelVal.IsValid() { //|| !lM.IsNil()
 		// 转换method
 		// #必须使用Type才能获取到方法原型已经参数
@@ -449,9 +450,7 @@ func (self *TOsv) GetModel(name string, opts ...ModelOption) (IModel, error) {
 		return nil, errors.New("Model name must not blank!")
 	}
 
-	options := &ModelOptions{
-		Context: context.Background(),
-	}
+	options := newModelOptions(nil)
 	for _, opt := range opts {
 		opt(options)
 	}
@@ -483,15 +482,15 @@ func (self *TOsv) GetModel(name string, opts ...ModelOption) (IModel, error) {
 		return nil, err
 	}
 
+	pkgName := options.Module
 	model.Options(opts...)
-	return model, nil
-	/*
-		if m, ok := model.(IModel); ok {
-			return m, nil
-		}
+	model.Options().Module = pkgName
 
-		return nil, errors.New("Model is not a interface of IModel")
-	*/
+	if err = model.OnBuildModel(); err != nil {
+		return nil, err
+	}
+
+	return model, nil
 }
 
 func (self *TOsv) RemoveModel(name string) {
@@ -536,7 +535,7 @@ func (self *TOsv) GetModelByModule(model string, options *ModelOptions) (res IMo
 		return nil, errors.New("Must enter a model name!")
 	}
 
-	if mod := self.getModelByModule(model, options); mod != nil {
+	if mod := self._getModelByModule(model, options); mod != nil {
 		return mod, nil
 	}
 
@@ -546,21 +545,28 @@ func (self *TOsv) GetModelByModule(model string, options *ModelOptions) (res IMo
 
 // TODO　优化更简洁
 // 每次GetModel都会激活初始化对象
-func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TModelObject, modelName string, options *ModelOptions) IModel {
+func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TModelObject, modelName string, options *ModelOptions) IModel {
 	if m, ok := val.Interface().(IModel); ok {
-		// NOTE <以下代码严格遵守执行顺序>
+		/* NOTE <以下代码严格遵守执行顺序> */
 		model := newModel(modelName, "", val, atype, nil) //self.newModel(sess, model)
 		model.isCustomModel = obj.isCustomModel
 		model.idField = obj.uidFieldName
 		model.recName = obj.nameField
-		model.super = m /* 保存当前模型到ORM.TModel里 */
+
+		model.prototype = m /* 保存当前模型到ORM.TModel里 */
 		model.obj = obj
 		model.osv = self
 		model.orm = self.orm
-		model.relations_reload()
-		model.options = options
-		m.setBaseModel(model)
+		model._relations_reload()
 
+		if options == nil {
+			options = &ModelOptions{Model: model}
+		}
+		options.Module = obj.pkgName
+		options.Order = obj.orderFields
+		model.options = options
+
+		m._setBaseModel(model)
 		return m
 	}
 
@@ -568,7 +574,7 @@ func (self *TOsv) initObject(val reflect.Value, atype reflect.Type, obj *TModelO
 }
 
 // #module 可以为空取默认
-func (self *TOsv) getModelByModule(model string, options *ModelOptions) IModel {
+func (self *TOsv) _getModelByModule(model string, options *ModelOptions) IModel {
 	var (
 		region_name string
 		module_map  map[string]reflect.Type
@@ -588,7 +594,7 @@ func (self *TOsv) getModelByModule(model string, options *ModelOptions) IModel {
 
 			if model_type, has = module_map[model]; has {
 				value := reflect.New(model_type) // 创建对象
-				return self.initObject(value, model_type, obj, model, options)
+				return self._initObject(value, model_type, obj, model, options)
 			}
 		}
 
@@ -598,12 +604,12 @@ func (self *TOsv) getModelByModule(model string, options *ModelOptions) IModel {
 }
 
 // TODO 继承类Model 的方法调用顺序提取
-func (self *TOsv) getModelByMethod(options *ModelOptions, model string, method string) (value reflect.Value) {
+func (self *TOsv) _getModelByMethod(options *ModelOptions, model string, method string) (value reflect.Value) {
 	if v, has := self.models.Load(model); has {
 		if obj, ok := v.(*TModelObject); ok {
 			if typ, has := obj.methods[utils.TitleCasedName(method)]; has {
 				value = reflect.New(typ)
-				self.initObject(value, typ, obj, model, options)
+				self._initObject(value, typ, obj, model, options)
 				return value
 			}
 		}

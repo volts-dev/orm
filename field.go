@@ -10,6 +10,7 @@ import (
 	"errors"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/utils"
 )
 
 const (
@@ -39,8 +40,8 @@ type (
 	TFieldContext struct {
 		Ids []any // 提供查询所有指定外键绑定的Ids
 		//Id          interface{} // the current id of current record
-		Value       interface{} // the current value of the field
-		Field       IField      // FieldTypeValue reflect.Value
+		Value       any    // the current value of the field
+		Field       IField // FieldTypeValue reflect.Value
 		Fields      []string
 		Domain      string // update 支持查询条件
 		Model       IModel
@@ -49,7 +50,7 @@ type (
 		ClassicRead bool
 		UseNameGet  bool
 		Context     context.Context
-		value       any // the current value of the field
+		values      any // the current value of the field
 
 	}
 
@@ -88,24 +89,27 @@ type (
 		DefaultFunc() FieldFunc
 		States(val ...map[string]interface{}) map[string]interface{}
 		Domain() string
-		Translatable() bool
+		Translate() bool
 		Search() bool
 		As() string // return the type of the value format as
 		// 获取Field所有属性值
 		UpdateDb(ctx *TTagContext)
 		GetAttributes(ctx *TTagContext) map[string]interface{}
+		SetAs(dataType string)
 		SetName(name string)
 		SetModelName(name string)
 		SetModel(IModel)
 		SetBase(field *TField)
 		//ColumnType() string // the sql type
-		Compute() string
-		ComputeFunc(*TFieldContext) error
+		Getter() string
+		GetterFunc(*TFieldContext) error
+		Setter() string
+		SetterFunc(*TFieldContext) error
 		SymbolChar() string
 		SymbolFunc() func(string) string
 		ModelName() string
-		RelateModelName() string
-		RelateFieldName() string
+		RelatedModelName() string
+		RelatedFieldName() string
 		MiddleFieldName() string
 		MiddleModelName() string // 多对多关系中 记录2表记录关联关系的表
 		FieldsId() string
@@ -115,8 +119,8 @@ type (
 		IsInheritedField(arg ...bool) bool
 		//IsCommonField(arg ...bool) bool
 		IsAutoJoin() bool // 自动Join
-		IsCompute() bool  // 自动Join
-
+		HasGetter() bool
+		HasSetter() bool
 		//IsClassicRead() bool
 		//IsClassicWrite() bool
 
@@ -147,8 +151,9 @@ type (
 		isDeleted       bool
 		isCascade       bool
 		isVersion       bool
-		isCompute       bool
 		isNamed         bool
+		hasGetter       bool
+		hasSetter       bool
 
 		//defaultIsEmpty bool
 		//comment        string
@@ -170,24 +175,24 @@ type (
 		DisableTimeZone bool
 		TimeZone        *time.Location // column specified time zone
 
-		_symbol_c         string              // Format 符号 "%s,%d..."
-		_symbol_f         func(string) string // Format 自定义函数
-		_auto_join        bool                //
-		_inherit          bool                // 是否继承该字段指向的Model的多有字段
-		_args             map[string]string   // [Tag]val 里的参数
-		_setup_done       string              // 字段安装完成步骤 Base,full
-		isInheritedField  bool                // 该字段是否关联表的字段 relate
-		isRelatedField    bool                // 该字段是否关联表的外键字段
-		automatic         bool                // 是否是自动创建的字段 ("magic" field)
-		model_name        string              // 字段所在的模型名称
-		comodel_name      string              //relate_model 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
-		relmodel_name     string              //mapping_model 关系表数据模型 字段关联的Model和字段的many2many关系表Model
-		cokey_field_name  string              // 关联字段所在的表的主键
-		relkey_field_name string              // M2M 表示被关联表的主键字段
-		index             bool                // whether the field is indexed in database
-		search            bool                // allow searching on self only if the related field is searchable
-		translate         bool                //???
-		as                string              //值将作为[char,int,bool]被转换
+		_symbol_c             string              // Format 符号 "%s,%d..."
+		_symbol_f             func(string) string // Format 自定义函数
+		_auto_join            bool                //
+		_inherit              bool                // 是否继承该字段指向的Model的多有字段
+		_args                 map[string]string   // [Tag]val 里的参数
+		_setup_done           string              // 字段安装完成步骤 Base,full
+		isInheritedField      bool                // 该字段是否关联表的字段 relate
+		isRelatedField        bool                // 该字段是否关联表的外键字段
+		automatic             bool                // 是否是自动创建的字段 ("magic" field)
+		model_name            string              // 字段所在的模型名称
+		related_model_name    string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
+		related_keyfield_name string              // 关联字段所在的表的主键
+		middle_model_name     string              // 关系表数据模型 字段关联的Model和字段的many2many关系表Model
+		middle_keyfield_name  string              // M2M 表示源表(model_name)在中间表中关联字段的关联字段名，即源表主键字段
+		index                 bool                // whether the field is indexed in database
+		search                bool                // allow searching on self only if the related field is searchable
+		translate             bool                //???
+		as                    string              //值将作为[char,int,bool]被转换
 
 		// published exportable
 		_attr_name              string                 // name of the field
@@ -203,7 +208,7 @@ type (
 		_attr_sortable          bool                   // 可排序
 		_attr_searchable        bool                   //
 		_attr_type              string                 // #字段类型 最终存于dataset数据类型view
-		_attr_default           any                    /* 存储默认值字符串 */ // default(recs) returns the default value
+		_attr_default           string                 /* 存储默认值字符串 */ // default(recs) returns the default value
 		_attr_related           string                 // ???
 		_attr_relation          string                 // 关系表
 		_attr_states            map[string]interface{} // 传递 UI 属性
@@ -221,15 +226,16 @@ type (
 		_func_inv       interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
 		_func_multi     string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
 		_func_search    string      //允许你在这个字段上定义搜索功能
-		_compute        string      // 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
-		_computeFunc    FieldFunc   //
 		_computeDefault FieldFunc   //
-		_model          any         // 提供给compute使用
-		_depends        []string    // 约束 compute 计算依赖哪些字段来触发
-		_setter         string      // 写入计算格式化函数
-		_getter         string      // 读取计算格式化函数
-		_compute_sudo   bool        //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
-		_oldname        string      //# the previous name of this field, so that ORM can rename it automatically at migration
+		// 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
+		_setterFunc   FieldFunc // 写入计算格式化函数
+		_getterFunc   FieldFunc // 读取计算格式化函数
+		_model        any       // 提供给compute使用
+		_setter       string    // 写入计算格式化函数
+		_getter       string    // 读取计算格式化函数
+		_depends      []string  // 约束 compute 计算依赖哪些字段来触发
+		_compute_sudo bool      //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
+		_oldname      string    //# the previous name of this field, so that ORM can rename it automatically at migration
 
 		// # one2many
 		_fields_id string
@@ -282,6 +288,14 @@ func RegisterField(type_name string, creator func() IField) {
 	field_creators[type_name] = creator
 }
 
+func FieldTypes() []string {
+	types := make([]string, 0)
+	for k, _ := range field_creators {
+		types = append(types, k)
+	}
+	return types
+}
+
 func newBaseField(name string, opts ...FieldOption) *TField {
 	field := &TField{
 
@@ -311,15 +325,14 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 
 	/* 根据orm数据类型创建Field */
 	var field IField
-	if baseField.Type() != "" {
-		creator, ok := field_creators[baseField.Type()]
+	fieldType := baseField.Type()
+	if fieldType != "" {
+		creator, ok := field_creators[fieldType]
 		if !ok {
-			log.Errf("cache: unknown adapter name %q (forgot to import?)", name)
-			return nil, errors.New(fmt.Sprintf("cache: unknown adapter name %q (forgot to import?)", name))
+			return nil, fmt.Errorf("Unknown adapter name %q (forgot to import?)", fieldType)
 		}
 		field = creator()
 	} else {
-		fieldType := ""
 		switch baseField.SQLType().Name {
 		case Bool, Boolean:
 			fieldType = "bool"
@@ -350,7 +363,7 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 		field = creator()
 	}
 
-	field.SetBase(newBaseField(name, opts...))
+	field.SetBase(baseField)
 	/*
 		var type_name string
 		var new_field *TField
@@ -436,31 +449,27 @@ func (self *TField) Help() string {
 	return self._attr_help
 }
 
-func (self *TField) Compute() string {
-	return self._compute
-}
-
 func (self *TField) ModelName() string {
 	return self.model_name
 }
 
 // TODO 优化函数名称
-func (self *TField) RelateFieldName() string {
-	return self.cokey_field_name
+func (self *TField) RelatedFieldName() string {
+	return self.related_keyfield_name
 }
 
 func (self *TField) MiddleFieldName() string {
-	return self.relkey_field_name
+	return self.middle_keyfield_name
 }
 
 // 字段关联的表
-func (self *TField) RelateModelName() string {
-	return self.comodel_name
+func (self *TField) RelatedModelName() string {
+	return self.related_model_name
 }
 
 // 多对多关系中 记录2表记录关联关系的表
 func (self *TField) MiddleModelName() string {
-	return self.relmodel_name
+	return self.middle_model_name
 }
 
 func (self *TField) Groups() string {
@@ -488,27 +497,26 @@ func (self *TField) Searchable(val ...bool) bool {
 }
 
 // orm field type
-func (self *TField) Type() string {
-	return self._attr_type
-}
-
-func (self *TField) As() string {
-	return self.as
-}
+func (self *TField) Type() string          { return self._attr_type }
+func (self *TField) As() string            { return self.as }
+func (self *TField) SetAs(dataType string) { self.as = dataType }
 
 // database sql field type
-func (self *TField) SQLType() *SQLType {
-	return &self.SqlType
-}
-
+func (self *TField) SQLType() *SQLType               { return &self.SqlType }
 func (self *TField) FieldsId() string                { return self._fields_id }
 func (self *TField) SymbolChar() string              { return self._symbol_c }
 func (self *TField) SymbolFunc() func(string) string { return self._symbol_f }
 func (self *TField) Title() string                   { return self._attr_title }
 func (self *TField) Translate() bool                 { return self.translate }
+func (self *TField) Getter() string                  { return self._getter }
+func (self *TField) Setter() string                  { return self._setter }
 
-func (self *TField) ComputeFunc(ctx *TFieldContext) error {
-	return self._computeFunc(ctx)
+func (self *TField) GetterFunc(ctx *TFieldContext) error {
+	return self._getterFunc(ctx)
+}
+
+func (self *TField) SetterFunc(ctx *TFieldContext) error {
+	return self._setterFunc(ctx)
 }
 
 func (self *TField) Store(val ...bool) bool {
@@ -521,7 +529,7 @@ func (self *TField) Store(val ...bool) bool {
 
 func (self *TField) Default(val ...any) any {
 	if len(val) > 0 {
-		self._attr_default = val[0]
+		self._attr_default = utils.ToString(val[0])
 	}
 
 	return self._attr_default
@@ -547,10 +555,6 @@ func (self *TField) States(val ...map[string]interface{}) map[string]interface{}
 
 func (self *TField) Search() bool {
 	return self.search
-}
-
-func (self *TField) Translatable() bool {
-	return self.translate
 }
 
 func (self *TField) __IsClassicRead() bool {
@@ -597,7 +601,7 @@ func (self *TField) IsAutoIncrement() bool {
 }
 
 func (self *TField) IsDefaultEmpty() bool {
-	return self._attr_default == nil //&& self._computeDefault == nil
+	return self._attr_default == "" //&& self._computeDefault == nil
 }
 
 func (self *TField) IsUnique() bool {
@@ -624,8 +628,11 @@ func (self *TField) IsVersion() bool {
 	return self.isVersion
 }
 
-func (self *TField) IsCompute() bool {
-	return self.isCompute
+func (self *TField) HasGetter() bool {
+	return self.hasGetter
+}
+func (self *TField) HasSetter() bool {
+	return self.hasSetter
 }
 
 func (self *TField) IsNamed() bool {
@@ -690,9 +697,8 @@ func (self *TField) SetModel(model IModel) {
 	self._model = model
 }
 
-// 跟新字段到数据库 索引 唯一等
+// 重载
 func (self *TField) UpdateDb(ctx *TTagContext) {
-
 }
 
 // """ Return a dictionary that describes the field “self“. """
@@ -750,8 +756,7 @@ method :meth:`BaseModel.read`.
 func (self *TField) OnRead(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
-	//dataset := ctx.Dataset
-	if field.IsCompute() {
+	if field.hasGetter {
 		if mehodName := field._getter; mehodName != "" {
 			// TODO 同一记录方法到OBJECT里使用Method
 			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
@@ -778,30 +783,38 @@ func (self *TField) OnRead(ctx *TFieldContext) error {
 """
 */
 func (self *TField) OnWrite(ctx *TFieldContext) error {
-	model := ctx.Model
 	field := self
-	if field.IsCompute() {
-		if mehodName := field._setter; mehodName != "" {
-			// TODO 同一记录方法到OBJECT里使用Method
-			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
-				args := make([]reflect.Value, 0)
-				args = append(args, reflect.ValueOf(ctx))
-				results := method.Call(args) //
-				if len(results) == 1 {
-					//fld.Selection, _ = results[0].Interface().([][]string)
-					// 返回结果nil或者错误
-					if err, ok := results[0].Interface().(error); ok && err != nil {
-						return err
+	if field.hasSetter {
+		if err := field.SetterFunc(ctx); err != nil {
+			return err
+		}
+
+		/*
+			model := ctx.Model
+			if mehodName := field._setter; mehodName != "" {
+				// TODO 同一记录方法到OBJECT里使用Method
+				if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
+					args := make([]reflect.Value, 0)
+					args = append(args, reflect.ValueOf(ctx))
+					results := method.Call(args) //
+					if len(results) == 1 {
+						//fld.Selection, _ = results[0].Interface().([][]string)
+						// 返回结果nil或者错误
+						if err, ok := results[0].Interface().(error); ok && err != nil {
+							return err
+						}
 					}
 				}
-			}
-		}
+			}*/
+	} else {
+		/* 默认返回值不变 */
+		ctx.SetValue(ctx.Value)
 	}
 
 	return nil
 }
 
 func (self *TFieldContext) SetValue(v any) error {
-	self.value = v
+	self.values = v
 	return nil
 }

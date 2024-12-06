@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"go/token"
 	"io"
@@ -100,7 +101,7 @@ func New(opt ...Option) (*TOrm, error) {
 	orm.osv = newOsv(orm)
 
 	if orm.IsExist(cfg.DataSource.DbName) {
-		err = orm.reverse()
+		err = orm._reverse()
 		if err != nil {
 			return nil, err
 		}
@@ -143,6 +144,19 @@ func (self *TOrm) FormatTimeZone(t time.Time) time.Time {
 	return t
 }
 
+func (self *TOrm) FormatModelName(name string) string {
+	return fmtModelName(name)
+}
+
+func (self *TOrm) FormatTableName(name string) string {
+	return fmtTableName(name)
+}
+
+// format the field name to the same
+func (self *TOrm) FormatFieldName(name string) string {
+	return fmtFieldName(name)
+}
+
 // @classic_mode : 使用Model实例为基础
 func (self *TOrm) NewSession(classic_mode ...bool) *TSession {
 	session := NewSession(self)
@@ -169,7 +183,7 @@ func (self *TOrm) Quote(v string) string {
 
 // FormatTime format time
 func (self *TOrm) FormatTime(sqlTypeName string, t time.Time) (v interface{}) {
-	return self.formatTime(self.config.TimeZone, sqlTypeName, t)
+	return self._formatTime(self.config.TimeZone, sqlTypeName, t)
 }
 
 // FIXME 使用o2o需要插入顺序
@@ -376,7 +390,7 @@ func (self *TOrm) DBMetas() (map[string]IModel, error) {
 
 	modelLst := make(map[string]IModel)
 	for _, model := range models {
-		model, err = self.modelMetas(model)
+		model, err = self._modelMetas(model)
 		if err != nil {
 			return nil, err
 		}
@@ -411,7 +425,7 @@ func (self *TOrm) Exec(sql string, params ...interface{}) (sql.Result, error) {
 }
 
 // # 映射结构体与表
-func (self *TOrm) mapping(model interface{}) (*TModel, error) {
+func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 	model_value := reflect.Indirect(reflect.ValueOf(model))
 	model_type := model_value.Type()
 	if model_type.Kind() != reflect.Struct {
@@ -539,7 +553,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 
 		if strings.Index(strings.ToLower(member_name), "tmodel") != -1 {
 			// 执行tag处理
-			err = self.handleTags(tagCtx, tagMaps, tagsOrder, "table")
+			err = self._handleTags(tagCtx, tagMaps, tagsOrder, "table")
 			if err != nil {
 				return nil, err
 			}
@@ -594,7 +608,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 
 			// # check again 根据Tyep创建字段
 			if field == nil { // 必须确保上面的代码能获取到定义的字段类型
-				return nil, fmt.Errorf("must difine the field type for the model field :" + model_name + "." + field_name)
+				return nil, errors.New("must difine the field type for the model field :" + model_name + "." + field_name)
 			}
 
 			if field.SQLType().Name == "" {
@@ -613,7 +627,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 			self.dialect.SyncToSqlType(tagCtx)
 
 			// 执行tag处理
-			err := self.handleTags(tagCtx, tagMaps, tagsOrder, "")
+			err := self._handleTags(tagCtx, tagMaps, tagsOrder, "")
 			if err != nil {
 				return nil, err
 			}
@@ -654,7 +668,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 				}
 			*/
 
-			field.UpdateDb(tagCtx)
+			//field.UpdateDb(tagCtx)
 
 			// 添加字段进Table
 			if field.Type() != "" && field.Name() != "" {
@@ -669,7 +683,7 @@ func (self *TOrm) mapping(model interface{}) (*TModel, error) {
 // TODO 保持表实时更新到ORM - 由于有些表是由SQL后期创建 导致Orm里缓存不存在改表Sycn时任然执行创建而抛出错误
 // 更新现有数据库以及表信息并模拟创建TModel
 // 反转Table 到 Model
-func (self *TOrm) reverse() error {
+func (self *TOrm) _reverse() error {
 	models, err := self.DBMetas()
 	if err != nil {
 		return err
@@ -704,7 +718,7 @@ func (self *TOrm) reverse() error {
 	return nil
 }
 
-func (self *TOrm) modelMetas(model IModel) (IModel, error) {
+func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 	tableName := model.Table()
 	modelObject := self.osv.newObject(model.String())
 	model.GetBase().obj = modelObject
@@ -725,6 +739,10 @@ func (self *TOrm) modelMetas(model IModel) (IModel, error) {
 				model.Obj().uidFieldName = field.Name()
 			}
 
+			if field.Base()._attr_type == "" {
+				field.Base()._attr_type = field.SQLType().Name
+			}
+
 			/*
 				//没有起到作用
 				//无法鉴别来自数据库的字段是否id字段或者name字段
@@ -741,7 +759,7 @@ func (self *TOrm) modelMetas(model IModel) (IModel, error) {
 			field.Base().isColumn = true
 			// 数据库的字段都是存储类型
 			field.Base()._attr_store = true
-			model.addField(field)
+			model._addField(field)
 		}
 
 	}
@@ -756,7 +774,7 @@ func (self *TOrm) modelMetas(model IModel) (IModel, error) {
 	return model, nil
 }
 
-func (self *TOrm) formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v interface{}) {
+func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v interface{}) {
 	if self.dialect.DBType() == ORACLE {
 		return t
 	}
@@ -794,7 +812,7 @@ func (self *TOrm) formatTime(tz *time.Location, sqlTypeName string, t time.Time)
 }
 
 // TODO
-func (self *TOrm) nowTime(sqlTypeName string) (res_val interface{}, res_time time.Time) {
+func (self *TOrm) _nowTime(sqlTypeName string) (res_val interface{}, res_time time.Time) {
 	res_time = time.Now()
 	if self.dialect.DBType() == ORACLE {
 		return
@@ -835,7 +853,7 @@ func (self *TOrm) nowTime(sqlTypeName string) (res_val interface{}, res_time tim
 	return
 }
 
-func (self *TOrm) handleTags(fieldCtx *TTagContext, tags map[string][]string, order []string, prefix string) error {
+func (self *TOrm) _handleTags(fieldCtx *TTagContext, tags map[string][]string, order []string, prefix string) error {
 	if tags == nil {
 		return nil
 	}
@@ -881,7 +899,7 @@ func (self *TOrm) handleTags(fieldCtx *TTagContext, tags map[string][]string, or
 	return nil
 }
 
-func (self *TOrm) logExecSql(sql string, args []interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
+func (self *TOrm) _logExecSql(sql string, args []interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
 	if self.config.ShowSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
@@ -897,7 +915,7 @@ func (self *TOrm) logExecSql(sql string, args []interface{}, executionBlock func
 	}
 }
 
-func (self *TOrm) logQuerySql(sql string, args []interface{}, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
+func (self *TOrm) _logQuerySql(sql string, args []interface{}, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
 	if self.config.ShowSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()

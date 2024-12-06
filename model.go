@@ -31,22 +31,21 @@ type (
 		// Pravite Interface:
 		// retrieve the lines in the comodel
 		// --------------------- private ---------------------
-		setOrm(o *TOrm)
-		setBaseModel(model *TModel) //赋值初始化BaseModel
-		relations_reload()
-		addField(field IField)
+		_setOrm(o *TOrm)
+		_setBaseModel(model *TModel) //赋值初始化BaseModel
+		_relations_reload()
+		_addField(field IField)
+		_onBuildFields() error
 
 		// --------------------- public ---------------------
+
 		String() string // model name in orm like "base.user"
 		Table() string  // table name in database like "base_user"
 		// 获取继承的模型
 		// 用处:super 用于方便调用不同层级模型的方法/查询等
 		Super() IModel
+		Prototype() IModel
 		Clone(options ...ModelOption) (IModel, error)
-		// 初始化模型
-		// mapping -> init -> object
-		OnBuildModel() error
-		OnBuildFields() error
 
 		// 包含指定表模型的事务 如若开启了事务这里非nil 反之亦然
 		Records() *TSession                // new a orm records session for query
@@ -120,15 +119,43 @@ type (
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
 		NameSearch(name string, domain *domain.TDomainNode, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
+
+		/* Lifecycle
+
+			SyncModel()
+				|
+			BeforeSetup()
+				|
+		create table to database
+				|
+			AfterSetup()
+				｜
+			OnBuildFields
+				｜
+			GetModel()
+				｜
+			OnBuildModel()
+				|
+			  model
+
+		*/
+		// 初始化模型
+		// mapping -> init -> object
+		OnBuildModel() error
+		OnBuildFields() error
+
 		// TODO 未完成
 		BeforeSession(*TSession) (*TSession, error)
 		AfterSession(*TSession) (*TSession, error)
 		BeforeSetup() error
 		AfterSetup() error
 	}
+
 	ModelOption  func(*ModelOptions)
 	ModelOptions struct {
-		Module  string // 属于哪个模块所有
+		Model   IModel // 模型自己
+		Module  string //TODO 更名称 属于哪个模块所有
+		Order   []string
 		Context context.Context
 	}
 
@@ -138,6 +165,7 @@ type (
 	* 	方法命名规格 ："GetXXX","SetXXX","XXByXX"
 	 */
 	TModel struct {
+		prototype  IModel
 		super      IModel        // 继承的Model
 		modelType  reflect.Type  // Model 反射类
 		modelValue reflect.Value // Model 反射值 供某些程序调用方法
@@ -162,13 +190,19 @@ type (
 		_parent_name  string // #! 父表中的字段名称
 		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
 		_sequence     string //
-		_order        string // default order field for searching results
-		_auto         bool   // # True # create database backend
-		_transient    bool   // # 暂时的
+		//_order        string // default order field for searching results
+		_auto      bool // # True # create database backend
+		_transient bool // # 暂时的
 		//_relate       bool
 
 	}
 )
+
+func WithFunc(fn func(opts *ModelOptions)) ModelOption {
+	return func(opts *ModelOptions) {
+		fn(opts)
+	}
+}
 
 func WithContext(ctx context.Context) ModelOption {
 	return func(opts *ModelOptions) {
@@ -180,6 +214,14 @@ func WithModuleName(name string) ModelOption {
 	return func(opts *ModelOptions) {
 		opts.Module = name
 	}
+}
+
+func newModelOptions(model IModel) (res *ModelOptions) {
+	return &ModelOptions{
+		Model:   model,
+		Context: context.Background(),
+	}
+
 }
 
 // 新建模型 不带其他信息
@@ -195,11 +237,7 @@ func newModel(name, tableName string, modelValue reflect.Value, modelType reflec
 	}
 
 	if options == nil {
-		options = &ModelOptions{
-			Context: context.Background(),
-		}
-	} else if options.Context == nil {
-		options.Context = context.Background()
+		options = newModelOptions(nil)
 	}
 
 	model = &TModel{
@@ -208,11 +246,11 @@ func newModel(name, tableName string, modelValue reflect.Value, modelType reflec
 		modelType:      modelType,
 		modelValue:     modelValue,
 		options:        options,
-		recNamesSearch: "name",
-		_order:         "id",
+		recNamesSearch: DefaultNameField,
 		_auto:          true,
 	}
 
+	model.options.Model = model
 	//mdl._sequence = mdl._table + "_id_seq"
 
 	return model
@@ -234,6 +272,10 @@ MRO 就是类的方法解析顺序表, 其实也就是继承父类方法时的�
 */
 func (self *TModel) Super() IModel {
 	return self.super
+}
+
+func (self *TModel) Prototype() IModel {
+	return self.prototype
 }
 
 // 克隆一个新的Model包含现有事物Tx和Context
@@ -266,7 +308,7 @@ func (self *TModel) Orm() *TOrm {
 func (self *TModel) Db() *TSession {
 	session := NewSession(self.orm)
 	/* 提供参考Model*/
-	session.Statement.Model = self.super
+	session.Statement.Model = self.prototype
 	/* 从Model获取必要信息 */
 	return session.Model(self.String())
 }
@@ -275,7 +317,7 @@ func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
 		if s := session[0]; s != nil {
 			/* 提供参考Model*/
-			s.Statement.Model = self.super
+			s.Statement.Model = self.prototype
 			/* 从Model获取必要信息 */
 			self.transaction = s.Model(self.String())
 			return self.transaction
@@ -313,7 +355,7 @@ func (self *TModel) Builder() *ModelBuilder {
 func (self *TModel) Records() *TSession {
 	session := NewSession(self.orm)
 	/* 提供参考Model*/
-	session.Statement.Model = self.super
+	session.Statement.Model = self.prototype
 	/* 从Model获取必要信息 */
 	return session.Model(self.String())
 }
@@ -327,10 +369,12 @@ func (self *TModel) GetRecordName() string {
 	// # if self.recName is set, it belongs to self._fields
 	if fld := self.GetFieldByName(self.recName); fld == nil {
 		if self.recName == "" {
-			if fld := self.GetFieldByName("name"); fld != nil {
-				self.recName = "name"
-			} else {
+			if fld := self.GetFieldByName(DefaultNameField); fld != nil {
+				self.recName = DefaultNameField
+			} else if self.idField != "" {
 				self.recName = self.idField
+			} else {
+				self.recName = DefaultIdField
 			}
 		}
 	}
@@ -417,6 +461,7 @@ func _generate_order_by(order_spec, query *TQuery) {
 func (self *TModel) Unlink(ids ...string) bool {
 	return self._unlink(ids...)
 }*/
+
 func (self *TModel) GetName() string {
 	return self.name
 }
@@ -432,7 +477,7 @@ func (self *TModel) String() string {
 
 func (self *TModel) Options(options ...ModelOption) *ModelOptions {
 	if self.options == nil {
-		self.options = &ModelOptions{}
+		self.options = newModelOptions(self)
 	}
 
 	for _, opt := range options {
@@ -494,25 +539,40 @@ func (self *TModel) AfterSession(session *TSession) (*TSession, error) {
 func (self *TModel) BeforeSetup() error { return nil }
 func (self *TModel) AfterSetup() error  { return nil }
 
-func (self *TModel) addField(field IField) {
+func (self *TModel) _onBuildFields() error {
+	if self.super != nil {
+		if err := self.super._onBuildFields(); err != nil {
+			return err
+		}
+	}
+
+	return self.prototype.OnBuildFields()
+}
+
+func (self *TModel) _addField(field IField) {
 	field.Base().model_name = self.name
+	if field.Type() == "" {
+		log.Dbg("")
+	}
+
 	self.obj.AddField(field)
 }
 
-func (self *TModel) setOrm(o *TOrm) {
+func (self *TModel) _setOrm(o *TOrm) {
 	self.orm = o
 }
 
-func (self *TModel) setBaseModel(model *TModel) {
+func (self *TModel) _setBaseModel(model *TModel) {
 	*self = *model
 	self._sequence = self.name + "_id_seq"
+	self.super = model
 }
 
 // """ Recompute the _inherit_fields mapping. """
 // TODO 移动到ORM里实现
 // 重载关联表字段到_relate_fields里 _relate_fields的赋值在此实现
 // 条件必须所有Model都注册到OSV里
-func (self *TModel) relations_reload() {
+func (self *TModel) _relations_reload() {
 	/*
 	   cls._inherit_fields = struct = {}
 	   for parent_model, parent_field in cls._inherits.iteritems():
@@ -539,7 +599,7 @@ func (self *TModel) relations_reload() {
 			log.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.String())
 		}
 
-		rel_model.relations_reload()
+		rel_model._relations_reload()
 		fielss = rel_model.GetFields()
 		relate_fields = rel_model.Obj().GetRelatedFields() //RelateFields()
 

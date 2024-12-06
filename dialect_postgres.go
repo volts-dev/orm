@@ -927,9 +927,9 @@ func (db *postgres) GetSqlType(field IField) string {
 	hasLen2 := (c.SQLType().DefaultLength2 > 0)
 
 	if hasLen2 {
-		res += "(" + strconv.FormatInt(int64(c.SQLType().DefaultLength), 10) + "," + strconv.FormatInt(int64(c.SQLType().DefaultLength2), 10) + ")"
+		res += "(" + utils.ToString(c.SQLType().DefaultLength) + "," + utils.ToString(c.SQLType().DefaultLength2) + ")"
 	} else if hasLen1 {
-		res += "(" + strconv.FormatInt(int64(c.SQLType().DefaultLength), 10) + ")"
+		res += "(" + utils.ToString(c.SQLType().DefaultLength) + ")"
 	}
 
 	return res
@@ -1033,6 +1033,101 @@ func (db *postgres) GenAddColumnSQL(tableName string, field IField) string {
 	addColumnSQL = fmt.Sprintf("ALTER TABLE %s.%s ADD %s", quoter.Quote(db.getSchema()), quoter.Quote(tableName), s)
 	commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s.%s IS '%s'", quoter.Quote(db.getSchema()), quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Title())
 	return addColumnSQL + commentSQL
+}
+
+func (db *postgres) GenInsertSql(tableName string, fields []string, uniqueFields []string, idField string, onConflict *OnConflict) string {
+	var sql strings.Builder
+	quoter := db.quoter.Quote
+	cnt := len(fields)
+	field_places := strings.Repeat("?,", cnt-1) + "?"
+	field_list := ""
+
+	for i, name := range fields {
+		if i < cnt-1 {
+			field_list = field_list + quoter(name) + ","
+		} else {
+			field_list = field_list + quoter(name)
+		}
+	}
+
+	sql.WriteString("INSERT INTO ")
+	sql.WriteString(tableName)
+	sql.WriteString(" (")
+	sql.WriteString(field_list)
+	sql.WriteString(") ")
+	sql.WriteString("VALUES (")
+	sql.WriteString(field_places)
+	sql.WriteString(") ")
+
+	if onConflict != nil {
+		sql.WriteString("ON CONFLICT ")
+
+		/* ON CONFLICT */
+		if onConflict.OnConstraint != "" {
+			sql.WriteString("ON CONSTRAINT ")
+			sql.WriteString(onConflict.OnConstraint)
+			sql.WriteByte(' ')
+		} else {
+			sql.WriteByte('(')
+			if len(onConflict.Fields) > 0 {
+				for idx, field := range onConflict.Fields {
+					if idx > 0 {
+						sql.WriteByte(',')
+					}
+					sql.WriteString(quoter(field))
+				}
+			} else if len(uniqueFields) > 0 {
+				/* 暂时只支持一个字段作为唯一约束，否则会报错 */
+				for idx, field := range uniqueFields {
+					if idx > 0 {
+						sql.WriteByte(',')
+					}
+					sql.WriteString(quoter(field))
+					break // only one field
+				}
+			} else {
+				sql.WriteString(quoter(idField))
+			}
+			sql.WriteString(`) `)
+
+			/*
+				if len(onConflict.TargetWhere.Exprs) > 0 {
+					sql.WriteString(" WHERE ")
+					onConflict.TargetWhere.Build(builder)
+					sql.WriteByte(' ')
+				}
+			*/
+		}
+
+		if onConflict.DoNothing {
+			sql.WriteString("DO NOTHING")
+		} else {
+			sql.WriteString("DO UPDATE SET ")
+			if len(onConflict.DoUpdates) > 0 {
+				for idx, field := range onConflict.DoUpdates {
+					if idx > 0 {
+						sql.WriteByte(',')
+					}
+					sql.WriteString(quoter(field))
+					sql.WriteByte('=')
+					sql.WriteByte('?')
+					//sql.AddVar(builder, assignment.Value)
+				}
+			} else {
+				sql.WriteString(quoter(idField))
+				sql.WriteByte('=')
+				sql.WriteString(quoter(idField))
+			}
+		}
+		sql.WriteString(" ")
+	}
+
+	if len(idField) > 0 {
+		sql.WriteString("RETURNING ")
+		sql.WriteString(quoter(idField))
+	}
+
+	return sql.String()
 }
 
 func (db *postgres) ModifyColumnSql(tableName string, field IField) string {
@@ -1204,41 +1299,91 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 			}
 		}
 
+		var defaultValueStr string
+		var defaultValue string
+		if colDefault != nil {
+			defaultValueStr = *colDefault
+			// cockroach has type with the default value with :::
+			// and postgres with ::, we should remove them before store them
+
+			idx := strings.Index(defaultValueStr, ":::")
+			if idx == -1 {
+				idx = strings.Index(defaultValueStr, "::")
+			}
+			if idx > -1 {
+				defaultValueStr = defaultValueStr[:idx]
+			}
+
+			if strings.HasSuffix(defaultValueStr, "+00:00'") {
+				defaultValueStr = defaultValueStr[:len(defaultValueStr)-7] + "'"
+			}
+		}
+
+		/* 定义特殊类型 否则default直接返回 */
 		switch dataType {
 		case "numeric":
 			sql_type = SQLType{Numeric, precision, scale}
+			//defaultValue = utils.ToInt(defaultValueStr)
+
 		case "integer":
 			sql_type = SQLType{Int, 0, 0}
+			//defaultValue = utils.ToInt(defaultValueStr)
+
 		case "character":
 			sql_type = SQLType{Char, maxLen, 0}
+			//defaultValue = strings.Trim(defaultValueStr, "'")
+			defaultValueStr = strings.Trim(defaultValueStr, "'")
+
 		case "character varying", "string":
 			sql_type = SQLType{Varchar, maxLen, 0}
+			//defaultValue = strings.Trim(defaultValueStr, "'")
+			defaultValueStr = strings.Trim(defaultValueStr, "'")
+
 		case "timestamp without time zone":
 			sql_type = SQLType{DateTime, 0, 0}
+			//defaultValue = utils.ToTime(defaultValueStr)
+
 		case "timestamp with time zone":
 			sql_type = SQLType{TimeStampz, 0, 0}
+			//defaultValue = utils.ToTime(defaultValueStr)
+
 		case "time without time zone":
 			sql_type = SQLType{Time, 0, 0}
+			//defaultValue = utils.ToTime(defaultValueStr)
+
+		case "real":
+			sql_type = SQLType{Float, 0, 0}
+			//defaultValue = utils.ToFloat32(defaultValueStr)
+
 		case "double precision":
 			sql_type = SQLType{Double, 0, 0}
+			//defaultValue = utils.ToFloat64(defaultValueStr)
+
 		case "boolean":
 			sql_type = SQLType{Bool, 0, 0}
+			//defaultValue = utils.ToBool(defaultValueStr)
+
 		case "oid":
 			sql_type = SQLType{BigInt, 0, 0}
+			//defaultValue = utils.ToInt64(defaultValueStr)
+
 		case "array":
 			sql_type = SQLType{Array, 0, 0}
+
 		case "bytes":
 			sql_type = SQLType{Binary, 0, 0}
+
 		default:
 			startIdx := strings.Index(strings.ToLower(dataType), "string(")
 			if startIdx != -1 && strings.HasSuffix(dataType, ")") {
 				length := dataType[startIdx+8 : len(dataType)-1]
 				l, _ := strconv.ParseInt(length, 10, 64)
 				sql_type = SQLType{Name: "STRING", DefaultLength: int(l), DefaultLength2: 0}
+				defaultValueStr = strings.Trim(defaultValueStr, "'")
 			} else {
+				/* 直接返回 */
 				sql_type = SQLType{Name: strings.ToUpper(dataType), DefaultLength: 0, DefaultLength2: 0}
 			}
-
 		}
 
 		if _, ok := SqlTypes[sql_type.Name]; !ok {
@@ -1260,32 +1405,17 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 			col.Base().isUnique = isUnique
 		}
 
-		if colDefault != nil {
-			defaultValue := *colDefault
-			// cockroach has type with the default value with :::
-			// and postgres with ::, we should remove them before store them
-
-			idx := strings.Index(defaultValue, ":::")
-			if idx == -1 {
-				idx = strings.Index(defaultValue, "::")
-			}
-			if idx > -1 {
-				defaultValue = defaultValue[:idx]
-			}
-
-			if strings.HasSuffix(defaultValue, "+00:00'") {
-				defaultValue = defaultValue[:len(defaultValue)-7] + "'"
-			}
-
-			col.Base()._attr_default = defaultValue
-
-			if strings.HasPrefix(defaultValue, "nextval(") {
-				col.Base().isAutoIncrement = true
-				col.Base()._attr_default = "" /* 自增加字段不绑定默认值 */
-				//col.Base().defaultIsEmpty = true
-			}
+		defaultValue = defaultValueStr
+		// default value
+		if strings.HasPrefix(defaultValueStr, "nextval(") {
+			col.Base().isAutoIncrement = true
+			defaultValue = "" /* 自增加字段不绑定默认值 */
+			//col.Base().defaultIsEmpty = true
 		}
 
+		if defaultValueStr != "" {
+			col.Base()._attr_default = defaultValue
+		}
 		col.Base()._attr_required = (isNullable == "NO")
 		col.Base()._attr_size = sql_type.DefaultLength
 
@@ -1332,8 +1462,7 @@ func (db *postgres) GetModels(ctx context.Context) ([]IModel, error) {
 	models := make([]IModel, 0)
 	for rows.Next() {
 		var tableName string
-		err = rows.Scan(&tableName)
-		if err != nil {
+		if err = rows.Scan(&tableName); err != nil {
 			return nil, err
 		}
 
@@ -1388,7 +1517,7 @@ func (db *postgres) GetIndexes(ctx context.Context, tableName string) (map[strin
 		cs := strings.Split(indexdef, "(")
 		colNames = strings.Split(cs[1][0:len(cs[1])-1], ",")
 
-		if strings.HasPrefix(indexName, IndexPrefix+tableName) || strings.HasPrefix(indexName, UniquePrefix+tableName) {
+		if strings.HasPrefix(indexName, DefaultIndexPrefix+tableName) || strings.HasPrefix(indexName, DefaultUniquePrefix+tableName) {
 			newIdxName := indexName[5+len(tableName):]
 			if newIdxName != "" {
 				indexName = newIdxName

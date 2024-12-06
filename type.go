@@ -248,11 +248,10 @@ var (
 func value2FieldTypeValue(field IField, value interface{}) interface{} {
 	type_name := field.As()
 	if type_name == "" {
-		type_name = field.Type()
+		type_name = field.SQLType().Name
 	}
 
-	//switch strings.ToUpper(type_name) {
-	switch field.SQLType().Name {
+	switch type_name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
 		return utils.ToInt(value)
 	case BigInt, BigSerial:
@@ -327,7 +326,7 @@ func GoType2SQLType(t reflect.Type) (st SQLType) {
 		case reflect.Bool:
 			st = SQLType{Bool, 0, 0}
 		case reflect.String:
-			st = SQLType{Varchar, 255, 0}
+			st = SQLType{Varchar, 0, 0}
 		case reflect.Struct:
 			if t.ConvertibleTo(TimeType) {
 				st = SQLType{DateTime, 0, 0}
@@ -346,7 +345,7 @@ func GoType2SQLType(t reflect.Type) (st SQLType) {
 }
 
 // default sql type change to go types
-func SQLType2Type(st SQLType) reflect.Type {
+func SQLType2GoType(st SQLType) reflect.Type {
 	name := strings.ToUpper(st.Name)
 	switch name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:

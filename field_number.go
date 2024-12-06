@@ -20,7 +20,7 @@ type (
 
 func init() {
 	RegisterField("int", newIntField)
-	//RegisterField("bigint", newBigIntField)
+	RegisterField("bigint", newBigIntField)
 	RegisterField("float", newFloatField)
 	RegisterField("double", newDoubleField)
 }
@@ -69,17 +69,13 @@ func (self *TBigIntField) Init(ctx *TTagContext) {
 func (self *TFloatField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	field._attr_store = true
-	//if field.SqlType.Name != Float {
-	field.SqlType = SQLType{Float, 0, 0}
 	field._attr_type = Float
-	//}
+	field.SqlType = SQLType{Float, 0, 0}
 }
 
 func (self *TDoubleField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	field._attr_store = true
-	//if field.SqlType.Name != Double {
-	field.SqlType = SQLType{Double, 0, 0}
 	field._attr_type = Double
-	//}
+	field.SqlType = SQLType{Double, 0, 0}
 }

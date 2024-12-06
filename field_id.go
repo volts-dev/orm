@@ -90,7 +90,7 @@ func (self *TIdField) onConvertToRead(session *TSession, cols []string, record [
 		}
 
 		id := uuid.Generate().Int64()
-		session.New().Set("id", id).Domain(node).Limit(1).Write(nil) // 无需额外数据写入
+		session.New().Set(session.Statement.IdKey, id).Domain(node).Limit(1).Write(nil) // 无需额外数据写入
 		return id
 	} else {
 		return value2FieldTypeValue(self, value)

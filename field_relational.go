@@ -67,15 +67,15 @@ func newOne2ManyField() IField {
 
 func (self *TRelational) GetAttributes(ctx *TTagContext) map[string]interface{} {
 	attrs := self.Base().GetAttributes(ctx)
-	attrs["relation"] = self.comodel_name
+	attrs["relation"] = self.related_model_name
 	return attrs
 }
 
-func (self *TOne2OneField) Init(ctx *TTagContext) { //comodel_name string, inverse_name string
+func (self *TOne2OneField) Init(ctx *TTagContext) { //related_model_name string, inverse_name string
 	field_Value := ctx.FieldTypeValue
 	field := ctx.Field.Base()
 	field.isRelatedField = true
-	field.SqlType = GoType2SQLType(field_Value.Type())
+
 	field._attr_store = true
 	field._attr_type = TYPE_O2O
 	params := ctx.Params
@@ -83,7 +83,7 @@ func (self *TOne2OneField) Init(ctx *TTagContext) { //comodel_name string, inver
 	var modelName string
 	if len(params) > 0 {
 		modelName = fmtModelName(utils.TitleCasedName(params[0]))
-		field.comodel_name = params[0]
+		field.related_model_name = params[0]
 		field._attr_relation = params[0]
 	}
 
@@ -94,6 +94,18 @@ func (self *TOne2OneField) Init(ctx *TTagContext) { //comodel_name string, inver
 	parentModel, err := ctx.Orm.GetModel(modelName)
 	if err != nil || parentModel == nil {
 		log.Fatalf("field One2One %s@%s must including model name %s registered in orm!", field.Name(), model.String(), modelName)
+	}
+
+	if field_Value.IsValid() {
+		field.SqlType = GoType2SQLType(field_Value.Type())
+	} else {
+		/* 保持和ID一致的类型 */
+		idfield := parentModel.GetFieldByName(parentModel.IdField())
+		if idfield == nil {
+			panic("id field not found")
+		}
+
+		field.SqlType = *idfield.SQLType()
 	}
 
 	var (
@@ -148,24 +160,24 @@ func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 	if ds.Count() > 0 {
 		field := ctx.Field
 
-		relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
+		relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
 		if err != nil {
 			// # Should not happen, unless the foreign key is missing.
 			return err
 		}
 
-		//group := ds.GroupBy(field.RelateFieldName())
+		//group := ds.GroupBy(field.RelatedFieldName())
 		group := ds.GroupBy(relateModel.IdField())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			// 获取关联表主键
 			//fieldValue := record.GetByField(field.Name())
-			fieldValue := record.GetByField(field.RelateFieldName())
+			fieldValue := record.GetByField(field.RelatedFieldName())
 			grp := group[fieldValue]
 
 			if grp.Count() > 1 {
 				return fmt.Errorf(
 					"model %s's has more than 1 record for %s@%s OneToOne Id %v",
-					field.RelateModelName(), field.Name(), field.ModelName(), grp.Keys())
+					field.RelatedModelName(), field.Name(), field.ModelName(), grp.Keys())
 			}
 
 			//record.SetByField(field.Name(), grp.Record().AsItfMap())
@@ -182,7 +194,7 @@ func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 	return nil
 }
 
-func (self *TOne2ManyField) Init(ctx *TTagContext) { //comodel_name string, inverse_name string
+func (self *TOne2ManyField) Init(ctx *TTagContext) { //related_model_name string, inverse_name string
 	field := ctx.Field
 	params := ctx.Params
 
@@ -192,9 +204,9 @@ func (self *TOne2ManyField) Init(ctx *TTagContext) { //comodel_name string, inve
 	// Field.Base()._classic_write = false
 	field.Base().isRelatedField = true
 	field.Base()._attr_store = false
-	field.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
-	field.Base().cokey_field_name = fmtFieldName(params[1])                   //目标表关键字段
-	field.Base()._attr_relation = field.Base().comodel_name
+	field.Base().related_model_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
+	field.Base().related_keyfield_name = fmtFieldName(params[1])                    //目标表关键字段
+	field.Base()._attr_relation = field.Base().related_model_name
 	field.Base()._attr_type = TYPE_O2M
 }
 
@@ -203,8 +215,8 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 	ctx.UseNameGet = false
 	ctx.ClassicRead = false
 
-	if self.isCompute {
-		self._computeFunc(ctx)
+	if self.hasGetter {
+		self._getterFunc(ctx)
 	} else {
 		field := ctx.Field
 		if !field.IsRelatedField() {
@@ -218,12 +230,12 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 
 		if ds.Count() > 0 {
 			// 获得关系Model 以提供idfield
-			relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
+			relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
 			if err != nil {
 				return err
 			}
 
-			group := ds.GroupBy(field.RelateFieldName())
+			group := ds.GroupBy(field.RelatedFieldName())
 			ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 				fieldValue := record.GetByField(ctx.Model.IdField())
 				grp := group[fieldValue]
@@ -246,7 +258,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 }
 
 func (self *TOne2ManyField) _OnWrite(ctx *TFieldContext) error {
-	/* comodel = records.env[self.comodel_name].with_context(**self.context)
+	/* comodel = records.env[self.related_model_name].with_context(**self.context)
 	   inverse = self.inverse_name
 	   vals_list = []                  # vals for lines to create in batch
 
@@ -297,19 +309,38 @@ func (self *TOne2ManyField) _OnWrite(ctx *TFieldContext) error {
 }
 
 func (self *TMany2OneField) Init(ctx *TTagContext) {
-	fld := ctx.Field
+	field := ctx.Field.Base()
 	params := ctx.Params
+	fieldValue := ctx.FieldTypeValue
+
+	if fieldValue.IsValid() {
+		field.SqlType = GoType2SQLType(fieldValue.Type())
+	} else {
+		modelName := fmtModelName(utils.TitleCasedName(params[0]))
+		relateModel, err := ctx.Orm.GetModel(modelName)
+		if err != nil || relateModel == nil {
+			log.Fatalf("field One2One %s@%s must including model name %s registered in orm!", field.Name(), relateModel.String(), modelName)
+		}
+		/* 保持和ID一致的类型 */
+		idfield := relateModel.GetFieldByName(relateModel.IdField())
+		if idfield == nil {
+			panic("id field not found")
+		}
+
+		field.SqlType = *idfield.SQLType()
+	}
 
 	// 不直接指定 采用以下tag写法
 	// field:"many2one() int()"
 	//lField.initMany2One(lTag[1:]...)	fld._classic_read = true // 预先设计是false
 	//fld.Base()._classic_write = true
-	log.Assert(len(params) < 1, "Many2One(%s) of model %s must including at least 1 args!", fld.Name(), self.model_name)
-	fld.Base().isRelatedField = true
-	fld.Base().comodel_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
-	fld.Base()._attr_relation = fld.Base().comodel_name
-	fld.Base()._attr_type = TYPE_M2O
-	fld.Base()._attr_store = true
+	log.Assert(len(params) < 1, "Many2One(%s) of model %s must including at least 1 args!", field.Name(), self.model_name)
+	field.isRelatedField = true
+	field.related_model_name = fmtModelName(utils.TitleCasedName(params[0])) //目标表
+	field._attr_relation = field.Base().related_model_name
+	field._attr_type = TYPE_M2O
+	field._attr_store = true
+
 }
 
 // TODO 未完成
@@ -325,7 +356,7 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 	}
 
 	if ds.Count() > 0 {
-		relateModel, err := ctx.Model.Orm().GetModel(field.RelateModelName())
+		relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
 		if err != nil {
 			return err
 		}
@@ -337,7 +368,7 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 			if grp.Count() != 1 {
 				return fmt.Errorf(
 					"model %s's has more than 1 record for %s@%s ManyToOne Id %v",
-					field.RelateModelName(), field.Name(), field.ModelName(), grp.Keys())
+					field.RelatedModelName(), field.Name(), field.ModelName(), grp.Keys())
 			}
 
 			record.SetByField(field.Name(), grp.Record().AsMap())
@@ -345,7 +376,7 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 		})
 	}
 	/*
-		model, err := ctx.Session.Orm().osv.GetModel(self.RelateModelName())
+		model, err := ctx.Session.Orm().osv.GetModel(self.RelatedModelName())
 		if err != nil {
 			// # Should not happen, unless the foreign key is missing.
 			return err
@@ -406,7 +437,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 		}
 
 		// 处理值为名称转为ID
-		model, err := ctx.Model.Orm().GetModel(self.RelateModelName(), WithContext(ctx.Model.Options().Context))
+		model, err := ctx.Model.Orm().GetModel(self.RelatedModelName(), WithContext(ctx.Model.Options().Context))
 		if err != nil {
 			return err
 		}
@@ -454,6 +485,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 		}
 	default:
 		// 不修改
+		ctx.SetValue(ctx.Value)
 		//return fmt.Errorf("%s@%s OnWrite many2one failed with value:%v", field.Name(), ctx.Model.String(), v)
 	}
 
@@ -461,129 +493,106 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 }
 
 func (self *TMany2ManyField) Init(ctx *TTagContext) {
-	fld := ctx.Field
+	field := ctx.Field.Base()
 	params := ctx.Params
 
-	//	fld.Base()._column_type = "" //* not a store field
-	fld.Base().isRelatedField = true
-	fld.Base()._attr_store = false
-	cnt := len(params)
-	if cnt == 1 { // many2many(关联表)
-		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName()))             // 字段归属的Model
-		model2 := fmtModelName(utils.TitleCasedName(params[0]))                   // 字段链接的Model
-		rel_model := fmt.Sprintf("%s.%s.rel", model1, model2)                     // 表字段关系的Model
-		fld.Base().comodel_name = model2                                          //目标表
-		fld.Base().relmodel_name = rel_model                                      //提供目标表格关系的表
-		fld.Base().cokey_field_name = fmtFieldName(fmt.Sprintf("%s_id", model1))  //目标表关键字段
-		fld.Base().relkey_field_name = fmtFieldName(fmt.Sprintf("%s_id", model2)) // 关系表关键字段
-		fld.Base()._attr_relation = fld.Base().comodel_name
-		fld.Base()._attr_type = TYPE_M2M
+	//	field._column_type = "" //* not a store field
+	field.isRelatedField = true
+	field._attr_store = false
+	model_name := fmtModelName(utils.TitleCasedName(field.ModelName())) // 字段归属的Model
 
-	} else if cnt == 2 { // many2many(关联表,关系表)
-		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName()))             // 字段归属的Model
-		model2 := fmtModelName(utils.TitleCasedName(params[0]))                   // 字段链接的Model
-		rel_model := fmtModelName(utils.TitleCasedName(params[1]))                // 表字段关系的Model
-		fld.Base().comodel_name = model2                                          //目标表
-		fld.Base().relmodel_name = rel_model                                      //提供目标表格关系的表
-		fld.Base().cokey_field_name = fmtFieldName(fmt.Sprintf("%s_id", model1))  //目标表关键字段
-		fld.Base().relkey_field_name = fmtFieldName(fmt.Sprintf("%s_id", model2)) // 关系表关键字段
-		fld.Base()._attr_relation = fld.Base().comodel_name
-		fld.Base()._attr_type = TYPE_M2M
-	} else if cnt == 3 { // many2many(关联表,字段1,字段2)
-		model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
-		model2 := fmtModelName(utils.TitleCasedName(params[0]))       // 字段链接的Model
-		rel_model := fmt.Sprintf("%s.%s.rel", model1, model2)         // 表字段关系的Model
-		fld.Base().comodel_name = model2                              //目标表
-		fld.Base().relmodel_name = rel_model                          //提供目标表格关系的表
-		fld.Base().cokey_field_name = fmtFieldName(params[1])         //目标表关键字段
-		fld.Base().relkey_field_name = fmtFieldName(params[2])        // 关系表关键字段
-		fld.Base()._attr_relation = fld.Base().comodel_name
-		fld.Base()._attr_type = TYPE_M2M
-	} else if cnt == 4 { // many2many(关联表,关系表,字段1,字段2)
-		//model1 := fmtModelName(utils.TitleCasedName(fld.ModelName())) // 字段归属的Model
-		model2 := fmtModelName(utils.TitleCasedName(params[0]))    // 字段链接的Model
-		rel_model := fmtModelName(utils.TitleCasedName(params[1])) // 表字段关系的Model
-		fld.Base().comodel_name = model2                           //目标表
-		fld.Base().relmodel_name = rel_model                       //提供目标表格关系的表
-		fld.Base().cokey_field_name = fmtFieldName(params[2])      //目标表关键字段
-		fld.Base().relkey_field_name = fmtFieldName(params[3])     // 关系表关键字段
-		fld.Base()._attr_relation = fld.Base().comodel_name
-		fld.Base()._attr_type = TYPE_M2M
-	} else {
-		log.Panicf("field %s of model %s must format like 'Many2Many(relate_model)' or 'Many2Many(relate_model,model_id,relate_model_id)'!", fld.Name(), self.model_name)
+	cnt := len(params)
+	if cnt == 0 {
+		log.Panicf("Many2Many(%s) of model %s must including at least 1 args!", field.Name(), field.ModelName())
 	}
+
+	related_model := fmtModelName(utils.TitleCasedName(params[0])) // 字段链接的Model
+	field.related_model_name = related_model                       //目标表
+	field._attr_relation = related_model
+	field._attr_type = TYPE_M2M
+
+	switch cnt {
+	case 1:
+		// many2many(关联表)
+		middle_model := fmt.Sprintf("%s.%s.rel", model_name, related_model)             // 表字段关系的Model
+		field.middle_model_name = middle_model                                          //提供目标表格关系的表
+		field.middle_keyfield_name = fmtFieldName(fmt.Sprintf("%s_id", model_name))     // 关系表关键字段
+		field.related_keyfield_name = fmtFieldName(fmt.Sprintf("%s_id", related_model)) //目标表关键字段
+
+	case 2:
+		// many2many(关联表,关系表)
+		middle_model := fmtModelName(utils.TitleCasedName(params[1]))                   // 表字段关系的Model
+		field.middle_model_name = middle_model                                          //提供目标表格关系的表
+		field.middle_keyfield_name = fmtFieldName(fmt.Sprintf("%s_id", model_name))     // 关系表关键字段
+		field.related_keyfield_name = fmtFieldName(fmt.Sprintf("%s_id", related_model)) //目标表关键字段
+
+	case 3:
+		// many2many(关联表,字段1,字段2)
+		middle_model := fmt.Sprintf("%s.%s.rel", model_name, related_model) // 表字段关系的Model
+		field.middle_model_name = middle_model                              //提供目标表格关系的表
+		field.middle_keyfield_name = fmtFieldName(params[1])                // 关系表关键字段
+		field.related_keyfield_name = fmtFieldName(params[2])               //目标表关键字段
+
+	case 4:
+		// many2many(关联表,关系表,字段1,字段2)
+		middle_model := fmtModelName(utils.TitleCasedName(params[1])) // 表字段关系的Model
+		field.middle_model_name = middle_model                        //提供目标表格关系的表
+		field.middle_keyfield_name = fmtFieldName(params[2])          // 关系表关键字段
+		field.related_keyfield_name = fmtFieldName(params[3])         //目标表关键字段
+
+	default:
+		log.Panicf("field %s of model %s must format like 'Many2Many(relate_model)' or 'Many2Many(relate_model,model_id,relate_model_id)'!", field.Name(), self.model_name)
+	}
+
+	ctx.Orm.osv.middleModel.Store(field.middle_model_name, true)
 }
 
 // 创建关联表
 // model, columns
 func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	orm := ctx.Orm
-	fld := ctx.Field
-	model := ctx.Model
-	rel := strings.Replace(fld.MiddleModelName(), ".", "_", -1)
+	field := ctx.Field
 
-	if _, has := orm.osv.models.Load(fld.MiddleModelName()); !has {
-		field := model.GetFieldByName(model.IdField())
-		sqlType := orm.dialect.GetSqlType(field)
-		id1 := fld.RelateFieldName()
-		id2 := fld.MiddleFieldName()
-		query := fmt.Sprintf(`
+	if _, has := orm.osv.models.Load(field.MiddleModelName()); has {
+		return
+	}
+
+	idField := ctx.Model.GetFieldByName(ctx.Model.IdField())
+	sqlType := orm.dialect.GetSqlType(idField)
+	middle_model := strings.Replace(field.MiddleModelName(), ".", "_", -1)
+	id1 := field.RelatedFieldName()
+	id2 := field.MiddleFieldName()
+	query := fmt.Sprintf(`
 	           CREATE TABLE IF NOT EXISTS "%s" (
 				"%s" %s NOT NULL,
 				"%s" %s NOT NULL,UNIQUE("%s","%s"));
 	           COMMENT ON TABLE "%s" IS '%s';
 	           CREATE INDEX ON "%s" ("%s");
 	           CREATE INDEX ON "%s" ("%s")`,
-			rel,
-			id1, sqlType,
-			id2, sqlType, id1, id2,
-			rel, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.model_name, rel),
-			rel, id1,
-			rel, id2)
-		_, err := orm.Exec(query)
-		if err != nil {
-			log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelateModelName(), query, err.Error())
-		}
-
-		self.update_db_foreign_keys(ctx)
-
-		// 新建模型
-		relModel := new(TModel)
-		model_val := reflect.Indirect(reflect.ValueOf(relModel))
-		model_type := model_val.Type()
-		model, err := orm.modelMetas(newModel(fld.MiddleModelName(), rel, model_val, model_type, nil))
-		if err != nil {
-			log.Err(err)
-		}
-		// 注册model
-		if err = orm.osv.RegisterModel("", model.GetBase()); err != nil {
-			log.Err(err)
-		}
+		middle_model,
+		id1, sqlType,
+		id2, sqlType, id1, id2,
+		middle_model, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.model_name, middle_model),
+		middle_model, id1,
+		middle_model, id2)
+	if _, err := orm.Exec(query); err != nil {
+		log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelatedModelName(), query, err.Error())
 	}
 
-	/*
-	   cr = model._cr
-	   # Do not reflect relations for custom fields, as they do not belong to a
-	   # module. They are automatically removed when dropping the corresponding
-	   # 'ir.model.field'.
-	   if not self.manual:
-	       model.pool.post_init(model.env['ir.model.relation']._reflect_relation,
-	                            model, self.relation, self._module)
-	   if not sql.table_exists(cr, self.relation):
-	       comodel = model.env[self.comodel_name]
-	       query = """
-	           CREATE TABLE "{rel}" ("{id1}" INTEGER NOT NULL,
-	                                 "{id2}" INTEGER NOT NULL,
-	                                 UNIQUE("{id1}","{id2}"));
-	           COMMENT ON TABLE "{rel}" IS %s;
-	           CREATE INDEX ON "{rel}" ("{id1}");
-	           CREATE INDEX ON "{rel}" ("{id2}")
-	       """.format(rel=self.relation, id1=self.column1, id2=self.column2)
-	       cr.execute(query, ['RELATION BETWEEN %s AND %s' % (model._table, comodel._table)])
-	       _schema.debug("Create table %r: m2m relation between %r and %r", self.relation, model._table, comodel._table)
-	       model.pool.post_init(self.update_db_foreign_keys, model)
-	       return True
-	*/
+	self.update_db_foreign_keys(ctx)
+
+	// 新建模型
+	relModel := new(TModel)
+	model_val := reflect.Indirect(reflect.ValueOf(relModel))
+	model_type := model_val.Type()
+	model, err := orm._modelMetas(newModel(field.MiddleModelName(), middle_model, model_val, model_type, nil))
+	if err != nil {
+		log.Err(err)
+	}
+	// 注册model
+	if err = orm.osv.RegisterModel("", model.GetBase()); err != nil {
+		log.Err(err)
+	}
 }
 
 // 设置字段获得的值
@@ -600,7 +609,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	}
 
 	if ds.Count() > 0 {
-		group := ds.GroupBy(field.RelateFieldName())
+		group := ds.GroupBy(field.RelatedFieldName())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			//fieldValue := record.GetByField(field.Name()) // 货得many2many字段值
 			fieldValue := record.GetByField(ctx.Model.IdField()) // 货得many2many字段值
@@ -628,10 +637,9 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 		return nil
 	}
 
-	ids := make([]any, 0)
-
 	// TODO　更多类型
 	// 支持一下几种M2M数据类型
+	ids := make([]any, 0)
 	switch v := ctx.Value.(type) {
 	case []int:
 		ids = utils.ToAnySlice(v...)
@@ -640,31 +648,10 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 	case []any:
 		ids = v
 	default:
-		log.Errf("M2M field name <%s> could not support this type of value %v", ctx.Field.Name(), ctx.Value)
+		return log.Errf("M2M field name <%s> could not support this type of value %v", ctx.Field.Name(), ctx.Value)
 	}
 
 	if len(ids) > 0 {
-		/*		query := fmt.Sprintf(
-						`SELECT {rel}.{id1}, {rel}.{id2} FROM {tables} WHERE {rel}.{id1} IN %s AND {rel}.{id2}={table}.id AND {cond}`,
-						middle_table_name,field.RelateFieldName(),// select
-						middle_table_name, field.MiddleFieldName(),
-						middle_table_name,
-								middle_table_name,field.RelateFieldName(),
-
-						in_sql,                                     // In
-						middle_table_name, field.MiddleFieldName(), // And
-						model_name, model.IdField(),
-					)
-						        query = `
-				            SELECT {rel}.{id1}, {rel}.{id2} FROM {tables}
-				            WHERE {rel}.{id1} IN %s AND {rel}.{id2}={table}.id AND {cond}
-				        `.format(
-				            rel=self.relation, id1=self.column1, id2=self.column2,
-				            table=comodel._table, tables=",".join(tables),
-				            cond=" AND ".join(clauses) if clauses else "1=1",
-				        )
-		*/
-
 		// TODO 读比写快 不删除原有数据 直接读取并对比再添加
 		// unlink all the relate record on the ref. table
 		err := self.unlink_all(ctx, ids)
@@ -692,19 +679,22 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 		for _, relate_id := range ids {
 			query := fmt.Sprintf(
 				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
-				middle_table_name, quoter.Quote(field.RelateFieldName()), quoter.Quote(field.MiddleFieldName()),
+				middle_table_name, quoter.Quote(field.MiddleFieldName()), quoter.Quote(field.RelatedFieldName()),
 			)
 
 			/*
 			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
 			                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
 			                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
-			   		middle_table_name, field.RelateFieldName(), field.MiddleFieldName(),
+			   		middle_table_name, field.RelatedFieldName(), field.MiddleFieldName(),
 			   		rec_id, strings.Join(ids, ","),
-			   		field.RelateFieldName(), field.MiddleFieldName(), middle_table_name, field.RelateFieldName(), rec_id,
+			   		field.RelatedFieldName(), field.MiddleFieldName(), middle_table_name, field.RelatedFieldName(), rec_id,
 			   	)
 			*/
-			_, err := ctx.Session.Exec(query, relate_id, rec_id)
+			if rec_id == nil {
+				log.Dbg("")
+			}
+			_, err := ctx.Session.Exec(query, rec_id, relate_id)
 			if err != nil {
 				return err
 			}
@@ -724,17 +714,18 @@ func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) e
 	middle_table_name := quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
 	insql := strings.Repeat("?,", len(ids)-1) + "?"
 	and_insql := strings.Repeat("?,", len(ctx.Ids)-1) + "?"
-	query := fmt.Sprintf(`DELETE FROM %s WHERE %s.%s IN (%s) AND %s.%s IN (%s)`,
-		middle_table_name,
-		middle_table_name, quote(field.RelateFieldName()), // Where
-		insql,                                             // In
-		middle_table_name, quote(field.MiddleFieldName()), // And
-		and_insql, //model_name, model.IdField(),
-	)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "DELETE FROM %s WHERE %s.%s IN (%s) ",
+		middle_table_name, middle_table_name, quote(field.MiddleFieldName()), insql)
+
+	if len(ids) > 0 {
+		fmt.Fprintf(&b, " AND %s.%s IN (%s)", middle_table_name, quote(field.RelatedFieldName()), and_insql)
+	}
 
 	// 提交修改
 	session := ctx.Session // orm.NewSession()
-	_, err := session.Exec(query, append(ids, ctx.Ids...)...)
+	_, err := session.Exec(b.String(), append(ctx.Ids, ids...)...)
 	if err != nil {
 		return err
 	}
@@ -745,7 +736,7 @@ func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) e
 // Add the foreign keys corresponding to the field's relation table.
 func (self *TMany2ManyField) update_db_foreign_keys(ctx *TTagContext) {
 	/*        cr = model._cr
-	          comodel = model.env[self.comodel_name]
+	          comodel = model.env[self.related_model_name]
 	          reflect = model.env['ir.model.constraint']._reflect_constraint
 	          # create foreign key references with ondelete=cascade, unless the targets are SQL views
 	          if sql.table_kind(cr, model._table) != 'v':

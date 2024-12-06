@@ -113,7 +113,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 
 	modelNames = make([]string, 0)
 	for _, mod := range models {
-		model, err := self.orm.mapping(mod)
+		model, err := self.orm._mapping(mod)
 		if err != nil {
 			return nil, err
 		}
@@ -234,7 +234,7 @@ func (self *TSession) CreateTable(model string) error {
 
 	// 更新Model表
 	if cnt, err := res.RowsAffected(); err == nil && cnt > 0 {
-		self.orm.reverse()
+		self.orm._reverse()
 	}
 
 	return err
@@ -433,13 +433,13 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 					// 如果是修改字符串到
 					if expectedType == Text && strings.HasPrefix(curType, Varchar) ||
 						expectedType == Varchar && strings.HasPrefix(curType, Char) {
-						log.Warnf("Table <%s> column <%s> change type from %s to %s\n", tableName, field.Name(), curType, expectedType)
+						log.Warnf("Table <%s> column <%s> change type from %s to %s", tableName, field.Name(), curType, expectedType)
 						_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 
 					} else if strings.HasPrefix(curType, Char) && strings.HasPrefix(expectedType, Varchar) {
 						// 如果是同是字符串 则检查长度变化 for mysql
 						if cur_field.Size() < field.Size() {
-							log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)\n", tableName, field.Name(), cur_field.Size(), field.Size())
+							log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)", tableName, field.Name(), cur_field.Size(), field.Size())
 							_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 						}
 						//}
@@ -458,7 +458,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				// 如果是同是字符串 则检查长度变化 for mysql
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() < field.Size() {
-					log.Warnf("Table <%s> column <%s> change type from %s(%d) to %s(%d)\n",
+					log.Warnf("Table <%s> column <%s> change size from %s(%d) to %s(%d)",
 						tableName, field.Name(), cur_field.SQLType().Name, cur_field.Size(), field.SQLType().Name, field.Size())
 					_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 					if err != nil {
@@ -487,11 +487,19 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 					//session.Model(newModel.String())
 					//TODO # 修正上面指向错误Model
 					//session.Statement.model = newModel
-					err = self._addColumn(field.Name())
+					if err = self._addColumn(field); err != nil {
+						log.Err(err)
+						err = nil
+					}
 				}
-				if err != nil {
-					log.Err(err)
-					err = nil
+
+				/* 为M2M 添加中间表 */
+				if field.IsRelatedField() {
+					field.UpdateDb(&TTagContext{
+						Orm:   self.orm,
+						Field: field,
+						Model: newModel,
+					})
 				}
 			}
 		}
@@ -575,14 +583,14 @@ func (self *TSession) _getModel(modelName string, options ...ModelOption) (model
 	return
 }
 
-func (self *TSession) _addColumn(colName string) error {
+func (self *TSession) _addColumn(field IField) error {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
 	}
 
-	col := self.Statement.Model.GetFieldByName(colName)
-	sql, args := self.Statement.generate_add_column(col)
+	//col := self.Statement.Model.GetFieldByName(colName)
+	sql, args := self.Statement.generate_add_column(field)
 	_, err := self._exec(sql, args...)
 	return err
 }

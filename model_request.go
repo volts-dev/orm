@@ -29,11 +29,22 @@ type (
 		Model  string
 	}
 
+	OnConflict struct {
+		Fields []string
+		//Where        Where
+		//TargetWhere  Where
+		OnConstraint string
+		DoNothing    bool
+		DoUpdates    []string
+		UpdateAll    bool
+	}
+
 	CreateRequest struct {
-		Context context.Context
-		Data    []any  // * 多条数据记录
-		Model   string // *
-		Method  string
+		Context    context.Context
+		Data       []any  // * 多条数据记录
+		Model      string // *
+		Method     string
+		OnConflict OnConflict
 	}
 
 	// ReadRequest 结构体用于定义读取请求的参数，它扩展了 Paginator 结构体的功能并增加了特定的查询和排序选项。
@@ -126,6 +137,10 @@ func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 		defer session.Close()
 	}
 
+	if req.OnConflict.Fields != nil || req.OnConflict.DoUpdates != nil || req.OnConflict.DoNothing || req.OnConflict.UpdateAll || req.OnConflict.OnConstraint != "" {
+		session.OnConflict(&req.OnConflict)
+	}
+
 	ids := make([]any, len(req.Data))
 	for i, d := range req.Data {
 		id, err := session.Create(d)
@@ -208,6 +223,71 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 	session.UseNameGet = req.UseNameGet
 
 	return session.Limit(req.Limit, req.Page-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
+}
+
+// #被重载接口
+func (self *TModel) Update(req *UpdateRequest) (int64, error) {
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
+	if err != nil {
+		return 0, err
+	}
+
+	session := model.Tx()
+	if session.IsAutoClose {
+		defer session.Close()
+	}
+
+	var effectCount int64
+
+	// 更新多个ID上的数据
+	if len(req.Ids) > 0 {
+		if len(req.Data) != 1 {
+			return 0, fmt.Errorf("can't update multi data to multi ids!")
+		}
+		data := req.Data[0]
+		for _, id := range req.Ids {
+			id, err := session.Ids(id).Write(data)
+			if err != nil {
+				return 0, err
+			}
+			effectCount += id
+		}
+		return effectCount, nil
+	}
+
+	if req.Domain != "" {
+		session.Domain(req.Domain)
+	}
+
+	for _, d := range req.Data {
+		id, err := session.Write(d)
+		if err != nil {
+			return 0, err
+		}
+		effectCount += id
+	}
+
+	return effectCount, nil
+}
+
+// #被重载接口
+func (self *TModel) Delete(req *DeleteRequest) (int64, error) {
+	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
+	if err != nil {
+		return 0, err
+	}
+
+	session := model.Tx()
+	if session.IsAutoClose {
+		defer session.Close()
+	}
+
+	effectCount, err := session.Delete(req.Ids...)
+	if err != nil {
+		return 0, err
+	}
+
+	return effectCount, nil
 }
 
 // 带事务加载上传数据
@@ -353,7 +433,7 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, nil
 	}
 
-	relateModel, err := self.orm.GetModel(field.RelateModelName(), WithContext(ctx.Model.Options().Context))
+	relateModel, err := self.orm.GetModel(field.RelatedModelName(), WithContext(ctx.Model.Options().Context))
 	if err != nil {
 		// # Should not happen, unless the foreign key is missing.
 		return nil, err
@@ -389,8 +469,8 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	// # retrieve the lines in the comodel
 
-	relModelName := field.RelateModelName()
-	relFieldName := field.RelateFieldName()
+	relModelName := field.RelatedModelName()
+	relFieldName := field.RelatedFieldName()
 	relateModel, err := self.orm.GetModel(relModelName)
 	if err != nil {
 		return nil, err
@@ -432,7 +512,7 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
 		}
 
-		relateModelName := field.RelateModelName()
+		relateModelName := field.RelatedModelName()
 		relateModel, err := self.orm.GetModel(relateModelName, WithContext(ctx.Model.Options().Context))
 		if err != nil {
 			return nil, err
@@ -466,18 +546,38 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	} else if ds.Count() != 0 {
 		ids = unique(ds.Keys(ctx.Model.IdField()))
 	}
-	if len(ids) == 0 {
+
+	field := ctx.Field
+
+	var err error
+	var domainNode *domain.TDomainNode
+	if ctx.Domain != "" {
+		domainNode, err = domain.String2Domain(ctx.Domain, ds)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if expr := field.Domain(); expr != "" {
+		node, err := domain.String2Domain(expr, ds)
+		if err != nil {
+			return nil, err
+		}
+
+		domainNode.AND(node)
+	}
+
+	if len(ids) == 0 && domainNode.Count() == 0 {
 		return nil, nil
 	}
-	field := ctx.Field
 
 	if !field.IsRelatedField() || field.Type() != TYPE_M2M {
 		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
 	}
 
 	// # retrieve the lines in the comodel
-	relModelName := field.RelateModelName() //# 字段关联表名
-	relFieldName := field.RelateFieldName()
+	relModelName := field.RelatedModelName() //# 字段关联表名
+	relFieldName := field.RelatedFieldName()
 	midModelName := field.MiddleModelName() //# 字段M2m关系表名
 	midFieldName := field.MiddleFieldName()
 
@@ -487,15 +587,12 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, fmt.Errorf("the models are not correctable for ManyToMany(%s,%s)!", relModelName, midModelName)
 	}
 
-	domainNode, err := domain.String2Domain(field.Domain(), ds)
-	if err != nil {
-		return nil, err
-	}
-
 	sess := NewSession(orm)
 	defer sess.Close()
 	/* 复制必要字段 */
-	sess.Sets = ctx.Session.Sets
+	if ctx.Session != nil {
+		sess.Sets = ctx.Session.Sets
+	}
 
 	//table_name := field.comodel_name//sess.Statement.TableName()
 	sess.Model(relModelName)
@@ -541,9 +638,10 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		"WHERE",
 		where_c, //WHERE
 		"AND",
-		midTableName+"."+relFieldName,
-		"IN ("+placeholder+") AND",
-		midTableName+"."+midFieldName+"="+relTableName+".id",
+		midTableName+"."+midFieldName,
+		"IN ("+placeholder+") ",
+		"AND",
+		midTableName+"."+relFieldName+"="+relTableName+".id",
 		order_by, limit, offset,
 	)
 
@@ -652,14 +750,14 @@ func (self *TModel) NameCreate(name string) (*dataset.TDataSet, error) {
 			return nil, err
 		}
 
-		id, err := model.Create(&CreateRequest{Data: []any{map[string]any{
+		ids, err := model.Create(&CreateRequest{Data: []any{map[string]any{
 			self.recName: name,
 		}}})
 		if err != nil {
 			return nil, fmt.Errorf("cannot execute name_create, create name faild %s", err.Error())
 
 		}
-		return self.NameGet(id)
+		return self.NameGet(ids)
 	} else {
 		return nil, fmt.Errorf("Cannot execute name_create, no nameField defined on %s", self.name)
 	}
@@ -770,7 +868,7 @@ func (self *TModel) DefaultGet(fields ...string) (map[string]any, error) {
 				return nil, err
 			}
 
-			value = ctx.value
+			value = ctx.values
 		} else if v := self.GetDefaultByName(fieldName); v != nil {
 			value = v
 		}
@@ -803,69 +901,4 @@ func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
 		Sort(req.Sort...).
 		GroupBy(req.GroupBy...).
 		Read()
-}
-
-// #被重载接口
-func (self *TModel) Update(req *UpdateRequest) (int64, error) {
-	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
-	if err != nil {
-		return 0, err
-	}
-
-	session := model.Tx()
-	if session.IsAutoClose {
-		defer session.Close()
-	}
-
-	var effectCount int64
-
-	// 更新多个ID上的数据
-	if len(req.Ids) > 0 {
-		if len(req.Data) != 1 {
-			return 0, fmt.Errorf("can't update multi data to multi ids!")
-		}
-		data := req.Data[0]
-		for _, id := range req.Ids {
-			id, err := session.Ids(id).Write(data)
-			if err != nil {
-				return 0, err
-			}
-			effectCount += id
-		}
-		return effectCount, nil
-	}
-
-	if req.Domain != "" {
-		session.Domain(req.Domain)
-	}
-
-	for _, d := range req.Data {
-		id, err := session.Write(d)
-		if err != nil {
-			return 0, err
-		}
-		effectCount += id
-	}
-
-	return effectCount, nil
-}
-
-// #被重载接口
-func (self *TModel) Delete(req *DeleteRequest) (int64, error) {
-	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
-	if err != nil {
-		return 0, err
-	}
-
-	session := model.Tx()
-	if session.IsAutoClose {
-		defer session.Close()
-	}
-
-	effectCount, err := session.Delete(req.Ids...)
-	if err != nil {
-		return 0, err
-	}
-
-	return effectCount, nil
 }

@@ -680,7 +680,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			if err != nil {
 				return err
 			}
-			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.String()), "id", model.obj.GetRelationByName(next_model.String()))
+			ex_leaf.add_join_context(next_model.GetBase(), model.obj.GetRelationByName(next_model.String()), next_model.IdField(), model.obj.GetRelationByName(next_model.String()))
 			self.push(ex_leaf)
 
 		} else if fn, has := HIERARCHY_FUNCS[operator.String()]; has && left.String() == self.root_model.idField {
@@ -712,12 +712,12 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			   # ----------------------------------------*/
 
 			// # res_partner.state_id = res_partner__state_id.id
-			ex_leaf.add_join_context(comodel.GetBase(), fieldName, "id", fieldName)
+			ex_leaf.add_join_context(comodel.GetBase(), fieldName, comodel.IdField(), fieldName)
 			self.push(create_substitution_leaf(ex_leaf, domain.NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
 
 		} else if len(path) > 1 && field.Store() && field.Type() == TYPE_O2M && field.IsAutoJoin() {
 			//  # res_partner.id = res_partner__bank_ids.partner_id
-			ex_leaf.add_join_context(comodel.GetBase(), "id", field.FieldsId(), fieldName)
+			ex_leaf.add_join_context(comodel.GetBase(), comodel.IdField(), field.FieldsId(), fieldName)
 			node, err := domain.String2Domain(field.Domain(), nil) //column._domain(model) if callable(column._domain) else column._domain
 			if err != nil {
 				log.Err(err)
@@ -762,7 +762,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			lDs, _ = model.Records().Domain(domain_str, right_ids...).Read()
 			table_ids := lDs.Keys()
 			ex_leaf.leaf = domain.NewDomainNode()
-			ex_leaf.leaf.Push("id", "in")
+			ex_leaf.leaf.Push(model.idField, "in")
 			ex_leaf.leaf.Push(table_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
@@ -885,7 +885,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				ltemp.Push(left, operator, right)
 				self.push(create_substitution_leaf(ex_leaf, ltemp, model, false))
 
-			} else if field.Translatable() && right != nil && !utils.IsBlank(right.Value) { //column.translate and not callable(column.translate) and right:
+			} else if field.Translate() && right != nil && !utils.IsBlank(right.Value) { //column.translate and not callable(column.translate) and right:
 				// 翻译
 				need_wildcard := operator.ValueIn("like", "ilike", "not like", "not ilike")
 				if need_wildcard {

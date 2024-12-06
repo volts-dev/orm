@@ -380,9 +380,9 @@ func (db *mysql) GetSqlType(field IField) string {
 	}
 
 	if hasLen2 {
-		res += "(" + strconv.FormatInt(int64(c.SQLType().DefaultLength), 10) + "," + strconv.FormatInt(int64(c.SQLType().DefaultLength2), 10) + ")"
+		res += "(" + utils.ToString(c.SQLType().DefaultLength) + "," + utils.ToString(c.SQLType().DefaultLength2) + ")"
 	} else if hasLen1 {
-		res += "(" + strconv.FormatInt(int64(c.SQLType().DefaultLength), 10) + ")"
+		res += "(" + utils.ToString(c.SQLType().DefaultLength) + ")"
 	}
 
 	if isUnsigned {
@@ -455,6 +455,94 @@ func (db *mysql) GenAddColumnSQL(tableName string, field IField) string {
 		sql += " COMMENT '" + field.Title() + "'"
 	}
 	return sql
+}
+
+func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []string, idField string, onConflict *OnConflict) string {
+	var sql strings.Builder
+	cnt := len(fields)
+	field_places := strings.Repeat("?,", cnt-1) + "?"
+	field_list := ""
+	quoter := db.quoter.Quote
+	for i, name := range fields {
+		if i < cnt-1 {
+			field_list = field_list + quoter(name) + ","
+		} else {
+			field_list = field_list + quoter(name)
+		}
+	}
+
+	sql.WriteString("INSERT INTO ")
+	sql.WriteString(tableName)
+	sql.WriteString(" (")
+	sql.WriteString(field_list)
+	sql.WriteString(") ")
+	sql.WriteString("VALUES (")
+	sql.WriteString(field_places)
+	sql.WriteString(") ")
+
+	if onConflict != nil {
+		sql.WriteString("ON CONFLICT ")
+
+		/* ON CONFLICT */
+		if onConflict.OnConstraint != "" {
+			sql.WriteString("ON CONSTRAINT ")
+			sql.WriteString(onConflict.OnConstraint)
+			sql.WriteByte(' ')
+		} else {
+			if len(onConflict.Fields) > 0 {
+				sql.WriteByte('(')
+				for idx, field := range onConflict.Fields {
+					if idx > 0 {
+						sql.WriteByte(',')
+					}
+					sql.WriteString(quoter(field))
+				}
+				sql.WriteString(`) `)
+			} else if len(uniqueFields) > 0 {
+				sql.WriteString("(")
+				sql.WriteString(strings.Join(uniqueFields, ","))
+				sql.WriteString(") ")
+			}
+			/*
+				if len(onConflict.TargetWhere.Exprs) > 0 {
+					sql.WriteString(" WHERE ")
+					onConflict.TargetWhere.Build(builder)
+					sql.WriteByte(' ')
+				}
+			*/
+		}
+
+		if onConflict.DoNothing {
+			sql.WriteString("DO NOTHING")
+		} else {
+			sql.WriteString("DO UPDATE SET ")
+			if len(onConflict.DoUpdates) > 0 {
+				for idx, field := range onConflict.DoUpdates {
+					if idx > 0 {
+						sql.WriteByte(',')
+					}
+					sql.WriteString(quoter(field))
+					sql.WriteByte('=')
+					sql.WriteByte('?')
+					//sql.AddVar(builder, assignment.Value)
+				}
+			} else {
+				sql.WriteString(quoter(idField))
+				sql.WriteByte('=')
+				sql.WriteString(quoter(idField))
+			}
+		}
+		sql.WriteString(" ")
+	}
+
+	//sql.WriteString("ON DUPLICATE KEY UPDATE ")
+
+	if len(idField) > 0 {
+		sql.WriteString("RETURNING ")
+		sql.WriteString(db.quoter.Quote(idField))
+	}
+
+	return sql.String()
 }
 
 func (db *mysql) GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error) {
@@ -662,7 +750,7 @@ func (db *mysql) GetIndexes(ctx context.Context, tableName string) (map[string]*
 
 		colName = strings.Trim(colName, "` ")
 		var isRegular bool
-		if strings.HasPrefix(indexName, "IDX_"+tableName) || strings.HasPrefix(indexName, "UQE_"+tableName) {
+		if strings.HasPrefix(indexName, DefaultIndexPrefix+tableName) || strings.HasPrefix(indexName, DefaultUniquePrefix+tableName) {
 			indexName = indexName[5+len(tableName):]
 			isRegular = true
 		}

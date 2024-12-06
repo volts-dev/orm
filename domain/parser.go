@@ -244,7 +244,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 	}
 
 exit:
-	if list.IsValueNode() && result.IsValueNode() {
+	if list.Count() > 0 && list.IsValueNode() && result.IsValueNode() {
 		// 当括号里面是单个值的时候需要将其直接返回
 		// for (Id,in,[1])
 		return result.Push(list), nil

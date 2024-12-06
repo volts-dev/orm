@@ -45,28 +45,32 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 	field := self.Base()
 	params := ctx.Params
 
-	log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", field.Name(), self.model_name, params)
 	field._attr_store = true
 	field._attr_type = TYPE_SELECTION
 	field._getter = "" //初始化
-	lStr := strings.Trim(params[0], "'")
-	lStr = strings.Replace(lStr, "''", "'", -1)
-	m := ctx.Model.GetBase().modelValue.MethodByName(lStr)
-	if m.IsValid() {
-		/* TODO 支持 func() [][]int */
-		if _, ok := m.Interface().(func() [][]string); !ok {
-			log.Fatalf("the selection field %s@%s method %s must func()[][]string type", field.Name(), ctx.Model.String(), lStr)
-		}
-		field._getter = lStr
-	} else {
-		m := make(map[string]string)
-		err := json.Unmarshal([]byte(lStr), &m)
-		if err != nil {
-			log.Fatalf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
-		}
+	field.SqlType = SQLType{Varchar, 0, 0}
 
-		for k, v := range m {
-			field._attr_selection = append(field._attr_selection, []string{k, v})
+	if field._attr_selection == nil {
+		log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", field.Name(), self.model_name, params)
+		lStr := strings.Trim(params[0], "'")
+		lStr = strings.Replace(lStr, "''", "'", -1)
+		m := ctx.Model.GetBase().modelValue.MethodByName(lStr)
+		if m.IsValid() {
+			/* TODO 支持 func() [][]int */
+			if _, ok := m.Interface().(func() [][]string); !ok {
+				log.Fatalf("the selection field %s@%s method %s must func()[][]string type", field.Name(), ctx.Model.String(), lStr)
+			}
+			field._getter = lStr
+		} else {
+			m := make(map[string]string)
+			err := json.Unmarshal([]byte(lStr), &m)
+			if err != nil {
+				log.Fatalf("selection tag response error when unmarshal json '%s' : %s", lStr, err.Error())
+			}
+
+			for k, v := range m {
+				field._attr_selection = append(field._attr_selection, []string{k, v})
+			}
 		}
 	}
 }
@@ -121,7 +125,7 @@ func (self *TSelectionField) GetAttributes(ctx *TTagContext) map[string]interfac
 	model := ctx.Model
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 
-	if lMehodName := self.Compute(); lMehodName != "" {
+	if lMehodName := self.Getter(); lMehodName != "" {
 		if m := model_val.MethodByName(lMehodName); m.IsValid() {
 			//results := m.Call([]reflect.Value{model.Base().modelValue}) //
 			results := m.Call(nil) //

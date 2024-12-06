@@ -38,10 +38,12 @@ func (self *TSession) Model(model string, options ...ModelOption) *TSession {
 	}
 	*/
 
-	// ### id key must exist
+	// 除中间表外，主键必须存在
 	if self.Statement.IdKey == "" {
-		log.Errf("the statement of %s must have a Id key field is existed! please check the sync of model!", self.Statement.Model.String())
-		self.IsDeprecated = true
+		if _, ok := self.orm.osv.middleModel.Load(self.Statement.Model.String()); !ok {
+			log.Errf("the statement of %s must have a Id key field is existed! please check the sync of model!", self.Statement.Model.String())
+			self.IsDeprecated = true
+		}
 	}
 
 	return self
@@ -183,7 +185,14 @@ func (session *TSession) Asc(colNames ...string) *TSession {
 	return session
 }
 
-// set reutrn count 0 = default  -1 = unlimit
+/*
+// Limit 设置查询的限制条件，常用于分页查询
+// 该方法接收两个可变参数：limit（限制返回的记录数）和offset（从哪条记录开始）
+// offset是可选参数，如果未提供，则默认从第一条记录开始
+// 返回值是当前的TSession对象，支持链式调用
+0 = default
+-1 = unlimit
+*/
 func (self *TSession) Limit(limit int64, offset ...int64) *TSession {
 	self.Statement.Limit(limit, offset...)
 	return self
@@ -198,5 +207,10 @@ func (self *TSession) NoCascade() *TSession {
 // ForUpdate Set Read/Write locking for UPDATE
 func (self *TSession) ForUpdate() *TSession {
 	self.Statement.IsForUpdate = true
+	return self
+}
+
+func (self *TSession) OnConflict(conflict *OnConflict) *TSession {
+	self.Statement.OnConflict = conflict
 	return self
 }

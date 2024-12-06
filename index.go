@@ -8,9 +8,7 @@ import (
 )
 
 const (
-	IndexPrefix  = "IDX_"
-	UniquePrefix = "UQE_"
-	IndexType    = iota + 1
+	IndexType = iota + 1
 	UniqueType
 )
 
@@ -36,9 +34,9 @@ func generate_index_name(indexType int, tableName string, fields []string) strin
 	}
 
 	if indexType == UniqueType {
-		return fmt.Sprintf("UQE_%v_%v", tableName, fieldName)
+		return fmt.Sprintf("%s_%s_%s", DefaultUniquePrefix, tableName, fieldName)
 	}
-	return fmt.Sprintf("IDX_%v_%v", tableName, fieldName)
+	return fmt.Sprintf("%s_%s_%s", DefaultIndexPrefix, tableName, fieldName)
 }
 
 // new an index
@@ -70,15 +68,15 @@ func newIndex(name string, indexType int, fields ...string) *TIndex {
 }
 
 func (index *TIndex) GetName(tableName string) string {
-	if !strings.HasPrefix(index.Name, "UQE_") &&
-		!strings.HasPrefix(index.Name, "IDX_") {
+	if !strings.HasPrefix(index.Name, DefaultUniquePrefix) &&
+		!strings.HasPrefix(index.Name, DefaultIndexPrefix) {
 		tableName = strings.Replace(tableName, `"`, "", -1)
 		//tableName = strings.Replace(tableName, `.`, "_", -1)
 		tableName = TrimCasedName(tableName, true)
 		if index.Type == UniqueType {
-			return fmt.Sprintf("UQE_%v_%v", tableName, index.Name)
+			return fmt.Sprintf("%s_%s_%s", DefaultUniquePrefix, tableName, index.Name)
 		}
-		return fmt.Sprintf("IDX_%v_%v", tableName, index.Name)
+		return fmt.Sprintf("%s_%s_%s", DefaultIndexPrefix, tableName, index.Name)
 	}
 
 	return index.Name

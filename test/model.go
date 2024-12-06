@@ -11,9 +11,11 @@ type (
 	// PartnerModel save all the records about a company/person/group
 	PartnerModel struct {
 		orm.TModel `table:"name('partner_model')"`
-		Id         int64  `field:"pk autoincr title('ID') index"`
-		Name       string `field:"varchar() unique index required"`
-		Homepage   string `field:"char() size(25)"`
+		Id         int64     `field:"pk autoincr title('ID') index"`
+		Name       string    `field:"varchar() unique index required"`
+		Homepage   string    `field:"char() size(25)"`
+		CreateTime time.Time `field:"datetime() created"`
+		WriteTime  time.Time `field:"datetime() updated"`
 	}
 
 	// CompanyModel save all the records about a shop/subcompany,
@@ -40,11 +42,7 @@ type (
 		Name     string `field:"varchar() size(128) unique index required"`
 		FullName string
 		Title    string `field:"title('Test Title.')"`
-		Help     string `field:"help('Technical field, used only to display a help string using multi-rows. 
-				 test help 1\"
-                 test help 2''
-                 test help 3''''
-                 test help 4.')"`
+		Help     string `field:"help('')"`
 
 		// all data types
 		Int       int           `field:"int() default(1)"`    // --
@@ -54,7 +52,7 @@ type (
 		Bin       []byte        `field:"binary() attachment"` //
 		Selection string        `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
 		Func      string        `field:"selection(TestSelection)"`
-		Companies []interface{} `field:"many2many(company_model,company_id,user_id)"`
+		Companies []interface{} `field:"many2many(company_model,user_id,company_id,)"`
 	}
 )
 
@@ -65,7 +63,13 @@ func _compute_default_int(ctx *orm.TFieldContext) error {
 func (self *UserModel) OnBuildFields() error {
 	b := self.Builder()
 	b.VarcharField("title").ComputeDefault(_compute_default_int)
-	b.Field("full_name", "varchar").Compute(self._compute_parent_name).Store(true)
+	b.VarcharField("help").Help(`Technical field, used only to display a help string using multi-rows. 
+				 test help 1
+                 test help 2
+                 test help 3
+                 test help 4.`,
+	)
+	b.Field("full_name", "varchar").Getter(self._compute_parent_name).Store(true)
 
 	return nil
 }

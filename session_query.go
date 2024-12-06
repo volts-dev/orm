@@ -210,7 +210,7 @@ func (self *TSession) _query(sql string, paramStr ...interface{}) (*dataset.TDat
 		sql = filter.Do(sql, self.orm.dialect, self.Statement.Model)
 	}
 
-	return self.orm.logQuerySql(sql, paramStr, func() (*dataset.TDataSet, error) {
+	return self.orm._logQuerySql(sql, paramStr, func() (*dataset.TDataSet, error) {
 		if self.IsAutoCommit {
 			return self._queryWithOrg(sql, paramStr...)
 		}
@@ -256,7 +256,7 @@ func (self *TSession) _exec(sql_str string, args ...interface{}) (sql.Result, er
 		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.Model)
 	}
 
-	return self.orm.logExecSql(sql_str, args, func() (sql.Result, error) {
+	return self.orm._logExecSql(sql_str, args, func() (sql.Result, error) {
 		if self.IsAutoCommit {
 			// FIXME: oci8 can not auto commit (github.com/mattn/go-oci8)
 			if self.orm.dialect.DBType() == ORACLE {
