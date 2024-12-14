@@ -322,6 +322,7 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 
 		var value interface{}
 		var field IField
+		hasModel := self.Statement.Model != nil
 		defer rows.Close()
 		for rows.Next() {
 			// TODO 优化不使用MAP
@@ -342,7 +343,7 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 			// 存储到数据集
 			for idx, name := range cols {
 				// !NOTE! 转换数据类型输出
-				if self.Statement.Model != nil { // TODO exec,query 的SQL不包含Model
+				if hasModel { // TODO exec,query 的SQL不包含Model
 					field = self.Statement.Model.GetFieldByName(name)
 					if field != nil {
 						value = field.onConvertToRead(self, cols, vals, idx)

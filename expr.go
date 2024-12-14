@@ -60,14 +60,9 @@ func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context ma
 	if err != nil {
 		return nil, err
 	}
-	//domain.PrintDomain(dom) // print domain
 
 	exp.Expression = distribute_not(node)
-
-	//domain.PrintDomain(exp.Expression) // print domain
-
-	err = exp.parse(context)
-	if err != nil {
+	if err = exp.parse(context); err != nil {
 		return nil, err
 	}
 

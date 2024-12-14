@@ -549,6 +549,10 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	field := ctx.Field
 
+	if !field.IsRelatedField() || field.Type() != TYPE_M2M {
+		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
+	}
+
 	var err error
 	var domainNode *domain.TDomainNode
 	if ctx.Domain != "" {
@@ -564,15 +568,15 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			return nil, err
 		}
 
-		domainNode.AND(node)
+		if domainNode == nil {
+			domainNode = node
+		} else {
+			domainNode.AND(node)
+		}
 	}
 
 	if len(ids) == 0 && domainNode.Count() == 0 {
 		return nil, nil
-	}
-
-	if !field.IsRelatedField() || field.Type() != TYPE_M2M {
-		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
 	}
 
 	// # retrieve the lines in the comodel
@@ -595,59 +599,69 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	}
 
 	//table_name := field.comodel_name//sess.Statement.TableName()
-	sess.Model(relModelName)
-	wquery, err := sess.Statement.where_calc(domainNode, false, nil)
-	if err != nil {
-		return nil, err
-	}
-	order_by := sess.Statement.generate_order_by(wquery, nil)
-	from_c, where_c, where_params := wquery.getSql()
-	if where_c == "" {
-		where_c = "1=1"
-	}
-
+	midTableName := fmtTableName(midModelName)
+	relTableName := fmtTableName(relModelName)
+	query := ""
+	order_by := ""
+	placeholder := JoinPlaceholder("?", ",", len(ids))
 	limit := ""
 	if field.Base().limit > 0 {
 		limit = fmt.Sprintf("LIMIT %v", field.Base().limit)
 	}
 
-	offset := ""
-
-	midTableName := fmtTableName(midModelName)
-	relTableName := fmtTableName(relModelName)
-	// the table name in cacher
-	cacher_table_name := relTableName + "_" + from_c
-	placeholder := JoinPlaceholder("?", ",", len(ids))
+	var params []any
 
 	//Many2many('res.lang', 'website_lang_rel', 'website_id', 'lang_id')
 	//SELECT {rel}.{id1}, {rel}.{id2} FROM {rel}, {from_c} WHERE {where_c} AND {rel}.{id1} IN %s AND {rel}.{id2} = {tbl}.id {order_by} {limit} OFFSET {offset}
 
-	// 经典模式返回关联表数据
-	selectFields := ""
+	/* 经典模式返回关联表数据 */
 	if ctx.ClassicRead {
-		selectFields = midTableName + ".*," + relTableName + ".*"
+		sess.Model(relModelName)
+		wquery, err := sess.Statement.where_calc(domainNode, false, nil)
+		if err != nil {
+			return nil, err
+		}
+		order_by = sess.Statement.generate_order_by(wquery, nil)
+		from_c, where_c, where_params := wquery.getSql()
+
+		if where_c == "" {
+			where_c = "1=1"
+		}
+
+		query = JoinClause(
+			"SELECT",
+			midTableName+".*,"+relTableName+".*",
+			"FROM",
+			midTableName+","+from_c,
+			"WHERE",
+			where_c, //WHERE
+			"AND",
+			midTableName+"."+midFieldName,
+			"IN ("+placeholder+")",
+			"AND",
+			midTableName+"."+relFieldName+"="+relTableName+".id",
+			order_by, limit,
+		)
+
+		params = append(where_params, ids...) // # 添加 IDs 作为参数
 	} else {
-		selectFields = midTableName + "." + relFieldName + "," + midTableName + "." + midFieldName
+		sess.Model(midModelName)
+		query = JoinClause(
+			"SELECT",
+			midTableName+"."+relFieldName+","+midTableName+"."+midFieldName,
+			"FROM",
+			midTableName,
+			"WHERE",
+			midTableName+"."+midFieldName,
+			"IN ("+placeholder+")",
+			order_by, limit,
+		)
+		params = ids
 	}
 
-	query := JoinClause(
-		"SELECT",
-		selectFields,
-		"FROM",
-		midTableName+","+from_c,
-		"WHERE",
-		where_c, //WHERE
-		"AND",
-		midTableName+"."+midFieldName,
-		"IN ("+placeholder+") ",
-		"AND",
-		midTableName+"."+relFieldName+"="+relTableName+".id",
-		order_by, limit, offset,
-	)
-
-	params := append(where_params, ids...) // # 添加 IDs 作为参数
-
 	// # 获取字段关联表的字符
+	// the table name in cacher
+	cacher_table_name := midTableName + "_" + relTableName
 	group := orm.Cacher.GetBySql(cacher_table_name, query, params)
 	if group == nil {
 		// TODO 只查询缺的记录不查询所有
@@ -659,7 +673,7 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 
 		// # store result in cache
-		orm.Cacher.PutBySql(cacher_table_name, query, where_params, group) // # 添加Sql查询结果
+		orm.Cacher.PutBySql(cacher_table_name, query, params, group) // # 添加Sql查询结果
 	}
 
 	return group, nil

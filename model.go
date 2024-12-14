@@ -26,6 +26,10 @@ var (
 )
 
 type (
+	ModelTemplate struct {
+		options []ModelOption
+	}
+
 	// 基础Model接口
 	IModel interface {
 		// Pravite Interface:
@@ -224,6 +228,10 @@ func newModelOptions(model IModel) (res *ModelOptions) {
 
 }
 
+func (tpl *ModelTemplate) AddOption(opts ...ModelOption) {
+	tpl.options = append(tpl.options, opts...)
+}
+
 // 新建模型 不带其他信息
 // @ Session
 // @ Registry
@@ -257,10 +265,12 @@ func newModel(name, tableName string, modelValue reflect.Value, modelType reflec
 }
 
 func (self *TModel) OnBuildModel() error {
+
 	return nil
 }
 
 func (self *TModel) OnBuildFields() error {
+
 	return nil
 }
 
@@ -551,10 +561,6 @@ func (self *TModel) _onBuildFields() error {
 
 func (self *TModel) _addField(field IField) {
 	field.Base().model_name = self.name
-	if field.Type() == "" {
-		log.Dbg("")
-	}
-
 	self.obj.AddField(field)
 }
 

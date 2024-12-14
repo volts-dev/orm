@@ -734,7 +734,8 @@ func (self *TField) SetAttributes(name string) {
 
 // 转换值到字段输出数据类型
 func (self *TField) onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} {
-	return *record[colIndex].(*interface{})
+	value := *record[colIndex].(*interface{})
+	return value2FieldTypeValue(self, value)
 
 }
 

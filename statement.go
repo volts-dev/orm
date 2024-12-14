@@ -550,30 +550,32 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 	// domain = domain[:]
 	// if the object has a field named 'active', filter out all inactive
 	// records unless they were explicitely asked for
-	if field := self.Model.Obj().GetFieldByName("active"); field != nil && active_test {
-		if node != nil {
-			// the item[0] trick below works for domain items and '&'/'|'/'!'
-			// operators too
-			var hasfield bool
-			for _, node := range node.Nodes() {
-				if node.String(0) == "active" {
-					hasfield = true
+	if active_test {
+		if field := self.Model.Obj().GetFieldByName("active"); field != nil {
+			if node != nil {
+				// the item[0] trick below works for domain items and '&'/'|'/'!'
+				// operators too
+				var hasfield bool
+				for _, node := range node.Nodes() {
+					if node.String(0) == "active" {
+						hasfield = true
+						break
+					}
 				}
-			}
-			if !hasfield {
-				//domain.Insert(0, Query2StringList(`('active', '=', 1)`))
-				node, err := domain.String2Domain(`[('active', '=', 1)]`, nil)
+
+				if !hasfield {
+					node, err := domain.String2Domain(`[('active', '=', 1)]`, nil)
+					if err != nil {
+						log.Panic(err)
+					}
+					node.Insert(0, node)
+				}
+			} else {
+				var err error
+				node, err = domain.String2Domain(`[('active', '=', 1)]`, nil)
 				if err != nil {
-					log.Err(err)
+					log.Panic(err)
 				}
-				node.Insert(0, node)
-			}
-		} else {
-			//domain = Query2StringList(`[('active', '=', 1)]`)
-			var err error
-			node, err = domain.String2Domain(`[('active', '=', 1)]`, nil)
-			if err != nil {
-				log.Err(err)
 			}
 		}
 	}

@@ -691,9 +691,7 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 			   		field.RelatedFieldName(), field.MiddleFieldName(), middle_table_name, field.RelatedFieldName(), rec_id,
 			   	)
 			*/
-			if rec_id == nil {
-				log.Dbg("")
-			}
+
 			_, err := ctx.Session.Exec(query, rec_id, relate_id)
 			if err != nil {
 				return err

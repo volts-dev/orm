@@ -399,6 +399,15 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	obj.uidFieldName = model.idField
 	obj.nameField = model.recName
 	obj.orderFields = model.options.Order
+
+	if model.name == "sys.menu.group.rel" {
+		log.Dbg("")
+	}
+	/* 添加默认配置 */
+	for _, opt := range self.orm.config.ModelTemplate.options {
+		opt(model.options)
+	}
+
 	self.models.Store(model.name, obj)
 
 	/* 初始化原型 */
@@ -560,8 +569,9 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TModel
 		model._relations_reload()
 
 		if options == nil {
-			options = &ModelOptions{Model: model}
+			options = &ModelOptions{}
 		}
+		options.Model = model
 		options.Module = obj.pkgName
 		options.Order = obj.orderFields
 		model.options = options

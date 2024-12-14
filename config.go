@@ -8,6 +8,7 @@ type (
 	Config struct {
 		DataSource      *TDataSource
 		TimeZone        *time.Location
+		ModelTemplate   *ModelTemplate
 		FieldIdentifier string // 字段 tag 标记
 		TableIdentifier string // 表 tag 标记
 		ShowSql         bool
@@ -17,6 +18,7 @@ type (
 
 func newConfig(opts ...Option) *Config {
 	cfg := &Config{
+		ModelTemplate:   &ModelTemplate{},
 		TimeZone:        time.Local,
 		ShowSqlTime:     true,
 		FieldIdentifier: FieldIdentifier,
@@ -27,6 +29,11 @@ func newConfig(opts ...Option) *Config {
 	return cfg
 }
 
+func WithModelOptions(opts ...ModelOption) Option {
+	return func(cfg *Config) {
+		cfg.ModelTemplate.AddOption(opts...)
+	}
+}
 func (self *Config) Init(opts ...Option) {
 	for _, opt := range opts {
 		opt(self)
