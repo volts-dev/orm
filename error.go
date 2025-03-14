@@ -13,9 +13,8 @@ type (
 )
 
 var (
-	ErrNoMapPointer    = errors.New("mp should be a map's pointer")
-	ErrNoStructPointer = errors.New("mp should be a struct's pointer")
-
+	ErrNoMapPointer          = errors.New("mp should be a map's pointer")
+	ErrNoStructPointer       = errors.New("mp should be a struct's pointer")
 	ErrParamsType      error = errors.New("Params type error")
 	ErrTableNotFound   error = errors.New("Not found table")
 	ErrUnSupportedType error = errors.New("Unsupported type error")

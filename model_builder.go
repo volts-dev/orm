@@ -39,7 +39,7 @@ func (self *ModelBuilder) SetIndiex(fieldNames ...string) *ModelBuilder {
 		}
 	}
 
-	self.model.Obj().AddIndex(newIndex("", idxType, fieldNames...))
+	self.model.Obj().AddIndex(newIndex("", self.model.Table(), idxType, fieldNames...))
 	return self
 }
 

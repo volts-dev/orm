@@ -1529,7 +1529,7 @@ func (db *postgres) GetIndexes(ctx context.Context, tableName string) (map[strin
 			indexs = append(indexs, strings.Trim(colName, `" `))
 		}
 
-		index := newIndex(indexName, indexType, indexs...)
+		index := newIndex(indexName, tableName, indexType, indexs...)
 		//index := &TIndex{Name: indexName, Type: indexType, Cols: make([]string, 0)}
 
 		indexes[index.Name] = index

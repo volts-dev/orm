@@ -261,7 +261,11 @@ func value2FieldTypeValue(field IField, value interface{}) interface{} {
 	case Double:
 		return utils.ToFloat64(value)
 	case Char, NChar, Varchar, NVarchar, TinyText, Text, NText, MediumText, LongText, Enum, Set, Uuid, Clob, SysName:
-		return utils.ToString(value)
+		v := utils.ToString(value)
+		if v == "0" {
+			return ""
+		}
+		return v
 	case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary, UniqueIdentifier:
 		return value // TODO 1
 	case Bool:
@@ -345,7 +349,7 @@ func GoType2SQLType(t reflect.Type) (st SQLType) {
 }
 
 // default sql type change to go types
-func SQLType2GoType(st SQLType) reflect.Type {
+func (st *SQLType) ToGoType() reflect.Type {
 	name := strings.ToUpper(st.Name)
 	switch name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:

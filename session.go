@@ -117,13 +117,13 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 		if err != nil {
 			return nil, err
 		}
+
 		if model == nil {
 			continue
 		}
 
 		// 注册到对象服务
-		err = self.orm.osv.RegisterModel(region, model)
-		if err != nil {
+		if err = self.orm.osv.RegisterModel(region, model); err != nil {
 			return nil, err
 		}
 
@@ -422,10 +422,17 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 	{ // 字段修改
 		var cur_field IField
+		var fieldName string
 		for _, field := range newModel.GetFields() {
-			cur_field = oldModel.GetFieldByName(field.Name())
+			fieldName = field.Name()
+			cur_field = oldModel.GetFieldByName(fieldName)
 
 			if cur_field != nil {
+				/* 忽略关系 */
+				if field.IsRelatedField() {
+					continue
+				}
+
 				expectedType := orm.dialect.GetSqlType(field)
 				curType := orm.dialect.GetSqlType(cur_field)
 				if expectedType != curType {
@@ -433,20 +440,20 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 					// 如果是修改字符串到
 					if expectedType == Text && strings.HasPrefix(curType, Varchar) ||
 						expectedType == Varchar && strings.HasPrefix(curType, Char) {
-						log.Warnf("Table <%s> column <%s> change type from %s to %s", tableName, field.Name(), curType, expectedType)
+						log.Warnf("Table <%s> column <%s> change type from %s to %s", tableName, fieldName, curType, expectedType)
 						_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 
 					} else if strings.HasPrefix(curType, Char) && strings.HasPrefix(expectedType, Varchar) {
 						// 如果是同是字符串 则检查长度变化 for mysql
 						if cur_field.Size() < field.Size() {
-							log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)", tableName, field.Name(), cur_field.Size(), field.Size())
+							log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)", tableName, fieldName, cur_field.Size(), field.Size())
 							_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 						}
 						//}
 						//其他
 					} else {
 						if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
-							log.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", tableName, field.Name(), curType, expectedType)
+							log.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", tableName, fieldName, curType, expectedType)
 						}
 					}
 
@@ -459,7 +466,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() < field.Size() {
 					log.Warnf("Table <%s> column <%s> change size from %s(%d) to %s(%d)",
-						tableName, field.Name(), cur_field.SQLType().Name, cur_field.Size(), field.SQLType().Name, field.Size())
+						tableName, fieldName, cur_field.SQLType().Name, cur_field.Size(), field.SQLType().Name, field.Size())
 					_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 					if err != nil {
 						log.Err(err)
@@ -471,22 +478,19 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				//
 				if field.Default() != cur_field.Default() {
 					log.Warnf("nochange: Table <%s> Column <%s> db default is <%v>, model default is <%v>",
-						tableName, field.Name(), cur_field.Default(), field.Default())
+						tableName, fieldName, cur_field.Default(), field.Default())
 				}
 
 				if field.Required() != cur_field.Required() {
 					log.Warnf("nochange: Table <%s> Column <%s> db required is <%v>, model required is <%v>",
-						tableName, field.Name(), cur_field.Required(), field.Required())
+						tableName, fieldName, cur_field.Required(), field.Required())
 				}
 
 				// 如果现在表无该字段则添加
 			} else {
 				/* 这里必须过滤掉 NOTE [SyncModel] 里提及的特殊字段 */
 				if field.Store() && !field.IsInheritedField() {
-					//session := NewSession(self.orm)
-					//session.Model(newModel.String())
 					//TODO # 修正上面指向错误Model
-					//session.Statement.model = newModel
 					if err = self._addColumn(field); err != nil {
 						log.Err(err)
 						err = nil
@@ -561,8 +565,8 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				return err
 			}
 		}
-
 	}
+
 	return
 }
 

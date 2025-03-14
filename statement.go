@@ -311,8 +311,6 @@ func (self *TStatement) generate_index() ([]string, error) {
 			}
 
 			sql := self.session.orm.dialect.CreateIndexUniqueSql(tableName, index)
-			//sql := fmt.Sprintf("CREATE INDEX %v ON %v (%v);",
-			//	quote(idxName), quote(tableName), quote(strings.Join(index.Cols, quote(","))))
 			sqls = append(sqls, sql)
 		}
 	}

@@ -447,16 +447,17 @@ func tag_unique(ctx *TTagContext) error {
 	var index *TIndex
 	var ok bool
 
+	tableName := model.Table()
 	uniqueName := ""
 	if len(ctx.Params) > 0 {
 		uniqueName = ctx.Params[0]
 	} else {
-		uniqueName = generate_index_name(UniqueType, model.Table(), []string{field_name})
+		uniqueName = generate_index_name(UniqueType, tableName, []string{field_name})
 	}
 	if index, ok = model.Obj().indexes[uniqueName]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index = newIndex(uniqueName, UniqueType)
+		index = newIndex(uniqueName, tableName, UniqueType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}
@@ -471,17 +472,18 @@ func tag_index(ctx *TTagContext) error {
 	model := ctx.Model
 	field_name := field.Name()
 
+	tableName := model.Table()
 	indexName := ""
 	if len(ctx.Params) > 0 {
 		indexName = ctx.Params[0]
 	} else {
-		indexName = generate_index_name(IndexType, model.Table(), []string{field_name})
+		indexName = generate_index_name(IndexType, tableName, []string{field_name})
 	}
 
 	if index, ok := model.Obj().indexes[indexName]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index := newIndex(indexName, IndexType)
+		index := newIndex(indexName, tableName, IndexType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}

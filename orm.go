@@ -719,6 +719,7 @@ func (self *TOrm) _reverse() error {
 }
 
 func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
+	modelName := model.String()
 	tableName := model.Table()
 	modelObject := self.osv.newObject(model.String())
 	model.GetBase().obj = modelObject
@@ -732,6 +733,7 @@ func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 	// TODO 充实model pk id 等选项
 	for _, name := range colSeq {
 		if field, has := fields[name]; has {
+			field.Base().model_name = modelName
 			// 主键三大特征
 			// TODO 与复合主键中找到ID主键
 			if !field.IsCompositeKey() && field.IsPrimaryKey() && field.Required() && (field.IsUnique() || field.IsAutoIncrement()) {
@@ -759,9 +761,9 @@ func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 			field.Base().isColumn = true
 			// 数据库的字段都是存储类型
 			field.Base()._attr_store = true
-			model._addField(field)
-		}
 
+			modelObject.fields.Store(field.Name(), field)
+		}
 	}
 
 	indexes, err := self.dialect.GetIndexes(self.context, tableName)
@@ -769,7 +771,7 @@ func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 		return nil, err
 	}
 
-	model.Obj().indexes = indexes
+	modelObject.indexes = indexes
 
 	return model, nil
 }

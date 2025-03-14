@@ -106,6 +106,7 @@ func TrimCasedName(name string, keeplast ...bool) string {
 	} else {
 		name = string(newstr)
 	}
+
 	return name
 }
 

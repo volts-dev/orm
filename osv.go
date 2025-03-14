@@ -27,7 +27,6 @@ var (
 )
 
 type (
-
 	// 存储一个Model的 多层继承
 	// TObj 是一个多个同名不同体Model集合，这些不同体(结构体/继承结构)的MOdel最终只是同一个数据表的表现
 	// fields：存储所有结构体的字段，即这个对象表的所有字段
@@ -37,7 +36,6 @@ type (
 		Charset            string
 		Comment            string
 		PrimaryKeys        []string
-		indexes            map[string]*TIndex
 		CreatedField       map[string]bool
 		UpdatedField       string
 		DeletedField       string
@@ -52,8 +50,9 @@ type (
 		uidFieldName  string
 		nameField     string
 		orderFields   []string
-		fields        sync.Map                           // map[string]IField                  // map[field]
-		relations     sync.Map                           //map[string]string                  // many2many many2one... 等关联表
+		fields        sync.Map // map[string]IField                  // map[field]
+		relations     sync.Map //map[string]string                  // many2many many2one... 等关联表
+		indexes       map[string]*TIndex
 		relatedFields map[string]*TRelatedField          // 关联字段如 UserId CompanyID
 		commonFields  map[string]map[string]IField       //
 		methods       map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
@@ -66,6 +65,8 @@ type (
 		relatedFieldsLock sync.RWMutex
 		commonFieldsLock  sync.RWMutex
 		indexesLock       sync.RWMutex
+
+		//_db_fields sync.Map // 从数据库分析出来的字段
 	}
 
 	TOsv struct {
@@ -132,10 +133,6 @@ func (self *TModelObject) GetDefault() *sync.Map {
 }
 
 func (self *TModelObject) GetDefaultByName(fieldName string) any {
-	//self.defaultValuesLock.RLock()
-	//value = self.defaultValues[fieldName]
-	//self.defaultValuesLock.RUnlock()
-
 	if value, ok := self.defaultValues.Load(fieldName); ok {
 		return value
 	}
@@ -144,9 +141,6 @@ func (self *TModelObject) GetDefaultByName(fieldName string) any {
 }
 
 func (self *TModelObject) SetDefaultByName(fieldName string, value interface{}) {
-	//self.defaultValuesLock.Lock()
-	//self.defaultValues[fieldName] = value
-	//self.defaultValuesLock.Unlock()
 	self.defaultValues.Store(fieldName, value)
 }
 
@@ -264,8 +258,7 @@ func (self *TOsv) ___SetupModels() {
 // New an object for restore
 func (self *TOsv) newObject(name string) *TModelObject {
 	obj := &TModelObject{
-		name: name, // model 名称
-		//fields:        make(map[string]IField), // map[field]
+		name: name,
 		//relations:     make(map[string]string),
 		relatedFields: make(map[string]*TRelatedField),
 		commonFields:  make(map[string]map[string]IField),
@@ -400,9 +393,6 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	obj.nameField = model.recName
 	obj.orderFields = model.options.Order
 
-	if model.name == "sys.menu.group.rel" {
-		log.Dbg("")
-	}
 	/* 添加默认配置 */
 	for _, opt := range self.orm.config.ModelTemplate.options {
 		opt(model.options)
@@ -412,9 +402,9 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 
 	/* 初始化原型 */
 	{
-		// 重建一个全新model以执行init
+		/* 重建一个全新model以执行init */
 		val := reflect.New(model.modelType)
-		m := self._initObject(val, model.modelType, obj, model.String(), &ModelOptions{Module: region})
+		m := self._initObject(val, model.modelType, obj, model.String(), &ModelOptions{Model: model, Module: region})
 		if err := m._onBuildFields(); err != nil {
 			return err
 		}
@@ -556,12 +546,22 @@ func (self *TOsv) GetModelByModule(model string, options *ModelOptions) (res IMo
 // 每次GetModel都会激活初始化对象
 func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TModelObject, modelName string, options *ModelOptions) IModel {
 	if m, ok := val.Interface().(IModel); ok {
+		var model *TModel
+
+		if options == nil {
+			options = &ModelOptions{}
+		}
+
+		if options.Model == nil {
+			model = newModel(modelName, "", val, atype, nil) //self.newModel(sess, model)
+		} else {
+			model = options.Model.GetBase()
+		}
+
 		/* NOTE <以下代码严格遵守执行顺序> */
-		model := newModel(modelName, "", val, atype, nil) //self.newModel(sess, model)
 		model.isCustomModel = obj.isCustomModel
 		model.idField = obj.uidFieldName
 		model.recName = obj.nameField
-
 		model.prototype = m /* 保存当前模型到ORM.TModel里 */
 		model.obj = obj
 		model.osv = self
@@ -585,15 +585,15 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TModel
 
 // #module 可以为空取默认
 func (self *TOsv) _getModelByModule(model string, options *ModelOptions) IModel {
-	var (
-		region_name string
-		module_map  map[string]reflect.Type
-		model_type  reflect.Type
-	)
-
 	//获取Model的Object对象
 	if v, has := self.models.Load(model); has {
 		if obj, ok := v.(*TModelObject); ok {
+			var (
+				region_name string
+				module_map  map[string]reflect.Type
+				model_type  reflect.Type
+			)
+
 			//if obj, has := self.models[model]; has {
 			// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
 			for region_name, module_map = range obj.object_types {

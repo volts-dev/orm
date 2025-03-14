@@ -169,24 +169,22 @@ type (
 	* 	方法命名规格 ："GetXXX","SetXXX","XXByXX"
 	 */
 	TModel struct {
-		prototype  IModel
-		super      IModel        // 继承的Model
-		modelType  reflect.Type  // Model 反射类
-		modelValue reflect.Value // Model 反射值 供某些程序调用方法
-		orm        *TOrm         //
-		osv        *TOsv         // 对象服务
-		obj        *TModelObject //
-		//context        *dataset.TRecordSet //
-		options     *ModelOptions
-		transaction *TSession //
-		name        string    // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
-		table       string    // mapping table name
-		description string    // 描述
-		//module         string    // 属于哪个模块所有
-		idField        string // the field name which is the UID represent a record
-		recName        string // the field name which is the name represent a record @examples: Name,Title,PartNo
-		recNamesSearch string // names_search会搜索的字段
-		isCustomModel  bool   // 该Model是否是基Model,并非扩展Model
+		prototype      IModel
+		super          IModel        // 继承的Model
+		modelType      reflect.Type  // Model 反射类
+		modelValue     reflect.Value // Model 反射值 供某些程序调用方法
+		orm            *TOrm         //
+		osv            *TOsv         // 对象服务
+		obj            *TModelObject //
+		options        *ModelOptions
+		transaction    *TSession //
+		name           string    // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
+		table          string    // mapping table name
+		description    string    // 描述
+		idField        string    // the field name which is the UID represent a record
+		recName        string    // the field name which is the name represent a record @examples: Name,Title,PartNo
+		recNamesSearch string    // names_search会搜索的字段
+		isCustomModel  bool      // 该Model是否是基Model,并非扩展Model
 		beforeSession  func(*TSession) error
 		afterSession   func(*TSession) error
 
@@ -194,11 +192,9 @@ type (
 		_parent_name  string // #! 父表中的字段名称
 		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
 		_sequence     string //
-		//_order        string // default order field for searching results
-		_auto      bool // # True # create database backend
-		_transient bool // # 暂时的
+		_auto         bool   // # True # create database backend
+		_transient    bool   // # 暂时的
 		//_relate       bool
-
 	}
 )
 
@@ -571,7 +567,7 @@ func (self *TModel) _setOrm(o *TOrm) {
 func (self *TModel) _setBaseModel(model *TModel) {
 	*self = *model
 	self._sequence = self.name + "_id_seq"
-	self.super = model
+	//self.super = model
 }
 
 // """ Recompute the _inherit_fields mapping. """
