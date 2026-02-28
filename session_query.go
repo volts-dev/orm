@@ -13,14 +13,17 @@ import (
 
 // search and return the id list only
 func (self *TSession) Search() ([]interface{}, int64, error) {
-	defer self._resetStatement()
-	if self.IsAutoClose {
-		defer self.Close()
-	}
-
 	if self.IsDeprecated {
 		return nil, 0, ErrInvalidSession
 	}
+
+	// 确保资源清理
+	defer func() {
+		self._resetStatement()
+		if self.IsAutoClose {
+			self.Close()
+		}
+	}()
 
 	return self._search("", nil)
 }
@@ -221,11 +224,14 @@ func (self *TSession) _query(sql string, paramStr ...interface{}) (*dataset.TDat
 func (self *TSession) _queryWithOrg(sql_str string, args ...interface{}) (*dataset.TDataSet, error) {
 	var rows *core.Rows
 	var err error
+
 	if self.Prepared {
 		stmt, err := self._doPrepare(sql_str)
 		if err != nil {
 			return nil, err
 		}
+		defer stmt.Close() // 确保stmt在函数退出时被关闭
+
 		rows, err = stmt.Query(args...)
 		if err != nil {
 			return nil, err
@@ -260,20 +266,27 @@ func (self *TSession) _exec(sql_str string, args ...interface{}) (sql.Result, er
 		if self.IsAutoCommit {
 			// FIXME: oci8 can not auto commit (github.com/mattn/go-oci8)
 			if self.orm.dialect.DBType() == ORACLE {
-				self.Begin()
+				if err := self.Begin(); err != nil {
+					return nil, err
+				}
+
 				r, err := self.tx.ExecContext(self.context, sql_str, args...)
 				if err != nil {
+					self.Rollback(err)
 					return nil, err
 				}
 
 				if err = self.Commit(); err != nil {
+					self.Rollback(err)
 					return nil, err
 				}
 
 				return r, err
 			}
+
 			return self._execWithOrg(sql_str, args...)
 		}
+
 		return self._execWithTx(sql_str, args...)
 	})
 }
@@ -281,12 +294,11 @@ func (self *TSession) _exec(sql_str string, args ...interface{}) (sql.Result, er
 // Execute sql
 func (self *TSession) _execWithOrg(query string, args ...interface{}) (sql.Result, error) {
 	if self.Prepared {
-		var stmt *core.Stmt
-
 		stmt, err := self._doPrepare(query)
 		if err != nil {
 			return nil, err
 		}
+		defer stmt.Close()
 
 		return stmt.ExecContext(self.context, args...)
 	}
@@ -312,6 +324,8 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 	}
 
 	if rows != nil {
+		defer rows.Close() // 确保在函数退出时关闭rows
+
 		cols, err := rows.Columns()
 		if err != nil {
 			return nil, err

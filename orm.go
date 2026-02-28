@@ -519,7 +519,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 				tag_str = strings.TrimRight(tag_str, ")")
 				ln := len(tag_str)
 				if ln > 0 {
-					if strings.Index(tag_str, " ") != -1 {
+					if strings.Contains(tag_str, " ") {
 						if !strings.HasPrefix(tag_str, "'") &&
 							!strings.HasSuffix(tag_str, "'") {
 							return nil, fmt.Errorf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", model_name, strings.ToUpper(field_name))

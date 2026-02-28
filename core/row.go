@@ -20,15 +20,20 @@ func (rs *Rows) ToMapString() ([]map[string]string, error) {
 		return nil, err
 	}
 
-	var results = make([]map[string]string, 0, 10)
+	results := make([]map[string]string, 0, 10)
 	for rs.Next() {
-		var record = make(map[string]string, len(cols))
+		record := make(map[string]string, len(cols))
 		err = rs.ScanMap(&record)
 		if err != nil {
 			return nil, err
 		}
 		results = append(results, record)
 	}
+
+	if err = rs.Err(); err != nil {
+		return nil, err
+	}
+
 	return results, nil
 }
 

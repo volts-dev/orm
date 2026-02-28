@@ -147,11 +147,11 @@ func (self *TCacher) GetBySql(table string, sql string, arg interface{}) *datase
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
 
-		var ids *dataset.TDataSet
-		if err := self.sql_caches.Get(key, &ids); err != nil {
+		v, err := self.sql_caches.Get(key)
+		if err != nil {
 			return nil
 		}
-		return ids
+		return v.(*dataset.TDataSet)
 	}
 
 	return nil
@@ -176,11 +176,11 @@ func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*data
 		for _, id := range ids {
 			key := self.genIdKey(table, id, false)
 
-			var rec *dataset.TRecordSet
-			if err := self.sql_caches.Get(key, &ids); err != nil {
+			v, err := self.id_caches.Get(key)
+			if err != nil {
 				ids_less = append(ids_less, id)
 			}
-			records = append(records, rec)
+			records = append(records, v.(*dataset.TRecordSet))
 		}
 
 		return records, ids_less

@@ -17,24 +17,41 @@ var (
 
 // MapToSlice map query and struct as sql and args
 func MapToSlice(query string, mp interface{}) (string, []interface{}, error) {
+	if query == "" {
+		return "", []interface{}{}, nil
+	}
+
 	vv := reflect.ValueOf(mp)
 	if vv.Kind() != reflect.Ptr || vv.Elem().Kind() != reflect.Map {
 		return "", []interface{}{}, ErrNoMapPointer
 	}
 
-	args := make([]interface{}, 0, len(vv.Elem().MapKeys()))
+	mapElem := vv.Elem()
+	mapKeys := mapElem.MapKeys()
+	args := make([]interface{}, 0, len(mapKeys))
 	var err error
+
 	query = re.ReplaceAllStringFunc(query, func(src string) string {
-		v := vv.Elem().MapIndex(reflect.ValueOf(src[1:]))
-		if !v.IsValid() {
-			err = fmt.Errorf("map key %s is missing", src[1:])
-		} else {
-			args = append(args, v.Interface())
+		if err != nil {
+			return ""
 		}
+
+		key := src[1:]
+		v := mapElem.MapIndex(reflect.ValueOf(key))
+		if !v.IsValid() {
+			err = fmt.Errorf("map key %s is missing", key)
+			return ""
+		}
+
+		args = append(args, v.Interface())
 		return "?"
 	})
 
-	return query, args, err
+	if err != nil {
+		return "", []interface{}{}, err
+	}
+
+	return query, args, nil
 }
 
 // StructToSlice converts a query and struct as sql and args
