@@ -82,3 +82,34 @@ func TestString2Domain(t *testing.T) {
 		}
 	}
 }
+func TestAny2Domain(t *testing.T) {
+	testCases := []struct {
+		input    []any
+		expected string
+	}{
+		{
+			input:    []any{"&", []any{"active", "=", true}, []any{"value", "!=", "foo"}},
+			expected: `["&",("active","=",true),("value","!=","foo")]`,
+		},
+		{
+			input:    []any{"|", []any{"active", "=", true}, []any{"state", "in", []any{"open", "draft"}}},
+			expected: `["|",("active","=",true),("state","in",["open","draft"])]`,
+		},
+		{
+			input:    []any{[]any{"id", ">", 10}, []any{"name", "ilike", "volts"}},
+			expected: `[("id",">",10),("name","ilike","volts")]`,
+		},
+	}
+
+	for i, tc := range testCases {
+		node, err := Any2Domain(tc.input, nil)
+		if err != nil {
+			t.Fatalf("Case #%d failed: %v", i, err)
+		}
+
+		result := Domain2String(node)
+		if result != tc.expected {
+			t.Errorf("Case #%d: expected %s, got %s", i, tc.expected, result)
+		}
+	}
+}

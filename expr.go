@@ -945,7 +945,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 	//        assert not isinstance(right, BaseModel), \
 	//            "Invalid value %r in domain term %r" % (right, leaf)
 
-	_, table_alias := eleaf.generate_alias()
+	aliasTable, _ := eleaf.generate_alias()
 	holder_count := 0
 	if right.IsListNode() {
 		for _, node := range right.Nodes() {
@@ -997,12 +997,12 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 
 	} else if operator.String() == "inselect" { // in(val,val)
 		holders := strings.Repeat("?,", len(vals)-1) + "?"
-		res_query = fmt.Sprintf(`(%s."%s" in (%s))`, table_alias, left.String(), holders)
+		res_query = fmt.Sprintf(`(%s."%s" in (%s))`, aliasTable, left.String(), holders)
 		res_params = append(res_params, vals...)
 
 	} else if operator.String() == "not inselect" {
 		holders := strings.Repeat("?,", len(vals)-1) + "?"
-		res_query = fmt.Sprintf(`%s."%s" not in (%s))`, table_alias, left.String(), holders)
+		res_query = fmt.Sprintf(`%s."%s" not in (%s))`, aliasTable, left.String(), holders)
 		res_params = append(res_params, vals...)
 
 	} else if operator.ValueIn("in", "not in") { //# 数组值
@@ -1031,7 +1031,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 					holders = strings.Repeat("?,", len(vals)-1) + "?" // 字符串需要冒号 ['1','2','3']
 					// res_params = map(ss[1], res_params) // map(function, iterable, ...)
 				}
-				res_query = fmt.Sprintf(`(%s."%s" %s (%s))`, table_alias, left.String(), operator.String(), holders)
+				res_query = fmt.Sprintf(`(%s."%s" %s (%s))`, aliasTable, left.String(), operator.String(), holders)
 			} else {
 				// The case for (left, 'in', []) or (left, 'not in', []).
 				// 对于空值的语句
@@ -1043,13 +1043,13 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			}
 
 			if check_nulls && operator.String() == "in" {
-				res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, table_alias, left.String())
+				res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, aliasTable, left.String())
 
 			} else if !check_nulls && operator.String() == "not in" {
-				res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, table_alias, left.String())
+				res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, aliasTable, left.String())
 
 			} else if check_nulls && operator.String() == "not in" {
-				res_query = fmt.Sprintf(`(%s AND %s."%s" IS NOT NULL)`, res_query, table_alias, left.String()) // needed only for TRUE.
+				res_query = fmt.Sprintf(`(%s AND %s."%s" IS NOT NULL)`, res_query, aliasTable, left.String()) // needed only for TRUE.
 			}
 
 		} else if utils.IsBoolItf(vals[0]) { // Must not happen
@@ -1068,33 +1068,33 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 					r = "NOT NULL"
 				}
 			}
-			res_query = fmt.Sprintf(`(%s."%s" IS %s)`, table_alias, left.String(), r)
+			res_query = fmt.Sprintf(`(%s."%s" IS %s)`, aliasTable, left.String(), r)
 			res_params = nil
 
 			//  raise ValueError("Invalid domain term %r" % (leaf,))
 		} else {
 			// single value use "=" term
-			res_query = fmt.Sprintf(`(%s."%s" = ?)`, table_alias, left.String()) //TODO quote
+			res_query = fmt.Sprintf(`(%s."%s" = ?)`, aliasTable, left.String()) //TODO quote
 			res_params = append(res_params, vals[0])
 
 		}
 	} else if is_field && (field.Type() == Bool) &&
 		((operator.String() == "=" && utils.ToBool(vals[0]) == false) || (operator.String() == "!=" && utils.ToBool(vals[0]) == true)) {
 		// 字段是否Bool类型
-		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, table_alias, left.String(), table_alias, left.String())
+		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, aliasTable, left.String(), aliasTable, left.String())
 		res_params = nil
 
 	} else if (vals == nil || utils.ToString(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && operator.String() == "=" {
-		res_query = fmt.Sprintf(`%s."%s" IS NULL `, table_alias, left.String())
+		res_query = fmt.Sprintf(`%s."%s" IS NULL `, aliasTable, left.String())
 		res_params = nil
 
 	} else if is_field && field.Type() == Bool &&
 		((operator.String() == "!=" && utils.ToBool(vals[0]) == false) || (operator.String() == "==" && utils.ToBool(vals[0]) == true)) {
-		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, table_alias, left.String(), table_alias, left.String())
+		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, aliasTable, left.String(), aliasTable, left.String())
 		res_params = nil
 
 	} else if (vals == nil || utils.ToString(vals[0]) == "NULL" /*utils.IsBlank(vals[0])*/) && (operator.String() == "!=") {
-		res_query = fmt.Sprintf(`%s."%s" IS NOT NULL`, table_alias, left.String())
+		res_query = fmt.Sprintf(`%s."%s" IS NOT NULL`, aliasTable, left.String())
 		res_params = nil
 
 	} else if operator.String() == "=?" { //TODO  未完成 # Boolen 判断
@@ -1112,7 +1112,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		}
 
 	} else if left.String() == self.root_model.idField {
-		res_query = fmt.Sprintf("%s.%s %s ?", table_alias, self.root_model.idField, operator.String())
+		res_query = fmt.Sprintf("%s.%s %s ?", aliasTable, self.root_model.idField, operator.String())
 		res_params = append(res_params, vals...)
 
 	} else {
@@ -1150,11 +1150,11 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			}
 
 			//unaccent = self._unaccent if sql_operator.endswith('like') else lambda x: x
-			column := fmt.Sprintf("%s.%s", table_alias, quoter.Quote(left.String()))
+			column := fmt.Sprintf("%s.%s", aliasTable, quoter.Quote(left.String()))
 			res_query = fmt.Sprintf("(%s %s %s)", column+cast, sql_operator, format)
 
 		} else if left.ValueIn(MAGIC_COLUMNS) {
-			res_query = fmt.Sprintf("(%s.\"%s\"%s %s ?)", table_alias, left.String(), cast, sql_operator)
+			res_query = fmt.Sprintf("(%s.\"%s\"%s %s ?)", aliasTable, left.String(), cast, sql_operator)
 
 		} else {
 			//# Must not happen
@@ -1162,7 +1162,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		}
 
 		if add_null {
-			res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, table_alias, left.String())
+			res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, aliasTable, left.String())
 		}
 
 		res_params = append(res_params, vals...)

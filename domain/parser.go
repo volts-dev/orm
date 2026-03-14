@@ -36,11 +36,109 @@ func Unquote(s string) string {
 	return s
 }
 
-// TODO 描述例句
-// transfer string domain to a domain object
+// String2Domain transfer string domain to a domain object
 func String2Domain(domain string, context *dataset.TDataSet) (*TDomainNode, error) {
 	parser := newDomainParser(domain)
 	return parseQuery(parser, 0, context)
+}
+
+// Any2Domain accepts a slice of interface{} and parses it into a TDomainNode.
+// It supports Odoo-style domain syntax:
+// [term1, term2, ...] -> term1 AND term2 AND ...
+// ['&', term1, term2] -> term1 AND term2 (Polish notation)
+// ['!', term] -> NOT term
+// ['field', 'operator', value] -> a single leaf term
+func Any2Domain(domain []any, context *dataset.TDataSet) (*TDomainNode, error) {
+	if domain == nil {
+		return NewDomainNode(), nil
+	}
+
+	return parseAny(domain, context)
+}
+
+func parseAny(data any, context *dataset.TDataSet) (*TDomainNode, error) {
+	if data == nil {
+		return NewDomainNode(), nil
+	}
+
+	switch v := data.(type) {
+	case *TDomainNode:
+		return v, nil
+
+	case []any:
+		// Try to parse as a leaf node [field, operator, value]
+		if len(v) == 3 {
+			if op, ok := v[1].(string); ok {
+				// Normalize operator to matching standard term operators
+				if utils.IndexOf(strings.ToUpper(op), TERM_OPERATORS...) != -1 {
+					node := NewDomainNode()
+					node.nodeType = LEAF_NODE
+
+					// Recursively parse parts.
+					fNode, _ := parseAny(v[0], context)
+					oNode, _ := parseAny(v[1], context)
+					vNode, _ := parseAny(v[2], context)
+
+					node.Push(fNode)
+					node.Push(oNode)
+					node.Push(vNode)
+					return node, nil
+				}
+			}
+		}
+
+		// Otherwise parse as a container of nodes (Polish notation or implicit list)
+		node := NewDomainNode()
+		for _, item := range v {
+			child, err := parseAny(item, context)
+			if err != nil {
+				return nil, err
+			}
+			node.Push(child)
+		}
+		return node, nil
+
+	case string:
+		val := v
+		// Handle obvious operators
+		if utils.IndexOf(val, DOMAIN_OPERATORS...) != -1 {
+			return NewDomainNode(val), nil
+		}
+
+		// Handle natural language operators for consistency with parseQuery
+		low := strings.ToLower(val)
+		if low == "and" {
+			return NewDomainNode(AND_OPERATOR), nil
+		}
+		if low == "or" {
+			return NewDomainNode(OR_OPERATOR), nil
+		}
+		if low == "not" {
+			return NewDomainNode(NOT_OPERATOR), nil
+		}
+
+		// Handle context variables if provided
+		if context != nil {
+			valus := context.ValueBy(val)
+			if len(valus) > 0 {
+				if len(valus) == 1 {
+					return parseAny(valus[0], context)
+				}
+				return parseAny(valus, context)
+			}
+		}
+
+		// Numeric logic consistent with existing parser
+		if vv, err := utils.IsNumeric(val); err == nil {
+			return NewDomainNode(vv), nil
+		}
+
+		return NewDomainNode(val), nil
+
+	default:
+		// Literal basic types
+		return NewDomainNode(v), nil
+	}
 }
 
 // transfer the domain object to string

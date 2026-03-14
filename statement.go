@@ -120,6 +120,14 @@ func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) *TS
 		if err != nil {
 			log.Err(err)
 		}
+	case []interface{}: // synonym for []any
+		if len(v) == 0 {
+			return self
+		}
+		new_cond, err = domain.Any2Domain(v, nil)
+		if err != nil {
+			log.Err(err)
+		}
 	case *domain.TDomainNode:
 		new_cond = v
 	default:

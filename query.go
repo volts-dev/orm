@@ -219,13 +219,14 @@ func (self *TQuery) qualify(field IField, model IModel) string {
 	dialect := self.session.orm.dialect
 	fieldName := dialect.Quoter().Quote(field.Name())
 	if model != nil {
-		res := self.inherits_join_calc(fieldName, model)
+		res := self.inherits_join_calc(field.Name(), model)
 		/*
 			if field.Type == "binary" { // && (context.get('bin_size') or context.get('bin_size_' + col)):
 				//# PG 9.2 introduces conflicting pg_size_pretty(numeric) -> need ::cast
 				res = fmt.Sprintf(`pg_size_pretty(length(%s)::bigint)`, res)
 			}*/
-		return fmt.Sprintf(`%s as "%s"`, res, fieldName)
+
+		return fmt.Sprintf(`%s as %s`, res, fieldName)
 	}
 
 	return fieldName
@@ -295,12 +296,14 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 	}
 	//# handle the case where the field is translated
 	field := model.GetFieldByName(fieldName)
+	dialect := self.session.orm.dialect
+	fieldName = dialect.Quoter().Quote(fieldName)
 	if field != nil && field.Translate() { //  if translate and not callable(translate):
 		// return model.generate_translated_field(alias, field, query)
-		return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
+		return fmt.Sprintf(`"%s".%s`, alias, fieldName)
 	}
 
-	return fmt.Sprintf(`"%s"."%s"`, alias, fieldName)
+	return fmt.Sprintf(`"%s".%s`, alias, fieldName)
 }
 
 func (self *TQuery) _get_table_aliases() (aliases []string) {

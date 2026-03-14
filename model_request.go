@@ -56,7 +56,7 @@ type (
 		Ids []any
 
 		// Domain 是一个字符串，用于指定查询的域
-		Domain string
+		Domain any
 
 		// Field 是一个字符串，用于关联方法
 		Field string
@@ -74,7 +74,7 @@ type (
 		OrderBy []string
 
 		// Page 当前页数
-		Page int64 `json:"page"`
+		Offset int64
 
 		// Limit 每页多少条记录，-1则无限制
 		Limit int64 `json:"limit"`
@@ -101,7 +101,7 @@ type (
 		Ids     []any    // 多条数据记录
 		Data    []any    // 多条数据记录
 		Fields  []string // 指定查询和返回字段
-		Domain  string   // update 支持查询条件
+		Domain  any      // update 支持查询条件
 		Model   string   // *
 		Method  string
 	}
@@ -109,7 +109,7 @@ type (
 	DeleteRequest struct {
 		Context context.Context
 		Ids     []any  // 多条数据记录
-		Domain  string // delete 支持查询条件
+		Domain  any    // delete 支持查询条件
 		Model   string // *
 		Method  string
 	}
@@ -167,11 +167,11 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		defer session.Close()
 	}
 	// 确保第一页
-	if req.Page < 1 {
-		req.Page = 1
+	if req.Offset < 1 {
+		req.Offset = 1
 	}
 
-	if req.Domain != "" {
+	if req.Domain != nil {
 		session.Domain(req.Domain)
 	}
 
@@ -222,7 +222,7 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 
 	session.UseNameGet = req.UseNameGet
 
-	return session.Limit(req.Limit, req.Page-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
+	return session.Limit(req.Limit, req.Offset-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
 }
 
 // #被重载接口
@@ -904,14 +904,14 @@ func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
 		defer session.Close()
 	}
 	// 确保第一页
-	if req.Page < 1 {
-		req.Page = 1
+	if req.Offset < 1 {
+		req.Offset = 1
 	}
 	session.UseNameGet = req.UseNameGet
 	return session.
 		Select(req.Fields...).
 		Funcs(req.Funcs...).
-		Limit(req.Limit, req.Page-1).
+		Limit(req.Limit, req.Offset-1).
 		Sort(req.Sort...).
 		GroupBy(req.GroupBy...).
 		Read()

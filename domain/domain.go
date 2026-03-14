@@ -567,7 +567,7 @@ func (self *TDomainNode) ValueIn(strs ...interface{}) bool {
 
 func (self *TDomainNode) IsNumeric() bool {
 	switch self.Value.(type) {
-	case int, uint, int16, uint16, int32, uint32, int64, uint64:
+	case int, uint, int16, uint16, int32, uint32, int64, uint64, float32, float64, bool:
 		return true
 	}
 	return false
