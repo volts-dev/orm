@@ -60,7 +60,7 @@ func (self *TStatement) Init() {
 	self.LimitClause = 0
 	self.OffsetClause = 0
 	self.IsCount = false
-	self.Params = make([]interface{}, 0)
+	self.Params = make([]interface{}, 0, 16)
 	self.Sets = nil // 不预先创建添加GC负担
 
 	/* 复制session */
@@ -288,8 +288,9 @@ func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, 
 }
 
 func (self *TStatement) generate_unique() []string {
-	var sqls []string = make([]string, 0)
-	for _, index := range self.Model.Obj().indexes {
+	indexes := self.Model.Obj().indexes
+	var sqls = make([]string, 0, len(indexes))
+	for _, index := range indexes {
 		if index.Type == UniqueType {
 			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.Model.Table(), index)
 			sqls = append(sqls, sql)
@@ -304,10 +305,11 @@ func (self *TStatement) generate_add_column(field IField) (string, []interface{}
 }
 
 func (self *TStatement) generate_index() ([]string, error) {
-	var sqls []string = make([]string, 0)
+	indexes := self.Model.Obj().indexes
+	var sqls = make([]string, 0, len(indexes))
 	tableName := fmtTableName(self.Model.String())
 
-	for idxName, index := range self.Model.Obj().indexes {
+	for idxName, index := range indexes {
 		if index.Type == IndexType {
 			exist, err := self.session.IsIndexExist(tableName, idxName, false)
 			if err != nil {
@@ -327,15 +329,17 @@ func (self *TStatement) generate_index() ([]string, error) {
 }
 
 func (self *TStatement) generate_insert(fields, uniqueFields []string) (string, bool) {
-	return self.session.orm.dialect.GenInsertSql(self.Model.Table(), fields, uniqueFields, self.Model.IdField(), self.OnConflict), true
+	dialect := self.session.orm.dialect
+	sql := dialect.GenInsertSql(self.Model.Table(), fields, uniqueFields, self.Model.IdField(), self.OnConflict)
+	return sql, dialect.SupportReturning()
 }
 
 // Auto generating conditions according a struct
 func (self *TStatement) generate_query(vals map[string]interface{}, includeVersion bool, includeUpdated bool, includeNil bool,
 	includeAutoIncr bool, allUseBool bool, useAllCols bool, unscoped bool, mustColumnMap map[string]bool) (res_clause string, res_params []interface{}) {
 	//res_domain = utils.NewStringList()
-	lClauses := make([]string, 0)
-	res_params = make([]interface{}, 0)
+	lClauses := make([]string, 0, len(vals))
+	res_params = make([]interface{}, 0, len(vals))
 
 	var (
 		//		field                *TField
@@ -741,7 +745,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 					qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 				}
 
-				lStr := fmt.Sprintf(`"%s %s"`, qualifield_name, order_direction)
+				lStr := fmt.Sprintf(`%s %s`, qualifield_name, order_direction)
 				order_by_elements = append(order_by_elements, lStr)
 			} else {
 				continue //# ignore non-readable or "non-joinable" fields

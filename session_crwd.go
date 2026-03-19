@@ -265,7 +265,7 @@ func (self *TSession) _create(src any) (any, error) {
 
 	var field IField
 	var id any
-	ids := make([]any, 0)
+	ids := make([]any, 0, multiSql)
 	for idx := 0; idx < multiSql; idx++ {
 		fields := make([]string, 0)
 		params := make([]interface{}, 0)
@@ -485,10 +485,9 @@ func (self *TSession) _write(src any) (int64, error) {
 	if len(newVals) > 0 {
 		quoter := self.orm.dialect.Quoter().Quote
 		for idx, id := range ids {
-			//#更新
 			//self.check_access_rule(cr, user, ids, 'write', context=context)
 
-			params := make([]interface{}, 0)
+			params := make([]interface{}, 0, len(newVals)+len(datas)+1)
 			//set_clause := ""
 
 			// TODO 验证数据类型
@@ -645,9 +644,9 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	//	fields = self._check_field_access_rights("read", fields, nil)
 
 	//# split fields into stored and computed fields
-	storeFields := make([]string, 0) // 可存于数据的字段
-	relateFields := make([]string, 0)
-	computedFields := make([]string, 0) // 数据库没有的字段
+	storeFields := make([]string, 0, 16) // 可存于数据的字段
+	relateFields := make([]string, 0, 8)
+	computedFields := make([]string, 0, 8) // 数据库没有的字段
 
 	// 字段分类
 	// 验证Select * From

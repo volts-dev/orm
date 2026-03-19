@@ -2,6 +2,7 @@ package orm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -181,11 +182,15 @@ func (db *mysql) Init(queryer core.Queryer, uri *TDataSource) error {
 		Suffix:     '`',
 		IsReserved: dialect.AlwaysReserve,
 	}
-	return db.TDialect.Init(queryer, db.dialect, uri)
+	return db.TDialect.Init(queryer, db, uri)
 }
 
 func (db *mysql) String() string {
 	return "mysql"
+}
+
+func (db *mysql) SupportReturning() bool {
+	return false
 }
 
 // Alias returns a alias of column
@@ -351,7 +356,7 @@ func (db *mysql) GetSqlType(field IField) string {
 		res = Varchar
 		c._attr_size = 40
 	case Json:
-		res = Text
+		res = Json
 	case UnsignedInt:
 		res = Int
 		isUnsigned = true
@@ -367,6 +372,18 @@ func (db *mysql) GetSqlType(field IField) string {
 	case UnsignedTinyInt:
 		res = TinyInt
 		isUnsigned = true
+	case MediumText:
+		res = MediumText
+	case LongText:
+		res = LongText
+	case TinyText:
+		res = TinyText
+	case TinyBlob:
+		res = TinyBlob
+	case MediumBlob:
+		res = MediumBlob
+	case LongBlob:
+		res = LongBlob
 	default:
 		res = t
 	}
@@ -379,10 +396,24 @@ func (db *mysql) GetSqlType(field IField) string {
 		hasLen1 = true
 	}
 
-	if hasLen2 {
-		res += "(" + utils.ToString(c.SQLType().DefaultLength) + "," + utils.ToString(c.SQLType().DefaultLength2) + ")"
-	} else if hasLen1 {
-		res += "(" + utils.ToString(c.SQLType().DefaultLength) + ")"
+	noLenTypes := map[string]bool{
+		Json:       true,
+		TinyText:   true,
+		Text:       true,
+		MediumText: true,
+		LongText:   true,
+		TinyBlob:   true,
+		Blob:       true,
+		MediumBlob: true,
+		LongBlob:   true,
+	}
+
+	if !noLenTypes[res] {
+		if hasLen2 {
+			res += "(" + utils.ToString(c.SQLType().DefaultLength) + "," + utils.ToString(c.SQLType().DefaultLength2) + ")"
+		} else if hasLen1 {
+			res += "(" + utils.ToString(c.SQLType().DefaultLength) + ")"
+		}
 	}
 
 	if isUnsigned {
@@ -412,8 +443,20 @@ func (db *mysql) IsReserved(name string) bool {
 	return ok
 }
 
+func (db *mysql) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", db.quoter.Quote(name))
+	_, err := dbx.ExecContext(ctx, query)
+	return err
+}
+
+func (db *mysql) DropDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", db.quoter.Quote(name))
+	_, err := dbx.ExecContext(ctx, query)
+	return err
+}
+
 func (db *mysql) IsDatabaseExist(ctx context.Context, name string) bool {
-	s := "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = $1"
+	s := "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?"
 	db.LogSQL(s, []interface{}{name})
 
 	rows, err := db.queryer.QueryContext(ctx, s, name)
@@ -422,18 +465,7 @@ func (db *mysql) IsDatabaseExist(ctx context.Context, name string) bool {
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var database_name string
-		err = rows.Scan(&database_name)
-		if err != nil {
-			log.Panicf(err.Error())
-			return false
-		}
-
-		return database_name == name
-	}
-
-	return false
+	return rows.Next()
 }
 
 func (db *mysql) AutoIncrStr() string {
@@ -445,6 +477,11 @@ func (db *mysql) IndexCheckSql(tableName, idxName string) (string, []interface{}
 	sql := "SELECT `INDEX_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS`"
 	sql += " WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? AND `INDEX_NAME`=?"
 	return sql, args
+}
+
+func (db *mysql) TableCheckSql(tableName string) (string, []interface{}) {
+	args := []interface{}{db.DbName, tableName}
+	return "SELECT `TABLE_NAME` FROM `INFORMATION_SCHEMA`.`TABLES` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ?", args
 }
 
 func (db *mysql) GenAddColumnSQL(tableName string, field IField) string {
@@ -463,6 +500,12 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 	field_places := strings.Repeat("?,", cnt-1) + "?"
 	field_list := ""
 	quoter := db.quoter.Quote
+
+	insertVerb := "INSERT"
+	if onConflict != nil && onConflict.DoNothing {
+		insertVerb = "INSERT IGNORE"
+	}
+
 	for i, name := range fields {
 		if i < cnt-1 {
 			field_list = field_list + quoter(name) + ","
@@ -471,7 +514,8 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 		}
 	}
 
-	sql.WriteString("INSERT INTO ")
+	sql.WriteString(insertVerb)
+	sql.WriteString(" INTO ")
 	sql.WriteString(tableName)
 	sql.WriteString(" (")
 	sql.WriteString(field_list)
@@ -480,66 +524,21 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 	sql.WriteString(field_places)
 	sql.WriteString(") ")
 
-	if onConflict != nil {
-		sql.WriteString("ON CONFLICT ")
-
-		/* ON CONFLICT */
-		if onConflict.OnConstraint != "" {
-			sql.WriteString("ON CONSTRAINT ")
-			sql.WriteString(onConflict.OnConstraint)
-			sql.WriteByte(' ')
-		} else {
-			if len(onConflict.Fields) > 0 {
-				sql.WriteByte('(')
-				for idx, field := range onConflict.Fields {
-					if idx > 0 {
-						sql.WriteByte(',')
-					}
-					sql.WriteString(quoter(field))
+	if onConflict != nil && !onConflict.DoNothing {
+		sql.WriteString("ON DUPLICATE KEY UPDATE ")
+		if len(onConflict.DoUpdates) > 0 {
+			for idx, field := range onConflict.DoUpdates {
+				if idx > 0 {
+					sql.WriteByte(',')
 				}
-				sql.WriteString(`) `)
-			} else if len(uniqueFields) > 0 {
-				sql.WriteString("(")
-				sql.WriteString(strings.Join(uniqueFields, ","))
-				sql.WriteString(") ")
+				sql.WriteString(quoter(field))
+				sql.WriteString(" = ?") // Use placeholder to consume params from session_crwd.go
 			}
-			/*
-				if len(onConflict.TargetWhere.Exprs) > 0 {
-					sql.WriteString(" WHERE ")
-					onConflict.TargetWhere.Build(builder)
-					sql.WriteByte(' ')
-				}
-			*/
-		}
-
-		if onConflict.DoNothing {
-			sql.WriteString("DO NOTHING")
 		} else {
-			sql.WriteString("DO UPDATE SET ")
-			if len(onConflict.DoUpdates) > 0 {
-				for idx, field := range onConflict.DoUpdates {
-					if idx > 0 {
-						sql.WriteByte(',')
-					}
-					sql.WriteString(quoter(field))
-					sql.WriteByte('=')
-					sql.WriteByte('?')
-					//sql.AddVar(builder, assignment.Value)
-				}
-			} else {
-				sql.WriteString(quoter(idField))
-				sql.WriteByte('=')
-				sql.WriteString(quoter(idField))
-			}
+			sql.WriteString(quoter(idField))
+			sql.WriteString(" = ")
+			sql.WriteString(quoter(idField))
 		}
-		sql.WriteString(" ")
-	}
-
-	//sql.WriteString("ON DUPLICATE KEY UPDATE ")
-
-	if len(idField) > 0 {
-		sql.WriteString("RETURNING ")
-		sql.WriteString(db.quoter.Quote(idField))
 	}
 
 	return sql.String()

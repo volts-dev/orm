@@ -142,6 +142,7 @@ Returns a new domain expression where all domain components from “domains“
 	:param domains: a list of normalized domains.
 */
 func combine(operator, unit, zero string, domains []string) (result *utils.TStringList) {
+	result = utils.NewStringList()
 	count := 0
 	for _, domain := range domains {
 		if domain == unit {
@@ -157,9 +158,8 @@ func combine(operator, unit, zero string, domains []string) (result *utils.TStri
 	}
 
 	//result = [operator] * (count - 1) + result
-	for count == 1 { //(count - 1)
+	for i := 0; i < count-1; i++ {
 		result.Insert(0, operator)
-
 	}
 
 	return
@@ -399,7 +399,11 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 }
 
 func idsToSqlHolder(ids ...interface{}) string {
-	return strings.Repeat("?,", len(ids)-1) + "?"
+	ln := len(ids)
+	if ln == 0 {
+		return ""
+	}
+	return strings.Repeat("?,", ln-1) + "?"
 }
 
 // :param string from_query: is something like :

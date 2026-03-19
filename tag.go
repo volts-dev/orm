@@ -340,19 +340,14 @@ func tag_default(ctx *TTagContext) error {
 
 	return nil
 }
-
 func tag_created(ctx *TTagContext) error {
 	field := ctx.Field.Base()
-
-	field.isCreated = true
 	field.isCreated = true
 	return nil
 }
 
 func tag_updated(ctx *TTagContext) error {
 	field := ctx.Field.Base()
-
-	field.isUpdated = true
 	field.isUpdated = true
 	return nil
 }

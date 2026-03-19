@@ -70,7 +70,12 @@ func New(opt ...Option) (*TOrm, error) {
 		return nil, fmt.Errorf("Unsupported dialect type: %v", cfg.DataSource.DbType)
 	}
 
-	db, err := core.Open(cfg.DataSource.DbType, cfg.DataSource.toString())
+	dsStr, err := cfg.DataSource.toString()
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := core.Open(cfg.DataSource.DbType, dsStr)
 	if err != nil {
 		return nil, err
 	}

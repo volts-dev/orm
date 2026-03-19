@@ -57,7 +57,7 @@ type (
 	// IField represents a field interface in a data model.
 	// It defines the behaviors and properties of a field, including its configuration, constraints, and interactions with other fields or models.
 	IField interface {
-		Config() *FieldConfig
+		///Config() *FieldConfig
 		//String(d IDialect) string
 		IsPrimaryKey() bool
 		IsCompositeKey() bool // 是复合主键
@@ -127,16 +127,12 @@ type (
 		UseAttachment() bool
 
 		// raw I/O event of field when it be read/write.
-		// [原始数据] 处理计算读取数据库的原始数据 将会调用Compute等标签里的函数
-		OnRead(ctx *TFieldContext) error // (res map[string]map[string]interface{})         // 字段数据获取
-		// [原始数据] 处理计算写入数据库原始数据 将会调用Compute等标签里的函数
-		OnWrite(ctx *TFieldContext) error //(res map[string]map[string]interface{}) // 字段数据保存
+		OnRead(ctx *TFieldContext) error
+		OnWrite(ctx *TFieldContext) error
 
-		// classic I/O event of the field. It will be call when using classic query. READ/WRITE the relate data FROM/TO its relation table
-		// the RETURN value is the value of field.
-		//[经典数据] 从原始数据转换提供Classical数据读法,数据修剪,Many2One显示Names表等
-		onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} // TODO compute
-		onConvertToWrite(session *TSession, value interface{}) interface{}                                // TODO 不返回或者返回错误
+		// classic I/O event of the field. It will be call when using classic query.
+		onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{}
+		onConvertToWrite(session *TSession, value interface{}) interface{}
 	}
 
 	TField struct {
@@ -290,7 +286,7 @@ func RegisterField(type_name string, creator func() IField) {
 
 func FieldTypes() []string {
 	types := make([]string, 0)
-	for k, _ := range field_creators {
+	for k := range field_creators {
 		types = append(types, k)
 	}
 	return types
@@ -298,7 +294,6 @@ func FieldTypes() []string {
 
 func newBaseField(name string, opts ...FieldOption) *TField {
 	field := &TField{
-
 		//defaultIsEmpty: true,
 		_symbol_c:        "%s",
 		_symbol_f:        _FieldFormat,
@@ -308,8 +303,13 @@ func newBaseField(name string, opts ...FieldOption) *TField {
 		_attr_required:   false,
 	}
 
-	cfg := newFieldConfig(field)
-	cfg.Init(opts...)
+	//cfg := newFieldConfig(field)
+	//cfg.Init(opts...)
+
+	for _, opt := range opts {
+		opt(field)
+	}
+
 	return field
 }
 
@@ -442,9 +442,7 @@ func _FieldFormat(str string) string {
 func _CharFormat(str string) string {
 	return str //`'` + str + `'`
 }
-func (self *TField) Config() *FieldConfig {
-	return self.Config()
-}
+
 func (self *TField) Help() string {
 	return self._attr_help
 }

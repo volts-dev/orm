@@ -39,25 +39,27 @@ func NewDataSource(dbtype, dbName, host, port, sslMode, userName, password strin
 		Password: password,
 	}
 }
-func (self *TDataSource) validate() {
+func (self *TDataSource) validate() error {
 	if self.Host == "" {
 		self.Host = "127.0.0.1"
 	}
 
-	if self.UserName == "" {
-		panic("DataSource request UserName is not blank!")
-	}
+	if self.DbType != "sqlite" && self.DbType != "sqlite3" {
+		if self.UserName == "" {
+			return fmt.Errorf("DataSource request UserName is not blank")
+		}
 
-	if self.Password == "" {
-		panic("DataSource request Password is not blank!")
+		if self.Password == "" {
+			return fmt.Errorf("DataSource request Password is not blank")
+		}
 	}
 
 	if self.DbType == "" {
-		panic("DataSource request DbType is not blank!")
+		return fmt.Errorf("DataSource request DbType is not blank")
 	}
 
 	if self.DbName == "" {
-		panic("DataSource request DbName is not blank!")
+		return fmt.Errorf("DataSource request DbName is not blank")
 	}
 
 	switch strings.ToLower(self.DbType) {
@@ -71,10 +73,13 @@ func (self *TDataSource) validate() {
 		}
 	}
 
+	return nil
 }
 
-func (self *TDataSource) toString() string {
-	self.validate()
+func (self *TDataSource) toString() (string, error) {
+	if err := self.validate(); err != nil {
+		return "", err
+	}
 
 	var s string
 	switch strings.ToLower(self.DbType) {
@@ -90,9 +95,11 @@ func (self *TDataSource) toString() string {
 	case "postgres":
 		s = fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%v",
 			url.QueryEscape(self.UserName), url.QueryEscape(self.Password), self.Host, self.DbName, self.SSLMode)
+	case "sqlite", "sqlite3":
+		s = self.DbName
 	default:
-		panic("Unsupported database type: " + self.DbType)
+		return "", fmt.Errorf("Unsupported database type: %s", self.DbType)
 	}
 
-	return s
+	return s, nil
 }

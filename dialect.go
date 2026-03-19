@@ -65,6 +65,7 @@ type (
 
 		Fmter() []IFmter // TODO 考虑移除 由于无法满足query获得model对象
 		SetParams(params map[string]string)
+		SupportReturning() bool
 	}
 
 	TDialect struct {
@@ -140,7 +141,12 @@ func (b *TDialect) ShowCreateNull() bool {
 }
 
 func (b *TDialect) DataSourceName() string {
-	return b.TDataSource.toString()
+	s, _ := b.TDataSource.toString()
+	return s
+}
+
+func (b *TDialect) SupportReturning() bool {
+	return false
 }
 
 func (b *TDialect) AndStr() string {

@@ -793,6 +793,10 @@ func (db *postgres) Init(queryer core.Queryer, uri *TDataSource) error {
 	return db.TDialect.Init(queryer, db, uri)
 }
 
+func (db *postgres) SupportReturning() bool {
+	return true
+}
+
 func (db *postgres) String() string {
 	return "postgres"
 }
@@ -1145,27 +1149,19 @@ func (db *postgres) IsDatabaseExist(ctx context.Context, name string) bool {
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var database_name string
-		err = rows.Scan(&database_name)
-		if err != nil {
-			log.Panicf(err.Error())
-			return false
-		}
-
-		return database_name == name
-	}
-
-	return false
+	return rows.Next()
 }
 
 func (self *postgres) CreateDatabase(db *sql.DB, ctx context.Context, name string) error {
 	ds := self.TDataSource
 	ds.DbName = "postgres"
 	db_driver := ds.DbType
-	db_src := ds.toString()
+	db_src, err := ds.toString()
+	if err != nil {
+		return err
+	}
 
-	db, err := sql.Open(db_driver, db_src)
+	db, err = sql.Open(db_driver, db_src)
 	if err != nil {
 		return err
 	}
@@ -1183,9 +1179,12 @@ func (self *postgres) DropDatabase(db *sql.DB, ctx context.Context, name string)
 	ds := self.TDataSource
 	ds.DbName = "postgres"
 	db_driver := ds.DbType
-	db_src := ds.toString()
+	db_src, err := ds.toString()
+	if err != nil {
+		return err
+	}
 
-	db, err := sql.Open(db_driver, db_src)
+	db, err = sql.Open(db_driver, db_src)
 	if err != nil {
 		return err
 	}
