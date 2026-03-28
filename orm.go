@@ -80,8 +80,7 @@ func New(opt ...Option) (*TOrm, error) {
 		return nil, err
 	}
 
-	err = dialect.Init(db, cfg.DataSource)
-	if err != nil {
+	if err = dialect.Init(db, cfg.DataSource); err != nil {
 		return nil, err
 	}
 
@@ -110,9 +109,23 @@ func New(opt ...Option) (*TOrm, error) {
 		if err != nil {
 			return nil, err
 		}
+		orm.connected = true
 	} else {
-		orm.connected = false
-		log.Warnf("the orm is disconnected with database %s", cfg.DataSource.DbName)
+		if orm.config.AutoCreateDatabase {
+			err = orm.CreateDatabase(cfg.DataSource.DbName)
+			if err != nil {
+				return nil, err
+			}
+
+			err = orm._reverse()
+			if err != nil {
+				return nil, err
+			}
+			orm.connected = true
+		} else {
+			orm.connected = false
+			log.Errf("the orm is disconnected with database %s", cfg.DataSource.DbName)
+		}
 	}
 
 	return orm, nil

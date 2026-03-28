@@ -443,14 +443,28 @@ func (db *mysql) IsReserved(name string) bool {
 	return ok
 }
 
-func (db *mysql) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
-	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", db.quoter.Quote(name))
-	_, err := dbx.ExecContext(ctx, query)
+func (self *mysql) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	ds := *self.TDataSource
+	ds.DbName = ""
+	db_driver := ds.DbType
+	db_src, err := ds.toString()
+	if err != nil {
+		return err
+	}
+
+	db, err := sql.Open(db_driver, db_src)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", self.quoter.Quote(name))
+	_, err = db.ExecContext(ctx, query)
 	return err
 }
 
-func (db *mysql) DropDatabase(dbx *sql.DB, ctx context.Context, name string) error {
-	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", db.quoter.Quote(name))
+func (self *mysql) DropDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", self.quoter.Quote(name))
 	_, err := dbx.ExecContext(ctx, query)
 	return err
 }

@@ -133,6 +133,11 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 		}
 	}
 
+	if len(ids) == 0 {
+		// Nothing to delete, prevent SQL syntax error on empty IN clause
+		return 0, nil
+	}
+
 	// get the model id field name
 	id_field := self.Statement.Model.IdField()
 
@@ -605,9 +610,11 @@ func (self *TSession) _write(src any) (int64, error) {
 
 		fieldName = model.Obj().GetRelationByName(tbl)
 
+		quoter := self.orm.dialect.Quoter().Quote
 		// add in ids data
 		in_vals = strings.Repeat("?,", len(ids)-1) + "?"
-		sql = fmt.Sprintf(`SELECT distinct "%s" FROM "%s" WHERE %s IN(%s)`, fieldName, model.Table(), self.Statement.IdKey, in_vals)
+		sql = fmt.Sprintf("SELECT distinct %s FROM %s WHERE %s IN(%s)", 
+			quoter(fieldName), quoter(model.Table()), quoter(self.Statement.IdKey), in_vals)
 		ds, err = self.orm.Query(sql, ids...)
 		if err != nil {
 			return 0, err
@@ -884,9 +891,18 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 func (self *TSession) _validateValues(values interface{}) (*dataset.TDataSet, error) {
 	var result *dataset.TDataSet
 	if values != nil {
-		result = dataset.NewDataSet(dataset.WithData(self.Statement.Sets))
-		for k, v := range self._convertItf2ItfMap(values) {
-			result.Record().SetByField(k, v)
+		valuesMap := self._convertItf2ItfMap(values)
+		if len(self.Statement.Sets) > 0 {
+			result = dataset.NewDataSet(dataset.WithData(self.Statement.Sets))
+			rec := result.Record()
+			for k, v := range valuesMap {
+				rec.SetByField(k, v)
+			}
+		} else {
+			result = dataset.NewDataSet()
+			if err := result.NewRecord(valuesMap); err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		if len(self.Statement.Sets) == 0 {
@@ -1430,7 +1446,8 @@ func (self *TSession) _convertStruct2Itfmap(src interface{}) (res_map map[string
 	}
 
 	if v.Kind() != reflect.Struct {
-		panic("not struct")
+		log.Warn("Convert to struct map failed: not a struct pointer or struct value")
+		return nil
 	}
 
 	lType := v.Type()
@@ -1538,8 +1555,14 @@ func (self *TSession) _convertStruct2Itfmap(src interface{}) (res_map map[string
 					log.Err("other field type ", lName)
 				}
 			}
+		default:
+			lValue = lFieldValue.Interface()
 		}
-		lValue = lFieldValue.Interface()
+		
+		if lValue == nil && lFieldValue.IsValid() {
+			lValue = lFieldValue.Interface()
+		}
+
 		res_map[lName] = lValue
 
 	CONTINUE:
@@ -1556,8 +1579,12 @@ func (self *TSession) _convertItf2ItfMap(value interface{}) map[string]interface
 	}
 
 	// 创建 Map
-	value_type := reflect.TypeOf(value)
-	if value_type.Kind() == reflect.Ptr || value_type.Kind() == reflect.Struct {
+	valueType := reflect.TypeOf(value)
+	if valueType.Kind() == reflect.Ptr {
+		valueType = valueType.Elem()
+	}
+
+	if valueType.Kind() == reflect.Struct {
 		// # change model of the session
 		if self.Statement.Model == nil {
 			model_name := fmtModelName(utils.Obj2Name(value))
@@ -1567,7 +1594,7 @@ func (self *TSession) _convertItf2ItfMap(value interface{}) map[string]interface
 		}
 
 		return self._convertStruct2Itfmap(value)
-	} else if value_type.Kind() == reflect.Map {
+	} else if valueType.Kind() == reflect.Map {
 		if m, ok := value.(map[string]interface{}); ok {
 			return m
 		} else if m, ok := value.(map[string]string); ok {

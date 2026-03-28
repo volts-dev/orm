@@ -181,6 +181,8 @@ func normalize_domain(node *domain.TDomainNode) (*domain.TDomainNode, error) {
 		return domain.String2Domain(domain.TRUE_DOMAIN, nil)
 	}
 
+	node = node.FlattenNode()
+
 	// must be including Terms
 	if node.IsValueNode() {
 		return nil, fmt.Errorf("Domains to normalize must have a 'domain' form: a list or tuple of domain components")

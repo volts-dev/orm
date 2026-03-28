@@ -6,13 +6,14 @@ type (
 	Option func(*Config)
 
 	Config struct {
-		DataSource      *TDataSource
-		TimeZone        *time.Location
-		ModelTemplate   *ModelTemplate
-		FieldIdentifier string // 字段 tag 标记
-		TableIdentifier string // 表 tag 标记
-		ShowSql         bool
-		ShowSqlTime     bool
+		DataSource         *TDataSource
+		TimeZone           *time.Location
+		ModelTemplate      *ModelTemplate
+		FieldIdentifier    string // 字段 tag 标记
+		TableIdentifier    string // 表 tag 标记
+		ShowSql            bool
+		ShowSqlTime        bool
+		AutoCreateDatabase bool
 	}
 )
 
@@ -60,5 +61,11 @@ func WithFieldTag(tagName string) Option {
 func WithTableTag(tableName string) Option {
 	return func(cfg *Config) {
 		cfg.TableIdentifier = tableName
+	}
+}
+
+func WithAutoCreateDatabase(on bool) Option {
+	return func(cfg *Config) {
+		cfg.AutoCreateDatabase = on
 	}
 }

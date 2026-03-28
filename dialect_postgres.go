@@ -1152,8 +1152,8 @@ func (db *postgres) IsDatabaseExist(ctx context.Context, name string) bool {
 	return rows.Next()
 }
 
-func (self *postgres) CreateDatabase(db *sql.DB, ctx context.Context, name string) error {
-	ds := self.TDataSource
+func (self *postgres) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	ds := *self.TDataSource
 	ds.DbName = "postgres"
 	db_driver := ds.DbType
 	db_src, err := ds.toString()
@@ -1161,13 +1161,14 @@ func (self *postgres) CreateDatabase(db *sql.DB, ctx context.Context, name strin
 		return err
 	}
 
-	db, err = sql.Open(db_driver, db_src)
+	db, err := sql.Open(db_driver, db_src)
 	if err != nil {
 		return err
 	}
+	defer db.Close()
 
 	query := fmt.Sprintf("CREATE DATABASE %v", name)
-	_, err = db.Exec(query)
+	_, err = db.ExecContext(ctx, query)
 	if err != nil {
 		return err
 	}

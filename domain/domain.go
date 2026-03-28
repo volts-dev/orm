@@ -615,6 +615,26 @@ func (self *TDomainNode) Flatten() []interface{} {
 	return lst
 }
 
+func (self *TDomainNode) FlattenNode() *TDomainNode {
+	if self == nil {
+		return nil
+	}
+	if self.IsValueNode() || self.IsLeafNode() {
+		return self
+	}
+
+	flat := NewDomainNode()
+	for _, child := range self.Nodes() {
+		if child.IsListNode() && !child.IsLeafNode() {
+			flatChildren := child.FlattenNode()
+			flat.Merge(flatChildren)
+		} else {
+			flat.Push(child)
+		}
+	}
+	return flat
+}
+
 func (self *TDomainNode) Insert(idx int, value interface{}) *TDomainNode {
 	if self.nodeType == VALUE_NODE && self.Value != nil {
 		self.children = append(self.children, NewDomainNode(self.Value))
