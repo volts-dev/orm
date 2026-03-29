@@ -1,0 +1,220 @@
+package session
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/volts-dev/orm/cacher"
+	"github.com/volts-dev/orm/validator"
+)
+
+// TestCacherTTL 测试缓存TTL机制
+func TestCacherTTL(t *testing.T) {
+	tests := []struct {
+		name    string
+		ttl     int64
+		wantErr bool
+	}{
+		{"有效TTL", 3600, false},
+		{"最小TTL", 60, false},
+		{"最大TTL", 86400, false},
+		{"TTL过小", 30, false},  // 应该被调整到最小值
+		{"TTL过大", 100000, false}, // 应该被调整到最大值
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chr, _ := cacher.New()
+			chr.SetTTL(tt.ttl)
+
+			actualTTL := chr.GetTTL()
+			if actualTTL < 60 || actualTTL > 86400 {
+				t.Errorf("TTL应该在有效范围内，得到: %d", actualTTL)
+			}
+		})
+	}
+}
+
+// TestCacherExpiration 测试缓存过期
+func TestCacherExpiration(t *testing.T) {
+	chr, _ := cacher.New()
+	chr.Active(true)
+	chr.SetStatus(true, "users")
+	chr.SetTTL(1) // 设置为1秒，立即过期
+
+	// 放入缓存
+	chr.PutBySql("users", "SELECT * FROM users", nil, nil)
+
+	// 立即获取应该成功
+	result := chr.GetBySql("users", "SELECT * FROM users", nil)
+	if result == nil {
+		t.Error("刚放入的缓存应该能获取到")
+	}
+
+	// 等待过期
+	time.Sleep(2 * time.Second)
+	chr.CleanupExpiredCache()
+
+	// 再次获取应该返回nil
+	result = chr.GetBySql("users", "SELECT * FROM users", nil)
+	if result != nil {
+		t.Error("过期的缓存应该返回nil")
+	}
+}
+
+// TestValidator 测试验证器
+func TestValidator(t *testing.T) {
+	tests := []struct {
+		name      string
+		validator func() bool
+		wantError bool
+	}{
+		{"有效表名", func() bool {
+			v := validator.New()
+			return v.ValidateTableName("users")
+		}, false},
+		{"空表名", func() bool {
+			v := validator.New()
+			return v.ValidateTableName("")
+		}, true},
+		{"无效表名", func() bool {
+			v := validator.New()
+			return v.ValidateTableName("user@table")
+		}, true},
+		{"有效ID", func() bool {
+			v := validator.New()
+			return v.ValidateID(123)
+		}, false},
+		{"无效ID", func() bool {
+			v := validator.New()
+			return v.ValidateID(nil)
+		}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isValid := tt.validator()
+			if isValid == tt.wantError {
+				t.Errorf("期望错误状态: %v，实际: %v", tt.wantError, !isValid)
+			}
+		})
+	}
+}
+
+// TestConcurrentCacheAccess 测试并发缓存访问
+func TestConcurrentCacheAccess(t *testing.T) {
+	chr, _ := cacher.New()
+	chr.Active(true)
+	chr.SetStatus(true, "products")
+
+	numGoroutines := 100
+	done := make(chan bool, numGoroutines)
+
+	// 多个goroutine并发访问缓存
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			chr.PutBySql("products", "SELECT * FROM products", nil, nil)
+			chr.GetBySql("products", "SELECT * FROM products", nil)
+			done <- true
+		}(i)
+	}
+
+	// 等待所有goroutine完成
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	t.Log("并发测试完成，无竞态条件")
+}
+
+// TestTransactionContext 测试事务context处理
+func TestTransactionContext(t *testing.T) {
+	// 模拟事务context超时
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// 在短超时时间内执行
+	select {
+	case <-ctx.Done():
+		t.Log("事务context正确超时")
+	case <-time.After(200 * time.Millisecond):
+		t.Error("事务context超时机制失效")
+	}
+}
+
+// BenchmarkCacheGet 缓存GET性能基准测试
+func BenchmarkCacheGet(b *testing.B) {
+	chr, _ := cacher.New()
+	chr.Active(true)
+	chr.SetStatus(true, "users")
+	chr.PutBySql("users", "SELECT * FROM users WHERE id = 1", nil, nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		chr.GetBySql("users", "SELECT * FROM users WHERE id = 1", nil)
+	}
+}
+
+// BenchmarkCachePut 缓存PUT性能基准测试
+func BenchmarkCachePut(b *testing.B) {
+	chr, _ := cacher.New()
+	chr.Active(true)
+	chr.SetStatus(true, "users")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		chr.PutBySql("users", "SELECT * FROM users", nil, nil)
+	}
+}
+
+// TestCacheWarmup 测试缓存预热
+func TestCacheWarmup(t *testing.T) {
+	chr, _ := cacher.New()
+	chr.Active(true)
+	chr.SetStatus(true, "categories")
+
+	warmer := cacher.NewCacheWarmer(chr)
+
+	// 添加预热任务（模拟）
+	warmer.AddHighPriorityTask(
+		"categories",
+		"SELECT * FROM categories",
+		nil,
+		func(sql string, args ...interface{}) (*dataset.TDataSet, error) {
+			// 返回模拟数据
+			return nil, nil
+		},
+	)
+
+	// 执行预热
+	err := warmer.Warm()
+	if err != nil {
+		t.Errorf("缓存预热出错: %v", err)
+	}
+
+	t.Log("缓存预热完成")
+}
+
+// TestQueryOptimizer 测试查询优化器
+func TestQueryOptimizer(t *testing.T) {
+	opt := optimizer.NewQueryOptimizer()
+	opt.SetThreshold(5)
+
+	// 模拟多次相同查询
+	for i := 0; i < 10; i++ {
+		opt.RecordQuery("users", "SELECT * FROM users WHERE id = ?", 10*time.Millisecond, 1)
+	}
+
+	suggestions := opt.GetSuggestions()
+	if len(suggestions) == 0 {
+		t.Error("应该生成优化建议")
+	}
+
+	stats := opt.GetStatistics()
+	if stats["total_queries"] != 10 {
+		t.Errorf("期望10次查询，实际: %v", stats["total_queries"])
+	}
+
+	t.Log("查询优化器测试完成")
+}

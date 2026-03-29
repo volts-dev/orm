@@ -84,7 +84,7 @@ func (tx *Tx) PrepareContext(ctx context.Context, query string) (*Stmt, error) {
 
 // Prepare prepare the query
 func (tx *Tx) Prepare(query string) (*Stmt, error) {
-	return tx.PrepareContext(context.Background(), query)
+	return tx.PrepareContext(tx.ctx, query)
 }
 
 // StmtContext creates Stmt with context
@@ -95,7 +95,7 @@ func (tx *Tx) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
 
 // Stmt creates Stmt
 func (tx *Tx) Stmt(stmt *Stmt) *Stmt {
-	return tx.StmtContext(context.Background(), stmt)
+	return tx.StmtContext(tx.ctx, stmt)
 }
 
 // ExecMapContext executes query with args in a map
@@ -109,7 +109,7 @@ func (tx *Tx) ExecMapContext(ctx context.Context, query string, mp interface{}) 
 
 // ExecMap executes query with args in a map
 func (tx *Tx) ExecMap(query string, mp interface{}) (sql.Result, error) {
-	return tx.ExecMapContext(context.Background(), query, mp)
+	return tx.ExecMapContext(tx.ctx, query, mp)
 }
 
 // ExecStructContext executes query with args in a struct
@@ -138,7 +138,7 @@ func (tx *Tx) ExecContext(ctx context.Context, query string, args ...interface{}
 
 // ExecStruct executes query with args in a struct
 func (tx *Tx) ExecStruct(query string, st interface{}) (sql.Result, error) {
-	return tx.ExecStructContext(context.Background(), query, st)
+	return tx.ExecStructContext(tx.ctx, query, st)
 }
 
 // QueryContext query with args
@@ -161,7 +161,7 @@ func (tx *Tx) QueryContext(ctx context.Context, query string, args ...interface{
 
 // Query query with args
 func (tx *Tx) Query(query string, args ...interface{}) (*Rows, error) {
-	return tx.QueryContext(context.Background(), query, args...)
+	return tx.QueryContext(tx.ctx, query, args...)
 }
 
 // QueryMapContext query with args in a map
@@ -200,7 +200,7 @@ func (tx *Tx) QueryRowContext(ctx context.Context, query string, args ...interfa
 
 // QueryRow query one row with args
 func (tx *Tx) QueryRow(query string, args ...interface{}) *Row {
-	return tx.QueryRowContext(context.Background(), query, args...)
+	return tx.QueryRowContext(tx.ctx, query, args...)
 }
 
 // QueryRowMapContext query one row with args in a map
@@ -214,7 +214,7 @@ func (tx *Tx) QueryRowMapContext(ctx context.Context, query string, mp interface
 
 // QueryRowMap query one row with args in a map
 func (tx *Tx) QueryRowMap(query string, mp interface{}) *Row {
-	return tx.QueryRowMapContext(context.Background(), query, mp)
+	return tx.QueryRowMapContext(tx.ctx, query, mp)
 }
 
 // QueryRowStructContext query one row with args in struct
@@ -228,5 +228,5 @@ func (tx *Tx) QueryRowStructContext(ctx context.Context, query string, st interf
 
 // QueryRowStruct query one row with args in struct
 func (tx *Tx) QueryRowStruct(query string, st interface{}) *Row {
-	return tx.QueryRowStructContext(context.Background(), query, st)
+	return tx.QueryRowStructContext(tx.ctx, query, st)
 }

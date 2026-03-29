@@ -142,14 +142,19 @@ func (db *DB) reflectNew(typ reflect.Type) reflect.Value {
 	db.reflectCacheMutex.Lock()
 	defer db.reflectCacheMutex.Unlock()
 	cs, ok := db.reflectCache[typ]
-	if !ok || cs.idx+1 > DefaultCacheSize-1 {
+	if !ok {
+		// 首次创建此类型的缓存
 		cs = &cacheStruct{reflect.MakeSlice(reflect.SliceOf(typ), DefaultCacheSize, DefaultCacheSize), 0}
 		db.reflectCache[typ] = cs
-	} else {
-		cs.idx++
+		return cs.value.Index(0).Addr()
 	}
 
-	return cs.value.Index(cs.idx).Addr()
+	// 使用环形缓冲区而非清空缓存
+	// 当达到容量时回到起始位置，实现循环复用
+	returnIdx := cs.idx
+	cs.idx = (cs.idx + 1) % DefaultCacheSize
+
+	return cs.value.Index(returnIdx).Addr()
 }
 
 // QueryContext overwrites sql.DB.QueryContext

@@ -198,8 +198,38 @@ func (self *TStatement) Set(fieldName string, value interface{}) *TStatement {
 	return self
 }
 
-func (self *TStatement) Join(joinOperator string, tablename interface{}, condition string, args ...interface{}) {
+// Join add a join clause to the SQL query
+// Example: Join("INNER", "users", "users.id = orders.user_id")
+// Note: This method builds JOIN clauses for SQL queries to avoid N+1 query problems.
+// Use this when you need to fetch related data in a single query rather than multiple queries.
+func (self *TStatement) Join(joinOperator string, tablename interface{}, condition string, args ...interface{}) *TStatement {
+	var table string
+	switch v := tablename.(type) {
+	case string:
+		table = v
+	case IModel:
+		table = v.Table()
+	default:
+		table = fmt.Sprintf("%v", v)
+	}
 
+	operator := strings.ToUpper(strings.TrimSpace(joinOperator))
+	if operator == "" {
+		operator = "INNER"
+	}
+
+	if len(self.JoinClause) > 0 {
+		self.JoinClause += " "
+	}
+
+	joinSQL := fmt.Sprintf("%s JOIN %s ON %s", operator, table, condition)
+	if len(args) > 0 {
+		// 将JOIN参数添加到查询参数中
+		self.Params = append(self.Params, args...)
+	}
+
+	self.JoinClause += joinSQL
+	return self
 }
 
 // GroupBy

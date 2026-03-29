@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"reflect"
@@ -247,7 +246,7 @@ func (self *TSession) _queryWithOrg(sql_str string, args ...interface{}) (*datas
 }
 
 func (self *TSession) _queryWithTx(query string, params ...interface{}) (*dataset.TDataSet, error) {
-	rows, err := self.tx.QueryContext(context.Background(), query, params...)
+	rows, err := self.tx.QueryContext(self.context, query, params...)
 	if err != nil {
 		return nil, err
 	}

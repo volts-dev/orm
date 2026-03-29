@@ -71,23 +71,25 @@ func (rs *Rows) ScanStructByIndex(dest ...interface{}) error {
 }
 
 var (
-	fieldCache      = make(map[reflect.Type]map[string]int)
-	fieldCacheMutex sync.RWMutex
+	fieldCache = &sync.Map{} // 使用sync.Map避免竞态条件
 )
 
 func fieldByName(v reflect.Value, name string) reflect.Value {
 	t := v.Type()
-	fieldCacheMutex.RLock()
-	cache, ok := fieldCache[t]
-	fieldCacheMutex.RUnlock()
-	if !ok {
+	// 尝试从缓存中获取字段映射
+	val, ok := fieldCache.Load(t)
+	var cache map[string]int
+	if ok {
+		cache = val.(map[string]int)
+	} else {
+		// 缓存不存在，构建字段映射
 		cache = make(map[string]int)
 		for i := 0; i < v.NumField(); i++ {
 			cache[t.Field(i).Name] = i
 		}
-		fieldCacheMutex.Lock()
-		fieldCache[t] = cache
-		fieldCacheMutex.Unlock()
+		// 使用LoadOrStore避免重复初始化，原子地存储
+		actual, _ := fieldCache.LoadOrStore(t, cache)
+		cache = actual.(map[string]int)
 	}
 
 	if i, ok := cache[name]; ok {

@@ -80,6 +80,12 @@ func (self *TSession) Clone() *TSession {
 
 // Close release the connection from pool
 func (self *TSession) Close() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warn("Close panic recovered:", r)
+		}
+	}()
+
 	if self.db != nil {
 		// When Close be called, if session is a transaction and do not call
 		// Commit or Rollback, then call Rollback.
