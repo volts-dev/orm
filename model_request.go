@@ -186,7 +186,7 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		})), nil
 	case "one2many":
 		if req.Field == "" {
-			return nil, fmt.Errorf("must pionted the field name for one2many@%s read!", req.Model)
+			return nil, fmt.Errorf("must point the field name for one2many@%s read!", req.Model)
 		}
 
 		return self.OneToMany(&TFieldContext{
@@ -198,7 +198,7 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		})
 	case "many2many":
 		if req.Field == "" {
-			return nil, fmt.Errorf("must pionted the field name for many2many@%s read!", req.Model)
+			return nil, fmt.Errorf("must point the field name for many2many@%s read!", req.Model)
 		}
 
 		return self.ManyToMany(&TFieldContext{
@@ -255,7 +255,7 @@ func (self *TModel) Update(req *UpdateRequest) (int64, error) {
 		return effectCount, nil
 	}
 
-	if req.Domain != "" {
+	if req.Domain != nil && req.Domain != "" {
 		session.Domain(req.Domain)
 	}
 
@@ -404,9 +404,9 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 
 		record := make(map[string]any)
 		for i, header := range header {
-			//if utils.InInts(i, ignoreIdx...) == -1 { // 过滤不合法字段
-			record[header] = line[i]
-			//}
+			if utils.IndexOf(i, ignoreIdx...) == -1 { // 过滤不合法字段
+				record[header] = line[i]
+			}
 		}
 		datas = append(datas, record)
 		count++
@@ -485,7 +485,7 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	session.UseNameGet = ctx.UseNameGet /* 使用 */
 	groups, err := session.Select(ctx.Fields...).In(relFieldName, ids...).Read(false)
 	if err != nil {
-		log.Errf("OneToMany field %s search relate model %s faild", field.Name(), relateModel.String())
+		log.Errf("OneToMany field %s search relate model %s failed", field.Name(), relateModel.String())
 		return nil, err
 	}
 
@@ -526,7 +526,7 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			group, err = relateModel.NameGet(ids)
 		}
 		if err != nil {
-			log.Errf("Many2one field %s search relate model %s faild", field.Name(), relateModel.String())
+			log.Errf("Many2one field %s search relate model %s failed", field.Name(), relateModel.String())
 			return nil, err
 		}
 

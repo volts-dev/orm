@@ -198,6 +198,12 @@ type (
 	}
 )
 
+func WithTransaction(session *TSession) ModelOption {
+	return func(opts *ModelOptions) {
+		opts.Model.Tx(session)
+	}
+}
+
 func WithFunc(fn func(opts *ModelOptions)) ModelOption {
 	return func(opts *ModelOptions) {
 		fn(opts)
@@ -655,7 +661,7 @@ func (self *TModel) _add_inherited_fields() {
 			if has := self.obj.GetFieldByName(refname); has != nil {
 				lNew = utils.Clone(ref).(IField)
 				lNew.IsInheritedField(true)
-				self.obj.SetFieldByName(refname, ref)
+				self.obj.SetFieldByName(refname, lNew)
 			}
 		}
 

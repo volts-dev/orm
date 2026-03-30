@@ -27,7 +27,7 @@ func newModelBuilder(orm *TOrm, model *TModel) *ModelBuilder {
 	}
 }
 
-func (self *ModelBuilder) SetIndiex(fieldNames ...string) *ModelBuilder {
+func (self *ModelBuilder) SetIndex(fieldNames ...string) *ModelBuilder {
 	/* 识别索引类型 */
 	idxType := IndexType
 	for _, fieldName := range fieldNames {
