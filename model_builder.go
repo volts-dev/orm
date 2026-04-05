@@ -387,3 +387,123 @@ func (self *fieldStatment) Ondelete(value string) *fieldStatment {
 	self.field.Base().ondelete = value
 	return self
 }
+
+func (self *fieldStatment) AutoIncrement() *fieldStatment {
+	field := self.field.Base()
+	field.isAutoIncrement = true
+	self.builder.model.Obj().AutoIncrementField = self.field.Name()
+	return self
+}
+
+func (self *fieldStatment) WriteOnly() *fieldStatment {
+	field := self.field
+	builder := self.builder
+	if err := tag_write_only(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *fieldStatment) Translate(v ...bool) *fieldStatment {
+	field := self.field
+	builder := self.builder
+	params := []string{}
+	if len(v) > 0 {
+		if v[0] {
+			params = []string{"true"}
+		} else {
+			params = []string{"false"}
+		}
+	}
+	if err := tag_translate(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+		Params:     params,
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *fieldStatment) Attachment() *fieldStatment {
+	field := self.field
+	builder := self.builder
+	if err := tag_attachment(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *fieldStatment) Version() *fieldStatment {
+	field := self.field
+	builder := self.builder
+	if err := tag_ver(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *fieldStatment) Named() *fieldStatment {
+	field := self.field
+	builder := self.builder
+	if err := tag_named(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *fieldStatment) OldName(name string) *fieldStatment {
+	self.field.Base()._attr_name = name
+	return self
+}
+
+func (self *fieldStatment) Deleted() *fieldStatment {
+	field := self.field
+	builder := self.builder
+	if err := tag_deleted(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *fieldStatment) As(alias string) *fieldStatment {
+	field := self.field
+	builder := self.builder
+	if err := tag_as(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+		Params:     []string{alias},
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
