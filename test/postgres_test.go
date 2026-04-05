@@ -255,7 +255,133 @@ func pgDeepCreate(t *testing.T, chain *Testchain) {
 		}
 	})
 }
-func pgDeepQuery(t *testing.T, chain *Testchain)       {}
+// ── Step 3: Query ───────────────────────────────────────────────────────────────
+
+func pgDeepQuery(t *testing.T, chain *Testchain) {
+	model, err := chain.Orm.GetModel("user_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("read/all", func(t *testing.T) {
+		ds, err := model.Records().Read()
+		if err != nil {
+			t.Fatalf("Read() error: %v", err)
+		}
+		if ds.IsEmpty() {
+			t.Fatal("Read() returned empty dataset — ensure Step 2 ran first")
+		}
+		t.Logf("Read() returned %d records", ds.Count())
+	})
+
+	t.Run("read/select_fields", func(t *testing.T) {
+		ds, err := model.Records().Select("id", "name").Read()
+		if err != nil {
+			t.Fatalf("Read().Select() error: %v", err)
+		}
+		if ds.IsEmpty() {
+			t.Fatal("Read().Select() returned empty dataset")
+		}
+	})
+
+	t.Run("read/as_struct", func(t *testing.T) {
+		ds, err := model.Records().Select("id", "name").Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		u := new(UserModel)
+		if err := ds.Record().AsStruct(u); err != nil {
+			t.Fatalf("AsStruct() failed: %v", err)
+		}
+		t.Logf("AsStruct OK: id=%v name=%q", u.Id, u.Name)
+	})
+
+	t.Run("search/all", func(t *testing.T) {
+		ids, total, err := model.Records().Search()
+		if err != nil {
+			t.Fatalf("Search() error: %v", err)
+		}
+		if len(ids) == 0 {
+			t.Fatal("Search() returned no IDs")
+		}
+		if int64(len(ids)) != total {
+			t.Fatalf("Search() id count %d != total %d", len(ids), total)
+		}
+	})
+
+	t.Run("search/where", func(t *testing.T) {
+		allIds, _, err := model.Records().Search()
+		if err != nil || len(allIds) == 0 {
+			t.Fatal("need records for search/where")
+		}
+		ids, _, err := model.Records().Where("id=?", allIds[0]).Search()
+		if err != nil {
+			t.Fatalf("Search(where) error: %v", err)
+		}
+		if len(ids) != 1 {
+			t.Fatalf("Search(where id=?) returned %d records, expected 1", len(ids))
+		}
+	})
+
+	t.Run("search/limit", func(t *testing.T) {
+		ids, _, err := model.Records().Limit(3).Search()
+		if err != nil {
+			t.Fatalf("Search(limit=3) error: %v", err)
+		}
+		if len(ids) > 3 {
+			t.Fatalf("Limit(3) returned %d IDs", len(ids))
+		}
+	})
+
+	t.Run("count/all", func(t *testing.T) {
+		n, err := model.Records().Count()
+		if err != nil {
+			t.Fatalf("Count() error: %v", err)
+		}
+		if n < 0 {
+			t.Fatalf("Count() returned negative: %d", n)
+		}
+		t.Logf("Count()=%d", n)
+	})
+
+	t.Run("count/where", func(t *testing.T) {
+		total, err := model.Records().Count()
+		if err != nil {
+			t.Fatal(err)
+		}
+		filtered, err := model.Records().Where("id>?", 0).Count()
+		if err != nil {
+			t.Fatalf("Count(where id>0) error: %v", err)
+		}
+		if filtered != total {
+			t.Fatalf("Count(where id>0)=%d != Count()=%d", filtered, total)
+		}
+	})
+
+	t.Run("limit/basic", func(t *testing.T) {
+		ds, err := model.Records().Limit(3).Read()
+		if err != nil {
+			t.Fatalf("Limit(3).Read() error: %v", err)
+		}
+		if ds.Count() > 3 {
+			t.Fatalf("Limit(3) returned %d records", ds.Count())
+		}
+	})
+
+	t.Run("limit/offset", func(t *testing.T) {
+		total, _ := model.Records().Count()
+		if total <= 3 {
+			t.Skip("need more than 3 records for offset test")
+		}
+		ds, err := model.Records().Limit(3, 1).Read()
+		if err != nil {
+			t.Fatalf("Limit(3,1).Read() error: %v", err)
+		}
+		if ds.Count() > 3 {
+			t.Fatalf("Limit(3,1) returned %d records", ds.Count())
+		}
+	})
+}
 func pgDeepConditions(t *testing.T, chain *Testchain)  {}
 func pgDeepWrite(t *testing.T, chain *Testchain)       {}
 func pgDeepTransaction(t *testing.T, chain *Testchain) {}
