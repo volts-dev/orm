@@ -543,7 +543,7 @@ func (self *fieldStatment) Named() *fieldStatment {
 }
 
 func (self *fieldStatment) OldName(name string) *fieldStatment {
-	self.field.Base()._attr_name = name
+	// TODO: schema migration rename tracking is not yet implemented (tag_old_name is also a no-op)
 	return self
 }
 
