@@ -1,6 +1,8 @@
 package orm
 
 import (
+	"reflect"
+
 	"github.com/volts-dev/utils"
 )
 
@@ -40,6 +42,62 @@ func (self *ModelBuilder) SetIndex(fieldNames ...string) *ModelBuilder {
 	}
 
 	self.model.Obj().AddIndex(newIndex("", self.model.Table(), idxType, fieldNames...))
+	return self
+}
+
+func (self *ModelBuilder) TableName(name string) *ModelBuilder {
+	if err := tag_table_name(&TTagContext{
+		Orm:    self.Orm,
+		Model:  self.model,
+		Params: []string{name},
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *ModelBuilder) TableDescription(desc string) *ModelBuilder {
+	if err := tag_table_description(&TTagContext{
+		Orm:    self.Orm,
+		Model:  self.model,
+		Params: []string{desc},
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *ModelBuilder) TableOrder(field string) *ModelBuilder {
+	if err := tag_table_order(&TTagContext{
+		Orm:    self.Orm,
+		Model:  self.model,
+		Params: []string{field},
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *ModelBuilder) TableRelate(modelName, relateField string) *ModelBuilder {
+	if err := tag_table_relate(&TTagContext{
+		Orm:    self.Orm,
+		Model:  self.model,
+		Params: []string{modelName, relateField},
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+	return self
+}
+
+func (self *ModelBuilder) TableExtends(fieldTypeValue reflect.Value, relateField string) *ModelBuilder {
+	if err := tag_table_extends(&TTagContext{
+		Orm:            self.Orm,
+		Model:          self.model,
+		FieldTypeValue: fieldTypeValue,
+		Params:         []string{relateField},
+	}); err != nil {
+		log.Warn(err.Error())
+	}
 	return self
 }
 
