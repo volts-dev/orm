@@ -526,19 +526,35 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 		curIndexs := oldModel.GetIndexes()
 		var existIndex *TIndex
 		for name, index := range newModel.GetIndexes() {
-			// 匹配数据库索引
+			// 1. 尝试按名称完全匹配数据库索引
+			var matchedName string
 			existIndex = curIndexs[name]
+			if existIndex != nil {
+				matchedName = name
+			} else {
+				// 2. 如果名称不匹配,尝试按内容(字段和类型)匹配,避免不必要的重建成
+				for curName, curIdx := range curIndexs {
+					// 只有尚未被标记为“找到”的索引才进行内容匹配
+					if !foundIndexNames[curName] && curIdx.Equal(index) {
+						existIndex = curIdx
+						matchedName = curName
+						break
+					}
+				}
+			}
 
 			// 现有的idex
 			if existIndex != nil {
-				if !existIndex.Equal(index) { // 类型不同则重新创建
+				// 如果内容不完全一致,或者即便内容一致但名称不同,我们也重建它以确保名称契合模型定义
+				if !existIndex.Equal(index) || name != matchedName {
 					sql := orm.dialect.DropIndexUniqueSql(tableName, existIndex)
 					if _, err = self.Exec(sql); err != nil {
 						return err
 					}
 					addedNames[name] = index // 加入列表稍后再添加
 				}
-				foundIndexNames[name] = true
+				// 标记数据库中这个索引名已经被处理过,后续不要删除它
+				foundIndexNames[matchedName] = true
 			} else {
 				addedNames[name] = index // 加入列表稍后再添加
 			}

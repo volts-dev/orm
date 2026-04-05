@@ -157,7 +157,7 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 
 	/* check the row count */
 	if cnt != expectRowCount {
-		log.Warnf("expect delete %s rows, but %d rows affected", expectRowCount, cnt)
+		log.Warnf("expect delete %d rows, but %d rows affected", expectRowCount, cnt)
 		return expectRowCount, nil
 	}
 	/*

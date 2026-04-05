@@ -157,7 +157,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		var count int64
 		// Ignore order, limit and offset when just counting, they don't make sense and could
 		// hurt performance
-		query_str = `SELECT count(1) FROM ` + from_clause + where_clause
+		query_str = `SELECT count(1) AS count FROM ` + from_clause + where_clause
 		res_ds := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
 		if res_ds == nil {
 			lRes, err := self._query(query_str, where_clause_params...)

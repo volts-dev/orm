@@ -1,9 +1,36 @@
 package test
 
 import (
-	//"fmt"
 	"testing"
 )
+
+func (self *Testchain) Or() *Testchain {
+	self.PrintSubject("Or")
+
+	model, err := self.Orm.GetModel("user_model")
+	if err != nil {
+		self.Fatal(err)
+	}
+
+	allIds, _, err := model.Records().Search()
+	if err != nil {
+		self.Fatal(err)
+	}
+	if len(allIds) < 2 {
+		self.Skip("Or: need at least 2 records")
+	}
+
+	// query with OR on two distinct IDs
+	ds, err := model.Records().Where("id=?", allIds[0]).Or("id=?", allIds[1]).Read()
+	if err != nil {
+		self.Fatal(err)
+	}
+	if ds.Count() < 1 {
+		self.Fatal("Or() query returned no records")
+	}
+
+	return self
+}
 
 func TestOr(title string, t *testing.T) {
 	/*	// 注册Model

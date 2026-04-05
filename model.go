@@ -200,7 +200,9 @@ type (
 
 func WithTransaction(session *TSession) ModelOption {
 	return func(opts *ModelOptions) {
-		opts.Model.Tx(session)
+		if opts.Model != nil {
+			opts.Model.Tx(session)
+		}
 	}
 }
 
@@ -325,6 +327,18 @@ func (self *TModel) Db() *TSession {
 	return session.Model(self.String())
 }
 
+// 上下文
+func (self *TModel) Ctx(context ...context.Context) context.Context {
+	if len(context) > 0 {
+		if ctx := context[0]; ctx != nil {
+			self.options.Context = ctx
+			return self.options.Context
+		}
+	}
+
+	return self.options.Context
+}
+
 func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
 		if s := session[0]; s != nil {
@@ -341,18 +355,6 @@ func (self *TModel) Tx(session ...*TSession) *TSession {
 	}
 
 	return self.transaction
-}
-
-// 上下文
-func (self *TModel) Ctx(context ...context.Context) context.Context {
-	if len(context) > 0 {
-		if ctx := context[0]; ctx != nil {
-			self.options.Context = ctx
-			return self.options.Context
-		}
-	}
-
-	return self.options.Context
 }
 
 func (self *TModel) Transaction() *TSession {
@@ -378,19 +380,18 @@ func (self *TModel) SetRecordName(fieldName string) {
 
 // return the field name of record's name field
 func (self *TModel) GetRecordName() string {
-	// # if self.recName is set, it belongs to self._fields
-	if fld := self.GetFieldByName(self.recName); fld == nil {
-		if self.recName == "" {
-			if fld := self.GetFieldByName(DefaultNameField); fld != nil {
-				self.recName = DefaultNameField
-			} else if self.idField != "" {
-				self.recName = self.idField
-			} else {
-				self.recName = DefaultIdField
-			}
-		}
+	// # if self.recName is set and the field exists, use it directly
+	if fld := self.GetFieldByName(self.recName); fld != nil {
+		return self.recName
 	}
-
+	// # recName is empty or points to a non-existent field — fall back
+	if fld := self.GetFieldByName(DefaultNameField); fld != nil {
+		self.recName = DefaultNameField
+	} else if self.idField != "" {
+		self.recName = self.idField
+	} else {
+		self.recName = DefaultIdField
+	}
 	return self.recName
 }
 
@@ -573,6 +574,11 @@ func (self *TModel) _setOrm(o *TOrm) {
 func (self *TModel) _setBaseModel(model *TModel) {
 	*self = *model
 	self._sequence = self.name + "_id_seq"
+	// fix shallow-copy: options is shared with the source model after *self = *model;
+	// create a fresh copy so self.options.Model points to self, not to model.
+	opts := *model.options
+	self.options = &opts
+	self.options.Model = self
 	//self.super = model
 }
 
@@ -581,6 +587,15 @@ func (self *TModel) _setBaseModel(model *TModel) {
 // 重载关联表字段到_relate_fields里 _relate_fields的赋值在此实现
 // 条件必须所有Model都注册到OSV里
 func (self *TModel) _relations_reload() {
+	self._relations_reload_visited(make(map[string]bool))
+}
+
+func (self *TModel) _relations_reload_visited(visited map[string]bool) {
+	if visited[self.name] {
+		return
+	}
+	visited[self.name] = true
+
 	/*
 	   cls._inherit_fields = struct = {}
 	   for parent_model, parent_field in cls._inherits.iteritems():
@@ -605,9 +620,10 @@ func (self *TModel) _relations_reload() {
 		rel_model, err := self.osv.GetModel(tbl) //
 		if err != nil {
 			log.Errf("Relation model %v can not find in osv or didn't register front of %v", tbl, self.String())
+			return true
 		}
 
-		rel_model._relations_reload()
+		rel_model.GetBase()._relations_reload_visited(visited)
 		fielss = rel_model.GetFields()
 		relate_fields = rel_model.Obj().GetRelatedFields() //RelateFields()
 
@@ -658,7 +674,8 @@ func (self *TModel) _add_inherited_fields() {
 			//# following specific properties:
 			//#  - reading inherited fields should not bypass access rights
 			//#  - copy inherited fields iff their original field is copied
-			if has := self.obj.GetFieldByName(refname); has != nil {
+			//# add inherited fields that are not redefined locally
+			if has := self.obj.GetFieldByName(refname); has == nil {
 				lNew = utils.Clone(ref).(IField)
 				lNew.IsInheritedField(true)
 				self.obj.SetFieldByName(refname, lNew)

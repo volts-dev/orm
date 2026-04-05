@@ -1,8 +1,6 @@
 package test
 
 import (
-	"fmt"
-
 	"github.com/volts-dev/orm/domain"
 )
 
@@ -14,13 +12,10 @@ func (self *Testchain) And() *Testchain {
 	}
 
 	// 测试Select 所有
-	fmt.Println("check domain combie domain")
 	node := domain.NewDomainNode()
 	for i := 0; i < 5; i++ {
-		node.AND(domain.NewDomainNode("name", "=", i))
+		node.AND(domain.NewDomainNode("id", ">=", 0))
 	}
-	domain.PrintDomain(node)
-	fmt.Println(domain.Domain2String(node))
 	ds, err := model.Records().Domain(node).Read()
 	if err != nil {
 		self.Fatal(err)

@@ -49,9 +49,9 @@ func (self *TDataSource) validate() error {
 			return fmt.Errorf("DataSource request UserName is not blank")
 		}
 
-		if self.Password == "" {
+		/*if self.Password == "" {
 			return fmt.Errorf("DataSource request Password is not blank")
-		}
+		}*/
 	}
 
 	if self.DbType == "" {

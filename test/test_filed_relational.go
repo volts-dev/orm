@@ -1,7 +1,6 @@
 package test
 
 import (
-	//"fmt"
 	"testing"
 
 	"github.com/volts-dev/orm"

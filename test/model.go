@@ -1,7 +1,6 @@
 package test
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/volts-dev/orm"
@@ -35,7 +34,7 @@ type (
 		PartnerId    int64     `field:"one2one(partner_model)"`
 		CompanyId    int64     `field:"many2one(company_model)"` //-- Company
 		Id           int64     `field:"pk autoincr title('ID') index"`
-		Uid          int64     `field:"Id() pk  title('ID') index"`
+		Uid          int64     `field:"title('ID') index"`
 		CreateTime   time.Time `field:"datetime() created"`
 		WriteTime    time.Time `field:"datetime() updated"`
 
@@ -80,7 +79,6 @@ func (self *UserModel) _compute_parent_name(ctx *orm.TFieldContext) error {
 }
 
 func (UserModel) TestSelection() [][]string {
-	fmt.Println("Arg is T")
 	return [][]string{
 		{"AA", "aa"},
 		{"BB", "bb"},
@@ -106,7 +104,7 @@ var (
 
 	user *UserModel = &UserModel{
 		Name: "Admin",
-		//Title: "Admin",
+		Title:     "Admin",
 		//Help:      "",
 		//Bool: true,
 		//Text:      "",

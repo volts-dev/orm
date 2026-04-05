@@ -1,7 +1,6 @@
 package test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/volts-dev/orm"
@@ -54,8 +53,7 @@ func NewTest(t *testing.T) *Testchain {
 }
 
 func (self *Testchain) PrintSubject(subject string) *Testchain {
-	msg := fmt.Sprintf("-------------------- %s --------------------", subject)
-	fmt.Println(msg)
+	self.Logf("-------------------- %s --------------------", subject)
 	return self
 }
 
@@ -136,82 +134,7 @@ func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 	return nil
 }
 
-func PrintSubject(subject, option string) {
-	msg := fmt.Sprintf("-------------- %s : %s --------------", subject, option)
-	fmt.Println(msg)
+func PrintSubject(t *testing.T, subject, option string) {
+	t.Logf("-------------- %s : %s --------------", subject, option)
 }
 
-func BaseTest(t *testing.T) {
-	/*
-		fmt.Println("-------------- tag --------------")
-		TestTag("Tag", t)
-
-		fmt.Println("-------------- Read --------------")
-		TestRead("Read", t)
-
-		fmt.Println("-------------- Write --------------")
-		TestWrite("Write", t)
-
-		fmt.Println("-------------- Search --------------")
-		TestSearch("Search", t)
-
-		fmt.Println("-------------- Delete --------------")
-		TestDelete("Delete", t)
-
-		fmt.Println("-------------- Count --------------")
-		TestCount("Count", t)
-
-		fmt.Println("-------------- Limit --------------")
-		TestLimit("Limit", t)
-
-		fmt.Println("-------------- Sum --------------")
-		TestSum("Limit", t)
-
-		fmt.Println("-------------- Custom Table Name --------------")
-		custom_table_name("Table", t)
-
-		fmt.Println("-------------- Dump --------------")
-		TestDump("Dump", t)
-		/*	fmt.Println("-------------- insertAutoIncr --------------")
-			insertAutoIncr(orm, t)
-			fmt.Println("-------------- insertMulti --------------")
-			insertMulti(orm, t)
-			fmt.Println("-------------- insertTwoTable --------------")
-			insertTwoTable(orm, t)
-			fmt.Println("-------------- testDelete --------------")
-			testDelete(orm, t)
-			fmt.Println("-------------- get --------------")
-			get(orm, t)
-			fmt.Println("-------------- testCascade --------------")
-			testCascade(orm, t)
-			fmt.Println("-------------- find --------------")
-			find(orm, t)
-			fmt.Println("-------------- find2 --------------")
-			find2(orm, t)
-			fmt.Println("-------------- findMap --------------")
-			findMap(orm, t)
-			fmt.Println("-------------- findMap2 --------------")
-			findMap2(orm, t)
-			fmt.Println("-------------- count --------------")
-			count(orm, t)
-			fmt.Println("-------------- where --------------")
-			where(orm, t)
-			fmt.Println("-------------- in --------------")
-			in(orm, t)
-
-			fmt.Println("-------------- testCustomTableName --------------")
-			testCustomTableName(orm, t)
-			fmt.Println("-------------- testDump --------------")
-			testDump(orm, t)
-			fmt.Println("-------------- testConversion --------------")
-			testConversion(orm, t)
-			fmt.Println("-------------- testJsonField --------------")
-			testJsonField(orm, t)
-
-	*/
-}
-
-func ClassicTest(t *testing.T) {
-	fmt.Println("-------------- Method --------------")
-	TestMethod(t)
-}

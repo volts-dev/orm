@@ -1517,11 +1517,9 @@ func (db *postgres) GetIndexes(ctx context.Context, tableName string) (map[strin
 		cs := strings.Split(indexdef, "(")
 		colNames = strings.Split(cs[1][0:len(cs[1])-1], ",")
 
+		var isRegular bool
 		if strings.HasPrefix(indexName, DefaultIndexPrefix+tableName) || strings.HasPrefix(indexName, DefaultUniquePrefix+tableName) {
-			newIdxName := indexName[5+len(tableName):]
-			if newIdxName != "" {
-				indexName = newIdxName
-			}
+			isRegular = true
 		}
 
 		var indexs []string
@@ -1530,6 +1528,7 @@ func (db *postgres) GetIndexes(ctx context.Context, tableName string) (map[strin
 		}
 
 		index := newIndex(indexName, tableName, indexType, indexs...)
+		index.IsRegular = isRegular
 		//index := &TIndex{Name: indexName, Type: indexType, Cols: make([]string, 0)}
 
 		indexes[index.Name] = index

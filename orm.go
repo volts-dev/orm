@@ -569,7 +569,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 			ModelValue:     model_value,
 		}
 
-		if strings.Index(strings.ToLower(member_name), "tmodel") != -1 {
+		if strings.Contains(strings.ToLower(member_name), "tmodel") {
 			// 执行tag处理
 			err = self._handleTags(tagCtx, tagMaps, tagsOrder, "table")
 			if err != nil {

@@ -166,9 +166,9 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 	if session.IsAutoClose {
 		defer session.Close()
 	}
-	// 确保第一页
-	if req.Offset < 1 {
-		req.Offset = 1
+	// Offset is a direct SQL offset (0-based); negative values are treated as 0.
+	if req.Offset < 0 {
+		req.Offset = 0
 	}
 
 	if req.Domain != nil {
@@ -222,7 +222,7 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 
 	session.UseNameGet = req.UseNameGet
 
-	return session.Limit(req.Limit, req.Offset-1).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
+	return session.Limit(req.Limit, req.Offset).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
 }
 
 // #被重载接口
@@ -380,9 +380,19 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 					return 0, tx2.Rollback(err)
 				}
 			} else {
-				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
+				/* EOF 分支也需要事务保护 */
+				model2, err := self.Clone()
 				if err != nil {
 					return 0, err
+				}
+				tx2 := model2.Tx()
+				tx2.Begin()
+				ids, err = model2.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
+				if err != nil {
+					return 0, tx2.Rollback(err)
+				}
+				if err := tx2.Commit(); err != nil {
+					return 0, tx2.Rollback(err)
 				}
 			}
 
@@ -575,7 +585,7 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 	}
 
-	if len(ids) == 0 && domainNode.Count() == 0 {
+	if len(ids) == 0 && (domainNode == nil || domainNode.Count() == 0) {
 		return nil, nil
 	}
 
@@ -821,7 +831,7 @@ func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, oper
 	}
 
 	/* */
-	if domainNode.Count() == 0 && name == "" {
+	if (domainNode == nil || domainNode.Count() == 0) && name == "" {
 		return nil, log.Errf("Cannot execute name_search without the query params such like Name value or Domain!")
 	}
 
@@ -833,9 +843,6 @@ func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, oper
 
 	/* 添加 name 查询语句 */
 	if name != "" {
-		if operator == "" {
-			operator = "ilike"
-		}
 		if domainNode == nil {
 			domainNode = domain.New(rec_name_field, operator, name)
 		} else {
@@ -869,9 +876,13 @@ func (self *TModel) DefaultGet(fields ...string) (map[string]any, error) {
 
 		var value any
 		if fn := field.DefaultFunc(); fn != nil {
+			mdl := IModel(self)
+			if self.super != nil {
+				mdl = self.super
+			}
 			ctx := &TFieldContext{
 				//Session: self,
-				Model: self.super,
+				Model: mdl,
 				//Dataset: data,
 				Field: field,
 				//Value:   value,
@@ -903,15 +914,15 @@ func (self *TModel) GroupBy(req *ReadRequest) (*dataset.TDataSet, error) {
 	if session.IsAutoClose {
 		defer session.Close()
 	}
-	// 确保第一页
-	if req.Offset < 1 {
-		req.Offset = 1
+	// Offset is a direct SQL offset (0-based); negative values are treated as 0.
+	if req.Offset < 0 {
+		req.Offset = 0
 	}
 	session.UseNameGet = req.UseNameGet
 	return session.
 		Select(req.Fields...).
 		Funcs(req.Funcs...).
-		Limit(req.Limit, req.Offset-1).
+		Limit(req.Limit, req.Offset).
 		Sort(req.Sort...).
 		GroupBy(req.GroupBy...).
 		Read()

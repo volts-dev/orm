@@ -27,7 +27,7 @@ var (
 )
 
 // 接受多个错误 如果0错误返回nil
-func newSessionError(title string, errs ...error) *sessionError {
+func newSessionError(title string, errs ...error) error {
 	e := &sessionError{
 		title:  title,
 		errors: make([]error, 0),

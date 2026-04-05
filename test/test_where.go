@@ -6,11 +6,46 @@ import (
 	"github.com/volts-dev/orm"
 )
 
+func (self *Testchain) Where() *Testchain {
+	self.PrintSubject("Where")
+
+	model, err := self.Orm.GetModel("user_model")
+	if err != nil {
+		self.Fatal(err)
+	}
+
+	// get first record to use its id
+	allIds, _, err := model.Records().Search()
+	if err != nil || len(allIds) == 0 {
+		self.Fatal("Where: no records available")
+	}
+
+	// filter by exact id
+	ds, err := model.Records().Where("id=?", allIds[0]).Read()
+	if err != nil {
+		self.Fatal(err)
+	}
+	if ds.IsEmpty() {
+		self.Fatal("Where(id=?) returned empty dataset")
+	}
+
+	// filter with AND
+	ds, err = model.Records().Where("id=?", allIds[0]).Where("id>?", 0).Read()
+	if err != nil {
+		self.Fatal(err)
+	}
+	if ds.IsEmpty() {
+		self.Fatal("Where with chained conditions returned empty dataset")
+	}
+
+	return self
+}
+
 func TestWhere(title string, t *testing.T) {
-	PrintSubject(title, "read by where")
+	PrintSubject(t, title, "read by where")
 	test_read_by_where(test_orm, t)
 
-	PrintSubject(title, "write by where")
+	PrintSubject(t, title, "write by where")
 	//test_write_by_where(test_orm, t)
 }
 

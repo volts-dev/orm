@@ -4,11 +4,32 @@ import (
 	"testing"
 )
 
+func (self *Testchain) Sync() *Testchain {
+	self.PrintSubject("Sync")
+
+	_, err := self.Orm.SyncModel("test",
+		new(PartnerModel),
+		new(CompanyModel),
+		new(UserModel),
+	)
+	if err != nil {
+		self.Fatalf("SyncModel() failed: %v", err)
+	}
+
+	isEmpty, err := self.Orm.IsTableEmpty("user_model")
+	if err != nil {
+		self.Fatalf("IsTableEmpty() failed: %v", err)
+	}
+	self.Logf("Sync: user_model isEmpty=%v", isEmpty)
+
+	return self
+}
+
 // test
 // #1 sync model
 func test_sync(t *testing.T) {
 	title := "Sync"
-	PrintSubject(title, "SyncModel()")
+	PrintSubject(t, title, "SyncModel()")
 	_, err := test_orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),
@@ -18,8 +39,8 @@ func test_sync(t *testing.T) {
 		t.Fatalf("test SyncModel() failure: %v", err)
 	}
 
-	PrintSubject(title, "IsTableEmpty()")
-	isEmpty, err := test_orm.IsTableEmpty("partner.model")
+	PrintSubject(t, title, "IsTableEmpty()")
+	isEmpty, err := test_orm.IsTableEmpty("partner_model")
 	if err != nil {
 		t.Fatalf("test IsTableEmpty() failure: %v", err)
 	}
@@ -27,7 +48,7 @@ func test_sync(t *testing.T) {
 		t.Fatalf("model should be empty!")
 	}
 
-	isEmpty, err = test_orm.IsTableEmpty("company.model")
+	isEmpty, err = test_orm.IsTableEmpty("company_model")
 	if err != nil {
 		t.Fatalf("test IsTableEmpty() failure: %v", err)
 	}
@@ -51,25 +72,25 @@ func test_sync(t *testing.T) {
 		t.Fatalf("model should be empty!")
 	}
 
-	PrintSubject(title, "DropTables()")
-	err = test_orm.DropTables("partner.model", "company.model", "user_model", "company.user.ref")
+	PrintSubject(t, title, "DropTables()")
+	err = test_orm.DropTables("partner_model", "company_model", "user_model", "company_user_ref")
 	if err != nil {
 		panic(err)
 	}
 
-	PrintSubject(title, "CreateTables()")
-	err = test_orm.CreateTables("partner.model", "company.model", "user_model", "company.user.ref")
+	PrintSubject(t, title, "CreateTables()")
+	err = test_orm.CreateTables("partner_model", "company_model", "user_model", "company_user_ref")
 	if err != nil {
 		panic(err)
 	}
 
-	PrintSubject(title, "CreateIndexes()")
-	err = test_orm.CreateIndexes("partner.model")
+	PrintSubject(t, title, "CreateIndexes()")
+	err = test_orm.CreateIndexes("partner_model")
 	if err != nil {
 		panic(err)
 	}
 
-	err = test_orm.CreateIndexes("company.model")
+	err = test_orm.CreateIndexes("company_model")
 	if err != nil {
 		panic(err)
 	}
@@ -77,17 +98,17 @@ func test_sync(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	err = test_orm.CreateIndexes("company.user.ref")
+	err = test_orm.CreateIndexes("company_user_ref")
 	if err != nil {
 		panic(err)
 	}
 
-	PrintSubject(title, "CreateUniques()")
-	err = test_orm.CreateUniques("partner.model")
+	PrintSubject(t, title, "CreateUniques()")
+	err = test_orm.CreateUniques("partner_model")
 	if err != nil {
 		panic(err)
 	}
-	err = test_orm.CreateUniques("company.model")
+	err = test_orm.CreateUniques("company_model")
 	if err != nil {
 		panic(err)
 	}
@@ -95,7 +116,7 @@ func test_sync(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	err = test_orm.CreateUniques("company.user.ref")
+	err = test_orm.CreateUniques("company_user_ref")
 	if err != nil {
 		panic(err)
 	}

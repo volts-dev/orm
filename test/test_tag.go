@@ -7,25 +7,25 @@ import (
 )
 
 func TestTag(title string, t *testing.T) {
-	PrintSubject(title, "Table Name")
+	PrintSubject(t, title, "Table Name")
 	test_tag_table_name(test_orm, t)
 
-	PrintSubject(title, "Auto ")
+	PrintSubject(t, title, "Auto ")
 	test_tag_auto(test_orm, t)
 
-	PrintSubject(title, "PK")
+	PrintSubject(t, title, "PK")
 	test_tag_pk(test_orm, t)
 
-	PrintSubject(title, "Name")
+	PrintSubject(t, title, "Name")
 	test_tag_name(test_orm, t)
 
-	PrintSubject(title, "Store")
+	PrintSubject(t, title, "Store")
 	test_tag_store(test_orm, t)
 
-	PrintSubject(title, "Domain")
+	PrintSubject(t, title, "Domain")
 	test_tag_domain(test_orm, t)
 
-	PrintSubject(title, "Version")
+	PrintSubject(t, title, "Version")
 	test_tag_ver(test_orm, t)
 
 }

@@ -27,15 +27,16 @@ func (self *TSession) Commit() error {
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
 		self.IsCommitedOrRollbacked = true
 
-		if err := self.tx.Commit(); err != nil {
-			return err
+		if self.tx != nil {
+			if err := self.tx.Commit(); err != nil {
+				return err
+			}
 		}
 	}
 
 	/* 关闭事务 */
-	//BUG 导致Model nil
-	// self.Statement.Model.GetBase().transaction = nil
-	// TODO 是否重置Session
+	self.IsAutoCommit = true
+	self.tx = nil
 	return nil
 }
 
@@ -43,14 +44,17 @@ func (self *TSession) Commit() error {
 // e: the error witch trigger this Rollback
 func (self *TSession) Rollback(e error) error {
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
-		//session.saveLastSQL(session.Engine.dialect.RollBackStr())
 		self.IsCommitedOrRollbacked = true
-		err := self.tx.Rollback()
-		if err != nil {
-			return newSessionError("", e, err)
+		if self.tx != nil {
+			err := self.tx.Rollback()
+			if err != nil {
+				return newSessionError("", e, err)
+			}
 		}
 	}
 
+	self.IsAutoCommit = true
+	self.tx = nil
 	return newSessionError("", e)
 }
 
