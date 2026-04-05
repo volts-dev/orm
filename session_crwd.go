@@ -121,17 +121,19 @@ func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
 		return 0, ErrTableNotFound
 	}
 
-	// get id list
-	expectRowCount := int64(len(ids))
-	if expectRowCount > 0 {
+	// get id list — merge explicit args with any ids already set via Ids()
+	if len(ids) > 0 {
 		self.Statement.IdParam = append(self.Statement.IdParam, ids...)
-	} else {
+	}
+	ids = self.Statement.IdParam
+	if len(ids) == 0 {
 		var err error
 		ids, _, err = self._search("", nil)
 		if err != nil {
 			return 0, err
 		}
 	}
+	expectRowCount := int64(len(ids))
 
 	if len(ids) == 0 {
 		// Nothing to delete, prevent SQL syntax error on empty IN clause
