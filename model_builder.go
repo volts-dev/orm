@@ -389,8 +389,18 @@ func (self *fieldStatment) Ondelete(value string) *fieldStatment {
 }
 
 func (self *fieldStatment) AutoIncrement() *fieldStatment {
-	field := self.field.Base()
-	field.isAutoIncrement = true
+	field := self.field
+	builder := self.builder
+
+	if err := tag_auto(&TTagContext{
+		Orm:        builder.Orm,
+		Model:      builder.model,
+		Field:      field,
+		ModelValue: builder.model.modelValue,
+	}); err != nil {
+		log.Warn(err.Error())
+	}
+
 	self.builder.model.Obj().AutoIncrementField = self.field.Name()
 	return self
 }
