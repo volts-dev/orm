@@ -91,21 +91,21 @@ func (self *Testchain) CreateOnConflict(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err := model.Records().OnConflict(&orm.OnConflict{
+	companyId, err := model.Tx(ss).OnConflict(&orm.OnConflict{
 		DoUpdates: []string{"name"},
 	}).Create(company_data, isClassic)
 	if err != nil {
 		self.Fatal(err)
 	}
 
-	companyId, err = model.Records().OnConflict(&orm.OnConflict{
+	companyId, err = model.Tx(ss).OnConflict(&orm.OnConflict{
 		DoUpdates: []string{"name"},
 	}).Create(company_data, isClassic)
 	if err != nil {
 		self.Fatal(err)
 	}
 
-	companyId, err = model.Records().OnConflict(&orm.OnConflict{
+	companyId, err = model.Tx(ss).OnConflict(&orm.OnConflict{
 		Fields:    []string{"name"},
 		DoNothing: true,
 	}).Create(company_data, isClassic)
@@ -113,7 +113,7 @@ func (self *Testchain) CreateOnConflict(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err = model.Records().OnConflict(&orm.OnConflict{
+	companyId, err = model.Tx(ss).OnConflict(&orm.OnConflict{
 		UpdateAll: true,
 	}).Create(company_data, isClassic)
 	if err != nil {
@@ -153,7 +153,7 @@ func (self *Testchain) CreateNone(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err := model.Records().Create(map[string]any{
+	companyId, err := model.Tx(ss).Create(map[string]any{
 		"name":        "TestNoneCompany",
 		"wrong_field": "test",
 	}, isClassic)
