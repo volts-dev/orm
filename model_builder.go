@@ -193,6 +193,22 @@ func (self *ModelBuilder) ManyToManyField(name, relateModel string, midModel ...
 	return fieldStmt
 }
 
+func (self *ModelBuilder) FloatField(name string) *fieldStatment {
+	return self.Field(name, "float")
+}
+
+func (self *ModelBuilder) DateField(name string) *fieldStatment {
+	return self.Field(name, "date")
+}
+
+func (self *ModelBuilder) BinaryField(name string) *fieldStatment {
+	return self.Field(name, "binary")
+}
+
+func (self *ModelBuilder) JsonField(name string) *fieldStatment {
+	return self.Field(name, "json")
+}
+
 func (self *fieldStatment) Getter(fn func(ctx *TFieldContext) error) *fieldStatment {
 	field := self.field
 	field.Base()._getterFunc = fn
