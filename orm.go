@@ -59,7 +59,6 @@ type (
 	}
 )
 
-// TODO 使用函数配置参数
 /*
  create a new ORM instance
 */

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"func.*TSession.*Delete\\\\|func.*TSession.*Create\\\\|func.*TSession.*Write\\\\|func.*TSession.*Read\\\\|func.*TSession.*Search\\\\|func.*TSession.*Count\" /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/session*.go)",
+      "Bash(go get:*)",
+      "Bash(go version:*)",
+      "Read(//usr/local/go/bin/**)",
+      "Read(//Users/shadow/Go/bin/**)",
+      "Read(//opt/homebrew/**)",
+      "Bash(~/go/bin/go1.24.2 get:*)",
+      "Bash(grep -n \"DefaultNameField\\\\|DefaultIdField\" /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/*.go)"
+    ]
+  }
+}

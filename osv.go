@@ -340,7 +340,27 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 
 		// #添加字段
 		new_obj.fields.Range(func(key, value any) bool {
-			obj.fields.Store(key, value)
+			newField := value.(IField)
+			// 合并时保留已有的 setter/getter 函数，避免被新的零值字段覆盖
+			if oldVal, loaded := obj.fields.Load(key); loaded {
+				oldField := oldVal.(IField)
+				oldBase := oldField.Base()
+				newBase := newField.Base()
+				if newBase._setterFunc == nil && oldBase._setterFunc != nil {
+					newBase._setterFunc = oldBase._setterFunc
+					newBase._setter = oldBase._setter
+					newBase.hasSetter = oldBase.hasSetter
+				}
+				if newBase._getterFunc == nil && oldBase._getterFunc != nil {
+					newBase._getterFunc = oldBase._getterFunc
+					newBase._getter = oldBase._getter
+					newBase.hasGetter = oldBase.hasGetter
+				}
+				if newBase._computeDefault == nil && oldBase._computeDefault != nil {
+					newBase._computeDefault = oldBase._computeDefault
+				}
+			}
+			obj.fields.Store(key, newField)
 			return true
 		})
 

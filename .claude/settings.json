@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ':*)",
+      "Bash(git rm:*)",
+      "Bash(grep -n \"type TTagContext\" /Users/shadow/SectionZero/MyProject/Go/src/volts-dev/orm/*.go)"
+    ]
+  }
+}

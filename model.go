@@ -677,6 +677,7 @@ func (self *TModel) _add_inherited_fields() {
 			//# add inherited fields that are not redefined locally
 			if has := self.obj.GetFieldByName(refname); has == nil {
 				lNew = utils.Clone(ref).(IField)
+				lNew.SetBase(ref.Base())
 				lNew.IsInheritedField(true)
 				self.obj.SetFieldByName(refname, lNew)
 			}

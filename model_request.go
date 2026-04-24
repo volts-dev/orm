@@ -145,7 +145,7 @@ func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 	for i, d := range req.Data {
 		id, err := session.Create(d)
 		if err != nil {
-			return nil, session.Rollback(err)
+			return nil, err
 		}
 		ids[i] = id
 	}

@@ -11,7 +11,6 @@ import (
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/utils"
-	"github.com/volts-dev/volts/logger"
 )
 
 // TODO 支持数据组/
@@ -615,7 +614,7 @@ func (self *TSession) _write(src any) (int64, error) {
 		quoter := self.orm.dialect.Quoter().Quote
 		// add in ids data
 		in_vals = strings.Repeat("?,", len(ids)-1) + "?"
-		sql = fmt.Sprintf("SELECT distinct %s FROM %s WHERE %s IN(%s)", 
+		sql = fmt.Sprintf("SELECT distinct %s FROM %s WHERE %s IN(%s)",
 			quoter(fieldName), quoter(model.Table()), quoter(self.Statement.IdKey), in_vals)
 		ds, err = self.orm.Query(sql, ids...)
 		if err != nil {
@@ -1107,7 +1106,9 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 				/* 更新不需要检测字段 */
 				if !isIncludedIds && (isMustField || field.Required() || !isNullableField) {
-					errs = append(errs, fmt.Sprintf("Field %s is required", field.Name()))
+					if !field.HasSetter() {
+						errs = append(errs, fmt.Sprintf("Field %s is required", field.Name()))
+					}
 				}
 
 				if !(field.HasGetter() || field.HasSetter()) {
@@ -1227,201 +1228,6 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 	// 如果出现错误
 	if len(errs) != 0 {
 		return nil, nil, nil, errors.New(strings.Join(errs, "\n"))
-	}
-
-	return new_vals, rel_vals, upd_todo, nil
-}
-
-func (self *TSession) __separateValues(data *dataset.TDataSet, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]interface{}, map[string]map[string]interface{}, []IField, error) {
-	/* 用于更新本Model的实际数据 */
-	new_vals := make(map[string]interface{})
-	rel_vals := make(map[string]map[string]interface{})
-	upd_todo := make([]IField, 0) // function 字段组 采用其他存储方式
-
-	// 初始化保存关联表用于更新创建关联表数据
-	var tbl, field_name string
-	self.Statement.Model.Obj().GetRelations().Range(func(key, value any) bool {
-		tbl = key.(string)
-		field_name = value.(string)
-		rel_vals[tbl] = make(map[string]interface{}) //NOTE 新建空Map以防Nil导致内存出错
-
-		if val := data.Record().GetByField(field_name); val != nil {
-			//if val, has := vals[self.Statement.Model.Obj().GetRelationByName(tbl)]; has && val != nil {
-			rel_id := val                                          //新建新的并存入已经知道的ID
-			rel_vals[tbl][self.Statement.Model.IdField()] = rel_id //utils.Itf2Str(vals[self.model._relations[tbl]])
-		}
-		return true
-	})
-
-	// 格式化IdField数据生成唯一ID
-	idKey := self.Statement.IdKey
-	includedIds := ids != nil || len(ids) != 0
-	/*
-		if needID { //
-			var idValue any
-			if field := self.Statement.Model.GetFieldByName(idKey); field != nil {
-				idValue = data.Record().GetByField(idKey)
-				if utils.IsBlank(idValue) {
-					if f, ok := field.(*TIdField); ok {
-						idValue = f.OnCreate(&TFieldContext{
-							Session: self,
-							Model:   self.Statement.Model,
-							Dataset: data,
-							Field:   field,
-						})
-
-						ids = append(ids, idValue)
-					}
-				}
-
-				// check again
-				if utils.IsBlank(idValue) {
-					//if id, has := new_vals[idKey]; has {
-					if field.Type() == TYPE_M2O {
-						// TODO name 字段
-						if nameVal := data.Record().GetByField(self.Statement.Model.NameField()); nameVal != nil {
-							//if nameVal, has := vals[self.Statement.Model.NameField()]; has {
-							if self.CacheNameIds == nil {
-								self.CacheNameIds = make(map[string]any)
-							}
-							self.CacheNameIds[nameVal.(string)] = idValue
-						}
-					}
-				}
-
-				new_vals[idKey] = idValue
-			}
-		}*/
-
-	/* 处理常规字段 */
-	var field IField
-	var name string
-	var value any
-	var isBlank bool
-	for _, field = range self.Statement.Model.GetFields() {
-		// --强字段--
-		// ignore AutoIncrement field
-		if field == nil || field.IsAutoIncrement() {
-			// do no use any AutoIncrement field's value
-			continue
-		}
-
-		name = field.Name()
-		if name == idKey {
-			continue
-		}
-
-		isBlank = utils.IsBlank(value)
-		if isBlank {
-			/* 填补默认值 */
-			if !field.IsDefaultEmpty() {
-				value = value2FieldTypeValue(field, field.Default())
-			}
-
-			if field.Base().isCreated {
-				if includedIds {
-					// 包含主键的数据,说明已经是被创建过了,则不补全该字段
-					continue
-				}
-
-				value, _ = self.orm._nowTime(field.Type()) //TODO 优化预先生成日期
-			}
-
-		} else if field.Base().isUpdated {
-			value, _ = self.orm._nowTime(field.Type()) //TODO 优化预先生成日期
-
-		} else if field.SQLType().IsNumeric() {
-			if v, ok := value.(string); ok {
-				// 过滤0值字符串
-				if v == "0" {
-					value = 0
-				} else {
-					// 如果解析成数字成功则判定为数字成功 M2O 值可能是id或者Name值
-					if v := utils.ToInt(v); v != 0 {
-						value = v
-					}
-				}
-			}
-		}
-
-		// --非强字段--
-		is_must_field := mustFields[name]
-		nullableField := nullableFields[name]
-		if isBlank && is_must_field {
-			/* Set(k,v) 指定字段*/
-			// TODO
-			logger.Dbgf("this field for debug %s", field.Name())
-		} else {
-			/* 过滤可以为空的字段空字段 */
-			if !is_must_field && !(field.HasGetter() || field.HasSetter()) && !field.Required() {
-				if isBlank {
-					if nullableField || includeNil {
-						continue
-					}
-
-					/* 处理空值且Required */
-					if !includedIds { // write 不写入空值
-						new_vals[name] = field.onConvertToWrite(self, value)
-					}
-					continue
-				}
-			}
-
-			// TODO 优化确认代码位置  !NOTE! 转换值为数据库类型
-			//val = field.onConvertToWrite(self, val)
-
-			/* #相同名称的字段分配给对应表 */
-			if comm_models := self.Statement.Model.Obj().GetCommonFieldByName(name); comm_models != nil { // 获得拥有该字段的所有表
-				// 为各表预存值
-				for tbl := range comm_models {
-					if tbl == self.Statement.Model.String() {
-						new_vals[name] = field.onConvertToWrite(self, value) // 为当前表添加共同字段值
-
-					} else if rel_vals[tbl] != nil {
-						rel_vals[tbl][name] = field.onConvertToWrite(self, value) // 为关联表添加共同字段值
-					}
-				}
-
-				continue //* 字段分配完毕
-			}
-
-			//#*** 非Model固有字段归为关联表字段 2个判断缺一不可
-			//#1 判断是否是关联表可能性
-			//#2 判断是否Model和关联Model都有该字段
-			///rel_fld := self.model.RelateFieldByName(name)
-			///if rel_fld != nil && field.IsRelatedField() {
-			//comm_field := self.model.obj.GetCommonFieldByName(name)
-			if field.IsInheritedField() {
-				// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
-				tableName := field.ModelName() // rel_fld.RelateTableName
-				rel_vals[tableName][name] = field.onConvertToWrite(self, value)
-
-			} else {
-				if field.Store() && !(field.HasGetter() || field.HasSetter()) && !field.IsRelatedField() && field.SQLType().Name != "" {
-					new_vals[name] = field.onConvertToWrite(self, value)
-				} else {
-					//# 大型复杂计算字段
-					upd_todo = append(upd_todo, field)
-				}
-
-				/*
-					if field.IsClassicWrite() && field.Base().Fnct_inv() == nil {
-						if !field.Translatable() { //TODO totranslate &&
-
-							new_vals[name] = field.SymbolFunc()(utils.Itf2Str(val))
-
-							//direct = append(direct, name)
-						} else {
-							upd_todo = append(upd_todo, name)
-						}
-					}
-				*/
-				/* check selection */
-				if !field.IsInheritedField() && field.Type() == "selection" && value != nil {
-					self._check_selection_field_value(field, value) //context
-				}
-			}
-		}
 	}
 
 	return new_vals, rel_vals, upd_todo, nil
@@ -1560,7 +1366,7 @@ func (self *TSession) _convertStruct2Itfmap(src interface{}) (res_map map[string
 		default:
 			lValue = lFieldValue.Interface()
 		}
-		
+
 		if lValue == nil && lFieldValue.IsValid() {
 			lValue = lFieldValue.Interface()
 		}

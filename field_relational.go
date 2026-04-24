@@ -637,8 +637,72 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 		return nil
 	}
 
+	// 支持 Odoo 风格的 Command Tuple
+	if vSlice, ok := ctx.Value.([]any); ok {
+		isCommandTuple := func(val any) ([]any, bool) {
+			if s, ok := val.([]any); ok && len(s) == 3 {
+				code := utils.ToInt64(s[0])
+				if code >= 0 && code <= 6 {
+					return s, true
+				}
+			}
+			return nil, false
+		}
+
+		// 尝试作为 Command 列表解析
+		var commands [][]any
+		isAllCommands := len(vSlice) > 0
+		for _, v := range vSlice {
+			if cmd, ok := isCommandTuple(v); ok {
+				commands = append(commands, cmd)
+			} else {
+				isAllCommands = false
+				break
+			}
+		}
+
+		if isAllCommands {
+			for _, cmd := range commands {
+				code := utils.ToInt64(cmd[0])
+				switch code {
+				case 3: // Unlink (3, id, 0)
+					if err := self.unlink_all(ctx, []any{cmd[1]}); err != nil {
+						return err
+					}
+				case 4: // Link (4, id, 0)
+					if err := self.link(ctx, []any{cmd[1]}); err != nil {
+						return err
+					}
+				case 5: // Clear (5, 0, 0)
+					if err := self.unlink_all(ctx, nil); err != nil {
+						return err
+					}
+				case 6: // Set (6, 0, ids)
+					var ids []any
+					if v, ok := cmd[2].([]any); ok {
+						ids = v
+					} else {
+						ids = []any{cmd[2]} // Fallback if it's a single element
+					}
+					
+					if err := self.unlink_all(ctx, nil); err != nil { // 先清除所有关联
+						return err
+					}
+					if len(ids) > 0 {
+						if err := self.link(ctx, ids); err != nil {
+							return err
+						}
+					}
+				default:
+					log.Warnf("M2M command %d not fully supported yet", code)
+				}
+			}
+			return nil
+		}
+	}
+
 	// TODO　更多类型
-	// 支持一下几种M2M数据类型
+	// 支持一下几种M2M数据类型 (旧版逻辑兼容)
 	ids := make([]any, 0)
 	switch v := ctx.Value.(type) {
 	case []int:
@@ -707,23 +771,24 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) error {
 	quote := ctx.Session.Orm().dialect.Quoter().Quote
 	field := ctx.Field
-	//	model := ctx.Model
-	//	model_name := field.ModelName()
 	middle_table_name := quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
-	insql := strings.Repeat("?,", len(ids)-1) + "?"
-	and_insql := strings.Repeat("?,", len(ctx.Ids)-1) + "?"
+	
+	ctxIdsSql := strings.Repeat("?,", len(ctx.Ids)-1) + "?"
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "DELETE FROM %s WHERE %s.%s IN (%s) ",
-		middle_table_name, middle_table_name, quote(field.MiddleFieldName()), insql)
+		middle_table_name, middle_table_name, quote(field.MiddleFieldName()), ctxIdsSql)
 
+	args := append([]interface{}{}, ctx.Ids...)
 	if len(ids) > 0 {
-		fmt.Fprintf(&b, " AND %s.%s IN (%s)", middle_table_name, quote(field.RelatedFieldName()), and_insql)
+		relIdsSql := strings.Repeat("?,", len(ids)-1) + "?"
+		fmt.Fprintf(&b, " AND %s.%s IN (%s)", middle_table_name, quote(field.RelatedFieldName()), relIdsSql)
+		args = append(args, ids...)
 	}
 
 	// 提交修改
 	session := ctx.Session // orm.NewSession()
-	_, err := session.Exec(b.String(), append(ctx.Ids, ids...)...)
+	_, err := session.Exec(b.String(), args...)
 	if err != nil {
 		return err
 	}
