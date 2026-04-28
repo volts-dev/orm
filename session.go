@@ -483,13 +483,28 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 				//
 				if field.Default() != cur_field.Default() {
-					log.Warnf("nochange: Table <%s> Column <%s> db default is <%v>, model default is <%v>",
-						tableName, fieldName, cur_field.Default(), field.Default())
+					if sql := orm.dialect.DropColumnDefaultSql(tableName, field); sql != "" {
+						if _, err := self.Exec(sql); err != nil {
+							return err
+						}
+					} else if sql := orm.dialect.ModifyColumnSql(tableName, field); sql != "" {
+						if _, err := self.Exec(sql); err != nil {
+							return err
+						}
+					}
 				}
 
 				if field.Required() != cur_field.Required() {
-					log.Warnf("nochange: Table <%s> Column <%s> db required is <%v>, model required is <%v>",
-						tableName, fieldName, cur_field.Required(), field.Required())
+					if sql := orm.dialect.DropColumnNotNullSql(tableName, field); sql != "" {
+						if _, err := self.Exec(sql); err != nil {
+							return err
+						}
+					} else if sql := orm.dialect.ModifyColumnSql(tableName, field); sql != "" {
+						// Fallback for dialects that use full column modification.
+						if _, err := self.Exec(sql); err != nil {
+							return err
+						}
+					}
 				}
 
 				// 如果现在表无该字段则添加

@@ -47,6 +47,8 @@ type (
 		DropTableSql(tableName string) string
 		CreateIndexUniqueSql(tableName string, index *TIndex) string
 		DropIndexUniqueSql(tableName string, index *TIndex) string
+		DropColumnNotNullSql(tableName string, col IField) string
+		DropColumnDefaultSql(tableName string, col IField) string
 		ModifyColumnSql(tableName string, col IField) string
 		ForUpdateSql(query string) string
 		GenInsertSql(model string, fields, uniqueFields []string, idField string, onConflict *OnConflict) (sql string)
@@ -250,6 +252,24 @@ func (db *TDialect) DropIndexUniqueSql(tableName string, index *TIndex) string {
 		name = index.Name
 	}
 	return fmt.Sprintf("DROP INDEX %v ON %s", quoter(name), quoter(tableName))
+}
+
+// DropColumnNotNullSql returns SQL to align a column's NOT NULL constraint
+// with the passed column definition.
+//
+// Default behavior (MySQL-like): re-apply full column definition.
+// Dialects with dedicated ALTER COLUMN syntax (e.g. Postgres) should override.
+func (db *TDialect) DropColumnNotNullSql(tableName string, col IField) string {
+	return db.ModifyColumnSql(tableName, col)
+}
+
+// DropColumnDefaultSql returns SQL to align a column's DEFAULT clause
+// with the passed column definition.
+//
+// Default behavior (MySQL-like): re-apply full column definition.
+// Dialects with dedicated ALTER COLUMN syntax (e.g. Postgres) should override.
+func (db *TDialect) DropColumnDefaultSql(tableName string, col IField) string {
+	return db.ModifyColumnSql(tableName, col)
 }
 
 func (db *TDialect) ModifyColumnSql(tableName string, col IField) string {

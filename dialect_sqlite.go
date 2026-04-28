@@ -11,6 +11,10 @@ import (
 	"github.com/volts-dev/orm/dialect"
 )
 
+const (
+	SQLITE = "sqlite3"
+)
+
 type sqlite struct {
 	TDialect
 }
@@ -105,6 +109,11 @@ func (db *sqlite) IndexCheckSql(tableName, idxName string) (string, []interface{
 func (db *sqlite) TableCheckSql(tableName string) (string, []interface{}) {
 	return "SELECT name FROM sqlite_master WHERE type='table' and name=?", []interface{}{tableName}
 }
+
+// SQLite can't reliably ALTER COLUMN to SET/DROP NOT NULL or DEFAULT.
+// Caller should rebuild table when needed.
+func (db *sqlite) DropColumnNotNullSql(tableName string, col IField) string { return "" }
+func (db *sqlite) DropColumnDefaultSql(tableName string, col IField) string { return "" }
 
 func (db *sqlite) GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error) {
 	// SQLite doesn't have a direct information_schema.columns-like interface for all details easily,

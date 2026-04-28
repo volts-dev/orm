@@ -1139,6 +1139,31 @@ func (db *postgres) ModifyColumnSql(tableName string, field IField) string {
 		tableName, field.Name(), db.GetSqlType(field))
 }
 
+// DropColumnNotNullSql aligns NOT NULL constraint with col.Required().
+func (db *postgres) DropColumnNotNullSql(tableName string, col IField) string {
+	quoter := db.dialect.Quoter().Quote
+	if col.Required() {
+		return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", quoter(tableName), quoter(col.Name()))
+	}
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", quoter(tableName), quoter(col.Name()))
+}
+
+// DropColumnDefaultSql aligns DEFAULT clause with col.Default()/col.IsDefaultEmpty().
+func (db *postgres) DropColumnDefaultSql(tableName string, col IField) string {
+	quoter := db.dialect.Quoter().Quote
+	tbl := quoter(tableName)
+	name := quoter(col.Name())
+	if col.IsDefaultEmpty() {
+		return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT", tbl, name)
+	}
+
+	dv := utils.ToString(col.Default())
+	if col.SQLType().IsText() {
+		dv = "'" + dv + "'"
+	}
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s", tbl, name, dv)
+}
+
 func (db *postgres) IsDatabaseExist(ctx context.Context, name string) bool {
 	s := "SELECT datname FROM pg_database WHERE datname = $1"
 	db.LogSQL(s, []interface{}{name})

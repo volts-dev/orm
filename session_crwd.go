@@ -3,13 +3,13 @@ package orm
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -32,9 +32,8 @@ func (self *TSession) Create(src interface{}, classic_create ...bool) (uid inter
 		return nil, ErrInvalidSession
 	}
 
-	var classic bool
 	if len(classic_create) > 0 {
-		self.IsClassic = classic
+		self.IsClassic = classic_create[0]
 	}
 
 	return self._create(src)
@@ -988,7 +987,6 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 					default:
 						//if len(ids) == 1 {
 						datas[name] = []any{ctx.values}
-						break
 						//}
 						//return nil, multiSql, fmt.Errorf("the %s ComputeFunc return values is not matching records count!", field.Name())
 					}
@@ -1029,14 +1027,14 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 	upd_todo := make([]IField, 0) // function 字段组 采用其他存储方式
 
 	/* 初始化保存关联表用于更新创建关联表数据 */
-	var tbl, field_name string
+	record := data.Record()
 	self.Statement.Model.Obj().GetRelations().Range(func(key, value any) bool {
-		tbl = key.(string)
-		field_name = value.(string)
+		tbl := utils.ToString(key)
+		field_name := utils.ToString(value)
 		rel_vals[tbl] = make(map[string]interface{}) //NOTE 新建空Map以防Nil导致内存出错
 
 		/* 添加非空值到关系表数据集里*/
-		if val := data.Record().GetByField(field_name); utils.IsBlank(val) {
+		if val := record.GetByField(field_name); !utils.IsBlank(val) {
 			//if val, has := data[field_name]; has && utils.IsBlank(val) {
 			//if val, has := vals[self.Statement.Model.Obj().GetRelationByName(tbl)]; has && val != nil {
 			rel_id := val                                          //新建新的并存入已经知道的ID
@@ -1046,8 +1044,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 	})
 
 	// 格式化IdField数据生成唯一ID
-	idKey := self.Statement.IdKey
-	isIncludedIds := ids != nil || len(ids) != 0
+	idKeyName := self.Statement.IdKey
 
 	/* 处理常规字段 */
 	var errs []string
@@ -1055,6 +1052,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 	var field IField
 	var fieldValue any
 	var isBlank, setted bool
+	isIncludedIds := len(ids) != 0
 	for _, field = range self.Statement.Model.GetFields() {
 		// ignore AutoIncrement field
 		if field == nil || field.IsAutoIncrement() {
@@ -1062,105 +1060,151 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 			continue
 		}
 
+		if !field.IsInheritedField() {
+			if field.Base().isCreated && isIncludedIds {
+				// 包含主键的数据,说明已经是被创建过了,则不补全该字段
+				continue
+			}
+
+			if field.Base().isCreated || field.Base().isUpdated {
+				ext_todo = append(ext_todo, field)
+				continue
+			}
+		}
+
 		name = field.Name()
-		if name == idKey {
+		if name == idKeyName {
 			continue
 		}
 
-		fieldValue = data.Record().GetByField(name)
+		fieldValue = record.GetByField(name)
 		setted = fieldValue != nil
 		isBlank = !setted || utils.IsBlank(fieldValue)
 
-		if field.Base().isUpdated && !field.IsInheritedField() {
-			ext_todo = append(ext_todo, field)
+		// 关系字段不自动转换类型！将由字段独自处理
+		if field.IsRelatedField() {
+			if setted {
+				upd_todo = append(upd_todo, field)
+			}
+
 			continue
 		}
 
-		/* 过滤可以为空的字段空字段 */
-		if isBlank && !field.IsRelatedField() {
-			/* 填补默认值 */
-			if field.Base().isCreated && !field.IsInheritedField() {
-				if isIncludedIds {
-					// 包含主键的数据,说明已经是被创建过了,则不补全该字段
-					continue
-				}
+		// 字段有值处理函数无论如何都要调用
+		if field.HasSetter() {
+			ctx := &TFieldContext{
+				Session: self,
+				Model:   self.Statement.Model,
+				Dataset: data,
+				Field:   field,
+				Value:   fieldValue,
+				Ids:     ids,
+			}
+			if err := field.OnWrite(ctx); err != nil {
+				return nil, nil, nil, err
+			}
 
-				ext_todo = append(ext_todo, field)
-				continue
-			} else if !field.IsDefaultEmpty() && !field.IsRelatedField() {
+			fieldValue = ctx.values
+		}
+
+		/* 过滤可以为空的字段空字段 */
+		if isBlank {
+			/* 填补默认值 */
+			if !field.IsDefaultEmpty() {
 				/* 关系字段不自动转换类型！将由字段独自处理 */
 				if fieldValue = field.Default(); fieldValue != nil {
-					fieldValue = value2FieldTypeValue(field, field.Default())
+					fieldValue = value2FieldTypeValue(field, fieldValue)
 				} else {
 					/* 计算默认值 */
-					upd_todo = append(upd_todo, field)
-					continue
+					// For inherited fields with setter/getter, default values must still land in rel_vals.
+					// Let the inherited-field handler below run (it can invoke OnWrite/DefaultFunc).
+					if !field.IsInheritedField() {
+						upd_todo = append(upd_todo, field)
+						continue
+					}
 				}
 				isBlank = false
 			}
 
 			/* 再次确认空值 */
-			if isBlank {
-				isMustField := mustFields[name]
-				isNullableField := !nullableFields[name]
+			if isBlank && !setted {
+				/* 处理空值 */
+				//if setted && (includeNil || isIncludedIds) {
+				//if  (includeNil || isIncludedIds) {
+				/* 分离关系表字段 */
+				/*if field.IsInheritedField() {
+					// 如果是继承字段移动到 rel_vals 里创建记录，因本Model对应的数据没有该字段
+					tableName := field.ModelName() // rel_fld.RelateTableName
+					rel_vals[tableName][name] = field.onConvertToWrite(self, fieldValue)
+				} else {
+					new_vals[name] = field.onConvertToWrite(self, fieldValue)
+					record.SetByField(name, fieldValue)
+				}*/
 
 				/* 更新不需要检测字段 */
-				if !isIncludedIds && (isMustField || field.Required() || !isNullableField) {
-					if !field.HasSetter() {
-						errs = append(errs, fmt.Sprintf("Field %s is required", field.Name()))
+				if isIncludedIds {
+					// 包含主键的数据,说明已经是被创建过了,则不补全该字段
+					continue
+				} else {
+					// 未包含主键的数据,需要检测是否为必须字段
+					isMustField := false
+					if mustFields != nil {
+						isMustField = mustFields[name]
 					}
-				}
 
-				if !(field.HasGetter() || field.HasSetter()) {
-					/* 处理空值 */
-					if setted && (includeNil || isIncludedIds) {
-						/* 分离关系表字段 */
-						if field.IsInheritedField() {
-							// 如果是继承字段移动到 rel_vals 里创建记录，因本Model对应的数据没有该字段
-							tableName := field.ModelName() // rel_fld.RelateTableName
-							rel_vals[tableName][name] = field.onConvertToWrite(self, fieldValue)
-						} else {
-							new_vals[name] = field.onConvertToWrite(self, fieldValue)
-							data.Record().SetByField(name, fieldValue)
+					// nullableFields: treat "absent/nil map" as "no constraint" (i.e. nullable).
+					// If present, the value means "is nullable".
+					notNullable := false
+					if nullableFields != nil {
+						if isNullable, ok := nullableFields[name]; ok {
+							notNullable = !isNullable
 						}
 					}
 
-					continue
-
-				} else if isIncludedIds {
-					continue
+					if isMustField || field.Required() || notNullable {
+						// Fields with setter/getter/default-func may compute their values from other inputs;
+						// don't force the caller to provide an explicit value in that case.
+						if field.HasSetter() || field.HasGetter() || field.DefaultFunc() != nil {
+							continue
+						}
+						errs = append(errs, fmt.Sprintf("Field %s is required", field.Name()))
+					}
 				}
+				//}
 			}
 		}
 
-		if field.SQLType().IsNumeric() {
-			if v, ok := fieldValue.(string); ok {
-				// 过滤0值字符串
-				if v == "0" {
-					fieldValue = 0
-				} else {
-					// 如果解析成数字成功则判定为数字成功 M2O 值可能是id或者Name值
-					if v := utils.ToInt(v); v != 0 {
-						fieldValue = v
+		/* 接下来fieldValue为什么值都要赋值包含空值也不例外！ */
+		/*
+			if field.SQLType().IsNumeric() {
+				if v, ok := fieldValue.(string); ok {
+					// 过滤0值字符串
+					if v == "0" {
+						fieldValue = 0
+					} else {
+						// 如果解析成数字成功则判定为数字成功 M2O 值可能是id或者Name值
+						fieldValue=field.onConvertToWrite(self, fieldValue)
+						if v := utils.ToInt(v); v != 0 {
+							fieldValue = v
+						}
 					}
 				}
 			}
-		}
-
+		*/
 		// TODO 优化确认代码位置  !NOTE! 转换值为数据库类型
 		//val = field.onConvertToWrite(self, val)
 
 		/* #相同名称的字段分配给对应表 */
 		if comm_models := self.Statement.Model.Obj().GetCommonFieldByName(name); setted && comm_models != nil { // 获得拥有该字段的所有表
 			// 为各表预存值
+			modelName := self.Statement.Model.String()
+			fieldValue = field.onConvertToWrite(self, fieldValue) // 为当前表添加共同字段值
 			for tbl := range comm_models {
-				if tbl == self.Statement.Model.String() {
-					fieldValue = field.onConvertToWrite(self, fieldValue) // 为当前表添加共同字段值
+				if tbl == modelName {
 					new_vals[name] = fieldValue
 					data.Record().SetByField(name, fieldValue)
-
-				} else if rel_vals[tbl] != nil {
-					rel_vals[tbl][name] = field.onConvertToWrite(self, fieldValue) // 为关联表添加共同字段值
+				} else {
+					rel_vals[tbl][name] = fieldValue
 				}
 			}
 
@@ -1170,43 +1214,42 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		//#*** 非Model固有字段归为关联表字段 2个判断缺一不可
 		//#1 判断是否是关联表可能性
 		//#2 判断是否Model和关联Model都有该字段
-		///rel_fld := self.model.RelateFieldByName(name)
-		///if rel_fld != nil && field.IsRelatedField() {
-		//comm_field := self.model.obj.GetCommonFieldByName(name)
-		if setted && field.IsInheritedField() {
-			// 如果是继承字段移动到tocreate里创建记录，因本Model对应的数据没有该字段
-			tableName := field.ModelName() // rel_fld.RelateTableName
-			rel_vals[tableName][name] = field.onConvertToWrite(self, fieldValue)
-
-		} else {
-			if field.Store() && !(field.HasGetter() || field.HasSetter()) && !field.IsRelatedField() && field.SQLType().Name != "" {
-				fieldValue = field.onConvertToWrite(self, fieldValue)
-				new_vals[name] = fieldValue
-				data.Record().SetByField(name, fieldValue)
-
-			} else {
-				//# 大型复杂计算字段
-				upd_todo = append(upd_todo, field)
+		if field.IsInheritedField() {
+			tableName := field.ModelName()
+			if (setted && includeNil) || !utils.IsBlank(fieldValue) {
+				rel_vals[tableName][name] = field.onConvertToWrite(self, fieldValue)
 			}
 
-			/*
-				if field.IsClassicWrite() && field.Base().Fnct_inv() == nil {
-					if !field.Translatable() { //TODO totranslate &&
-
-						new_vals[name] = field.SymbolFunc()(utils.Itf2Str(val))
-
-						//direct = append(direct, name)
-					} else {
-						upd_todo = append(upd_todo, name)
-					}
-				}
-			*/
-			/* check selection */
-			if !field.IsInheritedField() && field.Type() == "selection" && fieldValue != nil {
-				self._check_selection_field_value(field, fieldValue) //context
-			}
+			continue
 		}
 
+		if field.Store() && field.SQLType().Name != "" {
+			if includeNil || !isBlank {
+				fieldValue = field.onConvertToWrite(self, fieldValue)
+				new_vals[name] = fieldValue
+				record.SetByField(name, fieldValue)
+			}
+		} else {
+			//# 大型复杂计算字段
+			upd_todo = append(upd_todo, field)
+		}
+
+		/*
+			if field.IsClassicWrite() && field.Base().Fnct_inv() == nil {
+				if !field.Translatable() { //TODO totranslate &&
+
+					new_vals[name] = field.SymbolFunc()(utils.Itf2Str(val))
+
+					//direct = append(direct, name)
+				} else {
+					upd_todo = append(upd_todo, name)
+				}
+			}
+		*/
+		/* check selection */
+		if !field.IsInheritedField() && field.Type() == "selection" && fieldValue != nil {
+			self._check_selection_field_value(field, fieldValue) //context
+		}
 	}
 
 	for _, field = range ext_todo {
@@ -1215,7 +1258,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 		if len(new_vals) != 0 {
 			new_vals[name] = fieldValue // 为当前表添加共同字段值
-			data.Record().SetByField(name, fieldValue)
+			record.SetByField(name, fieldValue)
 		}
 
 		for tbl := range self.Statement.Model.Obj().GetCommonFieldByName(name) {
@@ -1227,7 +1270,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 	// 如果出现错误
 	if len(errs) != 0 {
-		return nil, nil, nil, errors.New(strings.Join(errs, "\n"))
+		return nil, nil, nil, errors.NewORMError(errors.ErrorTypeValidation, strings.Join(errs, "\n"))
 	}
 
 	return new_vals, rel_vals, upd_todo, nil

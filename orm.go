@@ -910,7 +910,12 @@ func (self *TOrm) _handleTags(fieldCtx *TTagContext, tags map[string][]string, o
 					break
 				}
 
-				log.Warnf("Couldn't handle unknown tag < %s > on %s@%s", tag_str, fieldCtx.Model.String(), field.Name())
+				fieldName := prefix
+				if field != nil {
+					fieldName = field.Name()
+				}
+
+				log.Warnf("Couldn't handle unknown tag < %s > on %s@%s", tag_str, fieldCtx.Model.String(), fieldName)
 			}
 		}
 	}

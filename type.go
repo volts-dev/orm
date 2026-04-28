@@ -83,7 +83,6 @@ type SQLType struct {
 
 const (
 	// TODO remove
-	SQLITE = "sqlite3"
 	MSSQL  = "mssql"
 	ORACLE = "oracle"
 
@@ -285,7 +284,9 @@ func value2SqlTypeValue(field IField, value interface{}) interface{} {
 	switch type_name {
 	case Bool:
 		return utils.ToBool(value)
-	case Int, BigInt:
+	case Int:
+		return utils.ToInt(value)
+	case BigInt:
 		return utils.ToInt64(value)
 	case Char, Text:
 		return utils.ToString(value)

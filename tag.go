@@ -103,10 +103,8 @@ func init() {
 		TAG_TABLE_DESCRIPTION: tag_table_description,
 		TAG_TABLE_ORDER:       tag_table_order,
 		// # rel
-		//TAG_RELATED] = "related" //废弃
 		TAG_TABLE_EXTENDS: tag_table_extends,
-		TAG_TABLE_RELATE:  tag_table_relate,
-		//TAG_INHERITS: tag_extends_relate, //tag_inherits
+		//TAG_TABLE_RELATE:  tag_table_relate,
 
 		// #attr
 		//tag_ctrl[TAG_IGNORE] = "-" // 忽略某些继承者成员
@@ -163,9 +161,9 @@ func init() {
 		TAG_MANY2ONE:  tag_many2one,
 		TAG_MANY2MANY: tag_many2many,
 		TAG_JSON:    tag_json,*/
-		TAG_RELATION: tag_relation,
-		TAG_SETTER:   tag_setter,
-		TAG_GETTER:   tag_getter,
+		//TAG_RELATION: tag_relation,
+		TAG_SETTER: tag_setter,
+		TAG_GETTER: tag_getter,
 	}
 }
 
@@ -597,6 +595,9 @@ func tag_table_name(ctx *TTagContext) error {
 
 		if name != "" { // 检测合法不为空
 			model.GetBase().name = fmtModelName(name)
+			// Keep table name in sync with custom table tag.
+			// This ensures schema migration and other DDL paths that use model.Table() stay consistent.
+			model.GetBase().table = fmtTableName(name)
 		}
 	}
 
@@ -656,6 +657,7 @@ func tag_table_extends(ctx *TTagContext) error {
 		if err != nil {
 			return err
 		}
+
 		for _, fld := range parentModel.obj.GetFields() {
 			// #限制某些字段
 			// @ 当参数多余1个时判断为限制字段　例如：`field:"extends(PartnerId,Name)"`

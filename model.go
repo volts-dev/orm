@@ -170,23 +170,23 @@ type (
 	 */
 	TModel struct {
 		prototype      IModel
-		super          IModel        // 继承的Model
-		modelType      reflect.Type  // Model 反射类
-		modelValue     reflect.Value // Model 反射值 供某些程序调用方法
-		orm            *TOrm         //
-		osv            *TOsv         // 对象服务
-		obj            *TModelObject //
-		options        *ModelOptions
-		transaction    *TSession //
-		name           string    // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
-		table          string    // mapping table name
-		description    string    // 描述
-		idField        string    // the field name which is the UID represent a record
-		recName        string    // the field name which is the name represent a record @examples: Name,Title,PartNo
-		recNamesSearch string    // names_search会搜索的字段
-		isCustomModel  bool      // 该Model是否是基Model,并非扩展Model
-		beforeSession  func(*TSession) error
-		afterSession   func(*TSession) error
+		super          IModel                // 继承的Model
+		modelType      reflect.Type          // Model 反射类
+		modelValue     reflect.Value         // Model 反射值 供某些程序调用方法
+		orm            *TOrm                 //
+		osv            *TOsv                 // 对象服务
+		obj            *TModelObject         //
+		options        *ModelOptions         //
+		transaction    *TSession             //
+		name           string                // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
+		table          string                // mapping table name
+		description    string                // 描述
+		idField        string                // the field name which is the UID represent a record
+		recName        string                // the field name which is the name represent a record @examples: Name,Title,PartNo
+		recNamesSearch string                // names_search会搜索的字段
+		isCustomModel  bool                  // 该Model是否是基Model,并非扩展Model
+		beforeSession  func(*TSession) error //
+		afterSession   func(*TSession) error //
 
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
 		_parent_name  string // #! 父表中的字段名称
@@ -269,12 +269,10 @@ func newModel(name, tableName string, modelValue reflect.Value, modelType reflec
 }
 
 func (self *TModel) OnBuildModel() error {
-
 	return nil
 }
 
 func (self *TModel) OnBuildFields() error {
-
 	return nil
 }
 
@@ -435,17 +433,6 @@ func (self *TModel) Module() string {
 // return the method object of model by name
 func (self *TModel) MethodByName(methodName string) *TMethod {
 	return self.osv.GetMethod(self.String(), methodName)
-}
-
-//-------------- 路由方法 --------------------
-/*
-   Attempt to construct an appropriate ORDER BY clause based on order_spec, which must be
-   a comma-separated list of valid field names, optionally followed by an ASC or DESC direction.
-
-   :raise ValueError in case order_spec is malformed
-*/
-func _generate_order_by(order_spec, query *TQuery) {
-
 }
 
 /*
@@ -614,8 +601,8 @@ func (self *TModel) _relations_reload_visited(visited map[string]bool) {
 	)
 
 	self.obj.GetRelations().Range(func(key, value any) bool {
-		tbl = key.(string)
-		fld = value.(string)
+		tbl = utils.ToString(key)
+		fld = utils.ToString(value)
 
 		rel_model, err := self.osv.GetModel(tbl) //
 		if err != nil {
