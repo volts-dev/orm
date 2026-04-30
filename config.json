@@ -1,0 +1,12 @@
+{
+  "logger": {
+    "orm": {
+      "level": 9,
+      "writer_name": ""
+    },
+    "volts": {
+      "level": 9,
+      "writer_name": ""
+    }
+  }
+}

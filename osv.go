@@ -172,13 +172,14 @@ func (self *TModelObject) GetCommonFieldByName(fieldName string) (tableField map
 }
 
 func (self *TModelObject) SetCommonFieldByName(fieldName string, tableName string, field IField) {
+	self.commonFieldsLock.Lock()
+	defer self.commonFieldsLock.Unlock()
+
 	if self.commonFields[fieldName] == nil {
 		self.commonFields[fieldName] = make(map[string]IField)
 	}
 
-	self.commonFieldsLock.Lock()
 	self.commonFields[fieldName][tableName] = field
-	self.commonFieldsLock.Unlock()
 	return
 }
 

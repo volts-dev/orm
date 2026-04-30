@@ -1081,6 +1081,41 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		setted = fieldValue != nil
 		isBlank = !setted || utils.IsBlank(fieldValue)
 
+		// int64 有时候传进来的数字是string类型 需要转换成数字类型
+		if field.SQLType().IsNumeric() {
+			if v, ok := fieldValue.(string); ok {
+				if vv, err := utils.IsNumeric(v); err == nil {
+					fieldValue = vv
+				} else {
+					// 如果解析成数字成功则判定为数字成功 M2O 值可能是id或者Name值
+					fieldValue = field.onConvertToWrite(self, fieldValue)
+				}
+				record.SetByField(name, fieldValue)
+			}
+		}
+
+		/* #相同名称的字段分配给对应表 */
+		if comm_models := self.Statement.Model.Obj().GetCommonFieldByName(name); setted && comm_models != nil { // 获得拥有该字段的所有表
+			// 为各表预存值
+			/*
+				modelName := self.Statement.Model.String()
+				fieldValue = field.onConvertToWrite(self, fieldValue) // 为当前表添加共同字段值
+				for tbl := range comm_models {
+					if tbl == modelName {
+						new_vals[name] = fieldValue
+						data.Record().SetByField(name, fieldValue)
+					} else {
+						rel_vals[tbl][name] = fieldValue
+					}
+				}*/
+			modelName := self.Statement.Model.String()
+			for tbl := range comm_models {
+				if tbl != modelName {
+					rel_vals[tbl][name] = fieldValue
+				}
+			}
+		}
+
 		// 关系字段不自动转换类型！将由字段独自处理
 		if field.IsRelatedField() {
 			if setted {
@@ -1104,7 +1139,10 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 				return nil, nil, nil, err
 			}
 
-			fieldValue = ctx.values
+			if ctx.values != nil {
+				fieldValue = ctx.values
+				isBlank = false
+			}
 		}
 
 		/* 过滤可以为空的字段空字段 */
@@ -1194,30 +1232,13 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		// TODO 优化确认代码位置  !NOTE! 转换值为数据库类型
 		//val = field.onConvertToWrite(self, val)
 
-		/* #相同名称的字段分配给对应表 */
-		if comm_models := self.Statement.Model.Obj().GetCommonFieldByName(name); setted && comm_models != nil { // 获得拥有该字段的所有表
-			// 为各表预存值
-			modelName := self.Statement.Model.String()
-			fieldValue = field.onConvertToWrite(self, fieldValue) // 为当前表添加共同字段值
-			for tbl := range comm_models {
-				if tbl == modelName {
-					new_vals[name] = fieldValue
-					data.Record().SetByField(name, fieldValue)
-				} else {
-					rel_vals[tbl][name] = fieldValue
-				}
-			}
-
-			continue //* 字段分配完毕
-		}
-
 		//#*** 非Model固有字段归为关联表字段 2个判断缺一不可
 		//#1 判断是否是关联表可能性
 		//#2 判断是否Model和关联Model都有该字段
 		if field.IsInheritedField() {
 			tableName := field.ModelName()
 			if (setted && includeNil) || !utils.IsBlank(fieldValue) {
-				rel_vals[tableName][name] = field.onConvertToWrite(self, fieldValue)
+				rel_vals[tableName][name] = fieldValue // 其他表的值无需格式化  field.onConvertToWrite(self, fieldValue)
 			}
 
 			continue
