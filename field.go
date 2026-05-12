@@ -219,10 +219,10 @@ type (
 		//# Tag标记变量
 		//_column_type string // #存储 column 类型 当该字段值非空时数据将直接存入数据库,而非计算值
 		//_func          string      //是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
-		_func_inv       interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
-		_func_multi     string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
-		_func_search    string      //允许你在这个字段上定义搜索功能
-		_computeDefault FieldFunc   //
+		_func_inv    interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
+		_func_multi  string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
+		_func_search string      //允许你在这个字段上定义搜索功能
+		_defaultFunc FieldFunc   //
 		// 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
 		_setterFunc   FieldFunc // 写入计算格式化函数
 		_getterFunc   FieldFunc // 读取计算格式化函数
@@ -534,7 +534,7 @@ func (self *TField) Default(val ...any) any {
 }
 
 func (self *TField) DefaultFunc() FieldFunc {
-	return self._computeDefault
+	return self._defaultFunc
 }
 
 func (self *TField) Size(val ...int) int {
@@ -599,7 +599,7 @@ func (self *TField) IsAutoIncrement() bool {
 }
 
 func (self *TField) IsDefaultEmpty() bool {
-	return self._attr_default == "" //&& self._computeDefault == nil
+	return self._attr_default == "" && self._defaultFunc == nil
 }
 
 func (self *TField) IsUnique() bool {

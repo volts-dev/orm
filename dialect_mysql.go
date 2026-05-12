@@ -652,6 +652,7 @@ func (db *mysql) GetFields(ctx context.Context, tableName string) ([]string, map
 		if err != nil {
 			return nil, nil, err
 		}
+		col.Base()._attr_size = int(len1)
 		col.Base().EnumOptions = enumOptions
 		col.Base().SetOptions = setOptions
 

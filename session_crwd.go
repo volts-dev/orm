@@ -1127,30 +1127,50 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 		// 字段有值处理函数无论如何都要调用
 		if field.HasSetter() {
-			ctx := &TFieldContext{
-				Session: self,
-				Model:   self.Statement.Model,
-				Dataset: data,
-				Field:   field,
-				Value:   fieldValue,
-				Ids:     ids,
-			}
-			if err := field.OnWrite(ctx); err != nil {
-				return nil, nil, nil, err
-			}
+			// update 不处理Setter
+			if (!setted && !isIncludedIds) || (setted && isIncludedIds) {
+				ctx := &TFieldContext{
+					Session: self,
+					Model:   self.Statement.Model,
+					Dataset: data,
+					Field:   field,
+					Value:   fieldValue,
+					Ids:     ids,
+				}
+				if err := field.OnWrite(ctx); err != nil {
+					return nil, nil, nil, err
+				}
 
-			if ctx.values != nil {
-				fieldValue = ctx.values
-				isBlank = false
+				if ctx.values != nil {
+					fieldValue = ctx.values
+					isBlank = false
+				}
 			}
 		}
 
 		/* 过滤可以为空的字段空字段 */
-		if isBlank {
+		if isBlank && !isIncludedIds {
 			/* 填补默认值 */
 			if !field.IsDefaultEmpty() {
-				/* 关系字段不自动转换类型！将由字段独自处理 */
-				if fieldValue = field.Default(); fieldValue != nil {
+				if field.DefaultFunc() != nil {
+					ctx := &TFieldContext{
+						Session: self,
+						Model:   self.Statement.Model,
+						Dataset: data,
+						Field:   field,
+						Value:   fieldValue,
+						Ids:     ids,
+					}
+					if err := field.DefaultFunc()(ctx); err != nil {
+						return nil, nil, nil, err
+					}
+
+					if ctx.values != nil {
+						fieldValue = ctx.values
+						isBlank = false
+					}
+				} else if fieldValue = field.Default(); fieldValue != nil {
+					/* 关系字段不自动转换类型！将由字段独自处理 */
 					fieldValue = value2FieldTypeValue(field, fieldValue)
 				} else {
 					/* 计算默认值 */

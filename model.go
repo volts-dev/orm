@@ -38,7 +38,6 @@ type (
 		_setOrm(o *TOrm)
 		_setBaseModel(model *TModel) //赋值初始化BaseModel
 		_relations_reload()
-		_addField(field IField)
 		_onBuildFields() error
 
 		// --------------------- public ---------------------
@@ -549,11 +548,6 @@ func (self *TModel) _onBuildFields() error {
 	return self.prototype.OnBuildFields()
 }
 
-func (self *TModel) _addField(field IField) {
-	field.Base().model_name = self.name
-	self.obj.AddField(field)
-}
-
 func (self *TModel) _setOrm(o *TOrm) {
 	self.orm = o
 }
@@ -666,7 +660,7 @@ func (self *TModel) _add_inherited_fields() {
 				lNew = utils.Clone(ref).(IField)
 				lNew.SetBase(ref.Base())
 				lNew.IsInheritedField(true)
-				self.obj.SetFieldByName(refname, lNew)
+				self.obj.SetField(lNew)
 			}
 		}
 

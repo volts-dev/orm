@@ -117,6 +117,9 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 		return nil, err
 	}
 
+	// 去重
+	models = unique(models)
+
 	modelNames = make([]string, 0)
 	for _, mod := range models {
 		model, err := self.orm._mapping(mod)
@@ -451,7 +454,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 					} else if strings.HasPrefix(curType, Char) && strings.HasPrefix(expectedType, Varchar) {
 						// 如果是同是字符串 则检查长度变化 for mysql
-						if cur_field.Size() < field.Size() {
+						if cur_field.Size() != field.Size() {
 							log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)", tableName, fieldName, cur_field.Size(), field.Size())
 							_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
 						}
@@ -470,7 +473,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				}
 				// 如果是同是字符串 则检查长度变化 for mysql
 				//if orm.dialect.DBType() == MYSQL {
-				if cur_field.Size() < field.Size() {
+				if cur_field.Size() != field.Size() {
 					log.Warnf("Table <%s> column <%s> change size from %s(%d) to %s(%d)",
 						tableName, fieldName, cur_field.SQLType().Name, cur_field.Size(), field.SQLType().Name, field.Size())
 					_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))

@@ -141,7 +141,7 @@ func (self *TOne2OneField) Init(ctx *TTagContext) { //related_model_name string,
 			if newField.Base().isPrimaryKey && newField.Base().isAutoIncrement {
 				model.GetBase().idField = fieldName
 			}
-			model.GetBase().obj.SetFieldByName(fieldName, newField)
+			model.GetBase().obj.SetField(newField)
 		}
 	}
 }
@@ -684,7 +684,7 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 					} else {
 						ids = []any{cmd[2]} // Fallback if it's a single element
 					}
-					
+
 					if err := self.unlink_all(ctx, nil); err != nil { // 先清除所有关联
 						return err
 					}
@@ -772,7 +772,7 @@ func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) e
 	quote := ctx.Session.Orm().dialect.Quoter().Quote
 	field := ctx.Field
 	middle_table_name := quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
-	
+
 	ctxIdsSql := strings.Repeat("?,", len(ctx.Ids)-1) + "?"
 
 	var b strings.Builder

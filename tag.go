@@ -672,7 +672,7 @@ func tag_table_extends(ctx *TTagContext) error {
 
 				// db:读写锁
 				//model.GetBase().table.AddColumn(lNewFld.Column())
-				model.GetBase()._addField(lNewFld)
+				//model.GetBase()._addField(lNewFld)
 
 				if lNewFld.IsAutoIncrement() {
 					model.Obj().AutoIncrementField = lNewFld.Name()
@@ -684,7 +684,7 @@ func tag_table_extends(ctx *TTagContext) error {
 					model.GetBase().idField = lNewFld.Name()
 				}
 
-				model.GetBase().obj.SetFieldByName(fld.Name(), lNewFld)
+				model.GetBase().obj.SetField(lNewFld)
 			}
 		}
 	}
@@ -754,7 +754,7 @@ func tag_table_relate(ctx *TTagContext) error {
 			if newField.Base().isPrimaryKey && newField.Base().isAutoIncrement {
 				model.GetBase().idField = fieldName
 			}
-			model.GetBase().obj.SetFieldByName(fieldName, newField)
+			model.GetBase().obj.SetField(newField)
 		}
 	}
 	return nil
@@ -824,7 +824,7 @@ func ___tag_relate(ctx *TTagContext) error {
 				if new_field.Base().isPrimaryKey && new_field.Base().isAutoIncrement {
 					model.GetBase().idField = field_name
 				}
-				model.GetBase().obj.SetFieldByName(field_name, new_field)
+				model.GetBase().obj.SetField(new_field)
 			}
 		}
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
+	"github.com/volts-dev/utils"
 )
 
 const (
@@ -141,20 +142,33 @@ func (db *sqlite) GetFields(ctx context.Context, tableName string) ([]string, ma
 		// Simplified type mapping for SQLite
 		var sqlType SQLType
 		dataType = strings.ToUpper(dataType)
+		var len1, len2 int
+		if start := strings.Index(dataType, "("); start != -1 {
+			if end := strings.Index(dataType, ")"); end != -1 && end > start {
+				lens := strings.Split(dataType[start+1:end], ",")
+				len1 = utils.ToInt(lens[0])
+				if len(lens) > 1 {
+					len2 = utils.ToInt(lens[1])
+				}
+				dataType = dataType[:start]
+			}
+		}
+
 		if strings.Contains(dataType, "INT") {
-			sqlType = SQLType{Int, 0, 0}
+			sqlType = SQLType{Int, len1, len2}
 		} else if strings.Contains(dataType, "CHAR") || strings.Contains(dataType, "TEXT") {
-			sqlType = SQLType{Varchar, 0, 0}
+			sqlType = SQLType{Varchar, len1, len2}
 		} else if strings.Contains(dataType, "REAL") || strings.Contains(dataType, "FLOAT") || strings.Contains(dataType, "DOUBLE") {
-			sqlType = SQLType{Double, 0, 0}
+			sqlType = SQLType{Double, len1, len2}
 		} else {
-			sqlType = SQLType{Name: dataType}
+			sqlType = SQLType{Name: dataType, DefaultLength: len1, DefaultLength2: len2}
 		}
 
 		col, err := NewField(name, WithSQLType(sqlType))
 		if err != nil {
 			return nil, nil, err
 		}
+		col.Base()._attr_size = len1
 		col.Base().isPrimaryKey = (pk > 0)
 		col.Base()._attr_required = (notNull > 0)
 		if dfltVal.Valid && dfltVal.String != "" && dfltVal.String != "NULL" {

@@ -84,8 +84,15 @@ func (self *TModelObject) AddIndex(index *TIndex) {
 }
 
 // add an index or an unique to table
-func (self *TModelObject) AddField(filed IField) {
-	self.fields.Store(filed.Name(), filed)
+func (self *TModelObject) SetField(field IField) {
+	name := field.Name()
+	if field.IsPrimaryKey() {
+		if utils.IndexOf(name, self.PrimaryKeys...) == -1 {
+			self.PrimaryKeys = unique(append(self.PrimaryKeys, name))
+		}
+	}
+
+	self.fields.Store(name, field)
 }
 
 func (self *TModelObject) GetRelations() *sync.Map {
@@ -117,15 +124,6 @@ func (self *TModelObject) GetFieldByName(name string) IField {
 		return field.(IField)
 	}
 	return nil
-}
-
-func (self *TModelObject) SetFieldByName(name string, field IField) {
-	if field.IsPrimaryKey() {
-		if utils.IndexOf(name, self.PrimaryKeys...) == -1 {
-			self.PrimaryKeys = append(self.PrimaryKeys, name)
-		}
-	}
-	self.fields.Store(name, field)
 }
 
 func (self *TModelObject) GetDefault() *sync.Map {
@@ -357,8 +355,8 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 					newBase._getter = oldBase._getter
 					newBase.hasGetter = oldBase.hasGetter
 				}
-				if newBase._computeDefault == nil && oldBase._computeDefault != nil {
-					newBase._computeDefault = oldBase._computeDefault
+				if newBase._defaultFunc == nil && oldBase._defaultFunc != nil {
+					newBase._defaultFunc = oldBase._defaultFunc
 				}
 			}
 			obj.fields.Store(key, newField)

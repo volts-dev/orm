@@ -102,26 +102,27 @@ func (self *ModelBuilder) TableExtends(fieldTypeValue reflect.Value, relateField
 }
 
 func (self *ModelBuilder) Field(name, fieldType string) *fieldStatment {
-	field := self.model.GetFieldByName(name)
-	if field == nil {
-		var err error
-		field, err = NewField(name, WithFieldType(fieldType))
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if utils.IndexOf(field.Type(), TYPE_O2O, TYPE_O2M, TYPE_M2O, TYPE_M2M, TYPE_SELECTION) == -1 {
-			fieldContext := &TTagContext{
-				Orm:        self.Orm,
-				Model:      self.model,
-				Field:      field,
-				ModelValue: self.model.modelValue,
-			}
-			field.Init(fieldContext)
-		}
-
-		self.model._addField(field)
+	//field := self.model.GetFieldByName(name)
+	//if field == nil {
+	//var err error
+	field, err := NewField(name, WithFieldType(fieldType))
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	if utils.IndexOf(field.Type(), TYPE_O2O, TYPE_O2M, TYPE_M2O, TYPE_M2M, TYPE_SELECTION) == -1 {
+		fieldContext := &TTagContext{
+			Orm:        self.Orm,
+			Model:      self.model,
+			Field:      field,
+			ModelValue: self.model.modelValue,
+		}
+		field.Init(fieldContext)
+	}
+
+	field.Base().model_name = self.model.name
+	self.model.Obj().SetField(field)
+	//}
 
 	return &fieldStatment{
 		builder: self,
@@ -138,8 +139,18 @@ func (self *ModelBuilder) IdField(name ...string) *fieldStatment {
 	if len(name) > 0 {
 		fieldName = name[0]
 	}
-
+	self.model.obj.uidFieldName = fieldName
 	return self.Field(fieldName, "id")
+}
+
+func (self *ModelBuilder) NameField(name ...string) *fieldStatment {
+	fieldName := "name"
+	if len(name) > 0 {
+		fieldName = name[0]
+	}
+
+	self.model.obj.nameField = fieldName
+	return self.Field(fieldName, "recname")
 }
 
 func (self *ModelBuilder) BoolField(name string) *fieldStatment {
@@ -168,15 +179,6 @@ func (self *ModelBuilder) TextField(name string) *fieldStatment {
 
 func (self *ModelBuilder) DateTimeField(name string) *fieldStatment {
 	return self.Field(name, "datetime")
-}
-
-func (self *ModelBuilder) NameField(name ...string) *fieldStatment {
-	fieldName := "name"
-	if len(name) > 0 {
-		fieldName = name[0]
-	}
-
-	return self.Field(fieldName, "recname")
 }
 
 func (self *ModelBuilder) SelectionField(name string, fn func() [][]string) *fieldStatment {
@@ -346,9 +348,9 @@ func (self *fieldStatment) Default(value any) *fieldStatment {
 	return self
 }
 
-func (self *fieldStatment) ComputeDefault(fn func(ctx *TFieldContext) error) *fieldStatment {
+func (self *fieldStatment) DefaultFunc(fn func(ctx *TFieldContext) error) *fieldStatment {
 	field := self.field.Base()
-	field._computeDefault = fn
+	field._defaultFunc = fn
 	//field._attr_store = false
 	//field._attr_readonly = field._attr_readonly || false
 

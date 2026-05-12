@@ -61,7 +61,7 @@ func _compute_default_int(ctx *orm.TFieldContext) error {
 }
 func (self *UserModel) OnBuildFields() error {
 	b := self.Builder()
-	b.VarcharField("title").ComputeDefault(_compute_default_int)
+	b.VarcharField("title").DefaultFunc(_compute_default_int)
 	b.VarcharField("help").Help(`Technical field, used only to display a help string using multi-rows. 
 				 test help 1
                  test help 2
@@ -103,8 +103,8 @@ var (
 	}
 
 	user *UserModel = &UserModel{
-		Name: "Admin",
-		Title:     "Admin",
+		Name:  "Admin",
+		Title: "Admin",
 		//Help:      "",
 		//Bool: true,
 		//Text:      "",

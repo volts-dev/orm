@@ -213,21 +213,18 @@ func (self *TOrm) SyncModel(region string, models ...IModel) (modelNames []strin
 	}
 
 	session := NewSession(self)
-	defer session.Close()
 	session.Begin()
+	defer func() {
+		session.Rollback(err)
+		session.Close()
+	}()
 
 	modelNames, err = session.SyncModel(region, models...)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = session.Commit(); err != nil {
-		if err = session.Rollback(err); err != nil {
-			return nil, err
-		}
-	}
-
-	return modelNames, nil
+	return modelNames, session.Commit()
 }
 
 func (self *TOrm) HasModel(name string) bool {
@@ -689,7 +686,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 
 			// 添加字段进Table
 			if field.Type() != "" && field.Name() != "" {
-				res_model.obj.SetFieldByName(field_name, field) // !!!替代方式
+				res_model.obj.SetField(field) //
 			}
 		}
 	}
