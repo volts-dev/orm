@@ -276,10 +276,10 @@ type (
 func RegisterField(type_name string, creator func() IField) {
 	type_name = strings.ToLower(type_name)
 	if creator == nil {
-		panic("logs: Register provide is nil")
+		panic("orm: RegisterField creator is nil")
 	}
 	if _, dup := field_creators[type_name]; dup {
-		panic("logs: Register called twice for provider name:" + type_name)
+		panic("orm: RegisterField called twice for field type: " + type_name)
 	}
 	field_creators[type_name] = creator
 }
