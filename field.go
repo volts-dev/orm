@@ -62,10 +62,10 @@ type (
 		IsAutoIncrement() bool
 		IsDefaultEmpty() bool
 		IsUnique() bool
-		IsCreated() bool
-		IsDeleted() bool
-		IsUpdated() bool
-		IsNamed() bool
+		IsCreatedAt() bool
+		IsDeletedAt() bool
+		IsUpdatedAt() bool
+		IsNameField() bool
 		IsCascade() bool
 		IsVersion() bool
 		SQLType() *SQLType
@@ -74,9 +74,9 @@ type (
 
 		// attributes func
 		Name() string // name of field in database
-		Title() string
-		Help() string
-		Type() string //
+		Label() string
+		Description() string
+		TypeName() string //
 		Groups() string
 		Readonly(val ...bool) bool
 		Required(val ...bool) bool
@@ -88,12 +88,12 @@ type (
 		States(val ...map[string]interface{}) map[string]interface{}
 		Domain() string
 		Translate() bool
-		Search() bool
-		As() string // return the type of the value format as
+		SearchOnSelf() bool
+		OutputAs() string // return the type of the value format as
 		// 获取Field所有属性值
 		UpdateDb(ctx *TTagContext)
-		GetAttributes(ctx *TTagContext) map[string]interface{}
-		SetAs(dataType string)
+		Attributes(ctx *TTagContext) map[string]interface{}
+		SetOutputAs(dataType string)
 		SetName(name string)
 		SetModelName(name string)
 		SetModel(IModel)
@@ -102,17 +102,17 @@ type (
 		GetterFunc(*TFieldContext) error
 		Setter() string
 		SetterFunc(*TFieldContext) error
-		SymbolChar() string
-		SymbolFunc() func(string) string
+		FormatChar() string
+		FormatFunc() func(string) string
 		ModelName() string
 		RelatedModelName() string
-		RelatedFieldName() string
-		MiddleFieldName() string
-		MiddleModelName() string // 多对多关系中 记录2表记录关联关系的表
-		FieldsId() string
-		IsIndex() bool
-		IsRelatedField(arg ...bool) bool
-		IsInheritedField(arg ...bool) bool
+		RelatedKeyName() string
+		JoinSourceKey() string
+		JoinModelName() string // 多对多关系中 记录2表记录关联关系的表
+		OneToManyFK() string
+		IsIndexed() bool
+		IsRelated(arg ...bool) bool
+		IsInherited(arg ...bool) bool
 		IsAutoJoin() bool // 自动Join
 		HasGetter() bool
 		HasSetter() bool
@@ -304,7 +304,7 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 
 	/* 根据orm数据类型创建Field */
 	var field IField
-	fieldType := baseField.Type()
+	fieldType := baseField.TypeName()
 	if fieldType != "" {
 		creator, ok := field_creators[fieldType]
 		if !ok {
@@ -421,7 +421,7 @@ func _CharFormat(str string) string {
 	return str //`'` + str + `'`
 }
 
-func (self *TField) Help() string {
+func (self *TField) Description() string {
 	return self.description
 }
 
@@ -429,11 +429,11 @@ func (self *TField) ModelName() string {
 	return self.modelName
 }
 
-func (self *TField) RelatedFieldName() string {
+func (self *TField) RelatedKeyName() string {
 	return self.relatedKeyName
 }
 
-func (self *TField) MiddleFieldName() string {
+func (self *TField) JoinSourceKey() string {
 	return self.joinSourceKey
 }
 
@@ -443,7 +443,7 @@ func (self *TField) RelatedModelName() string {
 }
 
 // 多对多关系中 记录2表记录关联关系的表
-func (self *TField) MiddleModelName() string {
+func (self *TField) JoinModelName() string {
 	return self.joinModelName
 }
 
@@ -472,16 +472,16 @@ func (self *TField) Searchable(val ...bool) bool {
 }
 
 // orm field type
-func (self *TField) Type() string          { return self.typeName }
-func (self *TField) As() string            { return self.outputAs }
-func (self *TField) SetAs(dataType string) { self.outputAs = dataType }
+func (self *TField) TypeName() string             { return self.typeName }
+func (self *TField) OutputAs() string             { return self.outputAs }
+func (self *TField) SetOutputAs(dataType string)  { self.outputAs = dataType }
 
 // database sql field type
 func (self *TField) SQLType() *SQLType               { return &self.SqlType }
-func (self *TField) FieldsId() string                { return self.oneToManyFK }
-func (self *TField) SymbolChar() string              { return self.formatChar }
-func (self *TField) SymbolFunc() func(string) string { return self.formatFunc }
-func (self *TField) Title() string                   { return self.label }
+func (self *TField) OneToManyFK() string             { return self.oneToManyFK }
+func (self *TField) FormatChar() string              { return self.formatChar }
+func (self *TField) FormatFunc() func(string) string { return self.formatFunc }
+func (self *TField) Label() string                   { return self.label }
 func (self *TField) Translate() bool                 { return self.translatable }
 func (self *TField) Getter() string                  { return self.getterMethod }
 func (self *TField) Setter() string                  { return self.setterMethod }
@@ -528,7 +528,7 @@ func (self *TField) States(val ...map[string]interface{}) map[string]interface{}
 	return self.uiStates
 }
 
-func (self *TField) Search() bool {
+func (self *TField) SearchOnSelf() bool {
 	return self.searchOnSelf
 }
 
@@ -540,20 +540,21 @@ func (self *TField) __IsClassicWrite() bool {
 	return false //self._classic_write
 }
 
-func (self *TField) IsIndex() bool {
+func (self *TField) IsIndexed() bool {
 	return self.isIndexed
 }
 
+// FuncMultiName 当前未被调用，保留兼容
 func (self *TField) FuncMultiName() string {
 	return self.computeGroup
 }
 
-func (self *TField) Fnct_inv() interface{} {
+func (self *TField) InverseHandler() interface{} {
 	return self.inverseHandler
 }
 
 // 该字段是不是指向其他model的id
-func (self *TField) IsRelatedField(arg ...bool) bool {
+func (self *TField) IsRelated(arg ...bool) bool {
 	if len(arg) > 0 {
 		self.isRelated = arg[0]
 	}
@@ -582,15 +583,15 @@ func (self *TField) IsUnique() bool {
 	return self.isUnique
 }
 
-func (self *TField) IsCreated() bool {
+func (self *TField) IsCreatedAt() bool {
 	return self.isCreatedAt
 }
 
-func (self *TField) IsDeleted() bool {
+func (self *TField) IsDeletedAt() bool {
 	return self.isDeletedAt
 }
 
-func (self *TField) IsUpdated() bool {
+func (self *TField) IsUpdatedAt() bool {
 	return self.isUpdatedAt
 }
 
@@ -609,11 +610,11 @@ func (self *TField) HasSetter() bool {
 	return self.hasSetter
 }
 
-func (self *TField) IsNamed() bool {
+func (self *TField) IsNameField() bool {
 	return self.isNameField
 }
 
-func (self *TField) IsInheritedField(arg ...bool) bool {
+func (self *TField) IsInherited(arg ...bool) bool {
 	if len(arg) > 0 {
 		self.isInherited = arg[0]
 	}
@@ -656,7 +657,7 @@ func (self *TField) Domain() string {
 	return self.domain
 }
 
-func (self *TField) Relation() string {
+func (self *TField) RelationModel() string {
 	return self.relationModel
 }
 func (self *TField) SetName(name string) {
@@ -675,10 +676,10 @@ func (self *TField) SetModel(model IModel) {
 func (self *TField) UpdateDb(ctx *TTagContext) {
 }
 
-// """ Return a dictionary that describes the field “self“. """
+// “”” Return a dictionary that describes the field “self”. “””
 // 返回字段自己 补充部分属性值
 // func (self *TField) GetDescription() (res *TField) {
-func (self *TField) GetAttributes(ctx *TTagContext) map[string]interface{} {
+func (self *TField) Attributes(ctx *TTagContext) map[string]interface{} {
 	return map[string]interface{}{
 		"name":       self.name,
 		"store":      self.store,
