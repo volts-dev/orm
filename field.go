@@ -56,77 +56,142 @@ type (
 
 	}
 
-	// IField represents a field interface in a data model.
-	// It defines the behaviors and properties of a field, including its configuration, constraints, and interactions with other fields or models.
+	// IField represents a model field. It exposes:
+	//
+	//   - introspection (IsPrimaryKey, IsAutoIncrement, IsIndexed, ...)
+	//   - configuration accessors (Readonly, Required, Store, Default, ...)
+	//   - schema metadata (SQLType, TypeName, Label, Description, ...)
+	//   - relational metadata (RelatedModelName, RelatedKeyName, JoinModelName, ...)
+	//   - I/O hooks (OnRead, OnWrite)
+	//   - classic codec hooks (onConvertToRead/Write, unexported)
+	//
+	// IField is implemented by TField and its type-specific subclasses
+	// (TCharField, TIntField, etc.).
 	IField interface {
+		// IsPrimaryKey reports whether this field is the model's primary key.
 		IsPrimaryKey() bool
-		IsCompositeKey() bool // 是复合主键
+		// IsCompositeKey reports whether this field is part of a composite primary key.
+		IsCompositeKey() bool
+		// IsAutoIncrement reports whether the database assigns this field's value automatically.
 		IsAutoIncrement() bool
+		// IsDefaultEmpty reports whether the field has no default value (literal or function).
 		IsDefaultEmpty() bool
+		// IsUnique reports whether the field has a UNIQUE constraint.
 		IsUnique() bool
+		// IsCreatedAt reports whether this field stores the record's creation timestamp.
 		IsCreatedAt() bool
+		// IsDeletedAt reports whether this field stores the soft-delete timestamp.
 		IsDeletedAt() bool
+		// IsUpdatedAt reports whether this field stores the record's last-update timestamp.
 		IsUpdatedAt() bool
+		// IsNameField reports whether this field is the model's display-name column.
 		IsNameField() bool
+		// IsCascade reports whether deletes propagate through this relation.
 		IsCascade() bool
+		// IsVersion reports whether this field implements optimistic-locking version control.
 		IsVersion() bool
+		// SQLType returns the field's SQL column type.
 		SQLType() *SQLType
-		Init(*TTagContext) // call when parse the field tag
-		Base() *TField     // return itself
+		// Init initializes the field from a tag context. Called once when the tag is parsed.
+		Init(*TTagContext)
+		// Base returns the underlying TField, useful for accessing private state.
+		Base() *TField
 
-		// attributes func
-		Name() string // name of field in database
+		// Name returns the field's column name in the database.
+		Name() string
+		// Label returns the human-readable label shown in UI forms.
 		Label() string
+		// Description returns the long-form help text for the field.
 		Description() string
-		TypeName() string //
+		// TypeName returns the ORM-level type identifier (e.g. "char", "int", "many2one").
+		TypeName() string
+		// Groups returns the comma-separated permission groups that may access the field.
 		Groups() string
+		// Readonly returns the readonly flag; when val is supplied, sets it first.
 		Readonly(val ...bool) bool
+		// Required returns the required-not-null flag; when val is supplied, sets it first.
 		Required(val ...bool) bool
+		// Searchable returns whether the field can be filtered on; when val is supplied, sets it first.
 		Searchable(val ...bool) bool
+		// Store returns whether the field is persisted to the database; when val is supplied, sets it first.
 		Store(val ...bool) bool
+		// Size returns the size constraint (length/precision); when val is supplied, sets it first.
 		Size(val ...int) int
+		// Default returns the default value; when val is supplied, sets it first.
 		Default(val ...any) any
+		// DefaultFunc returns the default-value function, or nil if none.
 		DefaultFunc() FieldFunc
+		// States returns the per-state UI attribute map; when val is supplied, replaces it first.
 		States(val ...map[string]interface{}) map[string]interface{}
+		// Domain returns the search-domain expression scoped to this field.
 		Domain() string
+		// Translate reports whether the field's value is translatable.
 		Translate() bool
+		// SearchOnSelf reports whether searches on the related field may be performed on self.
 		SearchOnSelf() bool
-		OutputAs() string // return the type of the value format as
-		// 获取Field所有属性值
+		// OutputAs returns the type identifier the value is coerced to on read (char/int/bool/...).
+		OutputAs() string
+		// UpdateDb writes any schema changes implied by the field to the database.
 		UpdateDb(ctx *TTagContext)
+		// Attributes returns a map describing the field's published attributes.
 		Attributes(ctx *TTagContext) map[string]interface{}
+		// SetOutputAs sets the output coercion type identifier.
 		SetOutputAs(dataType string)
+		// SetName overrides the field's database column name.
 		SetName(name string)
+		// SetModelName overrides the model name this field belongs to.
 		SetModelName(name string)
+		// SetModel binds the field to its owner model.
 		SetModel(IModel)
+		// SetBase replaces the underlying TField in-place (used by subclasses during init).
 		SetBase(field *TField)
+		// Getter returns the name of the registered getter method, or "" if none.
 		Getter() string
+		// GetterFunc invokes the registered getter function in the given context.
 		GetterFunc(*TFieldContext) error
+		// Setter returns the name of the registered setter method, or "" if none.
 		Setter() string
+		// SetterFunc invokes the registered setter function in the given context.
 		SetterFunc(*TFieldContext) error
+		// FormatChar returns the printf-style format placeholder used to render the value (e.g. "%s").
 		FormatChar() string
+		// FormatFunc returns the optional formatter that post-processes the placeholder output.
 		FormatFunc() func(string) string
+		// ModelName returns the name of the model this field belongs to.
 		ModelName() string
+		// RelatedModelName returns the name of the related model (for relational fields).
 		RelatedModelName() string
+		// RelatedKeyName returns the related table's primary-key field name.
 		RelatedKeyName() string
+		// JoinSourceKey returns the source-side foreign key in an M2M join table.
 		JoinSourceKey() string
-		JoinModelName() string // 多对多关系中 记录2表记录关联关系的表
+		// JoinModelName returns the M2M join table's model name.
+		JoinModelName() string
+		// OneToManyFK returns the inverse foreign-key field name for one-to-many relations.
 		OneToManyFK() string
+		// IsIndexed reports whether the database has an index on this field.
 		IsIndexed() bool
+		// IsRelated returns the related-field flag; when arg is supplied, sets it first.
 		IsRelated(arg ...bool) bool
+		// IsInherited returns the inherits-field flag; when arg is supplied, sets it first.
 		IsInherited(arg ...bool) bool
-		IsAutoJoin() bool // 自动Join
+		// IsAutoJoin reports whether the ORM auto-joins this relation in queries.
+		IsAutoJoin() bool
+		// HasGetter reports whether a custom getter is registered.
 		HasGetter() bool
+		// HasSetter reports whether a custom setter is registered.
 		HasSetter() bool
-
+		// UseAttachment reports whether the field's value is stored in the attachment table rather than inline.
 		UseAttachment() bool
 
-		// raw I/O event of field when it be read/write.
+		// OnRead is fired when the field's raw value is read from the database.
 		OnRead(ctx *TFieldContext) error
+		// OnWrite is fired when the field's raw value is about to be written to the database.
 		OnWrite(ctx *TFieldContext) error
 
-		// classic I/O event of the field. It will be call when using classic query.
+		// onConvertToRead converts a raw database value to the field's read-format value.
 		onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{}
+		// onConvertToWrite converts an in-memory value to the field's database-format value.
 		onConvertToWrite(session *TSession, value interface{}) interface{}
 	}
 
