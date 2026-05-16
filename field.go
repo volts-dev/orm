@@ -144,21 +144,11 @@ type (
 		hasGetter       bool
 		hasSetter       bool
 
-		//defaultIsEmpty bool
-		//comment        string
 		help string
-		//Default        string
-		//Length         int
-		//Length2        int
-		//Nullable       bool
 		// SQL属性
 		SqlType SQLType
 		MapType int
-		//Name            string
-		//TableName       string
-		//FieldName       string
 		IsJSON bool
-		//Indexes         map[string]int //#
 		EnumOptions     map[string]int
 		SetOptions      map[string]int
 		DisableTimeZone bool
@@ -209,9 +199,6 @@ type (
 		deprecated              string //???
 		ondelete                string // 当这个字段指向的资源删除时将发生。预定义值：cascade，set null，restrict，no action，set default。默认值：set null
 
-		//# Tag标记变量
-		//_column_type string // #存储 column 类型 当该字段值非空时数据将直接存入数据库,而非计算值
-		//_func          string      //是一个计算字段值的方法或函数。必须在声明函数字段前声明它。
 		_func_inv    interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
 		_func_multi  string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
 		_func_search string      //允许你在这个字段上定义搜索功能
