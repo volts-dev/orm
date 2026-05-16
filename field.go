@@ -134,17 +134,16 @@ type (
 		isCompositeKey  bool
 		isAutoIncrement bool
 		isUnique        bool
-		isColumn        bool
-		isCreated       bool //# 时间字段自动更新日期
-		isUpdated       bool //
-		isDeleted       bool
+		isDBColumn      bool
+		isCreatedAt       bool //# 时间字段自动更新日期
+		isUpdatedAt       bool //
+		isDeletedAt       bool
 		isCascade       bool
 		isVersion       bool
-		isNamed         bool
+		isNameField         bool
 		hasGetter       bool
 		hasSetter       bool
 
-		help string
 		// SQL属性
 		SqlType SQLType
 		MapType int
@@ -154,73 +153,73 @@ type (
 		DisableTimeZone bool
 		TimeZone        *time.Location // column specified time zone
 
-		_symbol_c             string              // Format 符号 "%s,%d..."
-		_symbol_f             func(string) string // Format 自定义函数
-		_auto_join            bool                //
-		_inherit              bool                // 是否继承该字段指向的Model的多有字段
-		_args                 map[string]string   // [Tag]val 里的参数
-		_setup_done           string              // 字段安装完成步骤 Base,full
-		isInheritedField      bool                // 该字段是否关联表的字段 relate
-		isRelatedField        bool                // 该字段是否关联表的外键字段
-		automatic             bool                // 是否是自动创建的字段 ("magic" field)
-		model_name            string              // 字段所在的模型名称
-		related_model_name    string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
-		related_keyfield_name string              // 关联字段所在的表的主键
-		middle_model_name     string              // 关系表数据模型 字段关联的Model和字段的many2many关系表Model
-		middle_keyfield_name  string              // M2M 表示源表(model_name)在中间表中关联字段的关联字段名，即源表主键字段
-		index                 bool                // whether the field is indexed in database
-		search                bool                // allow searching on self only if the related field is searchable
-		translate             bool                //???
-		as                    string              //值将作为[char,int,bool]被转换
+		formatChar             string              // Format 符号 "%s,%d..."
+		formatFunc             func(string) string // Format 自定义函数
+		autoJoin            bool                //
+		inheritAllFields              bool                // 是否继承该字段指向的Model的多有字段
+		tagArgs                 map[string]string   // [Tag]val 里的参数
+		setupStage           string              // 字段安装完成步骤 Base,full
+		isInherited      bool                // 该字段是否关联表的字段 relate
+		isRelated        bool                // 该字段是否关联表的外键字段
+		isAutoCreated         bool                // 是否是自动创建的字段 ("magic" field)
+		modelName            string              // 字段所在的模型名称
+		relatedModelName    string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
+		relatedKeyName string              // 关联字段所在的表的主键
+		joinModelName     string              // 关系表数据模型 字段关联的Model和字段的many2many关系表Model
+		joinSourceKey  string              // M2M 表示源表(modelName)在中间表中关联字段的关联字段名，即源表主键字段
+		isIndexed             bool                // whether the field is indexed in database
+		searchOnSelf          bool                // allow searching on self only if the related field is searchable
+		translatable          bool                //???
+		outputAs              string              //值将作为[char,int,bool]被转换
 
 		// published exportable
-		_attr_name              string                 // name of the field
-		_attr_store             bool                   // # 字段值是否保存到数据库
-		_attr_manual            bool                   //
-		_attr_depends           []string               //
-		_attr_readonly          bool                   // 只读
-		_attr_writeonly         bool                   // 只读
-		_attr_required          bool                   // 字段不为空
-		_attr_help              string                 //
-		_attr_title             string                 // 字段的Title
-		_attr_size              int                    // 考虑废弃 长度大小
-		_attr_sortable          bool                   // 可排序
-		_attr_searchable        bool                   //
-		_attr_type              string                 // #字段类型 最终存于dataset数据类型view
-		_attr_default           string                 /* 存储默认值字符串 */ // default(recs) returns the default value
-		_attr_related           string                 // ???
-		_attr_relation          string                 // 关系表
-		_attr_states            map[string]interface{} // 传递 UI 属性
-		_attr_selection         [][]string             //
-		_attr_company_dependent bool                   // ???
-		_attr_change_default    bool                   // ???
-		_attr_domain            string
-		_attr_groups            string //???// private membership
-		deprecated              string //???
-		ondelete                string // 当这个字段指向的资源删除时将发生。预定义值：cascade，set null，restrict，no action，set default。默认值：set null
+		name              string                 // name of the field
+		store             bool                   // # 字段值是否保存到数据库
+		manual            bool                   //
+		depends           []string               //
+		readonly          bool                   // 只读
+		writeonly         bool                   // 只读
+		required          bool                   // 字段不为空
+		description              string                 //
+		label             string                 // 字段的Title
+		size              int                    // 考虑废弃 长度大小
+		sortable          bool                   // 可排序
+		searchable        bool                   //
+		typeName              string                 // #字段类型 最终存于dataset数据类型view
+		defaultValue           string                 /* 存储默认值字符串 */ // default(recs) returns the default value
+		relatedPath           string                 // ???
+		relationModel          string                 // 关系表
+		uiStates            map[string]interface{} // 传递 UI 属性
+		selection         [][]string             //
+		companyDependent bool                   // ???
+		changeDefault    bool                   // ???
+		domain            string
+		permissionGroups            string //???// private membership
+		deprecatedNote          string //???
+		onDelete                string // 当这个字段指向的资源删除时将发生。预定义值：cascade，set null，restrict，no action，set default。默认值：set null
 
-		_func_inv    interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
-		_func_multi  string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
-		_func_search string      //允许你在这个字段上定义搜索功能
-		_defaultFunc FieldFunc   //
+		inverseHandler    interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
+		computeGroup  string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
+		searchHandler string      //允许你在这个字段上定义搜索功能
+		defaultFunc FieldFunc   //
 		// 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
-		_setterFunc   FieldFunc // 写入计算格式化函数
-		_getterFunc   FieldFunc // 读取计算格式化函数
-		_model        any       // 提供给compute使用
-		_setter       string    // 写入计算格式化函数
-		_getter       string    // 读取计算格式化函数
-		_depends      []string  // 约束 compute 计算依赖哪些字段来触发
-		_compute_sudo bool      //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
-		_oldname      string    //# the previous name of this field, so that ORM can rename it automatically at migration
+		setterFunc   FieldFunc // 写入计算格式化函数
+		getterFunc   FieldFunc // 读取计算格式化函数
+		boundModel    any       // 提供给compute使用
+		setterMethod  string    // 写入计算格式化函数
+		getterMethod  string    // 读取计算格式化函数
+		computeDepends      []string  // 约束 compute 计算依赖哪些字段来触发
+		computeAsAdmin bool      //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
+		previousName      string    //# the previous name of this field, so that ORM can rename it automatically at migration
 
 		// # one2many
-		_fields_id string
+		oneToManyFK string
 
 		// # many2many field limit
-		limit int64
+		m2mLimit int64
 
 		// # binary
-		attachment bool
+		useAttachmentStore bool
 	}
 
 	TRelatedField struct {
@@ -275,12 +274,12 @@ func FieldTypes() []string {
 func newBaseField(name string, opts ...FieldOption) *TField {
 	field := &TField{
 		//defaultIsEmpty: true,
-		_symbol_c:        "%s",
-		_symbol_f:        _FieldFormat,
-		_attr_name:       name,
-		_attr_store:      false, // 默认必须是False避免于后面Tag冲突
-		_attr_searchable: true,
-		_attr_required:   false,
+		formatChar:        "%s",
+		formatFunc:        _FieldFormat,
+		name:       name,
+		store:      false, // 默认必须是False避免于后面Tag冲突
+		searchable: true,
+		required:   false,
 	}
 
 	//cfg := newFieldConfig(field)
@@ -423,114 +422,114 @@ func _CharFormat(str string) string {
 }
 
 func (self *TField) Help() string {
-	return self._attr_help
+	return self.description
 }
 
 func (self *TField) ModelName() string {
-	return self.model_name
+	return self.modelName
 }
 
 func (self *TField) RelatedFieldName() string {
-	return self.related_keyfield_name
+	return self.relatedKeyName
 }
 
 func (self *TField) MiddleFieldName() string {
-	return self.middle_keyfield_name
+	return self.joinSourceKey
 }
 
 // 字段关联的表
 func (self *TField) RelatedModelName() string {
-	return self.related_model_name
+	return self.relatedModelName
 }
 
 // 多对多关系中 记录2表记录关联关系的表
 func (self *TField) MiddleModelName() string {
-	return self.middle_model_name
+	return self.joinModelName
 }
 
 func (self *TField) Groups() string {
-	return self._attr_groups
+	return self.permissionGroups
 }
 func (self *TField) Readonly(val ...bool) bool {
 	if len(val) > 0 {
-		self._attr_readonly = val[0]
+		self.readonly = val[0]
 	}
-	return self._attr_readonly
+	return self.readonly
 }
 
 func (self *TField) Required(val ...bool) bool {
 	if len(val) > 0 {
-		self._attr_required = val[0]
+		self.required = val[0]
 	}
-	return self._attr_required
+	return self.required
 }
 
 func (self *TField) Searchable(val ...bool) bool {
 	if len(val) > 0 {
-		self._attr_searchable = val[0]
+		self.searchable = val[0]
 	}
-	return self._attr_searchable
+	return self.searchable
 }
 
 // orm field type
-func (self *TField) Type() string          { return self._attr_type }
-func (self *TField) As() string            { return self.as }
-func (self *TField) SetAs(dataType string) { self.as = dataType }
+func (self *TField) Type() string          { return self.typeName }
+func (self *TField) As() string            { return self.outputAs }
+func (self *TField) SetAs(dataType string) { self.outputAs = dataType }
 
 // database sql field type
 func (self *TField) SQLType() *SQLType               { return &self.SqlType }
-func (self *TField) FieldsId() string                { return self._fields_id }
-func (self *TField) SymbolChar() string              { return self._symbol_c }
-func (self *TField) SymbolFunc() func(string) string { return self._symbol_f }
-func (self *TField) Title() string                   { return self._attr_title }
-func (self *TField) Translate() bool                 { return self.translate }
-func (self *TField) Getter() string                  { return self._getter }
-func (self *TField) Setter() string                  { return self._setter }
+func (self *TField) FieldsId() string                { return self.oneToManyFK }
+func (self *TField) SymbolChar() string              { return self.formatChar }
+func (self *TField) SymbolFunc() func(string) string { return self.formatFunc }
+func (self *TField) Title() string                   { return self.label }
+func (self *TField) Translate() bool                 { return self.translatable }
+func (self *TField) Getter() string                  { return self.getterMethod }
+func (self *TField) Setter() string                  { return self.setterMethod }
 
 func (self *TField) GetterFunc(ctx *TFieldContext) error {
-	return self._getterFunc(ctx)
+	return self.getterFunc(ctx)
 }
 
 func (self *TField) SetterFunc(ctx *TFieldContext) error {
-	return self._setterFunc(ctx)
+	return self.setterFunc(ctx)
 }
 
 func (self *TField) Store(val ...bool) bool {
 	if len(val) > 0 {
-		self._attr_store = val[0]
+		self.store = val[0]
 	}
 
-	return self._attr_store
+	return self.store
 }
 
 func (self *TField) Default(val ...any) any {
 	if len(val) > 0 {
-		self._attr_default = utils.ToString(val[0])
+		self.defaultValue = utils.ToString(val[0])
 	}
 
-	return self._attr_default
+	return self.defaultValue
 }
 
 func (self *TField) DefaultFunc() FieldFunc {
-	return self._defaultFunc
+	return self.defaultFunc
 }
 
 func (self *TField) Size(val ...int) int {
 	if len(val) > 0 {
-		self._attr_size = val[0]
+		self.size = val[0]
 	}
-	return self._attr_size
+	return self.size
 }
 
 func (self *TField) States(val ...map[string]interface{}) map[string]interface{} {
 	if len(val) > 0 {
-		self._attr_states = val[0]
+		self.uiStates = val[0]
 	}
-	return self._attr_states
+	return self.uiStates
 }
 
 func (self *TField) Search() bool {
-	return self.search
+	return self.searchOnSelf
 }
 
 func (self *TField) __IsClassicRead() bool {
@@ -542,23 +541,23 @@ func (self *TField) __IsClassicWrite() bool {
 }
 
 func (self *TField) IsIndex() bool {
-	return self.index
+	return self.isIndexed
 }
 
 func (self *TField) FuncMultiName() string {
-	return self._func_multi
+	return self.computeGroup
 }
 
 func (self *TField) Fnct_inv() interface{} {
-	return self._func_inv
+	return self.inverseHandler
 }
 
 // 该字段是不是指向其他model的id
 func (self *TField) IsRelatedField(arg ...bool) bool {
 	if len(arg) > 0 {
-		self.isRelatedField = arg[0]
+		self.isRelated = arg[0]
 	}
-	return self.isRelatedField
+	return self.isRelated
 }
 
 func (self *TField) IsPrimaryKey() bool {
@@ -576,7 +575,7 @@ func (self *TField) IsAutoIncrement() bool {
 }
 
 func (self *TField) IsDefaultEmpty() bool {
-	return self._attr_default == "" && self._defaultFunc == nil
+	return self.defaultValue == "" && self.defaultFunc == nil
 }
 
 func (self *TField) IsUnique() bool {
@@ -584,15 +583,15 @@ func (self *TField) IsUnique() bool {
 }
 
 func (self *TField) IsCreated() bool {
-	return self.isCreated
+	return self.isCreatedAt
 }
 
 func (self *TField) IsDeleted() bool {
-	return self.isDeleted
+	return self.isDeletedAt
 }
 
 func (self *TField) IsUpdated() bool {
-	return self.isUpdated
+	return self.isUpdatedAt
 }
 
 func (self *TField) IsCascade() bool {
@@ -611,22 +610,22 @@ func (self *TField) HasSetter() bool {
 }
 
 func (self *TField) IsNamed() bool {
-	return self.isNamed
+	return self.isNameField
 }
 
 func (self *TField) IsInheritedField(arg ...bool) bool {
 	if len(arg) > 0 {
-		self.isInheritedField = arg[0]
+		self.isInherited = arg[0]
 	}
-	return self.isInheritedField
+	return self.isInherited
 }
 
 func (self *TField) UseAttachment() bool {
-	return self.attachment
+	return self.useAttachmentStore
 }
 
 func (self *TField) IsAutoJoin() bool {
-	return self._auto_join
+	return self.autoJoin
 }
 
 // 复制一个新的一样的
@@ -650,26 +649,26 @@ func (self *TField) SetBase(f *TField) {
 }
 
 func (self *TField) Name() string {
-	return self._attr_name
+	return self.name
 }
 
 func (self *TField) Domain() string {
-	return self._attr_domain
+	return self.domain
 }
 
 func (self *TField) Relation() string {
-	return self._attr_relation
+	return self.relationModel
 }
 func (self *TField) SetName(name string) {
-	self._attr_name = name
+	self.name = name
 }
 
 func (self *TField) SetModelName(name string) {
-	self.model_name = name
+	self.modelName = name
 }
 
 func (self *TField) SetModel(model IModel) {
-	self._model = model
+	self.boundModel = model
 }
 
 // 重载
@@ -681,25 +680,25 @@ func (self *TField) UpdateDb(ctx *TTagContext) {
 // func (self *TField) GetDescription() (res *TField) {
 func (self *TField) GetAttributes(ctx *TTagContext) map[string]interface{} {
 	return map[string]interface{}{
-		"name":       self._attr_name,
-		"store":      self._attr_store,
-		"manual":     self._attr_manual,
-		"depends":    self._attr_depends,
-		"readonly":   self._attr_readonly,
-		"required":   self._attr_required,
-		"help":       self._attr_help,
-		"string":     self._attr_title,
-		"size":       self._attr_size,
-		"sortable":   self._attr_sortable,
-		"searchable": self._attr_searchable,
-		"type":       self._attr_type,
-		"default":    self._attr_default,
-		"related":    self._attr_related,
-		"states":     self._attr_states,
-		"selection":  self._attr_selection,
-		"groups":     self._attr_groups,
-		"domain":     self._attr_domain,
-		"index":      self.index,
+		"name":       self.name,
+		"store":      self.store,
+		"manual":     self.manual,
+		"depends":    self.depends,
+		"readonly":   self.readonly,
+		"required":   self.required,
+		"help":       self.description,
+		"string":     self.label,
+		"size":       self.size,
+		"sortable":   self.sortable,
+		"searchable": self.searchable,
+		"type":       self.typeName,
+		"default":    self.defaultValue,
+		"related":    self.relatedPath,
+		"states":     self.uiStates,
+		"selection":  self.selection,
+		"groups":     self.permissionGroups,
+		"domain":     self.domain,
+		"index":      self.isIndexed,
 	}
 }
 
@@ -733,7 +732,7 @@ func (self *TField) OnRead(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
 	if field.hasGetter {
-		if mehodName := field._getter; mehodName != "" {
+		if mehodName := field.getterMethod; mehodName != "" {
 			// TODO 同一记录方法到OBJECT里使用Method
 			if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
 				args := make([]reflect.Value, 0)
@@ -767,7 +766,7 @@ func (self *TField) OnWrite(ctx *TFieldContext) error {
 
 		/*
 			model := ctx.Model
-			if mehodName := field._setter; mehodName != "" {
+			if mehodName := field.setterMethod; mehodName != "" {
 				// TODO 同一记录方法到OBJECT里使用Method
 				if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
 					args := make([]reflect.Value, 0)
