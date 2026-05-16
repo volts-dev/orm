@@ -438,7 +438,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 			if cur_field != nil {
 				/* 忽略关系 */
-				if field.IsRelatedField() {
+				if field.IsRelated() {
 					continue
 				}
 
@@ -513,7 +513,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				// 如果现在表无该字段则添加
 			} else {
 				/* 这里必须过滤掉 NOTE [SyncModel] 里提及的特殊字段 */
-				if field.Store() && !field.IsInheritedField() {
+				if field.Store() && !field.IsInherited() {
 					//TODO # 修正上面指向错误Model
 					if err = self._addColumn(field); err != nil {
 						log.Err(err)
@@ -522,7 +522,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				}
 
 				/* 为M2M 添加中间表 */
-				if field.IsRelatedField() {
+				if field.IsRelated() {
 					field.UpdateDb(&TTagContext{
 						Orm:   self.orm,
 						Field: field,

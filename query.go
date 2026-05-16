@@ -269,7 +269,7 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 	alias := model.Table()
 	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
 		//for name, _ := range self._relate_fields {
-		if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInheritedField() {
+		if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInherited() {
 			// # retrieve the parent model where field is inherited from
 			parent_model_name := rel.RelateTableName
 			parent_model, err := model.Osv().GetModel(parent_model_name) // #i

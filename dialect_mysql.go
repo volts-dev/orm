@@ -502,8 +502,8 @@ func (db *mysql) GenAddColumnSQL(tableName string, field IField) string {
 	quoter := db.dialect.Quoter()
 	s, _ := ColumnString(db.dialect, field, true)
 	sql := fmt.Sprintf("ALTER TABLE %v ADD %v", quoter.Quote(tableName), s)
-	if len(field.Title()) > 0 {
-		sql += " COMMENT '" + field.Title() + "'"
+	if len(field.Label()) > 0 {
+		sql += " COMMENT '" + field.Label() + "'"
 	}
 	return sql
 }
@@ -811,9 +811,9 @@ func (db *mysql) CreateTableSql(model IModel, storeEngine, charset string) strin
 		s, _ := ColumnString(db.dialect, field, field.IsPrimaryKey() && len(model.GetPrimaryKeys()) == 1)
 		b.WriteString(s)
 
-		if len(field.Title()) > 0 {
+		if len(field.Label()) > 0 {
 			b.WriteString(" COMMENT '")
-			b.WriteString(field.Title())
+			b.WriteString(field.Label())
 			b.WriteString("'")
 		}
 		fieldCnt++

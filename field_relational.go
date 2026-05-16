@@ -65,8 +65,8 @@ func newOne2ManyField() IField {
 	return new(TOne2ManyField)
 }
 
-func (self *TRelational) GetAttributes(ctx *TTagContext) map[string]interface{} {
-	attrs := self.Base().GetAttributes(ctx)
+func (self *TRelational) Attributes(ctx *TTagContext) map[string]interface{} {
+	attrs := self.Base().Attributes(ctx)
 	attrs["relation"] = self.relatedModelName
 	return attrs
 }
@@ -148,8 +148,8 @@ func (self *TOne2OneField) Init(ctx *TTagContext) { //related_model_name string,
 
 func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 	field := ctx.Field
-	if !field.IsRelatedField() {
-		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+	if !field.IsRelated() {
+		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.TypeName())
 	}
 
 	ds, err := ctx.Model.OneToOne(ctx)
@@ -166,12 +166,12 @@ func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 			return err
 		}
 
-		//group := ds.GroupBy(field.RelatedFieldName())
+		//group := ds.GroupBy(field.RelatedKeyName())
 		group := ds.GroupBy(relateModel.IdField())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			// 获取关联表主键
 			//fieldValue := record.GetByField(field.Name())
-			fieldValue := record.GetByField(field.RelatedFieldName())
+			fieldValue := record.GetByField(field.RelatedKeyName())
 			grp := group[fieldValue]
 
 			if grp.Count() > 1 {
@@ -219,8 +219,8 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 		self.getterFunc(ctx)
 	} else {
 		field := ctx.Field
-		if !field.IsRelatedField() {
-			return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+		if !field.IsRelated() {
+			return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.TypeName())
 		}
 
 		ds, err := ctx.Model.OneToMany(ctx)
@@ -235,7 +235,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 				return err
 			}
 
-			group := ds.GroupBy(field.RelatedFieldName())
+			group := ds.GroupBy(field.RelatedKeyName())
 			ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 				fieldValue := record.GetByField(ctx.Model.IdField())
 				grp := group[fieldValue]
@@ -346,8 +346,8 @@ func (self *TMany2OneField) Init(ctx *TTagContext) {
 // TODO 未完成
 func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 	field := ctx.Field
-	if !field.IsRelatedField() {
-		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+	if !field.IsRelated() {
+		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.TypeName())
 	}
 
 	ds, err := ctx.Model.ManyToOne(ctx)
@@ -456,7 +456,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 			}
 
 			/* 如果是命名者 有权根据名称创建记录 且关联模型支持RecordName */
-			if ctx.Field.IsNamed() {
+			if ctx.Field.IsNameField() {
 				if recName := model.GetRecordName(); recName != "" {
 					model.Tx(ctx.Session.Clone())
 					ids, err := model.Create(&CreateRequest{
@@ -553,15 +553,15 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	orm := ctx.Orm
 	field := ctx.Field
 
-	if _, has := orm.osv.models.Load(field.MiddleModelName()); has {
+	if _, has := orm.osv.models.Load(field.JoinModelName()); has {
 		return
 	}
 
 	idField := ctx.Model.GetFieldByName(ctx.Model.IdField())
 	sqlType := orm.dialect.GetSqlType(idField)
-	middle_model := strings.Replace(field.MiddleModelName(), ".", "_", -1)
-	id1 := field.RelatedFieldName()
-	id2 := field.MiddleFieldName()
+	middle_model := strings.Replace(field.JoinModelName(), ".", "_", -1)
+	id1 := field.RelatedKeyName()
+	id2 := field.JoinSourceKey()
 	query := fmt.Sprintf(`
 	           CREATE TABLE IF NOT EXISTS "%s" (
 				"%s" %s NOT NULL,
@@ -585,7 +585,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	relModel := new(TModel)
 	model_val := reflect.Indirect(reflect.ValueOf(relModel))
 	model_type := model_val.Type()
-	model, err := orm._modelMetas(newModel(field.MiddleModelName(), middle_model, model_val, model_type, nil))
+	model, err := orm._modelMetas(newModel(field.JoinModelName(), middle_model, model_val, model_type, nil))
 	if err != nil {
 		log.Err(err)
 	}
@@ -599,8 +599,8 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 // TODO :未完成
 func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	field := ctx.Field
-	if !field.IsRelatedField() {
-		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.Type())
+	if !field.IsRelated() {
+		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.TypeName())
 	}
 
 	ds, err := ctx.Model.ManyToMany(ctx)
@@ -609,7 +609,7 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	}
 
 	if ds.Count() > 0 {
-		group := ds.GroupBy(field.RelatedFieldName())
+		group := ds.GroupBy(field.RelatedKeyName())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			//fieldValue := record.GetByField(field.Name()) // 货得many2many字段值
 			fieldValue := record.GetByField(ctx.Model.IdField()) // 货得many2many字段值
@@ -738,21 +738,21 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 	quoter := ctx.Session.Orm().dialect.Quoter()
 	field := ctx.Field
 
-	middle_table_name := quoter.Quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
+	middle_table_name := quoter.Quote(strings.Replace(field.JoinModelName(), ".", "_", -1))
 	for _, rec_id := range ctx.Ids {
 		for _, relate_id := range ids {
 			query := fmt.Sprintf(
 				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
-				middle_table_name, quoter.Quote(field.MiddleFieldName()), quoter.Quote(field.RelatedFieldName()),
+				middle_table_name, quoter.Quote(field.JoinSourceKey()), quoter.Quote(field.RelatedKeyName()),
 			)
 
 			/*
 			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)
 			                           (SELECT a, b FROM unnest(array[%s]) AS a, unnest(array[%s]) AS b)
 			                           EXCEPT (SELECT %s, %s FROM %s WHERE %s IN (%s))`,
-			   		middle_table_name, field.RelatedFieldName(), field.MiddleFieldName(),
+			   		middle_table_name, field.RelatedKeyName(), field.JoinSourceKey(),
 			   		rec_id, strings.Join(ids, ","),
-			   		field.RelatedFieldName(), field.MiddleFieldName(), middle_table_name, field.RelatedFieldName(), rec_id,
+			   		field.RelatedKeyName(), field.JoinSourceKey(), middle_table_name, field.RelatedKeyName(), rec_id,
 			   	)
 			*/
 
@@ -771,18 +771,18 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) error {
 	quote := ctx.Session.Orm().dialect.Quoter().Quote
 	field := ctx.Field
-	middle_table_name := quote(strings.Replace(field.MiddleModelName(), ".", "_", -1))
+	middle_table_name := quote(strings.Replace(field.JoinModelName(), ".", "_", -1))
 
 	ctxIdsSql := strings.Repeat("?,", len(ctx.Ids)-1) + "?"
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "DELETE FROM %s WHERE %s.%s IN (%s) ",
-		middle_table_name, middle_table_name, quote(field.MiddleFieldName()), ctxIdsSql)
+		middle_table_name, middle_table_name, quote(field.JoinSourceKey()), ctxIdsSql)
 
 	args := append([]interface{}{}, ctx.Ids...)
 	if len(ids) > 0 {
 		relIdsSql := strings.Repeat("?,", len(ids)-1) + "?"
-		fmt.Fprintf(&b, " AND %s.%s IN (%s)", middle_table_name, quote(field.RelatedFieldName()), relIdsSql)
+		fmt.Fprintf(&b, " AND %s.%s IN (%s)", middle_table_name, quote(field.RelatedKeyName()), relIdsSql)
 		args = append(args, ids...)
 	}
 

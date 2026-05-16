@@ -992,8 +992,8 @@ func (db *postgres) CreateTableSql(model IModel, storeEngine, charset string) st
 		s, _ := ColumnString(db.dialect, field, field.IsPrimaryKey() && len(model.GetPrimaryKeys()) == 1)
 		b.WriteString(s)
 
-		if len(field.Title()) > 0 {
-			comments.WriteString(fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'; ", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Title()))
+		if len(field.Label()) > 0 {
+			comments.WriteString(fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'; ", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Label()))
 		}
 		fieldCnt++
 	}
@@ -1030,12 +1030,12 @@ func (db *postgres) GenAddColumnSQL(tableName string, field IField) string {
 	commentSQL := "; "
 	if len(db.getSchema()) == 0 || strings.Contains(tableName, ".") {
 		addColumnSQL = fmt.Sprintf("ALTER TABLE %s ADD %s", quoter.Quote(tableName), s)
-		commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Title())
+		commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Label())
 		return addColumnSQL + commentSQL
 	}
 
 	addColumnSQL = fmt.Sprintf("ALTER TABLE %s.%s ADD %s", quoter.Quote(db.getSchema()), quoter.Quote(tableName), s)
-	commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s.%s IS '%s'", quoter.Quote(db.getSchema()), quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Title())
+	commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s.%s IS '%s'", quoter.Quote(db.getSchema()), quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Label())
 	return addColumnSQL + commentSQL
 }
 

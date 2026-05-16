@@ -391,7 +391,7 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 			continue
 		}
 
-		if !includeUpdated && col.IsUpdated() {
+		if !includeUpdated && col.IsUpdatedAt() {
 			continue
 		}
 
@@ -673,11 +673,11 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 					continue
 				}
 
-				if field.IsRelatedField() {
+				if field.IsRelated() {
 
 				}
 
-				if field.Store() && field.Type() == TYPE_M2O {
+				if field.Store() && field.TypeName() == TYPE_M2O {
 					// key = (self._name, order_column._obj, order_field)
 					// if key not in seen{
 					//     seen.add(key)
@@ -685,7 +685,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 					//	}
 				} else if field.Store() && field.SQLType().Name != "" {
 					qualifield_name := query.inherits_join_calc(fieldName, self.Model)
-					if field.Type() == "boolean" {
+					if field.TypeName() == "boolean" {
 						qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 					}
 
@@ -759,11 +759,11 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 				continue
 			}
 
-			if field.IsRelatedField() {
+			if field.IsRelated() {
 
 			}
 
-			if field.Store() && field.Type() == TYPE_M2O {
+			if field.Store() && field.TypeName() == TYPE_M2O {
 				// key = (self._name, order_column._obj, order_field)
 				// if key not in seen{
 				//     seen.add(key)
@@ -771,7 +771,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 				//	}
 			} else if field.Store() && field.SQLType().Name != "" {
 				qualifield_name := query.inherits_join_calc(order_field, self.Model)
-				if field.Type() == "boolean" {
+				if field.TypeName() == "boolean" {
 					qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 				}
 

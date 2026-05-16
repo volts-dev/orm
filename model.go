@@ -659,7 +659,7 @@ func (self *TModel) _add_inherited_fields() {
 			if has := self.obj.GetFieldByName(refname); has == nil {
 				lNew = utils.Clone(ref).(IField)
 				lNew.SetBase(ref.Base())
-				lNew.IsInheritedField(true)
+				lNew.IsInherited(true)
 				self.obj.SetField(lNew)
 			}
 		}
@@ -688,11 +688,11 @@ func (self *TModel) _add_inherited_fields() {
 
 func (self *TModel) ___getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	field := ctx.Field
-	if !field.IsRelatedField() {
-		return nil, fmt.Errorf("the field %s must related field, but not %s!", ctx.Field.Name(), field.Type())
+	if !field.IsRelated() {
+		return nil, fmt.Errorf("the field %s must related field, but not %s!", ctx.Field.Name(), field.TypeName())
 	}
 
-	switch field.Type() {
+	switch field.TypeName() {
 	case TYPE_O2O:
 		return self.OneToOne(ctx)
 	case TYPE_O2M:
@@ -703,7 +703,7 @@ func (self *TModel) ___getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) 
 		return self.ManyToMany(ctx)
 	}
 
-	return nil, fmt.Errorf("the type <%s> of relate field not implemented!", field.Type())
+	return nil, fmt.Errorf("the type <%s> of relate field not implemented!", field.TypeName())
 }
 
 /*
@@ -746,8 +746,8 @@ func (self *TModel) __select_column_data() *dataset.TDataSet {
 // 转换
 func (self *TModel) _validate(vals map[string]interface{}) {
 	for key, val := range vals {
-		if f := self.GetFieldByName(key); f != nil && !f.IsRelatedField() {
-			switch f.Type() {
+		if f := self.GetFieldByName(key); f != nil && !f.IsRelated() {
+			switch f.TypeName() {
 			case "boolean":
 				vals[key] = utils.ToBool(val)
 			case "integer":

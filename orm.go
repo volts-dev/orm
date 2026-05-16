@@ -590,7 +590,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 			} else {
 				//** 如果是继承的字段则替换
 				//原因：Join时导致Select到的字段为关联表字段而获取不到原本Model的字段如Id,write_time...
-				if field.IsInheritedField() {
+				if field.IsInherited() {
 					//# 共同重叠字段
 					//# 将关联表字段移入重叠字段表
 					// 将现有表字段添加进重叠字段
@@ -612,7 +612,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 			// # 根据Tag创建字段
 			// 尝试获取新的Field以替换
 			if IsFieldType(field_type_name) { // # 当属性非忽略或者BaseModel
-				if field == nil || (field.Type() != field_type_name) { // #字段实例为空 [或者] 字段类型和当前类型不一致时重建字段实例
+				if field == nil || (field.TypeName() != field_type_name) { // #字段实例为空 [或者] 字段类型和当前类型不一致时重建字段实例
 					field, err = NewField(field_name, WithFieldType(field_type_name)) // 根据Tag里的 属性类型创建Field实例
 					if err != nil {
 						return nil, err
@@ -634,7 +634,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 
 			/* 执行field初始化 */
 			tagCtx.Field = field
-			tagCtx.Params = tagMaps[field.Type()]
+			tagCtx.Params = tagMaps[field.TypeName()]
 			field.Init(tagCtx)
 
 			/* 同步model和数据库的SqlType */
@@ -659,12 +659,12 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 			//}
 
 			// # 设置Help
-			if field.Title() == "" {
+			if field.Label() == "" {
 				field.Base().label = utils.TitleCasedNameWithSpace(field.Name())
 			}
 
-			if field.Base().description == "" && field.Title() != "" {
-				field.Base().description = field.Title()
+			if field.Base().description == "" && field.Label() != "" {
+				field.Base().description = field.Label()
 			}
 
 			// REmove #　通过条件过滤不学要的原始字段
@@ -685,7 +685,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 			//field.UpdateDb(tagCtx)
 
 			// 添加字段进Table
-			if field.Type() != "" && field.Name() != "" {
+			if field.TypeName() != "" && field.Name() != "" {
 				res_model.obj.SetField(field) //
 			}
 		}
@@ -878,7 +878,7 @@ func (self *TOrm) _handleTags(fieldCtx *TTagContext, tags map[string][]string, o
 	var tag_str string
 	var tagCtrl ITagController
 	for _, tagName := range order {
-		if field != nil && tagName == field.Type() {
+		if field != nil && tagName == field.TypeName() {
 			continue // 忽略该Tag
 		}
 

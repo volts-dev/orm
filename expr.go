@@ -656,7 +656,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			// FIELD NOT FOUND
 			return log.Errf("Invalid field <%s>@<%s> in leaf <%s>", left.String(), model.String(), domain.Domain2String(ex_leaf.leaf))
 
-		} else if field.IsInheritedField() {
+		} else if field.IsInherited() {
 			// ----------------------------------------
 			// FIELD NOT FOUND
 			// -> from inherits'd fields -> work on the related model, and add
@@ -698,7 +698,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		} else if utils.IndexOf(path[0], MAGIC_COLUMNS...) != -1 {
 			self.push_result(ex_leaf)
 
-		} else if len(path) > 1 && field.Type() == TYPE_M2O && field.IsAutoJoin() {
+		} else if len(path) > 1 && field.TypeName() == TYPE_M2O && field.IsAutoJoin() {
 			/* # ----------------------------------------
 			   # PATH SPOTTED
 			   # -> many2one or one2many with IsAutoJoin():
@@ -716,9 +716,9 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			ex_leaf.add_join_context(comodel.GetBase(), fieldName, comodel.IdField(), fieldName)
 			self.push(create_substitution_leaf(ex_leaf, domain.NewDomainNode(path[1], operator.String(), right.String()), comodel.GetBase(), false))
 
-		} else if len(path) > 1 && field.Store() && field.Type() == TYPE_O2M && field.IsAutoJoin() {
+		} else if len(path) > 1 && field.Store() && field.TypeName() == TYPE_O2M && field.IsAutoJoin() {
 			//  # res_partner.id = res_partner__bank_ids.partner_id
-			ex_leaf.add_join_context(comodel.GetBase(), comodel.IdField(), field.FieldsId(), fieldName)
+			ex_leaf.add_join_context(comodel.GetBase(), comodel.IdField(), field.OneToManyFK(), fieldName)
 			node, err := domain.String2Domain(field.Domain(), nil) //column._domain(model) if callable(column._domain) else column._domain
 			if err != nil {
 				log.Err(err)
@@ -744,7 +744,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		} else if len(path) > 1 && field.Store() && field.IsAutoJoin() {
 			return fmt.Errorf("_auto_join attribute not supported on many2many column %s", left.String())
 
-		} else if len(path) > 1 && field.Store() && field.Type() == TYPE_M2O {
+		} else if len(path) > 1 && field.Store() && field.TypeName() == TYPE_M2O {
 			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
 			lDs, _ := comodel.Records().Domain(domain_str).Read() //search(cr, uid, [(path[1], operator, right)], context=dict(context, active_test=False))
 			right_ids := lDs.Keys()
@@ -753,7 +753,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			ex_leaf.leaf.Push(right_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
 
-		} else if len(path) > 1 && field.Store() && utils.IndexOf(field.Type(), TYPE_M2M, TYPE_O2M) != -1 {
+		} else if len(path) > 1 && field.Store() && utils.IndexOf(field.TypeName(), TYPE_M2M, TYPE_O2M) != -1 {
 			// Making search easier when there is a left operand as column.o2m or column.m2m
 			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
 			lDs, _ := comodel.Records().Domain(domain_str).Read()
@@ -770,7 +770,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 		} else if !field.Store() {
 			//# Non-stored field should provide an implementation of search.
 			var node *domain.TDomainNode
-			if !field.Search() {
+			if !field.SearchOnSelf() {
 				//# field does not support search!
 				log.Errf("Non-stored field %s cannot be searched.", field.Name)
 				// if _log.isEnabledFor(logging.DEBUG):
@@ -806,18 +806,18 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			}
 			//} else if field.IsFuncField() && !field.Store { // isinstance(column, fields.function) and not column.store
 
-		} else if field.Type() == TYPE_O2M && (operator.String() == "child_of" || operator.String() == "parent_of") {
+		} else if field.TypeName() == TYPE_O2M && (operator.String() == "child_of" || operator.String() == "parent_of") {
 			// -------------------------------------------------
 			// RELATIONAL FIELDS
 			// -------------------------------------------------
 
-		} else if field.Type() == TYPE_O2M {
+		} else if field.TypeName() == TYPE_O2M {
 			// TODO one2many
 			log.Errf("the one2many %s@%s is no implemented!", field.Name(), field.ModelName())
-		} else if field.Type() == TYPE_M2M {
+		} else if field.TypeName() == TYPE_M2M {
 			// TODO many2many
 			log.Errf("the many2many %s@%s is no implemented!", field.Name(), field.ModelName())
-		} else if field.Type() == TYPE_M2O {
+		} else if field.TypeName() == TYPE_M2O {
 			if _, has := HIERARCHY_FUNCS[operator.String()]; has {
 				/*
 				   ids2 = to_ids(right, comodel, leaf)
@@ -866,7 +866,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 				*/
 			}
 
-		} else if field.Type() == "binary" && field.(*TBinField).attachment {
+		} else if field.TypeName() == "binary" && field.(*TBinField).attachment {
 
 		} else {
 			// -------------------------------------------------
@@ -876,7 +876,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			// -> manage translatable fields
 			// -------------------------------------------------
 
-			if field.Type() == "datetime" && right != nil && right.Count() == 10 {
+			if field.TypeName() == "datetime" && right != nil && right.Count() == 10 {
 				if operator.ValueIn(">", "<=") {
 					//  right += ' 23:59:59'
 				} else {
@@ -1084,7 +1084,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 			res_params = append(res_params, vals[0])
 
 		}
-	} else if is_field && (field.Type() == Bool) &&
+	} else if is_field && (field.TypeName() == Bool) &&
 		((operator.String() == "=" && utils.ToBool(vals[0]) == false) || (operator.String() == "!=" && utils.ToBool(vals[0]) == true)) {
 		// 字段是否Bool类型
 		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, aliasTable, left.String(), aliasTable, left.String())
@@ -1094,7 +1094,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		res_query = fmt.Sprintf(`%s."%s" IS NULL `, aliasTable, left.String())
 		res_params = nil
 
-	} else if is_field && field.Type() == Bool &&
+	} else if is_field && field.TypeName() == Bool &&
 		((operator.String() == "!=" && utils.ToBool(vals[0]) == false) || (operator.String() == "==" && utils.ToBool(vals[0]) == true)) {
 		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, aliasTable, left.String(), aliasTable, left.String())
 		res_params = nil

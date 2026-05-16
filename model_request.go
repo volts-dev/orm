@@ -473,21 +473,21 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	}
 	field := ctx.Field
 
-	if !field.IsRelatedField() || field.Type() != TYPE_O2M {
-		return nil, fmt.Errorf("could not call model func OneToMany(%v,%v) from a not OneToMany field %v@%v!", ids, ctx.Field.Name(), field.IsRelatedField(), field.Type())
+	if !field.IsRelated() || field.TypeName() != TYPE_O2M {
+		return nil, fmt.Errorf("could not call model func OneToMany(%v,%v) from a not OneToMany field %v@%v!", ids, ctx.Field.Name(), field.IsRelated(), field.TypeName())
 	}
 
 	// # retrieve the lines in the comodel
 
 	relModelName := field.RelatedModelName()
-	relFieldName := field.RelatedFieldName()
+	relFieldName := field.RelatedKeyName()
 	relateModel, err := self.orm.GetModel(relModelName)
 	if err != nil {
 		return nil, err
 	}
 
 	rel_filed := relateModel.GetFieldByName(relFieldName)
-	if rel_filed == nil || rel_filed.Type() != TYPE_M2O {
+	if rel_filed == nil || rel_filed.TypeName() != TYPE_M2O {
 		return nil, fmt.Errorf("the relate model <%s> field <%s> is not OneToMany type.", relModelName, relFieldName)
 	}
 
@@ -518,8 +518,8 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 
 		// 检测字段是否合格
-		if !field.IsRelatedField() || field.Type() != TYPE_M2O {
-			return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
+		if !field.IsRelated() || field.TypeName() != TYPE_M2O {
+			return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, field.Name(), field.IsRelated(), field.TypeName())
 		}
 
 		relateModelName := field.RelatedModelName()
@@ -559,8 +559,8 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	field := ctx.Field
 
-	if !field.IsRelatedField() || field.Type() != TYPE_M2M {
-		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelatedField(), field.Type())
+	if !field.IsRelated() || field.TypeName() != TYPE_M2M {
+		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelated(), field.TypeName())
 	}
 
 	var err error
@@ -591,9 +591,9 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	// # retrieve the lines in the comodel
 	relModelName := field.RelatedModelName() //# 字段关联表名
-	relFieldName := field.RelatedFieldName()
-	midModelName := field.MiddleModelName() //# 字段M2m关系表名
-	midFieldName := field.MiddleFieldName()
+	relFieldName := field.RelatedKeyName()
+	midModelName := field.JoinModelName() //# 字段M2m关系表名
+	midFieldName := field.JoinSourceKey()
 
 	// 检测关联Model合法性
 	orm := self.orm

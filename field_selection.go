@@ -121,7 +121,7 @@ func (self *TSelectionField) setup_full(model IModel) {
 	}
 }
 
-func (self *TSelectionField) GetAttributes(ctx *TTagContext) map[string]interface{} {
+func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]interface{} {
 	model := ctx.Model
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 
@@ -137,7 +137,7 @@ func (self *TSelectionField) GetAttributes(ctx *TTagContext) map[string]interfac
 		}
 	}
 
-	attrs := self.Base().GetAttributes(ctx)
+	attrs := self.Base().Attributes(ctx)
 	attrs["selection"] = self._attr_selection
 	return attrs
 }

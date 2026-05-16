@@ -245,7 +245,7 @@ var (
 // FIXME 优化
 // 转换数据库值到字段输出数据类型
 func value2FieldTypeValue(field IField, value interface{}) interface{} {
-	type_name := field.As()
+	type_name := field.OutputAs()
 	if type_name == "" {
 		type_name = field.SQLType().Name
 	}

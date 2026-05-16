@@ -668,12 +668,12 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 				log.Warnf(`%s.read() with unknown field '%s'`, model.String(), name)
 				continue
 			}
-			if !field.IsRelatedField() { //如果是本Model的字段
+			if !field.IsRelated() { //如果是本Model的字段
 				storeFields = append(storeFields, name)
 			} else {
 				computedFields = append(computedFields, name)
 
-				if field.IsRelatedField() { // and field.base_field.column:
+				if field.IsRelated() { // and field.base_field.column:
 					relateFields = append(relateFields, name)
 				}
 			}
@@ -681,12 +681,12 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	} else {
 		for _, field := range model.GetFields() {
 			name := field.Name()
-			if !field.IsRelatedField() { //如果是本Model的字段
+			if !field.IsRelated() { //如果是本Model的字段
 				storeFields = append(storeFields, name)
 			} else {
 				computedFields = append(computedFields, name)
 
-				if field.IsRelatedField() { // and field.base_field.column:
+				if field.IsRelated() { // and field.base_field.column:
 					relateFields = append(relateFields, name)
 				}
 			}
@@ -804,7 +804,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	//	当字段为field.base_field.column.translate可调用即是translate为回调函数而非Bool值时不加入Join
 	for _, fld := range fields {
 		//if fld.IsClassicRead() && !(fld.IsRelatedField() && false) { //用false代替callable(field.base_field.column.translate)
-		if fld.Store() && fld.SQLType().Name != "" && !(fld.IsRelatedField() && false) { //用false代替callable(field.base_field.column.translate)
+		if fld.Store() && fld.SQLType().Name != "" && !(fld.IsRelated() && false) { //用false代替callable(field.base_field.column.translate)
 			fields_pre = append(fields_pre, fld)
 		}
 	}
@@ -947,7 +947,7 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 		}
 
 		if field.Store() {
-			switch field.Type() {
+			switch field.TypeName() {
 			case TYPE_O2O:
 				continue
 			case TYPE_M2O:
@@ -1060,7 +1060,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 			continue
 		}
 
-		if !field.IsInheritedField() {
+		if !field.IsInherited() {
 			if field.Base().isCreatedAt && isIncludedIds {
 				// 包含主键的数据,说明已经是被创建过了,则不补全该字段
 				continue
@@ -1117,7 +1117,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		}
 
 		// 关系字段不自动转换类型！将由字段独自处理
-		if field.IsRelatedField() {
+		if field.IsRelated() {
 			if setted {
 				upd_todo = append(upd_todo, field)
 			}
@@ -1176,7 +1176,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 					/* 计算默认值 */
 					// For inherited fields with setter/getter, default values must still land in rel_vals.
 					// Let the inherited-field handler below run (it can invoke OnWrite/DefaultFunc).
-					if !field.IsInheritedField() {
+					if !field.IsInherited() {
 						upd_todo = append(upd_todo, field)
 						continue
 					}
@@ -1190,7 +1190,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 				//if setted && (includeNil || isIncludedIds) {
 				//if  (includeNil || isIncludedIds) {
 				/* 分离关系表字段 */
-				/*if field.IsInheritedField() {
+				/*if field.IsInherited() {
 					// 如果是继承字段移动到 rel_vals 里创建记录，因本Model对应的数据没有该字段
 					tableName := field.ModelName() // rel_fld.RelateTableName
 					rel_vals[tableName][name] = field.onConvertToWrite(self, fieldValue)
@@ -1255,7 +1255,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		//#*** 非Model固有字段归为关联表字段 2个判断缺一不可
 		//#1 判断是否是关联表可能性
 		//#2 判断是否Model和关联Model都有该字段
-		if field.IsInheritedField() {
+		if field.IsInherited() {
 			tableName := field.ModelName()
 			if (setted && includeNil) || !utils.IsBlank(fieldValue) {
 				rel_vals[tableName][name] = fieldValue // 其他表的值无需格式化  field.onConvertToWrite(self, fieldValue)
@@ -1288,14 +1288,14 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 			}
 		*/
 		/* check selection */
-		if !field.IsInheritedField() && field.Type() == "selection" && fieldValue != nil {
+		if !field.IsInherited() && field.TypeName() == "selection" && fieldValue != nil {
 			self._check_selection_field_value(field, fieldValue) //context
 		}
 	}
 
 	for _, field = range ext_todo {
 		name = field.Name()
-		fieldValue, _ = self.orm._nowTime(field.Type()) //TODO 优化预先生成日期
+		fieldValue, _ = self.orm._nowTime(field.TypeName()) //TODO 优化预先生成日期
 
 		if len(new_vals) != 0 {
 			new_vals[name] = fieldValue // 为当前表添加共同字段值
