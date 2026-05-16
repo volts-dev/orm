@@ -57,8 +57,6 @@ type (
 	// IField represents a field interface in a data model.
 	// It defines the behaviors and properties of a field, including its configuration, constraints, and interactions with other fields or models.
 	IField interface {
-		///Config() *FieldConfig
-		//String(d IDialect) string
 		IsPrimaryKey() bool
 		IsCompositeKey() bool // 是复合主键
 		IsAutoIncrement() bool
@@ -100,7 +98,6 @@ type (
 		SetModelName(name string)
 		SetModel(IModel)
 		SetBase(field *TField)
-		//ColumnType() string // the sql type
 		Getter() string
 		GetterFunc(*TFieldContext) error
 		Setter() string
@@ -114,15 +111,11 @@ type (
 		MiddleModelName() string // 多对多关系中 记录2表记录关联关系的表
 		FieldsId() string
 		IsIndex() bool
-		//IsRelated() bool
 		IsRelatedField(arg ...bool) bool
 		IsInheritedField(arg ...bool) bool
-		//IsCommonField(arg ...bool) bool
 		IsAutoJoin() bool // 自动Join
 		HasGetter() bool
 		HasSetter() bool
-		//IsClassicRead() bool
-		//IsClassicWrite() bool
 
 		UseAttachment() bool
 
