@@ -802,7 +802,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 						continue //# ignore non-readable or "non-joinable" fields
 					}
 				} else if rel_fld := self.session.model.RelateFieldByName(order_field); rel_fld != nil {
-					parent_obj := self.session.orm.osv.GetModel(rel_fld.RelateTableName) // #i
+					parent_obj := self.session.orm.osv.GetModel(rel_fld.RelatedTableName) // #i
 					order_fld := parent_obj.FieldByName(order_field)
 					// parent_obj = self.pool[self._inherit_fields[order_field][3]]
 					// order_column = parent_obj._columns[order_field]

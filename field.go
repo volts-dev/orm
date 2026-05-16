@@ -222,24 +222,14 @@ type (
 		useAttachmentStore bool
 	}
 
+	// TRelatedField 描述 inherits 继承字段的映射：
+	// 当前 model 上出现的某个字段实际来自父 model 的哪个字段。
 	TRelatedField struct {
-		// Mapping from inherits'd field name to triple (m, r, f, n) where
-		// m is the model from which it is inherits'd,
-		// r is the (local) field towards m,
-		// f is the _column object itself,
-		// n is the original (i.e. top-most) parent model.
-		// Example:
-		//  { 'field_name': ('parent_model', 'm2o_field_to_reach_parent',
-		//                   field_column_obj, origina_parent_model), ... }
-		name string
-		//ParentModel         string // 继承至哪个
-		//ParentM2OField      string // 外键 m2o_field_to_reach_parent
-		//FieldColumn         *TField
-		//OriginalParentModel *TModel // 最底层的Model
-		RelateTableName   string //idx:0 TODO Table改为Model
-		RelateFieldName   string //idx:1
-		RelateField       IField //idx:2
-		RelateTopestTable string //idx:3 //关联字段由那个表产生
+		name             string // 当前 model 中的字段名
+		RelatedTableName string // 关联表（父 model）名
+		RelatedFieldName string // 关联表中的目标字段名
+		RelatedField     IField // 关联到的实际 IField 实例
+		RelatedRootModel string // 多级 inherits 时最顶层的 model 名
 	}
 
 	TFieldValue struct {
@@ -403,13 +393,13 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 	return field, nil
 }
 
-func NewRelateField(aNames string, relate_table_name string, relate_field_name string, aField IField, relate_topest_table string) *TRelatedField {
+func NewRelatedField(name, relatedTable, relatedField string, field IField, rootModel string) *TRelatedField {
 	return &TRelatedField{
-		name:              aNames,
-		RelateTableName:   relate_table_name,
-		RelateFieldName:   relate_field_name,
-		RelateField:       aField,
-		RelateTopestTable: relate_topest_table,
+		name:             name,
+		RelatedTableName: relatedTable,
+		RelatedFieldName: relatedField,
+		RelatedField:     field,
+		RelatedRootModel: rootModel,
 	}
 }
 

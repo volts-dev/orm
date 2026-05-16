@@ -677,7 +677,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			//ex_leaf.add_join_context(next_model, model._inherits[next_model._name], 'id', model._inherits[next_model._name])
 
 			related_field := model.obj.GetRelatedFieldByName(fieldName)
-			next_model, err := model.orm.GetModel(related_field.RelateTableName)
+			next_model, err := model.orm.GetModel(related_field.RelatedTableName)
 			if err != nil {
 				return err
 			}
