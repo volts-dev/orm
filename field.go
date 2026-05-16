@@ -461,43 +461,52 @@ func NewRelatedField(name, relatedTable, relatedField string, field IField, root
 	}
 }
 
+// _FieldFormat is the identity field formatter.
 func _FieldFormat(str string) string {
 	return str
 }
 
+// _CharFormat is the identity char formatter (previously wrapped values in single quotes).
 func _CharFormat(str string) string {
 	return str //`'` + str + `'`
 }
 
+// Description returns the long-form help text for the field.
 func (self *TField) Description() string {
 	return self.description
 }
 
+// ModelName returns the name of the model this field belongs to.
 func (self *TField) ModelName() string {
 	return self.modelName
 }
 
+// RelatedKeyName returns the related table's primary-key field name.
 func (self *TField) RelatedKeyName() string {
 	return self.relatedKeyName
 }
 
+// JoinSourceKey returns the source-side foreign key in an M2M join table.
 func (self *TField) JoinSourceKey() string {
 	return self.joinSourceKey
 }
 
-// 字段关联的表
+// RelatedModelName returns the name of the related model (for relational fields).
 func (self *TField) RelatedModelName() string {
 	return self.relatedModelName
 }
 
-// 多对多关系中 记录2表记录关联关系的表
+// JoinModelName returns the M2M join table's model name.
 func (self *TField) JoinModelName() string {
 	return self.joinModelName
 }
 
+// Groups returns the comma-separated permission groups that may access the field.
 func (self *TField) Groups() string {
 	return self.permissionGroups
 }
+
+// Readonly returns the readonly flag; when val is supplied, sets it first.
 func (self *TField) Readonly(val ...bool) bool {
 	if len(val) > 0 {
 		self.readonly = val[0]
@@ -505,6 +514,7 @@ func (self *TField) Readonly(val ...bool) bool {
 	return self.readonly
 }
 
+// Required returns the required-not-null flag; when val is supplied, sets it first.
 func (self *TField) Required(val ...bool) bool {
 	if len(val) > 0 {
 		self.required = val[0]
@@ -512,6 +522,7 @@ func (self *TField) Required(val ...bool) bool {
 	return self.required
 }
 
+// Searchable returns whether the field can be filtered on; when val is supplied, sets it first.
 func (self *TField) Searchable(val ...bool) bool {
 	if len(val) > 0 {
 		self.searchable = val[0]
@@ -519,29 +530,50 @@ func (self *TField) Searchable(val ...bool) bool {
 	return self.searchable
 }
 
-// orm field type
-func (self *TField) TypeName() string             { return self.typeName }
-func (self *TField) OutputAs() string             { return self.outputAs }
-func (self *TField) SetOutputAs(dataType string)  { self.outputAs = dataType }
+// TypeName returns the ORM-level type identifier (e.g. "char", "int", "many2one").
+func (self *TField) TypeName() string { return self.typeName }
 
-// database sql field type
-func (self *TField) SQLType() *SQLType               { return &self.SqlType }
-func (self *TField) OneToManyFK() string             { return self.oneToManyFK }
-func (self *TField) FormatChar() string              { return self.formatChar }
+// OutputAs returns the type identifier the value is coerced to on read (char/int/bool/...).
+func (self *TField) OutputAs() string { return self.outputAs }
+
+// SetOutputAs sets the output coercion type identifier.
+func (self *TField) SetOutputAs(dataType string) { self.outputAs = dataType }
+
+// SQLType returns the field's SQL column type.
+func (self *TField) SQLType() *SQLType { return &self.SqlType }
+
+// OneToManyFK returns the inverse foreign-key field name for one-to-many relations.
+func (self *TField) OneToManyFK() string { return self.oneToManyFK }
+
+// FormatChar returns the printf-style format placeholder used to render the value (e.g. "%s").
+func (self *TField) FormatChar() string { return self.formatChar }
+
+// FormatFunc returns the optional formatter that post-processes the placeholder output.
 func (self *TField) FormatFunc() func(string) string { return self.formatFunc }
-func (self *TField) Label() string                   { return self.label }
-func (self *TField) Translate() bool                 { return self.translatable }
-func (self *TField) Getter() string                  { return self.getterMethod }
-func (self *TField) Setter() string                  { return self.setterMethod }
 
+// Label returns the human-readable label shown in UI forms.
+func (self *TField) Label() string { return self.label }
+
+// Translate reports whether the field's value is translatable.
+func (self *TField) Translate() bool { return self.translatable }
+
+// Getter returns the name of the registered getter method, or "" if none.
+func (self *TField) Getter() string { return self.getterMethod }
+
+// Setter returns the name of the registered setter method, or "" if none.
+func (self *TField) Setter() string { return self.setterMethod }
+
+// GetterFunc invokes the registered getter function in the given context.
 func (self *TField) GetterFunc(ctx *TFieldContext) error {
 	return self.getterFunc(ctx)
 }
 
+// SetterFunc invokes the registered setter function in the given context.
 func (self *TField) SetterFunc(ctx *TFieldContext) error {
 	return self.setterFunc(ctx)
 }
 
+// Store returns whether the field is persisted to the database; when val is supplied, sets it first.
 func (self *TField) Store(val ...bool) bool {
 	if len(val) > 0 {
 		self.store = val[0]
@@ -550,6 +582,7 @@ func (self *TField) Store(val ...bool) bool {
 	return self.store
 }
 
+// Default returns the default value; when val is supplied, sets it first.
 func (self *TField) Default(val ...any) any {
 	if len(val) > 0 {
 		self.defaultValue = utils.ToString(val[0])
@@ -558,10 +591,12 @@ func (self *TField) Default(val ...any) any {
 	return self.defaultValue
 }
 
+// DefaultFunc returns the default-value function, or nil if none.
 func (self *TField) DefaultFunc() FieldFunc {
 	return self.defaultFunc
 }
 
+// Size returns the size constraint (length/precision); when val is supplied, sets it first.
 func (self *TField) Size(val ...int) int {
 	if len(val) > 0 {
 		self.size = val[0]
@@ -569,6 +604,7 @@ func (self *TField) Size(val ...int) int {
 	return self.size
 }
 
+// States returns the per-state UI attribute map; when val is supplied, replaces it first.
 func (self *TField) States(val ...map[string]interface{}) map[string]interface{} {
 	if len(val) > 0 {
 		self.uiStates = val[0]
@@ -576,32 +612,37 @@ func (self *TField) States(val ...map[string]interface{}) map[string]interface{}
 	return self.uiStates
 }
 
+// SearchOnSelf reports whether searches on the related field may be performed on self.
 func (self *TField) SearchOnSelf() bool {
 	return self.searchOnSelf
 }
 
+// __IsClassicRead is retained for compatibility; classic-read mode is currently disabled.
 func (self *TField) __IsClassicRead() bool {
 	return false //self._classic_read
 }
 
+// __IsClassicWrite is retained for compatibility; classic-write mode is currently disabled.
 func (self *TField) __IsClassicWrite() bool {
 	return false //self._classic_write
 }
 
+// IsIndexed reports whether the database has an index on this field.
 func (self *TField) IsIndexed() bool {
 	return self.isIndexed
 }
 
-// FuncMultiName 当前未被调用，保留兼容
+// FuncMultiName returns the compute-group name. Currently unused, kept for compatibility.
 func (self *TField) FuncMultiName() string {
 	return self.computeGroup
 }
 
+// InverseHandler returns the inverse compute handler, if registered.
 func (self *TField) InverseHandler() interface{} {
 	return self.inverseHandler
 }
 
-// 该字段是不是指向其他model的id
+// IsRelated returns the related-field flag; when arg is supplied, sets it first.
 func (self *TField) IsRelated(arg ...bool) bool {
 	if len(arg) > 0 {
 		self.isRelated = arg[0]
@@ -609,59 +650,72 @@ func (self *TField) IsRelated(arg ...bool) bool {
 	return self.isRelated
 }
 
+// IsPrimaryKey reports whether this field is the model's primary key.
 func (self *TField) IsPrimaryKey() bool {
 	return self.isPrimaryKey
 }
 
-// 是复合主键
+// IsCompositeKey reports whether this field is part of a composite primary key.
 func (self *TField) IsCompositeKey() bool {
 	return self.isCompositeKey
-
 }
 
+// IsAutoIncrement reports whether the database assigns this field's value automatically.
 func (self *TField) IsAutoIncrement() bool {
 	return self.isAutoIncrement
 }
 
+// IsDefaultEmpty reports whether the field has no default value (literal or function).
 func (self *TField) IsDefaultEmpty() bool {
 	return self.defaultValue == "" && self.defaultFunc == nil
 }
 
+// IsUnique reports whether the field has a UNIQUE constraint.
 func (self *TField) IsUnique() bool {
 	return self.isUnique
 }
 
+// IsCreatedAt reports whether this field stores the record's creation timestamp.
 func (self *TField) IsCreatedAt() bool {
 	return self.isCreatedAt
 }
 
+// IsDeletedAt reports whether this field stores the soft-delete timestamp.
 func (self *TField) IsDeletedAt() bool {
 	return self.isDeletedAt
 }
 
+// IsUpdatedAt reports whether this field stores the record's last-update timestamp.
 func (self *TField) IsUpdatedAt() bool {
 	return self.isUpdatedAt
 }
 
+// IsCascade reports whether deletes propagate through this relation.
 func (self *TField) IsCascade() bool {
 	return self.isCascade
 }
 
+// IsVersion reports whether this field implements optimistic-locking version control.
 func (self *TField) IsVersion() bool {
 	return self.isVersion
 }
 
+// HasGetter reports whether a custom getter is registered.
 func (self *TField) HasGetter() bool {
 	return self.hasGetter
 }
+
+// HasSetter reports whether a custom setter is registered.
 func (self *TField) HasSetter() bool {
 	return self.hasSetter
 }
 
+// IsNameField reports whether this field is the model's display-name column.
 func (self *TField) IsNameField() bool {
 	return self.isNameField
 }
 
+// IsInherited returns the inherits-field flag; when arg is supplied, sets it first.
 func (self *TField) IsInherited(arg ...bool) bool {
 	if len(arg) > 0 {
 		self.isInherited = arg[0]
@@ -669,64 +723,73 @@ func (self *TField) IsInherited(arg ...bool) bool {
 	return self.isInherited
 }
 
+// UseAttachment reports whether the field's value is stored in the attachment table rather than inline.
 func (self *TField) UseAttachment() bool {
 	return self.useAttachmentStore
 }
 
+// IsAutoJoin reports whether the ORM auto-joins this relation in queries.
 func (self *TField) IsAutoJoin() bool {
 	return self.autoJoin
 }
 
-// 复制一个新的一样的
+// New returns a shallow copy of the field.
 func (self *TField) New() (res *TField) {
 	res = &TField{}
 	*res = *self
 	return
 }
 
+// Init initializes the field from a tag context. Called once when the tag is parsed.
 func (self *TField) Init(ctx *TTagContext) {
 
 }
 
-// 返回原型
+// Base returns the underlying TField, useful for accessing private state.
 func (self *TField) Base() *TField {
 	return self
 }
 
+// SetBase replaces the underlying TField in-place (used by subclasses during init).
 func (self *TField) SetBase(f *TField) {
 	*self = *f
 }
 
+// Name returns the field's column name in the database.
 func (self *TField) Name() string {
 	return self.name
 }
 
+// Domain returns the search-domain expression scoped to this field.
 func (self *TField) Domain() string {
 	return self.domain
 }
 
+// RelationModel returns the relation model name.
 func (self *TField) RelationModel() string {
 	return self.relationModel
 }
+
+// SetName overrides the field's database column name.
 func (self *TField) SetName(name string) {
 	self.name = name
 }
 
+// SetModelName overrides the model name this field belongs to.
 func (self *TField) SetModelName(name string) {
 	self.modelName = name
 }
 
+// SetModel binds the field to its owner model.
 func (self *TField) SetModel(model IModel) {
 	self.boundModel = model
 }
 
-// 重载
+// UpdateDb writes any schema changes implied by the field to the database.
 func (self *TField) UpdateDb(ctx *TTagContext) {
 }
 
-// “”” Return a dictionary that describes the field “self”. “””
-// 返回字段自己 补充部分属性值
-// func (self *TField) GetDescription() (res *TField) {
+// Attributes returns a map describing the field's published attributes.
 func (self *TField) Attributes(ctx *TTagContext) map[string]interface{} {
 	return map[string]interface{}{
 		"name":       self.name,
@@ -751,32 +814,24 @@ func (self *TField) Attributes(ctx *TTagContext) map[string]interface{} {
 	}
 }
 
+// SetAttributes is a placeholder for setting field attributes by name.
 func (self *TField) SetAttributes(name string) {
 
 }
 
-// 转换值到字段输出数据类型
+// 把数据库返回的原始值转换为字段对外暴露的值
 func (self *TField) onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} {
 	value := *record[colIndex].(*interface{})
 	return value2FieldTypeValue(self, value)
 
 }
 
-// 转换值到字段数据库类型
+// 把内存中的值转换为数据库格式
 func (self *TField) onConvertToWrite(session *TSession, value interface{}) interface{} {
 	return value2SqlTypeValue(self, value)
 }
 
-/*
-""" Convert “value“ from the record format to the format returned by
-method :meth:`BaseModel.read`.
-
-:param bool use_name_get: when True, the value's display name will be
-
-	computed using :meth:`BaseModel.name_get`, if relevant for the field
-
-"""
-*/
+// OnRead is fired when the field's raw value is read from the database.
 func (self *TField) OnRead(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
@@ -801,11 +856,7 @@ func (self *TField) OnRead(ctx *TFieldContext) error {
 	return nil
 }
 
-/*
-""" Convert “value“ from the record format to the format of method
-:meth:`BaseModel.write`.
-"""
-*/
+// OnWrite is fired when the field's raw value is about to be written to the database.
 func (self *TField) OnWrite(ctx *TFieldContext) error {
 	field := self
 	if field.hasSetter {
