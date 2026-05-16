@@ -13,11 +13,13 @@ import (
 	"github.com/volts-dev/utils"
 )
 
+// FieldAccessMode 字段读写模式
+type FieldAccessMode int
+
 const (
-	// 字段读写模式
-	TWOSIDES = iota + 1
-	ONLYTODB
-	ONLYFROMDB
+	ReadWrite  FieldAccessMode = iota + 1 // 双向同步
+	WriteOnly                              // 仅写入数据库
+	ReadOnly                               // 仅从数据库读取
 )
 
 var (
@@ -146,7 +148,7 @@ type (
 
 		// SQL属性
 		SqlType SQLType
-		MapType int
+		MapType FieldAccessMode
 		IsJSON bool
 		EnumOptions     map[string]int
 		SetOptions      map[string]int

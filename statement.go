@@ -928,7 +928,7 @@ func (self *TStatement) generate_fields() []string {
 			}
 		}
 
-		if !field.Store() || field.Base().MapType == ONLYTODB {
+		if !field.Store() || field.Base().MapType == WriteOnly {
 			continue
 		}
 

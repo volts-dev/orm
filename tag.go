@@ -501,7 +501,7 @@ func tag_read_only(ctx *TTagContext) error {
 	params := ctx.Params
 
 	field.readonly = true
-	field.MapType = ONLYFROMDB
+	field.MapType = ReadOnly
 	if len(params) > 0 {
 		field.readonly = utils.ToBool(params[0])
 	}
@@ -513,7 +513,7 @@ func tag_write_only(ctx *TTagContext) error {
 	params := ctx.Params
 
 	field.writeonly = true
-	field.MapType = ONLYTODB
+	field.MapType = WriteOnly
 	if len(params) > 0 {
 		field.writeonly = utils.ToBool(params[0])
 	}
