@@ -196,97 +196,88 @@ type (
 	}
 
 	TField struct {
-		// 共同属性
-		isPrimaryKey    bool //
-		isCompositeKey  bool
-		isAutoIncrement bool
-		isUnique        bool
-		isDBColumn      bool
-		isCreatedAt       bool //# 时间字段自动更新日期
-		isUpdatedAt       bool //
-		isDeletedAt       bool
-		isCascade       bool
-		isVersion       bool
-		isNameField         bool
-		hasGetter       bool
-		hasSetter       bool
+		isPrimaryKey    bool   // 是否为主键字段
+		isCompositeKey  bool   // 是否为复合主键的组成字段
+		isAutoIncrement bool   // 数据库是否自动递增此字段
+		isUnique        bool   // 是否带 UNIQUE 约束
+		isDBColumn      bool   // 是否对应一个真实的数据库列
+		isCreatedAt     bool   // 是否为记录创建时间戳字段
+		isUpdatedAt     bool   // 是否为记录最后更新时间戳字段
+		isDeletedAt     bool   // 是否为软删除时间戳字段
+		isCascade       bool   // 删除时是否级联到关联记录
+		isVersion       bool   // 是否参与乐观锁版本控制
+		isNameField     bool   // 是否为 model 的展示名字段
+		hasGetter       bool   // 是否注册了自定义读取函数
+		hasSetter       bool   // 是否注册了自定义写入函数
 
-		// SQL属性
-		SqlType SQLType
-		MapType FieldAccessMode
-		IsJSON bool
+		SqlType         SQLType
+		MapType         FieldAccessMode
+		IsJSON          bool
 		EnumOptions     map[string]int
 		SetOptions      map[string]int
 		DisableTimeZone bool
 		TimeZone        *time.Location // column specified time zone
 
-		formatChar             string              // Format 符号 "%s,%d..."
-		formatFunc             func(string) string // Format 自定义函数
-		autoJoin            bool                //
-		inheritAllFields              bool                // 是否继承该字段指向的Model的多有字段
-		tagArgs                 map[string]string   // [Tag]val 里的参数
-		setupStage           string              // 字段安装完成步骤 Base,full
-		isInherited      bool                // 该字段是否关联表的字段 relate
-		isRelated        bool                // 该字段是否关联表的外键字段
-		isAutoCreated         bool                // 是否是自动创建的字段 ("magic" field)
-		modelName            string              // 字段所在的模型名称
-		relatedModelName    string              // 连接的数据模型 关联字段的模型名称 字段关联的Model # name of the model of values (if relational)
-		relatedKeyName string              // 关联字段所在的表的主键
-		joinModelName     string              // 关系表数据模型 字段关联的Model和字段的many2many关系表Model
-		joinSourceKey  string              // M2M 表示源表(modelName)在中间表中关联字段的关联字段名，即源表主键字段
-		isIndexed             bool                // whether the field is indexed in database
-		searchOnSelf          bool                // allow searching on self only if the related field is searchable
-		translatable          bool                //???
-		outputAs              string              //值将作为[char,int,bool]被转换
+		formatChar       string              // printf 风格的格式占位符（如 "%s"）
+		formatFunc       func(string) string // 对格式化后字符串再加工的函数
+		autoJoin         bool               // 查询时是否自动 JOIN 关联表
+		inheritAllFields bool               // 是否继承该字段所指向 model 的所有字段
+		tagArgs          map[string]string  // 字段 Tag `xxx(<params>)` 中的参数 map
+		setupStage       string             // 字段安装阶段标记（Base / full 等）
+		isInherited      bool               // 该字段是否来自 inherits 继承
+		isRelated        bool               // 该字段是否指向其他 model 的外键
+		isAutoCreated    bool               // 是否为框架自动创建的 "magic" 字段
+		modelName        string             // 当前字段所属 model 的名字
+		relatedModelName string             // 关联到的 model 名
+		relatedKeyName   string             // 关联表的主键字段名
+		joinModelName    string             // M2M 连接表对应的 model 名
+		joinSourceKey    string             // 在 M2M 连接表中指向源 model 主键的字段名
+		isIndexed        bool               // 数据库是否对此字段建索引
+		searchOnSelf     bool               // 关联字段是否允许在 self 上直接搜索
+		translatable     bool               // 字段值是否可翻译
+		outputAs         string             // 读取时将值伪装为哪种类型（char/int/bool 等）
 
-		// published exportable
-		name              string                 // name of the field
-		store             bool                   // # 字段值是否保存到数据库
-		manual            bool                   //
-		depends           []string               //
-		readonly          bool                   // 只读
-		writeonly         bool                   // 只读
-		required          bool                   // 字段不为空
-		description              string                 //
-		label             string                 // 字段的Title
-		size              int                    // 考虑废弃 长度大小
-		sortable          bool                   // 可排序
-		searchable        bool                   //
-		typeName              string                 // #字段类型 最终存于dataset数据类型view
-		defaultValue           string                 /* 存储默认值字符串 */ // default(recs) returns the default value
-		relatedPath           string                 // ???
-		relationModel          string                 // 关系表
-		uiStates            map[string]interface{} // 传递 UI 属性
-		selection         [][]string             //
-		companyDependent bool                   // ???
-		changeDefault    bool                   // ???
-		domain            string
-		permissionGroups            string //???// private membership
-		deprecatedNote          string //???
-		onDelete                string // 当这个字段指向的资源删除时将发生。预定义值：cascade，set null，restrict，no action，set default。默认值：set null
+		name         string                 // 字段在数据库中的列名
+		store        bool                   // 是否将字段值持久化到数据库
+		manual       bool                   // 是否手动管理（非框架自动）
+		depends      []string               // 依赖的其他字段名列表
+		readonly     bool                   // 是否只读
+		writeonly    bool                   // 是否只写
+		required     bool                   // 是否非空
+		description  string                 // 字段的长描述（help text）
+		label        string                 // 字段在 UI 表单中显示的名字
+		size         int                    // 长度或精度约束
+		sortable     bool                   // 是否可排序
+		searchable   bool                   // 是否可搜索
+		typeName     string                 // ORM 层字段类型标识（最终存入 dataset）
+		defaultValue string                 // 默认值字符串
+		relatedPath  string                 // 关联路径表达式（用途未确认，保留兼容）
+		relationModel string                // 关联到的 model 名（与 relatedModelName 用途略有差异）
+		uiStates     map[string]interface{} // 传递给 UI 的 state 属性 map
+		selection    [][]string             // selection 字段的可选值列表
+		companyDependent bool               // 是否多公司隔离（用途未确认，保留兼容）
+		changeDefault    bool               // 默认值是否随其他字段变化（用途未确认，保留兼容）
+		domain           string             // 字段级的搜索域表达式
+		permissionGroups string             // 限制访问该字段的权限组名（逗号分隔）
+		deprecatedNote   string             // 字段已废弃的说明文字（用途未确认，保留兼容）
+		onDelete         string             // 关联记录被删除时的处理策略（cascade/set null/restrict/...）
 
-		inverseHandler    interface{} // ??? 函数,handler #是一个允许设置这个字段值的函数或方法。
-		computeGroup  string      //默认为空 参见Model:calendar_attendee - for function field 一个组名。所有的有相同multi参数的字段将在一个单一函数调用中计算
-		searchHandler string      //允许你在这个字段上定义搜索功能
-		defaultFunc FieldFunc   //
-		// 字段值的计算函数，默认的，计算的字段不会存到数据库中，解决方法是使用store=True属性存储该字段函数必须是Model的 document = fields.Char(compute='_get_document', inverse='_set_document')
-		setterFunc   FieldFunc // 写入计算格式化函数
-		getterFunc   FieldFunc // 读取计算格式化函数
-		boundModel    any       // 提供给compute使用
-		setterMethod  string    // 写入计算格式化函数
-		getterMethod  string    // 读取计算格式化函数
-		computeDepends      []string  // 约束 compute 计算依赖哪些字段来触发
-		computeAsAdmin bool      //# whether field should be recomputed as admin		_related       string      //nickname = fields.Char(related='user_id.partner_id.name', store=True)
-		previousName      string    //# the previous name of this field, so that ORM can rename it automatically at migration
+		inverseHandler interface{} // 计算字段的反向写入处理器
+		computeGroup   string     // 同一 compute group 的字段在单次调用中一起计算
+		searchHandler  string     // 在该字段上定义搜索行为的函数
+		defaultFunc    FieldFunc  // 默认值生成函数
+		setterFunc     FieldFunc  // 写入计算/格式化函数
+		getterFunc     FieldFunc  // 读取计算/格式化函数
+		boundModel     any        // 绑定的 model 引用（供 compute 使用）
+		setterMethod   string     // 写入方法名
+		getterMethod   string     // 读取方法名
+		computeDepends []string   // compute 计算依赖的字段名列表
+		computeAsAdmin bool       // 计算字段是否以 admin 权限重新计算
+		previousName   string     // 字段旧名，迁移时用于自动重命名
 
-		// # one2many
-		oneToManyFK string
-
-		// # many2many field limit
-		m2mLimit int64
-
-		// # binary
-		useAttachmentStore bool
+		oneToManyFK        string // one-to-many 关系中对端的外键字段名
+		m2mLimit           int64  // many-to-many 关系单次取回的上限
+		useAttachmentStore bool   // 值是否存入 attachment 表（适合大字段）
 	}
 
 	// TRelatedField 描述 inherits 继承字段的映射：
