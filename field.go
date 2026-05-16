@@ -489,7 +489,7 @@ func (self *TField) Required(val ...bool) bool {
 
 func (self *TField) Searchable(val ...bool) bool {
 	if len(val) > 0 {
-		self._attr_required = val[0]
+		self._attr_searchable = val[0]
 	}
 	return self._attr_searchable
 }
