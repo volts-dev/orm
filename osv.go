@@ -51,7 +51,7 @@ type (
 		nameField     string
 		orderFields   []string
 		fields        sync.Map // map[string]IField                  // map[field]
-		relations     sync.Map //map[string]string                  // many2many many2one... 等关联表
+		relations     sync.Map //map[string]string                  // inherits 继承关联表，仅记录 one2one/extends/relate 三种"嵌入式"关系；不包含 many2one/one2many/many2many 普通外键关联
 		indexes       map[string]*TIndex
 		relatedFields map[string]*TRelatedField          // 关联字段如 UserId CompanyID
 		commonFields  map[string]map[string]IField       //
