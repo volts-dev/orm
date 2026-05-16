@@ -206,12 +206,12 @@ func tag_getter(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 
 	//# by default, computed fields are not stored, not copied and readonly
-	field._attr_store = field._attr_store || false
-	field._attr_readonly = field._attr_readonly || false
-	field._getter = "" // 初始化
-	field._compute_sudo = field._compute_sudo || false
+	field.store = field.store || false
+	field.readonly = field.readonly || false
+	field.getterMethod = "" // 初始化
+	field.computeAsAdmin = field.computeAsAdmin || false
 
-	if field._getterFunc == nil {
+	if field.getterFunc == nil {
 		params := ctx.Params
 		if len(params) == 0 {
 			log.Panic("Compute getter tag ", field.Name(), "'s Args can no be blank!")
@@ -221,14 +221,14 @@ func tag_getter(ctx *TTagContext) error {
 		methodName = strings.Replace(methodName, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(methodName); m.IsValid() {
 			if fn, ok := m.Interface().(FieldFunc); ok {
-				field._model = ctx.Model.GetBase().modelValue.Interface()
-				field._getter = methodName
-				field._getterFunc = fn
+				field.boundModel = ctx.Model.GetBase().modelValue.Interface()
+				field.getterMethod = methodName
+				field.getterFunc = fn
 			}
 		}
 	}
 
-	field.hasGetter = field._getterFunc != nil || false
+	field.hasGetter = field.getterFunc != nil || false
 	return nil
 }
 
@@ -236,12 +236,12 @@ func tag_setter(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 
 	//# by default, computed fields are not stored, not copied and readonly
-	field._attr_store = field._attr_store || false
-	field._attr_readonly = field._attr_readonly || false
-	field._setter = ""
-	field._compute_sudo = field._compute_sudo || false
+	field.store = field.store || false
+	field.readonly = field.readonly || false
+	field.setterMethod = ""
+	field.computeAsAdmin = field.computeAsAdmin || false
 
-	if field._setterFunc == nil {
+	if field.setterFunc == nil {
 		params := ctx.Params
 		if len(params) == 0 {
 			log.Panic("Compute setter tag ", field.Name(), "'s Args can no be blank!")
@@ -250,14 +250,14 @@ func tag_setter(ctx *TTagContext) error {
 		funcName = strings.Replace(funcName, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(funcName); m.IsValid() {
 			if fn, ok := m.Interface().(FieldFunc); ok {
-				field._model = ctx.Model.GetBase().modelValue.Interface()
-				field._setter = funcName
-				field._setterFunc = fn
+				field.boundModel = ctx.Model.GetBase().modelValue.Interface()
+				field.setterMethod = funcName
+				field.setterFunc = fn
 			}
 		}
 	}
 
-	field.hasSetter = field._setterFunc != nil || false
+	field.hasSetter = field.setterFunc != nil || false
 	return nil
 }
 
@@ -267,7 +267,7 @@ func tag_type(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 
 	if len(params) > 0 {
-		field._attr_type = params[0]
+		field.typeName = params[0]
 	}
 	return nil
 }
@@ -277,7 +277,7 @@ func tag_as(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 
 	if len(params) > 0 {
-		field.as = params[0]
+		field.outputAs = params[0]
 	}
 	return nil
 }
@@ -307,7 +307,7 @@ func tag_pk(ctx *TTagContext) error {
 
 	field.isPrimaryKey = val
 	field.isUnique = val
-	field._attr_required = true
+	field.required = true
 	return nil
 }
 func tag_auto(ctx *TTagContext) error {
@@ -323,49 +323,49 @@ func tag_default(ctx *TTagContext) error {
 	params := ctx.Params
 	model := ctx.Model
 
-	if field._attr_default == "" {
+	if field.defaultValue == "" {
 		if len(params) > 0 {
 			value := strings.Trim(params[0], "'")
-			field._attr_default = value
+			field.defaultValue = value
 		}
 	}
 
-	if field._attr_type == Bool {
-		field._attr_default = strings.ToLower(field._attr_default)
+	if field.typeName == Bool {
+		field.defaultValue = strings.ToLower(field.defaultValue)
 	}
 
-	model.Obj().SetDefaultByName(field.Name(), utils.ToString(field._attr_default)) // save to model object
+	model.Obj().SetDefaultByName(field.Name(), utils.ToString(field.defaultValue)) // save to model object
 
 	return nil
 }
 func tag_created(ctx *TTagContext) error {
 	field := ctx.Field.Base()
-	field.isCreated = true
+	field.isCreatedAt = true
 	return nil
 }
 
 func tag_updated(ctx *TTagContext) error {
 	field := ctx.Field.Base()
-	field.isUpdated = true
+	field.isUpdatedAt = true
 	return nil
 }
 
 func tag_deleted(ctx *TTagContext) error {
 	field := ctx.Field.Base()
-	field.isDeleted = true
+	field.isDeletedAt = true
 	return nil
 }
 
 func tag_ver(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 	field.isVersion = true
-	field._attr_default = "1"
+	field.defaultValue = "1"
 	return nil
 }
 
 func tag_named(ctx *TTagContext) error {
 	field := ctx.Field.Base()
-	field.isNamed = true
+	field.isNameField = true
 	return nil
 }
 
@@ -392,7 +392,7 @@ func tag_name(ctx *TTagContext) error {
 
 		// 完成修改
 		//col.Name = name
-		field._attr_name = name
+		field.name = name
 	}
 
 	if cnt == 2 {
@@ -414,7 +414,7 @@ func tag_title(ctx *TTagContext) error {
 	if len(params) > 0 {
 		title := strings.Trim(params[0], "'")
 		title = strings.Replace(title, "''", "'", -1)
-		field._attr_title = title
+		field.label = title
 	}
 	return nil
 }
@@ -426,7 +426,7 @@ func tag_help(ctx *TTagContext) error {
 	if len(params) > 0 {
 		help := strings.Trim(params[0], "'")
 		help = strings.Replace(help, "''", "'", -1)
-		field._attr_help = help
+		field.description = help
 	}
 	return nil
 }
@@ -481,7 +481,7 @@ func tag_index(ctx *TTagContext) error {
 		model.Obj().AddIndex(index)
 	}
 
-	field.index = true
+	field.isIndexed = true
 	return nil
 }
 
@@ -489,9 +489,9 @@ func tag_required(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 	params := ctx.Params
 
-	field._attr_required = true
+	field.required = true
 	if len(params) > 0 {
-		field._attr_required = utils.ToBool(params[0])
+		field.required = utils.ToBool(params[0])
 	}
 	return nil
 }
@@ -500,10 +500,10 @@ func tag_read_only(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 	params := ctx.Params
 
-	field._attr_readonly = true
+	field.readonly = true
 	field.MapType = ONLYFROMDB
 	if len(params) > 0 {
-		field._attr_readonly = utils.ToBool(params[0])
+		field.readonly = utils.ToBool(params[0])
 	}
 	return nil
 }
@@ -512,10 +512,10 @@ func tag_write_only(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 	params := ctx.Params
 
-	field._attr_writeonly = true
+	field.writeonly = true
 	field.MapType = ONLYTODB
 	if len(params) > 0 {
-		field._attr_writeonly = utils.ToBool(params[0])
+		field.writeonly = utils.ToBool(params[0])
 	}
 	return nil
 }
@@ -525,7 +525,7 @@ func tag_size(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		field._attr_size = utils.ToInt(params[0])
+		field.size = utils.ToInt(params[0])
 	}
 	return nil
 }
@@ -535,7 +535,7 @@ func tag_ondelete(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		field.ondelete = strings.Trim(params[0], "'")
+		field.onDelete = strings.Trim(params[0], "'")
 	}
 	return nil
 }
@@ -545,9 +545,9 @@ func tag_translate(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		field.translate = utils.ToBool(params[0])
+		field.translatable = utils.ToBool(params[0])
 	} else {
-		field.translate = true
+		field.translatable = true
 	}
 	return nil
 }
@@ -557,9 +557,9 @@ func tag_store(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		field._attr_store = utils.ToBool(params[0])
+		field.store = utils.ToBool(params[0])
 	} else {
-		field._attr_store = true
+		field.store = true
 	}
 	return nil
 }
@@ -570,14 +570,14 @@ func tag_domain(ctx *TTagContext) error {
 
 	if len(params) > 0 {
 		domain := strings.Trim(params[0], "'")
-		field._attr_domain = domain
+		field.domain = domain
 	}
 	return nil
 }
 
 func tag_attachment(ctx *TTagContext) error {
 	if fld, ok := ctx.Field.(*TBinField); ok {
-		fld.attachment = true
+		fld.useAttachmentStore = true
 	}
 	return nil
 }
@@ -637,7 +637,7 @@ func tag_table_extends(ctx *TTagContext) error {
 	model := ctx.Model
 	params := ctx.Params
 
-	ctx.Field.Base()._attr_store = false // 忽略某些继承者成员
+	ctx.Field.Base().store = false // 忽略某些继承者成员
 	switch fld_val.Kind() {
 	case reflect.Ptr:
 		log.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
@@ -738,12 +738,12 @@ func tag_table_relate(ctx *TTagContext) error {
 		if f := model.GetFieldByName(fieldName); f != nil {
 			// 相同字段处理
 			model.GetBase().obj.SetCommonFieldByName(fieldName, parentModel.String(), newField)
-			model.GetBase().obj.SetCommonFieldByName(fieldName, f.Base().model_name, f)
+			model.GetBase().obj.SetCommonFieldByName(fieldName, f.Base().modelName, f)
 
 		} else {
 			// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
-			newField.Base().isInheritedField = true
-			newField.Base()._attr_store = false // 关系字段不存储
+			newField.Base().isInherited = true
+			newField.Base().store = false // 关系字段不存储
 
 			if newField.IsAutoIncrement() {
 				//model.GetBase().table.AutoIncrement = fieldName
@@ -766,7 +766,7 @@ func ___tag_relate(ctx *TTagContext) error {
 	model := ctx.Model
 	params := ctx.Params
 
-	ctx.Field.Base()._attr_store = false // 忽略某些继承者成员
+	ctx.Field.Base().store = false // 忽略某些继承者成员
 
 	switch fld_val.Kind() {
 	case reflect.Ptr:
@@ -808,12 +808,12 @@ func ___tag_relate(ctx *TTagContext) error {
 
 			if f := model.GetFieldByName(field_name); f != nil {
 				model.GetBase().obj.SetCommonFieldByName(field_name, parentModel.String(), new_field)
-				model.GetBase().obj.SetCommonFieldByName(field_name, f.Base().model_name, f)
+				model.GetBase().obj.SetCommonFieldByName(field_name, f.Base().modelName, f)
 
 			} else {
 				// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
-				new_field.Base().isInheritedField = true
-				new_field.Base()._attr_store = false // 关系字段不存储
+				new_field.Base().isInherited = true
+				new_field.Base().store = false // 关系字段不存储
 
 				if new_field.IsAutoIncrement() {
 					//model.GetBase().table.AutoIncrement = field_name

@@ -267,23 +267,23 @@ func (db *mysql) SyncToSqlType(ctx *TTagContext) {
 			switch utils.ToInt(params[0]) {
 			case 8:
 				f.SqlType = SQLType{TinyInt, 0, 0}
-				f._attr_type = TinyInt
+				f.typeName = TinyInt
 				//f._attr_size = 1 // 1 byte
 			case 16:
 				f.SqlType = SQLType{SmallInt, 0, 0}
-				f._attr_type = SmallInt
+				f.typeName = SmallInt
 				//f._attr_size = 2
 			case 24:
 				f.SqlType = SQLType{MediumInt, 0, 0}
-				f._attr_type = MediumInt
+				f.typeName = MediumInt
 				//f._attr_size = 3
 			case 32:
 				f.SqlType = SQLType{Int, 0, 0}
-				f._attr_type = Int
+				f.typeName = Int
 				//f._attr_size = 4
 			case 64:
 				f.SqlType = SQLType{BigInt, 0, 0}
-				f._attr_type = BigInt
+				f.typeName = BigInt
 				//f._attr_size = 8
 			}
 		}
@@ -297,30 +297,30 @@ func (db *mysql) GetSqlType(field IField) string {
 	switch t := c.SQLType().Name; t {
 	case Bool:
 		res = TinyInt
-		c._attr_size = 1
+		c.size = 1
 
 	case Int:
 		switch c.SQLType().DefaultLength {
 		case 4:
 			res = TinyInt
-			c._attr_size = 1 // 1 byte
+			c.size = 1 // 1 byte
 		case 8:
 			res = SmallInt
-			c._attr_size = 2
+			c.size = 2
 		case 16:
 			res = MediumInt
-			c._attr_size = 3
+			c.size = 3
 		case 32:
 			res = Int
-			c._attr_size = 4
+			c.size = 4
 		case 64:
 			res = BigInt
-			c._attr_size = 8
+			c.size = 8
 		}
 	case Serial:
 		c.isAutoIncrement = true
 		c.isPrimaryKey = true
-		c._attr_required = true
+		c.required = true
 		res = Int
 	case BigSerial:
 		c.isAutoIncrement = true
@@ -331,7 +331,7 @@ func (db *mysql) GetSqlType(field IField) string {
 		res = Blob
 	case TimeStampz:
 		res = Char
-		c._attr_size = 64
+		c.size = 64
 	case Enum: // mysql enum
 		res = Enum
 		res += "("
@@ -354,7 +354,7 @@ func (db *mysql) GetSqlType(field IField) string {
 		res = Varchar
 	case Uuid:
 		res = Varchar
-		c._attr_size = 40
+		c.size = 40
 	case Json:
 		res = Json
 	case UnsignedInt:
@@ -387,7 +387,7 @@ func (db *mysql) GetSqlType(field IField) string {
 	default:
 		res = t
 	}
-	c.SQLType().DefaultLength = c._attr_size
+	c.SQLType().DefaultLength = c.size
 	hasLen1 := (c.SQLType().DefaultLength > 0)
 	hasLen2 := (c.SQLType().DefaultLength2 > 0)
 
@@ -652,19 +652,19 @@ func (db *mysql) GetFields(ctx context.Context, tableName string) ([]string, map
 		if err != nil {
 			return nil, nil, err
 		}
-		col.Base()._attr_size = int(len1)
+		col.Base().size = int(len1)
 		col.Base().EnumOptions = enumOptions
 		col.Base().SetOptions = setOptions
 
 		if colDefault != nil && (!alreadyQuoted || *colDefault != "NULL") {
-			col.Base()._attr_default = *colDefault
+			col.Base().defaultValue = *colDefault
 			//col.Base().defaultIsEmpty = false
 		} else {
 			//col.Base().defaultIsEmpty = true
 		}
 
-		col.Base()._attr_title = comment
-		col.Base()._attr_required = (nullableStr == "NO")
+		col.Base().label = comment
+		col.Base().required = (nullableStr == "NO")
 
 		if colKey == "PRI" {
 			col.Base().isAutoIncrement = true
@@ -679,9 +679,9 @@ func (db *mysql) GetFields(ctx context.Context, tableName string) ([]string, map
 
 		if !col.IsDefaultEmpty() {
 			if !alreadyQuoted && col.SQLType().IsText() {
-				col.Base()._attr_default = "'" + utils.ToString(col.Default()) + "'"
+				col.Base().defaultValue = "'" + utils.ToString(col.Default()) + "'"
 			} else if col.SQLType().IsTime() && !alreadyQuoted && col.Default() != "CURRENT_TIMESTAMP" {
-				col.Base()._attr_default = "'" + utils.ToString(col.Default()) + "'"
+				col.Base().defaultValue = "'" + utils.ToString(col.Default()) + "'"
 			}
 		}
 

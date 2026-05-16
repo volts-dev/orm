@@ -34,8 +34,8 @@ func newSelectionField() IField {
 func (self *TBooleanField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	field.SqlType = SQLType{Bool, 0, 0}
-	field._attr_type = Bool
-	field._attr_store = true
+	field.typeName = Bool
+	field.store = true
 }
 
 // ###########################################################################
@@ -45,13 +45,13 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 	field := self.Base()
 	params := ctx.Params
 
-	field._attr_store = true
-	field._attr_type = TYPE_SELECTION
-	field._getter = "" //初始化
+	field.store = true
+	field.typeName = TYPE_SELECTION
+	field.getterMethod = "" //初始化
 	field.SqlType = SQLType{Varchar, 0, 0}
 
-	if field._attr_selection == nil {
-		log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", field.Name(), self.model_name, params)
+	if self._attr_selection == nil {
+		log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", field.Name(), self.modelName, params)
 		lStr := strings.Trim(params[0], "'")
 		lStr = strings.Replace(lStr, "''", "'", -1)
 		m := ctx.Model.GetBase().modelValue.MethodByName(lStr)
@@ -60,7 +60,7 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 			if _, ok := m.Interface().(func() [][]string); !ok {
 				log.Fatalf("the selection field %s@%s method %s must func()[][]string type", field.Name(), ctx.Model.String(), lStr)
 			}
-			field._getter = lStr
+			field.getterMethod = lStr
 		} else {
 			m := make(map[string]string)
 			err := json.Unmarshal([]byte(lStr), &m)
@@ -69,7 +69,7 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 			}
 
 			for k, v := range m {
-				field._attr_selection = append(field._attr_selection, []string{k, v})
+				self._attr_selection = append(self._attr_selection, []string{k, v})
 			}
 		}
 	}
@@ -111,13 +111,13 @@ func (self *TSelectionField) _setup_related_full(model IModel) {
 //
 // 配置字段内容
 func (self *TSelectionField) setup_full(model IModel) {
-	if self._setup_done != "full" {
+	if self.setupStage != "full" {
 		/*		if !self.IsRelated() {
 				} else {
 
 				}
 		*/
-		self._setup_done = "full"
+		self.setupStage = "full"
 	}
 }
 
@@ -146,7 +146,7 @@ func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
 
-	if mehodName := field._getter; mehodName != "" {
+	if mehodName := field.getterMethod; mehodName != "" {
 		// TODO 同一记录方法到OBJECT里使用Method
 		if method := model.GetBase().modelValue.MethodByName(mehodName); method.IsValid() {
 			var results []reflect.Value

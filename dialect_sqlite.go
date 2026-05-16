@@ -168,11 +168,11 @@ func (db *sqlite) GetFields(ctx context.Context, tableName string) ([]string, ma
 		if err != nil {
 			return nil, nil, err
 		}
-		col.Base()._attr_size = len1
+		col.Base().size = len1
 		col.Base().isPrimaryKey = (pk > 0)
-		col.Base()._attr_required = (notNull > 0)
+		col.Base().required = (notNull > 0)
 		if dfltVal.Valid && dfltVal.String != "" && dfltVal.String != "NULL" {
-			col.Base()._attr_default = strings.Trim(dfltVal.String, "'")
+			col.Base().defaultValue = strings.Trim(dfltVal.String, "'")
 		}
 
 		cols[name] = col

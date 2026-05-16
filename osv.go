@@ -345,18 +345,18 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 				oldField := oldVal.(IField)
 				oldBase := oldField.Base()
 				newBase := newField.Base()
-				if newBase._setterFunc == nil && oldBase._setterFunc != nil {
-					newBase._setterFunc = oldBase._setterFunc
-					newBase._setter = oldBase._setter
+				if newBase.setterFunc == nil && oldBase.setterFunc != nil {
+					newBase.setterFunc = oldBase.setterFunc
+					newBase.setterMethod = oldBase.setterMethod
 					newBase.hasSetter = oldBase.hasSetter
 				}
-				if newBase._getterFunc == nil && oldBase._getterFunc != nil {
-					newBase._getterFunc = oldBase._getterFunc
-					newBase._getter = oldBase._getter
+				if newBase.getterFunc == nil && oldBase.getterFunc != nil {
+					newBase.getterFunc = oldBase.getterFunc
+					newBase.getterMethod = oldBase.getterMethod
 					newBase.hasGetter = oldBase.hasGetter
 				}
-				if newBase._defaultFunc == nil && oldBase._defaultFunc != nil {
-					newBase._defaultFunc = oldBase._defaultFunc
+				if newBase.defaultFunc == nil && oldBase.defaultFunc != nil {
+					newBase.defaultFunc = oldBase.defaultFunc
 				}
 			}
 			obj.fields.Store(key, newField)

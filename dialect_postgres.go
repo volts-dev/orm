@@ -849,15 +849,15 @@ func (db *postgres) SyncToSqlType(ctx *TTagContext) {
 			switch utils.ToInt(params[0]) {
 			case 16:
 				f.SqlType = SQLType{SmallInt, 0, 0}
-				f._attr_type = SmallInt
+				f.typeName = SmallInt
 				//f._attr_size = 2
 			case 32:
 				f.SqlType = SQLType{Int, 0, 0}
-				f._attr_type = Int
+				f.typeName = Int
 				//f._attr_size = 4
 			case 64:
 				f.SqlType = SQLType{BigInt, 0, 0}
-				f._attr_type = BigInt
+				f.typeName = BigInt
 				//f._attr_size = 8
 			}
 		}
@@ -899,7 +899,7 @@ func (db *postgres) GetSqlType(field IField) string {
 		return BigInt
 	case SmallSerial, Serial, BigSerial:
 		c.isAutoIncrement = true
-		c._attr_required = true
+		c.required = true
 		res = t
 	case SmallDateTime, DateTime, DateTime:
 		res = TimeStamp
@@ -926,7 +926,7 @@ func (db *postgres) GetSqlType(field IField) string {
 		res = t
 	}
 
-	c.SQLType().DefaultLength = c._attr_size
+	c.SQLType().DefaultLength = c.size
 	hasLen1 := (c.SQLType().DefaultLength > 0)
 	hasLen2 := (c.SQLType().DefaultLength2 > 0)
 
@@ -1439,18 +1439,18 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		}
 
 		if defaultValueStr != "" {
-			col.Base()._attr_default = defaultValue
+			col.Base().defaultValue = defaultValue
 		}
-		col.Base()._attr_required = (isNullable == "NO")
-		col.Base()._attr_size = sql_type.DefaultLength
+		col.Base().required = (isNullable == "NO")
+		col.Base().size = sql_type.DefaultLength
 
 		/*
 			if col.SQLType().IsText() || col.SQLType().IsTime() {
-				if col.Base()._attr_size != 0 {
-					col.Base()._attr_size = "'" + col.Base()._attr_size + "'"
+				if col.Base().size != 0 {
+					col.Base().size = "'" + col.Base().size + "'"
 				} else {
 					if col.Base().defaultIsEmpty {
-						col.Base()._attr_size = 0 //"''"
+						col.Base().size = 0 //"''"
 					}
 				}
 			}

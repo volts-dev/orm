@@ -53,12 +53,12 @@ func (self *TIdField) Init(ctx *TTagContext) {
 	*/
 	field.isPrimaryKey = true
 	field.isUnique = true
-	field._attr_required = true
-	field._attr_store = true
+	field.required = true
+	field.store = true
 
 	//if field.SqlType.Name == "" {
 	field.SqlType = SQLType{BigInt, 0, 0}
-	field._attr_type = "bigint"
+	field.typeName = "bigint"
 	//}
 
 	// set the id field for model

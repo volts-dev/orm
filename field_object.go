@@ -28,10 +28,10 @@ func (self *TBinField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	//if field.SqlType.Name == "" {
 	field.SqlType = SQLType{Binary, 0, 0}
-	field._attr_type = Binary
+	field.typeName = Binary
 	//}
 	//fld._classic_read = false
 	//fld._classic_write = false
-	field._attr_store = true
-	field.attachment = false
+	field.store = true
+	self.attachment = false
 }

@@ -21,12 +21,12 @@ func (self *TNameField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	params := ctx.Params
 
-	field._attr_type = Varchar
-	field._attr_store = true
+	field.typeName = Varchar
+	field.store = true
 	field.SqlType = SQLType{Varchar, 0, 0}
 	if len(params) > 0 {
 		if size := utils.ToInt(params[0]); size != 0 {
-			field._attr_size = size
+			field.size = size
 			field.SqlType.DefaultLength = size
 		}
 	}

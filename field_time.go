@@ -26,13 +26,13 @@ func newDateTimeField() IField {
 func (self *TDateField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	field.SqlType = SQLType{Date, 0, 0}
-	field._attr_type = Date
-	field._attr_store = true
+	field.typeName = Date
+	field.store = true
 }
 
 func (self *TDateTimeField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	field.SqlType = SQLType{DateTime, 0, 0}
-	field._attr_type = DateTime
-	field._attr_store = true
+	field.typeName = DateTime
+	field.store = true
 }

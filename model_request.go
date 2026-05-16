@@ -615,8 +615,8 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	order_by := ""
 	placeholder := JoinPlaceholder("?", ",", len(ids))
 	limit := ""
-	if field.Base().limit > 0 {
-		limit = fmt.Sprintf("LIMIT %v", field.Base().limit)
+	if field.Base().m2mLimit > 0 {
+		limit = fmt.Sprintf("LIMIT %v", field.Base().m2mLimit)
 	}
 
 	var params []any

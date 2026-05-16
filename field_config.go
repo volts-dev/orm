@@ -7,7 +7,7 @@ type (
 func WithSQLType(v SQLType) FieldOption {
 	return func(field *TField) {
 		/* 特定Field类型结构不可修改SQLType如使用RegisterField注册的Field类型 */
-		if field._attr_type == "" {
+		if field.typeName == "" {
 			field.SqlType = v
 		}
 	}
@@ -15,6 +15,6 @@ func WithSQLType(v SQLType) FieldOption {
 
 func WithFieldType(v string) FieldOption {
 	return func(field *TField) {
-		field._attr_type = v
+		field.typeName = v
 	}
 }

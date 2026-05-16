@@ -1061,12 +1061,12 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		}
 
 		if !field.IsInheritedField() {
-			if field.Base().isCreated && isIncludedIds {
+			if field.Base().isCreatedAt && isIncludedIds {
 				// 包含主键的数据,说明已经是被创建过了,则不补全该字段
 				continue
 			}
 
-			if field.Base().isCreated || field.Base().isUpdated {
+			if field.Base().isCreatedAt || field.Base().isUpdatedAt {
 				ext_todo = append(ext_todo, field)
 				continue
 			}

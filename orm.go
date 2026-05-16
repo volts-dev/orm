@@ -601,9 +601,9 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 					new_fld.SetBase(field.Base())
 
 					// 添加model表共同字段
-					new_fld.Base().model_name = model_alt_name
-					new_fld.Base().isInheritedField = false                                      // # 共同字段非外键字段
-					new_fld.Base()._attr_store = true                                            // # 存储共同字段非外键字段
+					new_fld.Base().modelName = model_alt_name
+					new_fld.Base().isInherited = false                                      // # 共同字段非外键字段
+					new_fld.Base().store = true                                             // # 存储共同字段非外键字段
 					res_model.obj.SetCommonFieldByName(field_name, new_fld.ModelName(), new_fld) // 将现有表字段添加进重叠字段
 					field = new_fld
 				}
@@ -630,7 +630,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 			}
 
 			// 更新model新名称
-			field.Base().model_name = model_alt_name
+			field.Base().modelName = model_alt_name
 
 			/* 执行field初始化 */
 			tagCtx.Field = field
@@ -650,8 +650,8 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 				res_model.idField = field.Name()
 			}
 
-			if field.Base()._attr_size == 0 {
-				field.Base()._attr_size = field.SQLType().DefaultLength
+			if field.Base().size == 0 {
+				field.Base().size = field.SQLType().DefaultLength
 			}
 
 			//if field.Base().Length2 == 0 {
@@ -660,11 +660,11 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 
 			// # 设置Help
 			if field.Title() == "" {
-				field.Base()._attr_title = utils.TitleCasedNameWithSpace(field.Name())
+				field.Base().label = utils.TitleCasedNameWithSpace(field.Name())
 			}
 
-			if field.Base()._attr_help == "" && field.Title() != "" {
-				field.Base()._attr_help = field.Title()
+			if field.Base().description == "" && field.Title() != "" {
+				field.Base().description = field.Title()
 			}
 
 			// REmove #　通过条件过滤不学要的原始字段
@@ -747,7 +747,7 @@ func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 	// TODO 充实model pk id 等选项
 	for _, name := range colSeq {
 		if field, has := fields[name]; has {
-			field.Base().model_name = modelName
+			field.Base().modelName = modelName
 			// 主键三大特征
 			// TODO 与复合主键中找到ID主键
 			if !field.IsCompositeKey() && field.IsPrimaryKey() && field.Required() && (field.IsUnique() || field.IsAutoIncrement()) {
@@ -755,8 +755,8 @@ func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 				model.Obj().uidFieldName = field.Name()
 			}
 
-			if field.Base()._attr_type == "" {
-				field.Base()._attr_type = field.SQLType().Name
+			if field.Base().typeName == "" {
+				field.Base().typeName = field.SQLType().Name
 			}
 
 			/*
@@ -772,9 +772,9 @@ func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 				}
 			*/
 
-			field.Base().isColumn = true
+			field.Base().isDBColumn = true
 			// 数据库的字段都是存储类型
-			field.Base()._attr_store = true
+			field.Base().store = true
 
 			modelObject.fields.Store(field.Name(), field)
 		}

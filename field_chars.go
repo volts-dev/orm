@@ -40,14 +40,14 @@ func initCharField(ctx *TTagContext, fieldType string) {
 	field := ctx.Field.Base()
 	params := ctx.Params
 
-	field._attr_type = fieldType
-	field._attr_store = true
-	field._symbol_c = `'%s'`
-	field._symbol_f = _CharFormat
+	field.typeName = fieldType
+	field.store = true
+	field.formatChar = `'%s'`
+	field.formatFunc = _CharFormat
 	field.SqlType = SQLType{fieldType, 0, 0}
 	if len(params) > 0 {
 		if size := utils.ToInt(params[0]); size != 0 {
-			field._attr_size = size
+			field.size = size
 			field.SqlType.DefaultLength = size
 		}
 	}

@@ -120,7 +120,7 @@ func (self *ModelBuilder) Field(name, fieldType string) *fieldStatment {
 		field.Init(fieldContext)
 	}
 
-	field.Base().model_name = self.model.name
+	field.Base().modelName = self.model.name
 	self.model.Obj().SetField(field)
 	//}
 
@@ -183,7 +183,7 @@ func (self *ModelBuilder) DateTimeField(name string) *fieldStatment {
 
 func (self *ModelBuilder) SelectionField(name string, fn func() [][]string) *fieldStatment {
 	fieldStmt := self.Field(name, "selection")
-	fieldStmt.field.Base()._attr_selection = fn()
+	fieldStmt.field.Base().selection = fn()
 	fieldStmt.field.Init(&TTagContext{
 		Orm:        self.Orm,
 		Model:      self.model,
@@ -271,7 +271,7 @@ func (self *ModelBuilder) JsonField(name string) *fieldStatment {
 
 func (self *fieldStatment) Getter(fn func(ctx *TFieldContext) error) *fieldStatment {
 	field := self.field
-	field.Base()._getterFunc = fn
+	field.Base().getterFunc = fn
 	builder := self.builder
 
 	if err := tag_getter(&TTagContext{
@@ -291,7 +291,7 @@ func (self *fieldStatment) Getter(fn func(ctx *TFieldContext) error) *fieldStatm
 // 返回值包含 any,[]any,map[string]any
 func (self *fieldStatment) Setter(fn func(ctx *TFieldContext) error) *fieldStatment {
 	field := self.field
-	field.Base()._setterFunc = fn
+	field.Base().setterFunc = fn
 	builder := self.builder
 
 	if err := tag_setter(&TTagContext{
@@ -307,34 +307,34 @@ func (self *fieldStatment) Setter(fn func(ctx *TFieldContext) error) *fieldStatm
 }
 
 func (self *fieldStatment) Size(v int) *fieldStatment {
-	self.field.Base()._attr_size = v
+	self.field.Base().size = v
 	return self
 }
 
 // 字段的帮助描述
 func (self *fieldStatment) Help(v string) *fieldStatment {
-	self.field.Base()._attr_help = v
+	self.field.Base().description = v
 	return self
 }
 
 func (self *fieldStatment) Readonly(v bool) *fieldStatment {
-	self.field.Base()._attr_readonly = v
+	self.field.Base().readonly = v
 	return self
 }
 
 func (self *fieldStatment) Required(v ...bool) *fieldStatment {
 	if len(v) == 0 {
-		self.field.Base()._attr_required = true
+		self.field.Base().required = true
 		return self
 	}
-	self.field.Base()._attr_required = v[0]
+	self.field.Base().required = v[0]
 	return self
 }
 
 func (self *fieldStatment) Default(value any) *fieldStatment {
 	field := self.field
 	builder := self.builder
-	field.Base()._attr_default = utils.ToString(value)
+	field.Base().defaultValue = utils.ToString(value)
 
 	if err := tag_default(&TTagContext{
 		Orm:        builder.Orm,
@@ -350,25 +350,25 @@ func (self *fieldStatment) Default(value any) *fieldStatment {
 
 func (self *fieldStatment) DefaultFunc(fn func(ctx *TFieldContext) error) *fieldStatment {
 	field := self.field.Base()
-	field._defaultFunc = fn
+	field.defaultFunc = fn
 	//field._attr_store = false
 	//field._attr_readonly = field._attr_readonly || false
 
 	return self
 }
 func (self *fieldStatment) Domain(value string) *fieldStatment {
-	self.field.Base()._attr_domain = value
+	self.field.Base().domain = value
 	return self
 }
 
 // 字段显示抬头
 func (self *fieldStatment) Title(value string) *fieldStatment {
-	self.field.Base()._attr_title = value
+	self.field.Base().label = value
 	return self
 }
 
 func (self *fieldStatment) Store(value bool) *fieldStatment {
-	self.field.Base()._attr_store = value
+	self.field.Base().store = value
 	return self
 }
 
@@ -444,7 +444,7 @@ func (self *fieldStatment) IsUpdated(name ...string) *fieldStatment {
 }
 
 func (self *fieldStatment) Ondelete(value string) *fieldStatment {
-	self.field.Base().ondelete = value
+	self.field.Base().onDelete = value
 	return self
 }
 

@@ -413,7 +413,7 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 			return "", err
 		}
 
-		dv := field.Base()._attr_default
+		dv := field.Base().defaultValue
 		if dv == "" {
 			if _, err := bd.WriteString("''"); err != nil {
 				return "", err
