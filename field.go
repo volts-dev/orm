@@ -32,7 +32,7 @@ type (
 		Orm            *TOrm
 		Model          IModel        // required
 		Field          IField        // required
-		FieldTypeValue reflect.Value // TODO 废弃
+		FieldTypeValue reflect.Value // 用途未确认，保留兼容
 		ModelValue     reflect.Value
 		Params         []string // 属性参数 int(<params>)
 	}
@@ -404,7 +404,6 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 	return field, nil
 }
 
-// TODO　改名外键
 func NewRelateField(aNames string, relate_table_name string, relate_field_name string, aField IField, relate_topest_table string) *TRelatedField {
 	return &TRelatedField{
 		name:              aNames,
@@ -431,7 +430,6 @@ func (self *TField) ModelName() string {
 	return self.model_name
 }
 
-// TODO 优化函数名称
 func (self *TField) RelatedFieldName() string {
 	return self.related_keyfield_name
 }
@@ -547,7 +545,6 @@ func (self *TField) IsIndex() bool {
 	return self.index
 }
 
-// TODO 改名称
 func (self *TField) FuncMultiName() string {
 	return self._func_multi
 }
