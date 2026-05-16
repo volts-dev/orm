@@ -16,10 +16,10 @@ import (
 // newTestField creates a TField with the given options applied.
 func newTestField(name string, opts ...func(*TField)) *TField {
 	f := &TField{
-		_attr_name:  name,
-		_attr_store: true,
-		_symbol_c:   "%s",
-		_symbol_f:   _FieldFormat,
+		name:  name,
+		store: true,
+		formatChar:   "%s",
+		formatFunc:   _FieldFormat,
 		SqlType:     SQLType{Name: Varchar, DefaultLength: 255},
 	}
 	for _, o := range opts {
@@ -29,39 +29,39 @@ func newTestField(name string, opts ...func(*TField)) *TField {
 }
 
 func withModelName(n string) func(*TField) {
-	return func(f *TField) { f.model_name = n }
+	return func(f *TField) { f.modelName = n }
 }
 func withType(t string) func(*TField) {
-	return func(f *TField) { f._attr_type = t }
+	return func(f *TField) { f.typeName = t }
 }
 func withSQLType(st SQLType) func(*TField) {
 	return func(f *TField) { f.SqlType = st }
 }
 func withStore(v bool) func(*TField) {
-	return func(f *TField) { f._attr_store = v }
+	return func(f *TField) { f.store = v }
 }
 func withAutoIncrement() func(*TField) {
 	return func(f *TField) { f.isAutoIncrement = true }
 }
 func withCreated() func(*TField) {
-	return func(f *TField) { f.isCreated = true }
+	return func(f *TField) { f.isCreatedAt = true }
 }
 func withUpdated() func(*TField) {
-	return func(f *TField) { f.isUpdated = true }
+	return func(f *TField) { f.isUpdatedAt = true }
 }
 func withRequired() func(*TField) {
-	return func(f *TField) { f._attr_required = true }
+	return func(f *TField) { f.required = true }
 }
 func withInherited() func(*TField) {
-	return func(f *TField) { f.isInheritedField = true }
+	return func(f *TField) { f.isInherited = true }
 }
 func withRelated() func(*TField) {
-	return func(f *TField) { f.isRelatedField = true }
+	return func(f *TField) { f.isRelated = true }
 }
 func withHasSetter() func(*TField) {
 	return func(f *TField) {
 		f.hasSetter = true
-		f._setterFunc = func(ctx *TFieldContext) error {
+		f.setterFunc = func(ctx *TFieldContext) error {
 			ctx.values = ctx.Value
 			return nil
 		}
@@ -70,17 +70,17 @@ func withHasSetter() func(*TField) {
 func withSetter(fn func(*TFieldContext) error) func(*TField) {
 	return func(f *TField) {
 		f.hasSetter = true
-		f._setterFunc = fn
+		f.setterFunc = fn
 	}
 }
 func withHasGetter() func(*TField) {
 	return func(f *TField) {
 		f.hasGetter = true
-		f._getterFunc = func(ctx *TFieldContext) error { return nil }
+		f.getterFunc = func(ctx *TFieldContext) error { return nil }
 	}
 }
 func withDefault(v string) func(*TField) {
-	return func(f *TField) { f._attr_default = v }
+	return func(f *TField) { f.defaultValue = v }
 }
 
 // testModelObj builds a TModelObject with the given fields and optional relations.
