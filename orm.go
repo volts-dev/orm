@@ -397,15 +397,15 @@ func (self *TOrm) CreateUniques(modelName string) error {
 
 // DBMetas Retrieve all tables, columns, indexes' informations from database.
 // 从连接的数据库获取数据库及表基本信息
-func (self *TOrm) DBMetas() (map[string]IModel, error) {
-	models, err := self.dialect.GetModels(self.context)
+func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
+	models, err := self.dialect.GetModels(self.context, session)
 	if err != nil {
 		return nil, err
 	}
 
 	modelLst := make(map[string]IModel)
 	for _, model := range models {
-		model, err = self._modelMetas(model)
+		model, err = self._modelMetas(session, model)
 		if err != nil {
 			return nil, err
 		}
@@ -699,7 +699,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 // 更新现有数据库以及表信息并模拟创建TModel
 // 反转Table 到 Model
 func (self *TOrm) _reverse() error {
-	models, err := self.DBMetas()
+	models, err := self.DBMetas(nil)
 	if err != nil {
 		return err
 	}
@@ -733,14 +733,14 @@ func (self *TOrm) _reverse() error {
 	return nil
 }
 
-func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
+func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 	modelName := model.String()
 	tableName := model.Table()
 	modelObject := self.osv.newObject(model.String())
 	model.GetBase().obj = modelObject
 	model.GetBase().isCustomModel = false
 
-	colSeq, fields, err := self.dialect.GetFields(self.context, tableName)
+	colSeq, fields, err := self.dialect.GetFields(self.context, session, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -781,7 +781,7 @@ func (self *TOrm) _modelMetas(model IModel) (IModel, error) {
 		}
 	}
 
-	indexes, err := self.dialect.GetIndexes(self.context, tableName)
+	indexes, err := self.dialect.GetIndexes(self.context, session, tableName)
 	if err != nil {
 		return nil, err
 	}

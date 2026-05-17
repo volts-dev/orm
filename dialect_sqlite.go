@@ -116,7 +116,7 @@ func (db *sqlite) TableCheckSql(tableName string) (string, []interface{}) {
 func (db *sqlite) DropColumnNotNullSql(tableName string, col IField) string { return "" }
 func (db *sqlite) DropColumnDefaultSql(tableName string, col IField) string { return "" }
 
-func (db *sqlite) GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error) {
+func (db *sqlite) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
 	// SQLite doesn't have a direct information_schema.columns-like interface for all details easily,
 	// but we can use PRAGMA table_info
 	s := fmt.Sprintf("PRAGMA table_info(%v)", db.quoter.Quote(tableName))
@@ -182,7 +182,7 @@ func (db *sqlite) GetFields(ctx context.Context, tableName string) ([]string, ma
 	return colSeq, cols, nil
 }
 
-func (db *sqlite) GetModels(ctx context.Context) ([]IModel, error) {
+func (db *sqlite) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
 	s := "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
 	db.LogSQL(s, nil)
 
@@ -205,7 +205,7 @@ func (db *sqlite) GetModels(ctx context.Context) ([]IModel, error) {
 	return models, nil
 }
 
-func (db *sqlite) GetIndexes(ctx context.Context, tableName string) (map[string]*TIndex, error) {
+func (db *sqlite) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
 	// Get index list using PRAGMA index_list
 	s := fmt.Sprintf("PRAGMA index_list(%v)", db.quoter.Quote(tableName))
 	db.LogSQL(s, nil)

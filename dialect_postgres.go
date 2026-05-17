@@ -966,8 +966,9 @@ func (db *postgres) TableCheckSql(tableName string) (string, []interface{}) {
 func (db *postgres) CreateTableSql(model IModel, storeEngine, charset string) string {
 	quoter := db.dialect.Quoter()
 	tableName := ""
-	if len(db.getSchema()) != 0 && !strings.Contains(fmtTableName(model.String()), ".") {
-		tableName = fmt.Sprintf("%s.%s", db.getSchema(), fmtTableName(model.String()))
+	schema := db.getSchema(model.Transaction())
+	if len(schema) != 0 && !strings.Contains(fmtTableName(model.String()), ".") {
+		tableName = fmt.Sprintf("%s.%s", schema, fmtTableName(model.String()))
 	}
 
 	var b strings.Builder
@@ -1028,14 +1029,14 @@ func (db *postgres) GenAddColumnSQL(tableName string, field IField) string {
 
 	addColumnSQL := ""
 	commentSQL := "; "
-	if len(db.getSchema()) == 0 || strings.Contains(tableName, ".") {
+	if len(db.getSchema(nil)) == 0 || strings.Contains(tableName, ".") {
 		addColumnSQL = fmt.Sprintf("ALTER TABLE %s ADD %s", quoter.Quote(tableName), s)
 		commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Label())
 		return addColumnSQL + commentSQL
 	}
 
-	addColumnSQL = fmt.Sprintf("ALTER TABLE %s.%s ADD %s", quoter.Quote(db.getSchema()), quoter.Quote(tableName), s)
-	commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s.%s IS '%s'", quoter.Quote(db.getSchema()), quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Label())
+	addColumnSQL = fmt.Sprintf("ALTER TABLE %s.%s ADD %s", quoter.Quote(db.getSchema(nil)), quoter.Quote(tableName), s)
+	commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s.%s IS '%s'", quoter.Quote(db.getSchema(nil)), quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Label())
 	return addColumnSQL + commentSQL
 }
 
@@ -1264,9 +1265,9 @@ func (db *postgres) IsColumnExist(ctx context.Context, tableName, colName string
 	return rows.Next(), nil
 }
 
-func (db *postgres) GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error) {
+func (db *postgres) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
 	// FIXME: the schema should be replaced by user custom's
-	args := []interface{}{tableName, "public"}
+	args := []interface{}{tableName, db.getSchema(session)}
 	s := `SELECT column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
     CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
     CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
@@ -1472,9 +1473,9 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 	return colSeq, cols, nil
 }
 
-func (db *postgres) GetModels(ctx context.Context) ([]IModel, error) {
+func (db *postgres) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
 	// FIXME: replace public to user customrize schema
-	args := []interface{}{"public"}
+	args := []interface{}{db.getSchema(session)}
 	s := fmt.Sprintf("SELECT tablename FROM pg_tables WHERE schemaname = $1")
 	db.LogSQL(s, args)
 
@@ -1505,9 +1506,9 @@ func (db *postgres) GetModels(ctx context.Context) ([]IModel, error) {
 	return models, nil
 }
 
-func (db *postgres) GetIndexes(ctx context.Context, tableName string) (map[string]*TIndex, error) {
+func (db *postgres) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
 	// FIXME: replace the public schema to user specify schema
-	args := []interface{}{"public", tableName}
+	args := []interface{}{db.getSchema(session), tableName}
 	s := fmt.Sprintf("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname=$1 AND tablename=$2")
 	db.LogSQL(s, args)
 
@@ -1568,7 +1569,10 @@ func (db *postgres) Fmter() []IFmter {
 		&HolderFmter{Prefix: "$", Start: 1}}
 }
 
-func (db *postgres) getSchema() string {
+func (db *postgres) getSchema(session *TSession) string {
+	if session != nil && session.Schema != "" {
+		return session.Schema
+	}
 	if db.Schema != "" {
 		return db.Schema
 	}

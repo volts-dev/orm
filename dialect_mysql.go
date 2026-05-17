@@ -558,7 +558,7 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 	return sql.String()
 }
 
-func (db *mysql) GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error) {
+func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
 	args := []interface{}{db.DbName, tableName}
 	alreadyQuoted := "(INSTR(VERSION(), 'maria') > 0 && " +
 		"(SUBSTRING_INDEX(VERSION(), '.', 1) > 10 || " +
@@ -695,7 +695,7 @@ func (db *mysql) GetFields(ctx context.Context, tableName string) ([]string, map
 	return colSeq, cols, nil
 }
 
-func (db *mysql) GetModels(ctx context.Context) ([]IModel, error) {
+func (db *mysql) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
 	//func (db *mysql) GetTables(queryer Queryer, ctx context.Context) ([]*Table, error) {
 	args := []interface{}{db.DbName}
 	s := "SELECT `TABLE_NAME`, `ENGINE`, `AUTO_INCREMENT`, `TABLE_COMMENT` from " +
@@ -733,7 +733,7 @@ func (db *mysql) GetModels(ctx context.Context) ([]IModel, error) {
 	return models, nil
 }
 
-func (db *mysql) GetIndexes(ctx context.Context, tableName string) (map[string]*TIndex, error) {
+func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
 	args := []interface{}{db.DbName, tableName}
 	s := "SELECT `INDEX_NAME`, `NON_UNIQUE`, `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? ORDER BY `SEQ_IN_INDEX`"
 

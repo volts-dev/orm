@@ -585,7 +585,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	relModel := new(TModel)
 	model_val := reflect.Indirect(reflect.ValueOf(relModel))
 	model_type := model_val.Type()
-	model, err := orm._modelMetas(newModel(field.JoinModelName(), middle_model, model_val, model_type, nil))
+	model, err := orm._modelMetas(ctx.Model.Transaction(), newModel(field.JoinModelName(), middle_model, model_val, model_type, nil))
 	if err != nil {
 		log.Err(err)
 	}

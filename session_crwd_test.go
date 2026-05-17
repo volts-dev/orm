@@ -116,11 +116,11 @@ func (d *testDialect) IsReserved(s string) bool                           { retu
 func (d *testDialect) AutoIncrStr() string                                { return "AUTOINCREMENT" }
 func (d *testDialect) IndexCheckSql(t, i string) (string, []interface{})  { return "", nil }
 func (d *testDialect) GenAddColumnSQL(t string, f IField) string          { return "" }
-func (d *testDialect) GetFields(ctx context.Context, t string) ([]string, map[string]IField, error) {
+func (d *testDialect) GetFields(ctx context.Context, session *TSession, t string) ([]string, map[string]IField, error) {
 	return nil, nil, nil
 }
-func (d *testDialect) GetModels(ctx context.Context) ([]IModel, error) { return nil, nil }
-func (d *testDialect) GetIndexes(ctx context.Context, t string) (map[string]*TIndex, error) {
+func (d *testDialect) GetModels(ctx context.Context, session *TSession) ([]IModel, error) { return nil, nil }
+func (d *testDialect) GetIndexes(ctx context.Context, session *TSession, t string) (map[string]*TIndex, error) {
 	return nil, nil
 }
 func (d *testDialect) Fmter() []IFmter                                                   { return nil }

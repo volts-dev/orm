@@ -13,8 +13,6 @@ type (
 
 	TSelectionField struct {
 		TField
-		selection       string
-		_attr_selection [][]string
 	}
 )
 
@@ -50,7 +48,7 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 	field.getterMethod = "" //初始化
 	field.SqlType = SQLType{Varchar, 0, 0}
 
-	if self._attr_selection == nil {
+	if self.selection == nil {
 		log.Assert(len(params) < 1, "selection field %s of model %s must including at least 1 args! %v", field.Name(), self.modelName, params)
 		lStr := strings.Trim(params[0], "'")
 		lStr = strings.Replace(lStr, "''", "'", -1)
@@ -69,7 +67,7 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 			}
 
 			for k, v := range m {
-				self._attr_selection = append(self._attr_selection, []string{k, v})
+				self.selection = append(self.selection, []string{k, v})
 			}
 		}
 	}
@@ -131,14 +129,14 @@ func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]interface{}
 			results := m.Call(nil) //
 			if len(results) == 1 {
 				if res, ok := results[0].Interface().([][]string); ok {
-					self._attr_selection = res
+					self.selection = res
 				}
 			}
 		}
 	}
 
 	attrs := self.Base().Attributes(ctx)
-	attrs["selection"] = self._attr_selection
+	attrs["selection"] = self.selection
 	return attrs
 }
 
@@ -162,7 +160,7 @@ func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 
 			if len(results) == 1 {
 				if res, ok := results[0].Interface().([][]string); ok {
-					field._attr_selection = res
+					field.selection = res
 				}
 			}
 		}

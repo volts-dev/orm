@@ -115,7 +115,7 @@ func (self *TSession) Ping() error {
 // synchronize structs to database tables
 func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []string, err error) {
 	// NOTE [SyncModel] 这里获取到的Model是由数据库信息创建而成.并不包含所有字段继承字段.
-	exitsModels, err := self.orm.DBMetas() // 获取基本数据库信息
+	exitsModels, err := self.orm.DBMetas(self) // 获取基本数据库信息
 	if err != nil {
 		return nil, err
 	}

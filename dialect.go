@@ -61,9 +61,9 @@ type (
 		//CreateTableIfNotExists(table *Table, tableName, storeEngine, charset string) error
 		//MustDropTable(tableName string) error
 
-		GetFields(ctx context.Context, tableName string) ([]string, map[string]IField, error)
-		GetModels(ctx context.Context) ([]IModel, error)
-		GetIndexes(ctx context.Context, tableName string) (map[string]*TIndex, error)
+		GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error)
+		GetModels(ctx context.Context, session *TSession) ([]IModel, error)
+		GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error)
 
 		Fmter() []IFmter // TODO 考虑移除 由于无法满足query获得model对象
 		SetParams(params map[string]string)
@@ -459,4 +459,16 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 	}
 
 	return bd.String(), nil
+}
+
+func (db *TDialect) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
+	return db.dialect.GetFields(ctx, session, tableName)
+}
+
+func (db *TDialect) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
+	return db.dialect.GetModels(ctx, session)
+}
+
+func (db *TDialect) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
+	return db.dialect.GetIndexes(ctx, session, tableName)
 }
