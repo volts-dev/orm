@@ -239,3 +239,12 @@ func (q Quoter) Replace(sql string) string {
 	}
 	return buf.String()
 }
+
+// QuoteTable returns the quoted table name combined with schema if schema is provided.
+// If schema is empty, it just quotes the table name.
+func (q Quoter) QuoteTable(schema, table string) string {
+	if schema != "" {
+		return q.Quote(schema) + "." + q.Quote(table)
+	}
+	return q.Quote(table)
+}
