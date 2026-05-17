@@ -52,6 +52,7 @@ type (
 		osv       *TOsv // 对象管理
 		nameIndex map[string]*TModel
 		connected bool
+		Schema    string // Schema namespace
 
 		context context.Context
 		// public

@@ -954,3 +954,10 @@ func (self *TStatement) generate_fields() []string {
 
 	return fields
 }
+
+// QuoteTable returns the fully qualified table name including active schema namespace
+func (self *TStatement) QuoteTable() string {
+	tableName := fmtTableName(self.Model.String())
+	schema := self.session.Schema
+	return self.session.orm.dialect.Quoter().QuoteTable(schema, tableName)
+}

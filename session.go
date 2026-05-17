@@ -3,6 +3,7 @@ package orm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/volts-dev/orm/core"
@@ -16,6 +17,7 @@ type (
 		tx                     *core.Tx // 由Begin 传递而来
 		Statement              TStatement
 		context                context.Context
+		Schema                 string // Schema namespace
 		IsDeprecated           bool // sometime the session did not reach the request it shoud be deprecated
 		IsAutoCommit           bool // dflt is true
 		IsAutoClose            bool
@@ -38,6 +40,7 @@ func NewSession(orm *TOrm) *TSession {
 		db:      orm.db,
 		orm:     orm,
 		context: orm.context,
+		Schema:  orm.Schema,
 	}
 
 	session.init()
@@ -201,6 +204,12 @@ func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) 
 		Value:     value,
 		Queryable: queryable,
 	}
+}
+
+// SetSchema sets current session schema namespace
+func (self *TSession) SetSchema(schema string) *TSession {
+	self.Schema = schema
+	return self
 }
 
 // CreateTable create a table according a bean
@@ -538,6 +547,50 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 		var addedNames = make(map[string]*TIndex)
 
 		// TODO 主键是否可以修改
+		{
+			newKeys := newModel.GetPrimaryKeys()
+			oldKeys := oldModel.GetPrimaryKeys()
+
+			keysChanged := false
+			if len(newKeys) != len(oldKeys) {
+				keysChanged = true
+			} else {
+				for i, k := range newKeys {
+					if k != oldKeys[i] {
+						keysChanged = true
+						break
+					}
+				}
+			}
+
+			if keysChanged {
+				quoter := orm.dialect.Quoter()
+				var dropSql string
+				var addSql string
+				dbType := strings.ToLower(orm.dialect.DBType())
+
+				if len(oldKeys) > 0 {
+					if dbType == "postgres" || dbType == "postgresql" {
+						dropSql = fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s_pkey;",
+							quoter.Quote(tableName), tableName)
+					} else if dbType == "mysql" {
+						dropSql = fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quoter.Quote(tableName))
+					}
+				}
+
+				if len(newKeys) > 0 {
+					if dbType == "postgres" || dbType == "postgresql" || dbType == "mysql" {
+						addSql = fmt.Sprintf("ALTER TABLE %s ADD PRIMARY KEY (%s);",
+							quoter.Quote(tableName), quoter.Join(newKeys, ","))
+					}
+				}
+
+				log.Warnf("Table <%s> primary key constraint mismatch between struct (%v) and database (%v)!", tableName, newKeys, oldKeys)
+				if dropSql != "" || addSql != "" {
+					log.Warnf("To synchronize the primary key manually, please run:\n  %s\n  %s", dropSql, addSql)
+				}
+			}
+		}
 
 		// 检查更新索引 先取消索引载添加需要的
 		// 取消Idex
