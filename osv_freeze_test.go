@@ -209,6 +209,18 @@ func TestFreeze_RemoteResolve_Dedup(t *testing.T) {
 	}
 }
 
+func TestRegisterModel_RejectsAfterFreeze(t *testing.T) {
+	osv := &TOsv{}
+	if err := osv.Freeze(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	model := &TModel{name: "test.late"}
+	model.obj = &TModelObject{name: "test.late"}
+	if err := osv.RegisterModel("", model); err != ErrOsvFrozen {
+		t.Fatalf("expected ErrOsvFrozen after Freeze, got %v", err)
+	}
+}
+
 // Phase 4 — strict mode 下 unresolved 必须报错，错误信息列出所有 ref。
 func TestFreeze_StrictMode_FailsOnUnresolved(t *testing.T) {
 	osv := &TOsv{strictMode: true}

@@ -291,6 +291,9 @@ func (self *TOsv) newObject(name string) *TModelObject {
 
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, model *TModel) error {
+	if self.frozen {
+		return ErrOsvFrozen
+	}
 	/* 初始化ModelObject */
 	//获得Object 检查是否存在，不存在则创建
 	var obj *TModelObject
