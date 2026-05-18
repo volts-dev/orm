@@ -77,6 +77,20 @@ func newMinimalTestModel(name string) *TModel {
 	return m
 }
 
+func TestWithRemoteResolver_AppliedToConfig(t *testing.T) {
+	cfg := newConfig(WithRemoteResolver(&mockRemoteResolver{}))
+	if cfg.RemoteResolver == nil {
+		t.Fatal("WithRemoteResolver did not set cfg.RemoteResolver")
+	}
+}
+
+func TestWithStrictModelResolution_AppliedToConfig(t *testing.T) {
+	cfg := newConfig(WithStrictModelResolution(true))
+	if !cfg.StrictModelResolution {
+		t.Fatal("WithStrictModelResolution(true) did not set cfg.StrictModelResolution")
+	}
+}
+
 // Phase 2 — A↔B 互相 m2o，注册顺序任意，Freeze 后都能成功解析。
 func TestFreeze_LocalCircularDeps(t *testing.T) {
 	osv := &TOsv{}

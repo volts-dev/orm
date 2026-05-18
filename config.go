@@ -14,6 +14,15 @@ type (
 		ShowSql            bool
 		ShowSqlTime        bool
 		AutoCreateDatabase bool
+
+		// RemoteResolver, when non-nil, lets Freeze resolve model references
+		// that aren't registered locally. See remote.go / osv_freeze.go.
+		RemoteResolver IRemoteResolver
+
+		// StrictModelResolution makes Freeze return an error when any pending
+		// ref remains unresolved after Phase 3. Recommended for CI/dev.
+		// Default false (resilient cold-start in prod).
+		StrictModelResolution bool
 	}
 )
 
@@ -67,5 +76,21 @@ func WithTableTag(tableName string) Option {
 func WithAutoCreateDatabase(on bool) Option {
 	return func(cfg *Config) {
 		cfg.AutoCreateDatabase = on
+	}
+}
+
+// WithRemoteResolver injects a host-provided IRemoteResolver implementation
+// (e.g. vectors' resolver). A nil resolver disables Phase 3 remote resolution.
+func WithRemoteResolver(r IRemoteResolver) Option {
+	return func(cfg *Config) {
+		cfg.RemoteResolver = r
+	}
+}
+
+// WithStrictModelResolution toggles Freeze's Phase 4 verification.
+// In strict mode, any unresolved ref after Phase 3 causes Freeze to error.
+func WithStrictModelResolution(b bool) Option {
+	return func(cfg *Config) {
+		cfg.StrictModelResolution = b
 	}
 }

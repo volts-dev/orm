@@ -103,6 +103,8 @@ func New(opt ...Option) (*TOrm, error) {
 
 	// OSV
 	orm.osv = newOsv(orm)
+	orm.osv.resolver = cfg.RemoteResolver
+	orm.osv.strictMode = cfg.StrictModelResolution
 
 	if orm.IsExist(cfg.DataSource.DbName) {
 		err = orm._reverse()
