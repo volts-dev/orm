@@ -65,6 +65,14 @@ func newOne2ManyField() IField {
 	return new(TOne2ManyField)
 }
 
+// defaultIdSqlType returns the SQL column type used for FK columns whose
+// target model id type isn't known at Phase 1 (e.g. forward references,
+// remote models). Matches the "all model ids are int64" convention;
+// Phase 2 verifies this against the actual local model when present.
+func defaultIdSqlType() SQLType {
+	return GoType2SQLType(reflect.TypeOf(int64(0)))
+}
+
 func (self *TRelational) Attributes(ctx *TTagContext) map[string]interface{} {
 	attrs := self.Base().Attributes(ctx)
 	attrs["relation"] = self.relatedModelName
@@ -91,59 +99,26 @@ func (self *TOne2OneField) Init(ctx *TTagContext) { //related_model_name string,
 	model := ctx.Model
 	model.Obj().SetRelationByName(modelName, field.Name())
 
-	parentModel, err := ctx.Orm.GetModel(modelName)
-	if err != nil || parentModel == nil {
-		log.Fatalf("field One2One %s@%s must including model name %s registered in orm!", field.Name(), model.String(), modelName)
-	}
-
+	// Phase 1: defer parent model resolution to osv.Freeze.
+	// FK SqlType defaults to int64 per the "all model ids are int64" convention
+	// when the Go field type isn't directly available; Phase 2 verifies/refines this.
 	if field_Value.IsValid() {
 		field.SqlType = GoType2SQLType(field_Value.Type())
 	} else {
-		/* 保持和ID一致的类型 */
-		idfield := parentModel.GetFieldByName(parentModel.IdField())
-		if idfield == nil {
-			panic("id field not found")
-		}
-
-		field.SqlType = *idfield.SQLType()
+		field.SqlType = defaultIdSqlType()
 	}
 
-	var (
-		parentField, newField IField
-		fieldName             string
-	)
-	for _, parentField = range parentModel.GetFields() {
-		// #限制某些字段
-		// @ 当参数多余1个时判断为限制字段　例如：`field:"relate(PartnerId,Name)"`
-		//if lRelFieldsCnt > 1 && utils.InStrings(parentField.Name(), lRelFields...) == -1 {
-		//	continue
-		//}
-		fieldName = parentField.Name()
-		newField = utils.Clone(parentField).(IField) // 复制关联字段
-		newField.SetBase(parentField.Base())
+	ctx.Orm.osv.markPending(fieldRef{
+		fromModel: model.String(),
+		fieldName: field.Name(),
+		toModel:   modelName,
+		fieldType: TYPE_O2O,
+	})
 
-		if f := model.GetFieldByName(fieldName); f != nil {
-			// 相同字段处理
-			model.GetBase().obj.SetCommonFieldByName(fieldName, parentModel.String(), newField)
-			model.GetBase().obj.SetCommonFieldByName(fieldName, f.Base().modelName, f)
-
-		} else {
-			// # 当Tag为Extends,Inherits时,该结构体所有合法字段将被用于创建数据库表字段
-			newField.Base().isInherited = true
-			newField.Base().store = false // 关系字段不存储
-
-			if newField.IsAutoIncrement() {
-				//model.GetBase().table.AutoIncrement = fieldName
-				model.Obj().AutoIncrementField = fieldName
-			}
-
-			//# 映射时是没有Parent的字段如Id 所以在此获取Id主键.
-			if newField.Base().isPrimaryKey && newField.Base().isAutoIncrement {
-				model.GetBase().idField = fieldName
-			}
-			model.GetBase().obj.SetField(newField)
-		}
-	}
+	// One2One field inheritance (copying parent fields into the owning model)
+	// is now done by osv.linkLocal during Freeze Phase 2 — kept out of Init so
+	// registration order between modules no longer matters and so that we can
+	// reject One2One→remote in Phase 3.
 }
 
 func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
@@ -316,18 +291,8 @@ func (self *TMany2OneField) Init(ctx *TTagContext) {
 	if fieldValue.IsValid() {
 		field.SqlType = GoType2SQLType(fieldValue.Type())
 	} else {
-		modelName := fmtModelName(utils.TitleCasedName(params[0]))
-		relateModel, err := ctx.Orm.GetModel(modelName)
-		if err != nil || relateModel == nil {
-			log.Fatalf("field One2One %s@%s must including model name %s registered in orm!", field.Name(), relateModel.String(), modelName)
-		}
-		/* 保持和ID一致的类型 */
-		idfield := relateModel.GetFieldByName(relateModel.IdField())
-		if idfield == nil {
-			panic("id field not found")
-		}
-
-		field.SqlType = *idfield.SQLType()
+		// Defer: FK column type defaults to int64 per id convention.
+		field.SqlType = defaultIdSqlType()
 	}
 
 	// 不直接指定 采用以下tag写法
@@ -341,6 +306,12 @@ func (self *TMany2OneField) Init(ctx *TTagContext) {
 	field.typeName = TYPE_M2O
 	field.store = true
 
+	ctx.Orm.osv.markPending(fieldRef{
+		fromModel: ctx.Model.String(),
+		fieldName: field.Name(),
+		toModel:   field.relatedModelName,
+		fieldType: TYPE_M2O,
+	})
 }
 
 // TODO 未完成

@@ -27,6 +27,55 @@ func TestOsvMarkPending(t *testing.T) {
 	}
 }
 
+// 验证 One2One 字段引用未注册 model 不再 Fatalf，而是记录到 pendingRefs。
+func TestOne2OneInitDoesNotFatalOnMissingModel(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("registration must not panic on missing related model, got: %v", r)
+		}
+	}()
+
+	osv := &TOsv{}
+	orm := &TOrm{osv: osv}
+	osv.orm = orm
+
+	field := &TField{}
+	field.SetName("PartnerId")
+	field.Base().modelName = "test.invoice"
+
+	model := newMinimalTestModel("test.invoice")
+	ctx := &TTagContext{
+		Orm:    orm,
+		Field:  field,
+		Model:  model,
+		Params: []string{"res.partner"},
+	}
+
+	o2o := &TOne2OneField{}
+	o2o.Init(ctx)
+
+	if got := len(osv.pendingRefs); got != 1 {
+		t.Fatalf("expected 1 pending ref recorded, got %d", got)
+	}
+	// toModel goes through fmtModelName/TitleCasedName — exact form depends on those.
+	// Just verify it's non-empty and roughly recognizable.
+	if osv.pendingRefs[0].toModel == "" {
+		t.Fatal("pendingRefs[0].toModel must not be empty")
+	}
+	if osv.pendingRefs[0].fieldType != TYPE_O2O {
+		t.Fatalf("expected fieldType TYPE_O2O, got %q", osv.pendingRefs[0].fieldType)
+	}
+	if osv.pendingRefs[0].fromModel != "test.invoice" {
+		t.Fatalf("expected fromModel=test.invoice, got %q", osv.pendingRefs[0].fromModel)
+	}
+}
+
+func newMinimalTestModel(name string) *TModel {
+	m := &TModel{name: name}
+	m.obj = &TModelObject{name: name}
+	return m
+}
+
 func TestOsvMarkPendingConcurrent(t *testing.T) {
 	osv := &TOsv{}
 	const N = 100
