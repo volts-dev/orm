@@ -2,6 +2,7 @@ package orm
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -205,6 +206,60 @@ func TestFreeze_RemoteResolve_Dedup(t *testing.T) {
 	}
 	if resolver.lookupCalled != 1 {
 		t.Fatalf("expected 1 LookupSchema call (dedup), got %d", resolver.lookupCalled)
+	}
+}
+
+// Phase 4 — strict mode 下 unresolved 必须报错，错误信息列出所有 ref。
+func TestFreeze_StrictMode_FailsOnUnresolved(t *testing.T) {
+	osv := &TOsv{strictMode: true}
+	osv.models.Store("website.page", &TModelObject{name: "website.page"})
+	osv.markPending(fieldRef{
+		fromModel: "website.page", fieldName: "X", toModel: "missing.model", fieldType: TYPE_M2O,
+	})
+
+	err := osv.Freeze(context.Background())
+	if err == nil {
+		t.Fatal("strict mode must return error on unresolved refs")
+	}
+	if !strings.Contains(err.Error(), "missing.model") {
+		t.Fatalf("error must name the unresolved model, got: %v", err)
+	}
+}
+
+func TestFreeze_StrictMode_BatchesAllUnresolved(t *testing.T) {
+	osv := &TOsv{strictMode: true}
+	osv.models.Store("test.a", &TModelObject{name: "test.a"})
+	osv.markPending(fieldRef{fromModel: "test.a", fieldName: "X1", toModel: "missing.one", fieldType: TYPE_M2O})
+	osv.markPending(fieldRef{fromModel: "test.a", fieldName: "X2", toModel: "missing.two", fieldType: TYPE_M2O})
+
+	err := osv.Freeze(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "missing.one") || !strings.Contains(err.Error(), "missing.two") {
+		t.Fatalf("error must list all unresolved refs, got: %v", err)
+	}
+}
+
+// Phase 4 — One2One 指向远程 model 必须被拒绝。
+func TestFreeze_One2OneRemote_Rejected(t *testing.T) {
+	resolver := &mockRemoteResolver{
+		schemas: map[string]*ModelSchema{
+			"res.partner": {Name: "res.partner", IdField: "id"},
+		},
+	}
+	osv := &TOsv{resolver: resolver, strictMode: true}
+	osv.models.Store("test.invoice", &TModelObject{name: "test.invoice"})
+	osv.markPending(fieldRef{
+		fromModel: "test.invoice", fieldName: "PartnerId", toModel: "res.partner", fieldType: TYPE_O2O,
+	})
+
+	err := osv.Freeze(context.Background())
+	if err == nil {
+		t.Fatal("One2One→remote must be rejected")
+	}
+	if !strings.Contains(err.Error(), "One2One") || !strings.Contains(err.Error(), "res.partner") {
+		t.Fatalf("error must mention One2One restriction, got: %v", err)
 	}
 }
 

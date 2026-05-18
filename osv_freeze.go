@@ -2,6 +2,8 @@ package orm
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/volts-dev/utils"
 )
@@ -94,6 +96,11 @@ func (self *TOsv) Freeze(ctx context.Context) error {
 			unresolved = append(unresolved, ref)
 			continue
 		}
+		// One2One→remote 不支持（继承语义跨服务无意义）
+		if ref.fieldType == TYPE_O2O {
+			return fmt.Errorf("orm: One2One field %s.%s cannot reference remote model %q",
+				ref.fromModel, ref.fieldName, ref.toModel)
+		}
 		remote := newRemoteModelObject(schema, self.resolver)
 		remote.orm = self.orm
 		remote.osv = self
@@ -101,6 +108,16 @@ func (self *TOsv) Freeze(ctx context.Context) error {
 		if err := self.linkRemote(ref, remote); err != nil {
 			return err
 		}
+	}
+
+	// Phase 4: Verify (strict mode only)
+	if self.strictMode && len(unresolved) > 0 {
+		names := make([]string, 0, len(unresolved))
+		for _, r := range unresolved {
+			names = append(names, fmt.Sprintf("%s.%s → %s", r.fromModel, r.fieldName, r.toModel))
+		}
+		return fmt.Errorf("orm: %d unresolved model references after Freeze: %s",
+			len(unresolved), strings.Join(names, "; "))
 	}
 
 	self.unresolvedRefs = unresolved
