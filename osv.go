@@ -73,6 +73,15 @@ type (
 		orm         *TOrm
 		models      sync.Map // map[string]*TModelObject // 为每个Model存储BaseModel // TODO 名称或许为Objects
 		middleModel sync.Map // 标识中间表
+
+		// === remote model resolution (phased registration) ===
+		resolver       IRemoteResolver
+		strictMode     bool
+		frozen         bool
+		freezeLock     sync.Mutex
+		pendingLock    sync.Mutex
+		pendingRefs    []fieldRef
+		unresolvedRefs []fieldRef
 	}
 )
 
