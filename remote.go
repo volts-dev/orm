@@ -3,6 +3,11 @@ package orm
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
+
+	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/domain"
 )
 
 var (
@@ -73,3 +78,202 @@ type RemoteResponse struct {
 	Ids     []int64
 	Count   int64
 }
+
+// =========================================================================
+// TRemoteModelObject — IModel implementation for cross-service models
+// =========================================================================
+
+// TRemoteModelObject implements IModel for a model whose data lives in
+// another service. All writes return ErrRemoteWriteForbidden. Reads are
+// implemented in Task 8; this skeleton stubs them.
+//
+// SQL/DDL lifecycle methods are no-ops because remote models never participate
+// in local schema management.
+type TRemoteModelObject struct {
+	schema   *ModelSchema
+	resolver IRemoteResolver
+	orm      *TOrm
+	osv      *TOsv
+	ctx      context.Context
+
+	fieldsByName map[string]IField
+	fields       []IField
+	tableName    string
+	obj          *TModelObject
+
+	mu sync.RWMutex
+	tx *TSession
+}
+
+// newRemoteModelObject builds a TRemoteModelObject from a schema. The internal
+// TModelObject mirror is minimal (name only) — enough to satisfy callers that
+// only inspect metadata via Obj().
+func newRemoteModelObject(schema *ModelSchema, resolver IRemoteResolver) *TRemoteModelObject {
+	rm := &TRemoteModelObject{
+		schema:       schema,
+		resolver:     resolver,
+		fieldsByName: make(map[string]IField, len(schema.Fields)),
+		tableName:    schemaNameToTable(schema.Name),
+		obj:          &TModelObject{name: schema.Name},
+	}
+	for _, fs := range schema.Fields {
+		f := buildFieldFromSchema(fs, schema.Name)
+		rm.fieldsByName[fs.Name] = f
+		rm.fields = append(rm.fields, f)
+	}
+	return rm
+}
+
+func schemaNameToTable(name string) string {
+	return strings.ReplaceAll(name, ".", "_")
+}
+
+// buildFieldFromSchema produces a minimal IField from a FieldSchema. The
+// resulting field's modelName is set so consumers can introspect origin.
+// Relational resolution beyond one hop is not wired — remote model field
+// traversal is intentionally limited.
+func buildFieldFromSchema(fs FieldSchema, ownerModel string) IField {
+	f := &TField{}
+	base := f.Base()
+	base.name = fs.Name
+	base.modelName = ownerModel
+	base.typeName = fs.TypeName
+	base.required = fs.IsRequired
+	base.relatedModelName = fs.RelatedModel
+	return f
+}
+
+// ----- IModel: metadata accessors -----
+
+func (self *TRemoteModelObject) String() string                  { return self.schema.Name }
+func (self *TRemoteModelObject) Table() string                   { return self.tableName }
+func (self *TRemoteModelObject) IdField(field ...string) string  { return self.schema.IdField }
+func (self *TRemoteModelObject) NameField(field ...string) string {
+	if f := self.GetFieldByName("name"); f != nil {
+		return "name"
+	}
+	return self.schema.IdField
+}
+func (self *TRemoteModelObject) GetFieldByName(name string) IField { return self.fieldsByName[name] }
+func (self *TRemoteModelObject) GetFields() []IField               { return self.fields }
+func (self *TRemoteModelObject) Obj() *TModelObject                { return self.obj }
+func (self *TRemoteModelObject) Osv() *TOsv                        { return self.osv }
+func (self *TRemoteModelObject) Orm() *TOrm                        { return self.orm }
+func (self *TRemoteModelObject) GetBase() *TModel                  { return nil }
+func (self *TRemoteModelObject) GetIndexes() map[string]*TIndex    { return nil }
+func (self *TRemoteModelObject) GetColumnsSeq() []string           { return nil }
+func (self *TRemoteModelObject) GetPrimaryKeys() []string {
+	return []string{self.schema.IdField}
+}
+func (self *TRemoteModelObject) GetTableDescription() string { return "" }
+
+func (self *TRemoteModelObject) Ctx(c ...context.Context) context.Context {
+	if len(c) > 0 && c[0] != nil {
+		self.ctx = c[0]
+	}
+	if self.ctx == nil {
+		return context.Background()
+	}
+	return self.ctx
+}
+
+func (self *TRemoteModelObject) Options(opts ...ModelOption) *ModelOptions {
+	o := &ModelOptions{Model: self}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return o
+}
+
+func (self *TRemoteModelObject) Super() IModel     { return self }
+func (self *TRemoteModelObject) Prototype() IModel { return self }
+
+func (self *TRemoteModelObject) Records() *TSession { return self.tx }
+
+func (self *TRemoteModelObject) Tx(s ...*TSession) *TSession {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	if len(s) > 0 {
+		self.tx = s[0]
+	}
+	return self.tx
+}
+
+func (self *TRemoteModelObject) Transaction() *TSession { return self.Tx() }
+
+// ----- IModel: writes (rejected) -----
+
+func (self *TRemoteModelObject) Create(*CreateRequest) ([]any, error) {
+	return nil, ErrRemoteWriteForbidden
+}
+func (self *TRemoteModelObject) Update(*UpdateRequest) (int64, error) {
+	return 0, ErrRemoteWriteForbidden
+}
+func (self *TRemoteModelObject) Delete(*DeleteRequest) (int64, error) {
+	return 0, ErrRemoteWriteForbidden
+}
+func (self *TRemoteModelObject) Upload(*UploadRequest) (int64, error) {
+	return 0, ErrRemoteWriteForbidden
+}
+func (self *TRemoteModelObject) Load(fields []string, records ...any) ([]any, error) {
+	return nil, ErrRemoteWriteForbidden
+}
+func (self *TRemoteModelObject) NameCreate(name string) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteWriteForbidden
+}
+
+// ----- IModel: reads (stubbed; real impl in Task 8) -----
+
+func (self *TRemoteModelObject) Read(req *ReadRequest) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+func (self *TRemoteModelObject) NameSearch(name string, dom *domain.TDomainNode, operator string, limit int64, nameGetUid string, ctxMap map[string]interface{}) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+func (self *TRemoteModelObject) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+func (self *TRemoteModelObject) DefaultGet(fields ...string) (map[string]any, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+
+// ----- IModel: relational queries (not supported across services) -----
+
+func (self *TRemoteModelObject) OneToOne(*TFieldContext) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+func (self *TRemoteModelObject) OneToMany(*TFieldContext) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+func (self *TRemoteModelObject) ManyToOne(*TFieldContext) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+func (self *TRemoteModelObject) ManyToMany(*TFieldContext) (*dataset.TDataSet, error) {
+	return nil, ErrRemoteOpNotSupported
+}
+
+// ----- IModel: SQL/DDL lifecycle (no-ops; not applicable) -----
+
+func (self *TRemoteModelObject) _setOrm(o *TOrm) {
+	self.orm = o
+	if o != nil {
+		self.osv = o.osv
+	}
+}
+func (self *TRemoteModelObject) _setBaseModel(m *TModel)                       {}
+func (self *TRemoteModelObject) _relations_reload()                            {}
+func (self *TRemoteModelObject) _onBuildFields() error                         { return nil }
+func (self *TRemoteModelObject) OnBuildModel() error                           { return nil }
+func (self *TRemoteModelObject) OnBuildFields() error                          { return nil }
+func (self *TRemoteModelObject) BeforeSetup() error                            { return nil }
+func (self *TRemoteModelObject) AfterSetup() error                             { return nil }
+func (self *TRemoteModelObject) BeforeSession(s *TSession) (*TSession, error)  { return s, nil }
+func (self *TRemoteModelObject) AfterSession(s *TSession) (*TSession, error)   { return s, nil }
+func (self *TRemoteModelObject) Clone(opts ...ModelOption) (IModel, error)    { return self, nil }
+func (self *TRemoteModelObject) GetDefault() *sync.Map                         { return &sync.Map{} }
+func (self *TRemoteModelObject) GetDefaultByName(name string) interface{}      { return nil }
+func (self *TRemoteModelObject) SetDefaultByName(name string, v interface{})   {}
+func (self *TRemoteModelObject) SetRecordName(name string)                     {}
+func (self *TRemoteModelObject) GetRecordName() string                         { return self.schema.IdField }
+func (self *TRemoteModelObject) SetName(n string)                              {}
+func (self *TRemoteModelObject) MethodByName(name string) *TMethod             { return nil }
