@@ -3,6 +3,7 @@ package orm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -222,10 +223,63 @@ func (self *TRemoteModelObject) NameCreate(name string) (*dataset.TDataSet, erro
 	return nil, ErrRemoteWriteForbidden
 }
 
-// ----- IModel: reads (stubbed; real impl in Task 8) -----
+// ----- IModel: reads -----
 
+// Read translates a ReadRequest into a RemoteRequest of Op="read", invokes
+// the resolver, and maps Records back into a TDataSet. Field ordering in the
+// result follows schema.Fields to keep column order stable across records.
 func (self *TRemoteModelObject) Read(req *ReadRequest) (*dataset.TDataSet, error) {
-	return nil, ErrRemoteOpNotSupported
+	if self.resolver == nil {
+		return nil, fmt.Errorf("orm: remote model %s has no resolver bound", self.schema.Name)
+	}
+	if req == nil {
+		req = &ReadRequest{}
+	}
+
+	rreq := &RemoteRequest{
+		ModelName: self.schema.Name,
+		Op:        "read",
+		Fields:    req.Fields,
+		Ids:       anySliceToInt64(req.Ids),
+		Limit:     int(req.Limit),
+		Offset:    int(req.Offset),
+	}
+	resp, err := self.resolver.Execute(self.Ctx(), rreq)
+	if err != nil {
+		return nil, fmt.Errorf("orm: remote read %s: %w", self.schema.Name, err)
+	}
+	return remoteResponseToDataset(resp, self.schema), nil
+}
+
+// anySliceToInt64 best-effort converts []any IDs to []int64.
+// Non-numeric entries are skipped; convention is that ids are int64.
+func anySliceToInt64(in []any) []int64 {
+	out := make([]int64, 0, len(in))
+	for _, v := range in {
+		switch n := v.(type) {
+		case int64:
+			out = append(out, n)
+		case int:
+			out = append(out, int64(n))
+		case int32:
+			out = append(out, int64(n))
+		case float64:
+			out = append(out, int64(n))
+		}
+	}
+	return out
+}
+
+// remoteResponseToDataset builds a TDataSet from a RemoteResponse.
+func remoteResponseToDataset(resp *RemoteResponse, schema *ModelSchema) *dataset.TDataSet {
+	ds := dataset.NewDataSet()
+	if resp == nil {
+		return ds
+	}
+	for _, row := range resp.Records {
+		ds.AppendRecord(dataset.NewRecordSet(row))
+	}
+	return ds
 }
 func (self *TRemoteModelObject) NameSearch(name string, dom *domain.TDomainNode, operator string, limit int64, nameGetUid string, ctxMap map[string]interface{}) (*dataset.TDataSet, error) {
 	return nil, ErrRemoteOpNotSupported

@@ -106,6 +106,59 @@ func TestRemoteModel_DeleteReturnsForbidden(t *testing.T) {
 	}
 }
 
+func TestRemoteModel_Read_BasicRoundtrip(t *testing.T) {
+	resolver := &mockRemoteResolver{
+		execFn: func(ctx context.Context, req *RemoteRequest) (*RemoteResponse, error) {
+			if req.Op != "read" {
+				t.Errorf("expected Op=read, got %s", req.Op)
+			}
+			if req.ModelName != "sys.user" {
+				t.Errorf("expected ModelName=sys.user, got %s", req.ModelName)
+			}
+			if len(req.Ids) != 1 || req.Ids[0] != 7 {
+				t.Errorf("expected Ids=[7], got %+v", req.Ids)
+			}
+			return &RemoteResponse{
+				Records: []map[string]interface{}{
+					{"id": int64(7), "name": "Alice"},
+				},
+				Count: 1,
+			}, nil
+		},
+	}
+	rm := newRemoteModelObject(&ModelSchema{
+		Name:    "sys.user",
+		IdField: "id",
+		Fields: []FieldSchema{
+			{Name: "id", TypeName: "int"},
+			{Name: "name", TypeName: "chars"},
+		},
+	}, resolver)
+
+	ds, err := rm.Read(&ReadRequest{Ids: []any{int64(7)}, Fields: []string{"name"}})
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if ds == nil || ds.Count() != 1 {
+		t.Fatalf("expected 1 record, got count=%d", ds.Count())
+	}
+	rec := ds.Record()
+	if got, _ := rec.GetByField("name").(string); got != "Alice" {
+		t.Fatalf("expected name=Alice, got %v", rec.GetByField("name"))
+	}
+	if resolver.execCalled != 1 {
+		t.Fatalf("expected 1 Execute call, got %d", resolver.execCalled)
+	}
+}
+
+func TestRemoteModel_Read_NilResolverErrors(t *testing.T) {
+	rm := newRemoteModelObject(&ModelSchema{Name: "sys.user", IdField: "id"}, nil)
+	_, err := rm.Read(&ReadRequest{Ids: []any{int64(1)}})
+	if err == nil {
+		t.Fatal("expected error when resolver is nil")
+	}
+}
+
 func TestRemoteModel_GetFieldByName(t *testing.T) {
 	rm := newRemoteModelObject(&ModelSchema{
 		Name:    "sys.user",
