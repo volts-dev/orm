@@ -134,6 +134,80 @@ func TestFreeze_NoResolver_NonStrict_KeepsUnresolved(t *testing.T) {
 	}
 }
 
+// Phase 3 — resolver 返回 schema 时，构造 TRemoteModelObject 注册进 osv。
+func TestFreeze_RemoteResolve_Success(t *testing.T) {
+	resolver := &mockRemoteResolver{
+		schemas: map[string]*ModelSchema{
+			"sys.user": {
+				Name:    "sys.user",
+				IdField: "id",
+				Fields: []FieldSchema{
+					{Name: "id", TypeName: "int", SqlType: "INT8"},
+					{Name: "name", TypeName: "chars", SqlType: "VARCHAR(255)"},
+				},
+				SourceNode: "tcp://base:9000",
+			},
+		},
+	}
+	osv := &TOsv{resolver: resolver}
+	osv.models.Store("website.page", &TModelObject{name: "website.page"})
+	osv.markPending(fieldRef{
+		fromModel: "website.page", fieldName: "AuthorId", toModel: "sys.user", fieldType: TYPE_M2O,
+	})
+
+	if err := osv.Freeze(context.Background()); err != nil {
+		t.Fatalf("Freeze must succeed when resolver returns schema, got: %v", err)
+	}
+	if resolver.lookupCalled != 1 {
+		t.Fatalf("expected 1 LookupSchema call, got %d", resolver.lookupCalled)
+	}
+
+	obj, ok := osv.models.Load("sys.user")
+	if !ok {
+		t.Fatal("sys.user must be registered in osv after Phase 3")
+	}
+	if _, isRemote := obj.(*TRemoteModelObject); !isRemote {
+		t.Fatalf("expected *TRemoteModelObject for sys.user, got %T", obj)
+	}
+}
+
+func TestFreeze_RemoteResolve_NotFound_NonStrict(t *testing.T) {
+	resolver := &mockRemoteResolver{schemas: map[string]*ModelSchema{}}
+	osv := &TOsv{resolver: resolver}
+	osv.models.Store("website.page", &TModelObject{name: "website.page"})
+	osv.markPending(fieldRef{
+		fromModel: "website.page", fieldName: "AuthorId", toModel: "sys.user", fieldType: TYPE_M2O,
+	})
+
+	if err := osv.Freeze(context.Background()); err != nil {
+		t.Fatalf("non-strict mode must not error on unresolved remote, got: %v", err)
+	}
+	if len(osv.unresolvedRefs) != 1 {
+		t.Fatalf("expected 1 unresolvedRef, got %d", len(osv.unresolvedRefs))
+	}
+}
+
+// 同一远程 model 被多个 ref 引用时，应当只 LookupSchema 一次（去重）。
+func TestFreeze_RemoteResolve_Dedup(t *testing.T) {
+	resolver := &mockRemoteResolver{
+		schemas: map[string]*ModelSchema{
+			"sys.user": {Name: "sys.user", IdField: "id"},
+		},
+	}
+	osv := &TOsv{resolver: resolver}
+	osv.models.Store("website.page", &TModelObject{name: "website.page"})
+	osv.models.Store("website.comment", &TModelObject{name: "website.comment"})
+	osv.markPending(fieldRef{fromModel: "website.page", fieldName: "AuthorId", toModel: "sys.user", fieldType: TYPE_M2O})
+	osv.markPending(fieldRef{fromModel: "website.comment", fieldName: "AuthorId", toModel: "sys.user", fieldType: TYPE_M2O})
+
+	if err := osv.Freeze(context.Background()); err != nil {
+		t.Fatalf("Freeze failed: %v", err)
+	}
+	if resolver.lookupCalled != 1 {
+		t.Fatalf("expected 1 LookupSchema call (dedup), got %d", resolver.lookupCalled)
+	}
+}
+
 // 第二次 Freeze 应当幂等（重复调用不重复处理）。
 func TestFreeze_Idempotent(t *testing.T) {
 	osv := &TOsv{}

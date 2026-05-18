@@ -55,15 +55,65 @@ func (self *TOsv) Freeze(ctx context.Context) error {
 			stillPending = append(stillPending, ref)
 			continue
 		}
-		if err := self.linkLocal(ref, obj.(*TModelObject)); err != nil {
+		// Local target may be a *TModelObject (normal) or a *TRemoteModelObject
+		// (e.g. registered earlier in this same Freeze pass). For local objects,
+		// proceed with linkLocal; for remote objects, treat as a Phase 3 hit.
+		switch t := obj.(type) {
+		case *TModelObject:
+			if err := self.linkLocal(ref, t); err != nil {
+				return err
+			}
+		case *TRemoteModelObject:
+			if err := self.linkRemote(ref, t); err != nil {
+				return err
+			}
+		default:
+			// unknown type — keep pending and let Phase 3 try resolving again
+			stillPending = append(stillPending, ref)
+		}
+	}
+
+	// Phase 3: RemoteResolve
+	var unresolved []fieldRef
+	for _, ref := range stillPending {
+		if self.resolver == nil {
+			unresolved = append(unresolved, ref)
+			continue
+		}
+		// 已经在前面循环里注册过的远程 model 直接复用（dedup）
+		if obj, ok := self.models.Load(ref.toModel); ok {
+			if rm, isRemote := obj.(*TRemoteModelObject); isRemote {
+				if err := self.linkRemote(ref, rm); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		schema, err := self.resolver.LookupSchema(ctx, ref.toModel)
+		if err != nil {
+			unresolved = append(unresolved, ref)
+			continue
+		}
+		remote := newRemoteModelObject(schema, self.resolver)
+		remote.orm = self.orm
+		remote.osv = self
+		self.models.Store(ref.toModel, remote)
+		if err := self.linkRemote(ref, remote); err != nil {
 			return err
 		}
 	}
 
-	// Phase 3 placeholder — implemented in Task 7
-	self.unresolvedRefs = stillPending
+	self.unresolvedRefs = unresolved
 
 	self.frozen = true
+	return nil
+}
+
+// linkRemote performs ref binding for a remote target. For M2O/O2M/M2M it's
+// currently a no-op because resolution is via name lookup; the target being
+// registered in osv as a TRemoteModelObject is sufficient. One2One→remote is
+// rejected in Phase 4 (next task).
+func (self *TOsv) linkRemote(ref fieldRef, target *TRemoteModelObject) error {
 	return nil
 }
 
