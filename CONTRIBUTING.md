@@ -69,13 +69,21 @@ diff test/coverage-baseline.txt /tmp/coverage-now.txt
 
 ```bash
 # 跑 benchmark（5 次取均值，降低噪音）
-go test -bench=. -benchmem -count=5 ./... > /tmp/baseline-now.txt
+# 注：volts logger 默认写到 stdout，会把 INFO 行插到 benchmark 行中间；
+# 用下面的 awk 把被换行打断的 BenchmarkXxx 名+数据合并回单行，benchstat 才能解析。
+go test -bench=. -benchmem -count=5 . 2>&1 \
+  | sed -E 's/[[:space:]]+[0-9]{4}\/.*$//' \
+  | grep -v '^[0-9]\{4\}/' \
+  | awk 'BEGIN{p=""} /^Benchmark[A-Za-z0-9_]+-[0-9]+$/{p=$0; next} p!="" && /^[[:space:]]+[0-9]/{print p "\t" $0; p=""; next} p!=""{print p; p=""} {print}' \
+  > /tmp/baseline-now.txt
 
 # 对比基线（需要安装 benchstat：go install golang.org/x/perf/cmd/benchstat@latest）
 benchstat test/baseline.txt /tmp/baseline-now.txt
 ```
 
 输出说明：`delta` 列正值表示**变慢**，负值表示**变快**；`p` 列表示统计显著性（`p < 0.05` 才有说服力）。
+
+> 这段 awk pipeline 是 Phase 0 临时解决方案。后续在 logger 上加 "test mode 静默" 后可简化（追踪：#TBD-logger-bench-silence）。
 
 ---
 
