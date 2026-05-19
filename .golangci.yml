@@ -1,0 +1,54 @@
+# volts-dev/orm lint 配置
+# 启用 4 个 linter：staticcheck / gosec / ineffassign / unused
+# 排除与项目命名风格冲突的规则（self / IXxx / TXxx）
+
+run:
+  timeout: 5m
+  go: '1.25'
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - staticcheck
+    - gosec
+    - ineffassign
+    - unused
+
+linters-settings:
+  staticcheck:
+    # 排除规则：
+    # - ST1003: 命名风格（self / IXxx / TXxx 与 Go 惯例冲突，本项目保留）
+    # - ST1005: error string 大写起头 / 末尾标点（多语言现状暂不强制）
+    checks:
+      - "all"
+      - "-ST1003"
+      - "-ST1005"
+
+  gosec:
+    # 排除规则：
+    # - G201/G202: SQL string formatting（Phase 2 才修，暂时 silence + TODO）
+    # - G101: hardcoded credentials（测试数据 / 文档中允许）
+    excludes:
+      - G201
+      - G202
+      - G101
+
+issues:
+  exclude-rules:
+    # 测试代码里的 unused（test helper、setup 函数）通常是误报
+    - path: _test\.go
+      linters:
+        - unused
+
+    # benchmark_test.go 的 setup 函数显然不会被 lint 识别为 used
+    - path: benchmark_test\.go
+      linters:
+        - unused
+
+  # 不要把 issue 全部展开（避免 PR 描述刷屏）
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  # 默认会排除一些 issue，关掉让我们看全
+  exclude-use-default: false
