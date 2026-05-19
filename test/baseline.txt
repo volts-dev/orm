@@ -1,0 +1,41 @@
+goos: darwin
+goarch: amd64
+pkg: github.com/volts-dev/orm
+cpu: Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz
+BenchmarkCreate_Single-16	   26608	     45621 ns/op	    8158 B/op	     124 allocs/op
+BenchmarkCreate_Single-16	   26778	     45156 ns/op	    8158 B/op	     124 allocs/op
+BenchmarkCreate_Single-16	   25833	     44309 ns/op	    8157 B/op	     124 allocs/op
+BenchmarkCreate_Single-16	   27189	     44855 ns/op	    8158 B/op	     124 allocs/op
+BenchmarkCreate_Single-16	   27433	     46133 ns/op	    8158 B/op	     124 allocs/op
+BenchmarkCreate_Batch_100-16	     252	   4611734 ns/op	  815752 B/op	   12401 allocs/op
+BenchmarkCreate_Batch_100-16	     258	   4793141 ns/op	  815737 B/op	   12400 allocs/op
+BenchmarkCreate_Batch_100-16	     254	   8654406 ns/op	  815791 B/op	   12400 allocs/op
+BenchmarkCreate_Batch_100-16	     254	   4610509 ns/op	  815666 B/op	   12400 allocs/op
+BenchmarkCreate_Batch_100-16	     247	   4872132 ns/op	  815664 B/op	   12400 allocs/op
+BenchmarkRead_OneById-16	   29575	     39928 ns/op	   11393 B/op	     260 allocs/op
+BenchmarkRead_OneById-16	   31214	     39638 ns/op	   11392 B/op	     260 allocs/op
+BenchmarkRead_OneById-16	   30786	     39270 ns/op	   11392 B/op	     260 allocs/op
+BenchmarkRead_OneById-16	   30372	     38789 ns/op	   11392 B/op	     260 allocs/op
+BenchmarkRead_OneById-16	   31146	     39092 ns/op	   11392 B/op	     260 allocs/op
+BenchmarkRead_All_100-16	    5851	    213959 ns/op	   65516 B/op	    1494 allocs/op
+BenchmarkRead_All_100-16	    5442	    214243 ns/op	   65516 B/op	    1494 allocs/op
+BenchmarkRead_All_100-16	    5709	    207178 ns/op	   65516 B/op	    1494 allocs/op
+BenchmarkRead_All_100-16	    5391	    211944 ns/op	   65515 B/op	    1494 allocs/op
+BenchmarkRead_All_100-16	    5840	    211799 ns/op	   65515 B/op	    1494 allocs/op
+BenchmarkWrite_Single-16	   62018	     19555 ns/op	    5630 B/op	      75 allocs/op
+BenchmarkWrite_Single-16	   58927	     19589 ns/op	    5630 B/op	      75 allocs/op
+BenchmarkWrite_Single-16	   59487	     20433 ns/op	    5629 B/op	      75 allocs/op
+BenchmarkWrite_Single-16	   61688	     19713 ns/op	    5629 B/op	      75 allocs/op
+BenchmarkWrite_Single-16	   59186	     19827 ns/op	    5629 B/op	      75 allocs/op
+BenchmarkDelete_Single-16	   59536	     20665 ns/op	    3803 B/op	      52 allocs/op
+BenchmarkDelete_Single-16	   56504	     21016 ns/op	    3803 B/op	      52 allocs/op
+BenchmarkDelete_Single-16	   56968	     20729 ns/op	    3803 B/op	      52 allocs/op
+BenchmarkDelete_Single-16	   56313	     21750 ns/op	    3803 B/op	      52 allocs/op
+BenchmarkDelete_Single-16	   53065	     20582 ns/op	    3803 B/op	      52 allocs/op
+BenchmarkSeparateValues-16      	   97494	     11892 ns/op	    8437 B/op	      41 allocs/op
+BenchmarkSeparateValues-16      	  101877	     11594 ns/op	    8437 B/op	      41 allocs/op
+BenchmarkSeparateValues-16      	  100524	     12048 ns/op	    8437 B/op	      41 allocs/op
+BenchmarkSeparateValues-16      	  103674	     12021 ns/op	    8437 B/op	      41 allocs/op
+BenchmarkSeparateValues-16      	  100658	     11797 ns/op	    8437 B/op	      41 allocs/op
+PASS
+ok  	github.com/volts-dev/orm	73.220s
