@@ -1,0 +1,38 @@
+# volts-dev/orm 测试用 docker-compose
+# 用法：docker compose -f test/docker-compose.test.yml up -d
+# 端口选 33306/54320 避免冲突宿主机默认端口
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: orm-test-mysql
+    ports:
+      - "33306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: test
+      MYSQL_DATABASE: test_orm
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-ptest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    tmpfs:
+      - /var/lib/mysql
+
+  postgres:
+    image: postgres:16
+    container_name: orm-test-postgres
+    ports:
+      - "54320:5432"
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test_orm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d test_orm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    tmpfs:
+      - /var/lib/postgresql/data
