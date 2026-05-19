@@ -79,3 +79,25 @@ jobs:
           name: coverage-${{ matrix.go-version }}
           path: coverage.out
           retention-days: 7
+
+  lint:
+    name: Lint (golangci-lint)
+    runs-on: ubuntu-latest
+    # continue-on-error so first-pass lint surfaces issues without blocking
+    # CI. Remove after Task 13 (first-pass remediation) is complete.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
