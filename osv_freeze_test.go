@@ -209,6 +209,27 @@ func TestFreeze_RemoteResolve_Dedup(t *testing.T) {
 	}
 }
 
+func TestTOrmFreeze_ForwardsToOsv(t *testing.T) {
+	osv := &TOsv{}
+	orm := &TOrm{osv: osv}
+	osv.orm = orm
+
+	if err := orm.Freeze(context.Background()); err != nil {
+		t.Fatalf("TOrm.Freeze must succeed on empty osv, got: %v", err)
+	}
+	if !osv.frozen {
+		t.Fatal("TOrm.Freeze must mark osv as frozen")
+	}
+}
+
+func TestTOrmOsv_Getter(t *testing.T) {
+	osv := &TOsv{}
+	orm := &TOrm{osv: osv}
+	if orm.Osv() != osv {
+		t.Fatal("TOrm.Osv() must return the same TOsv")
+	}
+}
+
 func TestRegisterModel_RejectsAfterFreeze(t *testing.T) {
 	osv := &TOsv{}
 	if err := osv.Freeze(context.Background()); err != nil {

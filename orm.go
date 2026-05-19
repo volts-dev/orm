@@ -234,6 +234,22 @@ func (self *TOrm) HasModel(name string) bool {
 	return self.osv.HasModel(name)
 }
 
+// Osv returns the object service registry. Most callers should prefer the
+// model-level APIs (GetModel / SyncModel), but Osv is exposed so hosts can
+// inspect registration state or invoke Freeze directly.
+func (self *TOrm) Osv() *TOsv {
+	return self.osv
+}
+
+// Freeze ends the model registration phase. After Freeze, RegisterModel
+// returns ErrOsvFrozen. See TOsv.Freeze for the full description.
+//
+// Hosts (e.g. vectors) should call this once after all modules have
+// registered their models. Calling Freeze twice is a no-op.
+func (self *TOrm) Freeze(ctx context.Context) error {
+	return self.osv.Freeze(ctx)
+}
+
 // get model object from the orm which registed
 func (self *TOrm) GetModel(modelName string, opts ...ModelOption) (model IModel, err error) {
 	return self.osv.GetModel(modelName, opts...)
