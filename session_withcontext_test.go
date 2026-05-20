@@ -30,6 +30,7 @@ func TestSession_WithContext_OverrideAndChain(t *testing.T) {
 
 func TestSession_WithContext_NilFallsBackToBackground(t *testing.T) {
 	s := &TSession{context: context.Background()}
+	//nolint:staticcheck // SA1012: 测试 nil 兜底逻辑本身，故意传 nil
 	s.WithContext(nil)
 	if s.context != context.Background() {
 		t.Fatalf("nil ctx should fall back to Background, got %v", s.context)
