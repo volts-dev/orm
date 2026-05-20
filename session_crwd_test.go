@@ -129,6 +129,7 @@ func (d *testDialect) Fmter() []IFmter                                          
 func (d *testDialect) IsDatabaseExist(ctx context.Context, name string) bool             { return true }
 func (d *testDialect) CreateDatabase(db *sql.DB, ctx context.Context, name string) error { return nil }
 func (d *testDialect) DropDatabase(db *sql.DB, ctx context.Context, name string) error   { return nil }
+func (d *testDialect) MapError(err error) error                                          { return err }
 
 // newTestDialect creates a minimal IDialect for testing.
 func newTestDialect() IDialect {

@@ -233,12 +233,12 @@ func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TData
 
 		rows, err = stmt.Query(args...)
 		if err != nil {
-			return nil, err
+			return nil, self.orm.dialect.MapError(err)
 		}
 	} else {
 		rows, err = self.db.Query(sql_str, args...)
 		if err != nil {
-			return nil, err
+			return nil, self.orm.dialect.MapError(err)
 		}
 	}
 
@@ -248,7 +248,7 @@ func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TData
 func (self *TSession) _queryWithTx(query string, params ...any) (*dataset.TDataSet, error) {
 	rows, err := self.tx.QueryContext(self.context, query, params...)
 	if err != nil {
-		return nil, err
+		return nil, self.orm.dialect.MapError(err)
 	}
 
 	return self._scanRows(rows)
@@ -272,7 +272,7 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 				r, err := self.tx.ExecContext(self.context, sql_str, args...)
 				if err != nil {
 					self.Rollback(err)
-					return nil, err
+					return nil, self.orm.dialect.MapError(err)
 				}
 
 				if err = self.Commit(); err != nil {
@@ -299,14 +299,26 @@ func (self *TSession) _execWithOrg(query string, args ...any) (sql.Result, error
 		}
 		defer stmt.Close()
 
-		return stmt.ExecContext(self.context, args...)
+		res, err := stmt.ExecContext(self.context, args...)
+		if err != nil {
+			return nil, self.orm.dialect.MapError(err)
+		}
+		return res, nil
 	}
 
-	return self.db.ExecContext(self.context, query, args...)
+	res, err := self.db.ExecContext(self.context, query, args...)
+	if err != nil {
+		return nil, self.orm.dialect.MapError(err)
+	}
+	return res, nil
 }
 
 func (self *TSession) _execWithTx(sql string, args ...any) (sql.Result, error) {
-	return self.tx.ExecContext(self.context, sql, args...)
+	res, err := self.tx.ExecContext(self.context, sql, args...)
+	if err != nil {
+		return nil, self.orm.dialect.MapError(err)
+	}
+	return res, nil
 }
 
 func (self *TSession) _doPrepare(sql string) (*core.Stmt, error) {
