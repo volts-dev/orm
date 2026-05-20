@@ -39,7 +39,7 @@ func NewSession(orm *TOrm) *TSession {
 	session := &TSession{
 		db:      orm.db,
 		orm:     orm,
-		context: orm.context,
+		context: context.Background(), // 默认值；调用方按需 session.WithContext(ctx)
 		Schema:  orm.Schema,
 	}
 
