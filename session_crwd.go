@@ -14,7 +14,10 @@ import (
 )
 
 // TODO 支持数据组/
-func (self *TSession) Create(src any, classic_create ...bool) (uid any, err error) {
+// Create 在指定 model 上插入一条记录。
+// 如需 classic 模式，先链式调 session.Classic()；
+// 如需自定义 ctx，先链式调 session.WithContext(ctx)。
+func (self *TSession) Create(src any) (uid any, err error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return nil, err
@@ -30,17 +33,15 @@ func (self *TSession) Create(src any, classic_create ...bool) (uid any, err erro
 
 	if self.IsDeprecated {
 		return nil, ErrInvalidSession
-	}
-
-	if len(classic_create) > 0 {
-		self.IsClassic = classic_create[0]
 	}
 
 	return self._create(src)
 }
 
-// start to read data from the database
-func (self *TSession) Read(classic_read ...bool) (*TDataset, error) {
+// Read 在 Statement 配置的条件下读取记录集。
+// 如需 classic 模式，先链式调 session.Classic()；
+// 如需自定义 ctx，先链式调 session.WithContext(ctx)。
+func (self *TSession) Read() (*TDataset, error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return nil, err
@@ -56,10 +57,6 @@ func (self *TSession) Read(classic_read ...bool) (*TDataset, error) {
 
 	if self.IsDeprecated {
 		return nil, ErrInvalidSession
-	}
-
-	if len(classic_read) > 0 {
-		self.IsClassic = classic_read[0]
 	}
 
 	return self._read()
@@ -67,8 +64,10 @@ func (self *TSession) Read(classic_read ...bool) (*TDataset, error) {
 
 // TODO 接受多值 dataset
 // TODO 当只有M2M被更新时不更新主数据倒数据库
-// start to write data from the database
-func (self *TSession) Write(data any, classic_write ...bool) (effect int64, err error) {
+// Write 在 Statement 配置的条件下更新记录。
+// 如需 classic 模式，先链式调 session.Classic()；
+// 如需自定义 ctx，先链式调 session.WithContext(ctx)。
+func (self *TSession) Write(data any) (effect int64, err error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return 0, err
@@ -84,10 +83,6 @@ func (self *TSession) Write(data any, classic_write ...bool) (effect int64, err 
 
 	if self.IsDeprecated {
 		return -1, ErrInvalidSession
-	}
-
-	if len(classic_write) > 0 {
-		self.IsClassic = classic_write[0]
 	}
 
 	return self._write(data)

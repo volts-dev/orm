@@ -5,6 +5,15 @@ import (
 	"github.com/volts-dev/utils"
 )
 
+// classicWrap applies Classic() to the session if isClassic, else returns it unchanged.
+// 测试代码 helper：用统一形式表达「带 bool 决定是否走 classic」的迁移模式。
+func classicWrap(ss *orm.TSession, isClassic bool) *orm.TSession {
+	if isClassic {
+		return ss.Classic()
+	}
+	return ss
+}
+
 // @classic: will not create relate records for this
 func (self *Testchain) Create(classic ...bool) *Testchain {
 	self.PrintSubject("Create")
@@ -28,7 +37,7 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err := model.Tx(ss).Create(company_data, isClassic)
+	companyId, err := classicWrap(model.Tx(ss), isClassic).Create(company_data)
 	if err != nil {
 		self.Fatal(err)
 	}
@@ -39,7 +48,7 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 
 	user_data.CompanyId = companyId.(int64)
 	// Call the API Create()
-	_, err = ss.Model("user_model").Create(user_data, isClassic)
+	_, err = classicWrap(ss.Model("user_model"), isClassic).Create(user_data)
 	if err != nil {
 		self.Fatalf("create record failure with error < %s >", err.Error())
 	}
@@ -48,7 +57,7 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 		user_data.Name = "Create" + utils.ToString(i)
 
 		// Call the API Create()
-		id, err := ss.Model("user_model").Create(user_data, isClassic)
+		id, err := classicWrap(ss.Model("user_model"), isClassic).Create(user_data)
 		if err != nil {
 			self.Fatalf("create record failure with error < %s >", err.Error())
 		}
@@ -92,34 +101,34 @@ func (self *Testchain) CreateOnConflict(classic ...bool) *Testchain {
 	}
 
 	// 1st conflict mode: DoUpdates (result intentionally discarded)
-	_, err = model.Tx(ss).OnConflict(&orm.OnConflict{
+	_, err = classicWrap(model.Tx(ss).OnConflict(&orm.OnConflict{
 		DoUpdates: []string{"name"},
-	}).Create(company_data, isClassic)
+	}), isClassic).Create(company_data)
 	if err != nil {
 		self.Fatal(err)
 	}
 
 	// 2nd conflict mode: DoUpdates again (idempotency check, result discarded)
-	_, err = model.Tx(ss).OnConflict(&orm.OnConflict{
+	_, err = classicWrap(model.Tx(ss).OnConflict(&orm.OnConflict{
 		DoUpdates: []string{"name"},
-	}).Create(company_data, isClassic)
+	}), isClassic).Create(company_data)
 	if err != nil {
 		self.Fatal(err)
 	}
 
 	// 3rd conflict mode: DoNothing (result discarded)
-	_, err = model.Tx(ss).OnConflict(&orm.OnConflict{
+	_, err = classicWrap(model.Tx(ss).OnConflict(&orm.OnConflict{
 		Fields:    []string{"name"},
 		DoNothing: true,
-	}).Create(company_data, isClassic)
+	}), isClassic).Create(company_data)
 	if err != nil {
 		self.Fatal(err)
 	}
 
 	// Final: UpdateAll; this id is what we assert below.
-	companyId, err := model.Tx(ss).OnConflict(&orm.OnConflict{
+	companyId, err := classicWrap(model.Tx(ss).OnConflict(&orm.OnConflict{
 		UpdateAll: true,
-	}).Create(company_data, isClassic)
+	}), isClassic).Create(company_data)
 	if err != nil {
 		self.Fatal(err)
 	}
@@ -157,10 +166,10 @@ func (self *Testchain) CreateNone(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err := model.Tx(ss).Create(map[string]any{
+	companyId, err := classicWrap(model.Tx(ss), isClassic).Create(map[string]any{
 		"name":        "TestNoneCompany",
 		"wrong_field": "test",
-	}, isClassic)
+	})
 	if err != nil {
 		self.Logf("CreateNone properly handled invalid insert or succeeded: %v", err)
 		// We shouldn't fatal if it's explicitly testing missing fields handling.
@@ -199,7 +208,7 @@ func (self *Testchain) CreateM2m() *Testchain {
 	}
 
 	dataset.Record().SetByField("companies", []any{1, 2})
-	count, err := model.Records().Ids(dataset.FieldByName(model.IdField()).AsInterface()).Write(dataset.Record().AsMap(), isClassic)
+	count, err := classicWrap(model.Records().Ids(dataset.FieldByName(model.IdField()).AsInterface()), isClassic).Write(dataset.Record().AsMap())
 	if err != nil || count == 0 {
 		self.Fatalf("create manyTomany fail: %v", err)
 	}

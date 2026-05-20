@@ -215,7 +215,11 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 
 	session.UseNameGet = req.UseNameGet
 
-	return session.Limit(req.Limit, req.Offset).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...).Read(req.ClassicRead)
+	rs := session.Limit(req.Limit, req.Offset).OrderBy(strings.Join(req.OrderBy, ",")).Sort(req.Sort...)
+	if req.ClassicRead {
+		rs = rs.Classic()
+	}
+	return rs.Read()
 }
 
 // #被重载接口
@@ -443,7 +447,11 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	}
 
 	//group, err := relateModel.NameGet(ids)
-	group, err := relateModel.Records().Ids(ids).Read(ctx.ClassicRead)
+	rs := relateModel.Records().Ids(ids)
+	if ctx.ClassicRead {
+		rs = rs.Classic()
+	}
+	group, err := rs.Read()
 	if err != nil {
 		return nil, err
 	}
@@ -486,7 +494,7 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	session := relateModel.Records()
 	session.UseNameGet = ctx.UseNameGet /* 使用 */
-	groups, err := session.Select(ctx.Fields...).In(relFieldName, ids...).Read(false)
+	groups, err := session.Select(ctx.Fields...).In(relFieldName, ids...).Read()
 	if err != nil {
 		log.Errf("OneToMany field %s search relate model %s failed", field.Name(), relateModel.String())
 		return nil, err
@@ -523,8 +531,7 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 		var group *dataset.TDataSet
 		if ctx.ClassicRead {
-			group, err = relateModel.Records().Ids(ids...).Read(false)
-			//group, err := relateModel.Records().Ids(ids...).Read(ctx.ClassicRead)
+			group, err = relateModel.Records().Ids(ids...).Read()
 		} else if ctx.UseNameGet {
 			group, err = relateModel.NameGet(ids)
 		}
