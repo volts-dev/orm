@@ -358,6 +358,12 @@ func (self *TSession) Direct() *TSession {
 	return self
 }
 
+// Classic 启用 classic 模式（使用 Model 实例作参数等），返回 self 支持链式
+func (self *TSession) Classic() *TSession {
+	self.IsClassic = true
+	return self
+}
+
 // LastSQL returns last query information
 func (self *TSession) LastSQL() (string, []any) {
 	return self.lastSQL, self.lastSQLArgs
