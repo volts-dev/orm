@@ -83,9 +83,6 @@ jobs:
   lint:
     name: Lint (golangci-lint)
     runs-on: ubuntu-latest
-    # continue-on-error so first-pass lint surfaces issues without blocking
-    # CI. Remove after Task 13 (first-pass remediation) is complete.
-    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
