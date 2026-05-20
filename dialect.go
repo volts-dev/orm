@@ -69,6 +69,10 @@ type (
 		Fmter() []IFmter // TODO 考虑移除 由于无法满足query获得model对象
 		SetParams(params map[string]string)
 		SupportReturning() bool
+
+		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
+		// 各 dialect 必须实现；session 层统一调用
+		MapError(err error) error
 	}
 
 	TDialect struct {
