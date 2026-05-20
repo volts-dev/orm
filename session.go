@@ -364,6 +364,22 @@ func (self *TSession) Classic() *TSession {
 	return self
 }
 
+// WithContext 为当前 session 绑定 ctx，后续 CRUD 内部 SQL 走 *Context 版本。
+// 与 Classic() 风格一致：mutating + return self，支持链式。
+//
+//	session.Model("user").WithContext(ctx).Create(userInstance)
+//	session.Model("user").WithContext(ctx).Classic().Write(map[string]any{...})
+//
+// 默认（未调用 WithContext 时）使用 context.Background()，与历史行为一致。
+// nil ctx 会被规整为 context.Background()，避免传入 nil 引发 panic。
+func (self *TSession) WithContext(ctx context.Context) *TSession {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	self.context = ctx
+	return self
+}
+
 // LastSQL returns last query information
 func (self *TSession) LastSQL() (string, []any) {
 	return self.lastSQL, self.lastSQLArgs
