@@ -1299,7 +1299,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 	// 如果出现错误
 	if len(errs) != 0 {
-		return nil, nil, nil, errors.NewORMError(errors.ErrorTypeValidation, strings.Join(errs, "\n"))
+		return nil, nil, nil, errors.New(errors.ErrValidation, fmt.Errorf("%s", strings.Join(errs, "\n")))
 	}
 
 	return new_vals, rel_vals, upd_todo, nil
