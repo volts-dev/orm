@@ -16,11 +16,11 @@ import (
 // newTestField creates a TField with the given options applied.
 func newTestField(name string, opts ...func(*TField)) *TField {
 	f := &TField{
-		name:  name,
-		store: true,
-		formatChar:   "%s",
-		formatFunc:   _FieldFormat,
-		SqlType:     SQLType{Name: Varchar, DefaultLength: 255},
+		name:       name,
+		store:      true,
+		formatChar: "%s",
+		formatFunc: _FieldFormat,
+		SqlType:    SQLType{Name: Varchar, DefaultLength: 255},
 	}
 	for _, o := range opts {
 		o(f)
@@ -79,7 +79,7 @@ func withHasGetter() func(*TField) {
 		f.getterFunc = func(ctx *TFieldContext) error { return nil }
 	}
 }
-func withDefault(v string) func(*TField) {
+func withDefault(v any) func(*TField) {
 	return func(f *TField) { f.defaultValue = v }
 }
 
@@ -119,7 +119,9 @@ func (d *testDialect) GenAddColumnSQL(t string, f IField) string          { retu
 func (d *testDialect) GetFields(ctx context.Context, session *TSession, t string) ([]string, map[string]IField, error) {
 	return nil, nil, nil
 }
-func (d *testDialect) GetModels(ctx context.Context, session *TSession) ([]IModel, error) { return nil, nil }
+func (d *testDialect) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
+	return nil, nil
+}
 func (d *testDialect) GetIndexes(ctx context.Context, session *TSession, t string) (map[string]*TIndex, error) {
 	return nil, nil
 }

@@ -334,13 +334,13 @@ func (self *fieldStatment) Required(v ...bool) *fieldStatment {
 func (self *fieldStatment) Default(value any) *fieldStatment {
 	field := self.field
 	builder := self.builder
-	field.Base().defaultValue = utils.ToString(value)
 
 	if err := tag_default(&TTagContext{
 		Orm:        builder.Orm,
 		Model:      builder.model,
 		Field:      field,
 		ModelValue: builder.model.modelValue,
+		Params:     []string{utils.ToString(value)},
 	}); err != nil {
 		log.Warn(err.Error())
 	}
