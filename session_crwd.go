@@ -603,7 +603,7 @@ func (self *TSession) _write(src any) (int64, error) {
 		in_vals = strings.Repeat("?,", len(ids)-1) + "?"
 		sql = fmt.Sprintf("SELECT distinct %s FROM %s WHERE %s IN(%s)",
 			quoter(fieldName), quoter(model.Table()), quoter(self.Statement.IdKey), in_vals)
-		ds, err = self.orm.Query(sql, ids...)
+		ds, err = self._query(sql, ids...)
 		if err != nil {
 			return 0, err
 		}

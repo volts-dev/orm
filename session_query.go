@@ -231,12 +231,12 @@ func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TData
 		}
 		defer stmt.Close() // 确保stmt在函数退出时被关闭
 
-		rows, err = stmt.Query(args...)
+		rows, err = stmt.QueryContext(self.context, args...)
 		if err != nil {
 			return nil, self.orm.dialect.MapError(err)
 		}
 	} else {
-		rows, err = self.db.Query(sql_str, args...)
+		rows, err = self.db.QueryContext(self.context, sql_str, args...)
 		if err != nil {
 			return nil, self.orm.dialect.MapError(err)
 		}
