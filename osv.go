@@ -134,7 +134,7 @@ func (self *TModelObject) GetDefaultByName(fieldName string) any {
 	return nil
 }
 
-func (self *TModelObject) SetDefaultByName(fieldName string, value interface{}) {
+func (self *TModelObject) SetDefaultByName(fieldName string, value any) {
 	self.defaultValues.Store(fieldName, value)
 }
 

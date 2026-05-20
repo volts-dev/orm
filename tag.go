@@ -691,7 +691,6 @@ func tag_table_extends(ctx *TTagContext) error {
 
 }
 
-
 // 废弃O2O
 // relate(modelName,relateField)
 func tag_table_relate(ctx *TTagContext) error {

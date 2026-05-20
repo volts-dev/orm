@@ -121,7 +121,7 @@ type (
 		// DefaultFunc returns the default-value function, or nil if none.
 		DefaultFunc() FieldFunc
 		// States returns the per-state UI attribute map; when val is supplied, replaces it first.
-		States(val ...map[string]interface{}) map[string]interface{}
+		States(val ...map[string]any) map[string]any
 		// Domain returns the search-domain expression scoped to this field.
 		Domain() string
 		// Translate reports whether the field's value is translatable.
@@ -133,7 +133,7 @@ type (
 		// UpdateDb writes any schema changes implied by the field to the database.
 		UpdateDb(ctx *TTagContext)
 		// Attributes returns a map describing the field's published attributes.
-		Attributes(ctx *TTagContext) map[string]interface{}
+		Attributes(ctx *TTagContext) map[string]any
 		// SetOutputAs sets the output coercion type identifier.
 		SetOutputAs(dataType string)
 		// SetName overrides the field's database column name.
@@ -189,9 +189,9 @@ type (
 		OnWrite(ctx *TFieldContext) error
 
 		// onConvertToRead converts a raw database value to the field's read-format value.
-		onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{}
+		onConvertToRead(session *TSession, cols []string, record []any, colIndex int) any
 		// onConvertToWrite converts an in-memory value to the field's database-format value.
-		onConvertToWrite(session *TSession, value interface{}) interface{}
+		onConvertToWrite(session *TSession, value any) any
 	}
 
 	TField struct {
@@ -217,12 +217,12 @@ type (
 		DisableTimeZone bool
 		TimeZone        *time.Location // column specified time zone
 
-		formatChar  string              // printf 风格的格式占位符（如 "%s"）
-		formatFunc  func(string) string // 对格式化后字符串再加工的函数
-		autoJoin    bool                // 查询时是否自动 JOIN 关联表
-		isInherited bool                // 该字段是否来自 inherits 继承
-		isRelated   bool                // 该字段是否指向其他 model 的外键
-		modelName   string              // 当前字段所属 model 的名字
+		formatChar       string              // printf 风格的格式占位符（如 "%s"）
+		formatFunc       func(string) string // 对格式化后字符串再加工的函数
+		autoJoin         bool                // 查询时是否自动 JOIN 关联表
+		isInherited      bool                // 该字段是否来自 inherits 继承
+		isRelated        bool                // 该字段是否指向其他 model 的外键
+		modelName        string              // 当前字段所属 model 的名字
 		relatedModelName string              // 关联到的 model 名
 		relatedKeyName   string              // 关联表的主键字段名
 		joinModelName    string              // M2M 连接表对应的 model 名
@@ -232,37 +232,37 @@ type (
 		translatable     bool                // 字段值是否可翻译
 		outputAs         string              // 读取时将值伪装为哪种类型（char/int/bool 等）
 
-		name             string                 // 字段在数据库中的列名
-		store            bool                   // 是否将字段值持久化到数据库
-		manual           bool                   // 是否手动管理（非框架自动）
-		depends          []string               // 依赖的其他字段名列表
-		readonly         bool                   // 是否只读
-		writeonly        bool                   // 是否只写
-		required         bool                   // 是否非空
-		description      string                 // 字段的长描述（help text）
-		label            string                 // 字段在 UI 表单中显示的名字
-		size             int                    // 长度或精度约束
-		sortable         bool                   // 是否可排序
-		searchable       bool                   // 是否可搜索
-		typeName         string                 // ORM 层字段类型标识（最终存入 dataset）
-		defaultValue     any                    // 默认值字符串
-		relatedPath      string                 // 关联路径表达式（用途未确认，保留兼容）
-		relationModel    string                 // 关联到的 model 名（与 relatedModelName 用途略有差异）
-		uiStates         map[string]interface{} // 传递给 UI 的 state 属性 map
-		selection        [][]string             // selection 字段的可选值列表
-		domain           string                 // 字段级的搜索域表达式
-		permissionGroups string                 // 限制访问该字段的权限组名（逗号分隔）
-		onDelete         string                 // 关联记录被删除时的处理策略（cascade/set null/restrict/...）
+		name             string         // 字段在数据库中的列名
+		store            bool           // 是否将字段值持久化到数据库
+		manual           bool           // 是否手动管理（非框架自动）
+		depends          []string       // 依赖的其他字段名列表
+		readonly         bool           // 是否只读
+		writeonly        bool           // 是否只写
+		required         bool           // 是否非空
+		description      string         // 字段的长描述（help text）
+		label            string         // 字段在 UI 表单中显示的名字
+		size             int            // 长度或精度约束
+		sortable         bool           // 是否可排序
+		searchable       bool           // 是否可搜索
+		typeName         string         // ORM 层字段类型标识（最终存入 dataset）
+		defaultValue     any            // 默认值字符串
+		relatedPath      string         // 关联路径表达式（用途未确认，保留兼容）
+		relationModel    string         // 关联到的 model 名（与 relatedModelName 用途略有差异）
+		uiStates         map[string]any // 传递给 UI 的 state 属性 map
+		selection        [][]string     // selection 字段的可选值列表
+		domain           string         // 字段级的搜索域表达式
+		permissionGroups string         // 限制访问该字段的权限组名（逗号分隔）
+		onDelete         string         // 关联记录被删除时的处理策略（cascade/set null/restrict/...）
 
-		inverseHandler interface{} // 计算字段的反向写入处理器
-		computeGroup   string      // 同一 compute group 的字段在单次调用中一起计算
-		defaultFunc    FieldFunc   // 默认值生成函数
-		setterFunc     FieldFunc   // 写入计算/格式化函数
-		getterFunc     FieldFunc   // 读取计算/格式化函数
-		boundModel     any         // 绑定的 model 引用（供 compute 使用）
-		setterMethod   string      // 写入方法名
-		getterMethod   string      // 读取方法名
-		computeAsAdmin bool        // 计算字段是否以 admin 权限重新计算
+		inverseHandler any       // 计算字段的反向写入处理器
+		computeGroup   string    // 同一 compute group 的字段在单次调用中一起计算
+		defaultFunc    FieldFunc // 默认值生成函数
+		setterFunc     FieldFunc // 写入计算/格式化函数
+		getterFunc     FieldFunc // 读取计算/格式化函数
+		boundModel     any       // 绑定的 model 引用（供 compute 使用）
+		setterMethod   string    // 写入方法名
+		getterMethod   string    // 读取方法名
+		computeAsAdmin bool      // 计算字段是否以 admin 权限重新计算
 
 		oneToManyFK        string // one-to-many 关系中对端的外键字段名
 		m2mLimit           int64  // many-to-many 关系单次取回的上限
@@ -594,7 +594,7 @@ func (self *TField) Size(val ...int) int {
 }
 
 // States returns the per-state UI attribute map; when val is supplied, replaces it first.
-func (self *TField) States(val ...map[string]interface{}) map[string]interface{} {
+func (self *TField) States(val ...map[string]any) map[string]any {
 	if len(val) > 0 {
 		self.uiStates = val[0]
 	}
@@ -617,7 +617,7 @@ func (self *TField) FuncMultiName() string {
 }
 
 // InverseHandler returns the inverse compute handler, if registered.
-func (self *TField) InverseHandler() interface{} {
+func (self *TField) InverseHandler() any {
 	return self.inverseHandler
 }
 
@@ -769,8 +769,8 @@ func (self *TField) UpdateDb(ctx *TTagContext) {
 }
 
 // Attributes returns a map describing the field's published attributes.
-func (self *TField) Attributes(ctx *TTagContext) map[string]interface{} {
-	return map[string]interface{}{
+func (self *TField) Attributes(ctx *TTagContext) map[string]any {
+	return map[string]any{
 		"name":              self.name,
 		"store":             self.store,
 		"manual":            self.manual,
@@ -802,14 +802,14 @@ func (self *TField) SetAttributes(name string) {
 }
 
 // 把数据库返回的原始值转换为字段对外暴露的值
-func (self *TField) onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} {
-	value := *record[colIndex].(*interface{})
+func (self *TField) onConvertToRead(session *TSession, cols []string, record []any, colIndex int) any {
+	value := *record[colIndex].(*any)
 	return value2FieldTypeValue(self, value)
 
 }
 
 // 把内存中的值转换为数据库格式
-func (self *TField) onConvertToWrite(session *TSession, value interface{}) interface{} {
+func (self *TField) onConvertToWrite(session *TSession, value any) any {
 	return value2SqlTypeValue(self, value)
 }
 

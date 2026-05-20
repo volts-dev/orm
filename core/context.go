@@ -10,15 +10,15 @@ import (
 type ContextHook struct {
 	start       time.Time
 	Ctx         context.Context
-	SQL         string        // log content or SQL
-	Args        []interface{} // if it's a SQL, it's the arguments
+	SQL         string // log content or SQL
+	Args        []any  // if it's a SQL, it's the arguments
 	Result      sql.Result
 	ExecuteTime time.Duration
 	Err         error // SQL executed error
 }
 
 // NewContextHook return context for hook
-func NewContextHook(ctx context.Context, sql string, args []interface{}) *ContextHook {
+func NewContextHook(ctx context.Context, sql string, args []any) *ContextHook {
 	return &ContextHook{
 		start: time.Now(),
 		Ctx:   ctx,

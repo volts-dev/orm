@@ -32,8 +32,8 @@ const (
 )
 
 var (
-	BlankStrItf interface{} = ""
-	BlankNumItf interface{} = 0
+	BlankStrItf any = ""
+	BlankNumItf any = 0
 )
 
 type (
@@ -202,7 +202,7 @@ func (self *TOrm) Quote(v string) string {
 }
 
 // FormatTime format time
-func (self *TOrm) FormatTime(sqlTypeName string, t time.Time) (v interface{}) {
+func (self *TOrm) FormatTime(sqlTypeName string, t time.Time) (v any) {
 	return self._formatTime(self.config.TimeZone, sqlTypeName, t)
 }
 
@@ -444,21 +444,21 @@ func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
 	return modelLst, nil
 }
 
-func (self *TOrm) Query(sql string, params ...interface{}) (*TDataset, error) {
+func (self *TOrm) Query(sql string, params ...any) (*TDataset, error) {
 	session := NewSession(self)
 	defer session.Close()
 	return session.Query(sql, params...)
 }
 
 // Exec raw sql directly
-func (self *TOrm) Exec(sql string, params ...interface{}) (sql.Result, error) {
+func (self *TOrm) Exec(sql string, params ...any) (sql.Result, error) {
 	session := NewSession(self)
 	defer session.Close()
 	return session.Exec(sql, params...)
 }
 
 // # 映射结构体与表
-func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
+func (self *TOrm) _mapping(model any) (*TModel, error) {
 	model_value := reflect.Indirect(reflect.ValueOf(model))
 	model_type := model_value.Type()
 	if model_type.Kind() != reflect.Struct {
@@ -613,8 +613,8 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 
 					// 添加model表共同字段
 					new_fld.Base().modelName = model_alt_name
-					new_fld.Base().isInherited = false                                      // # 共同字段非外键字段
-					new_fld.Base().store = true                                             // # 存储共同字段非外键字段
+					new_fld.Base().isInherited = false                                           // # 共同字段非外键字段
+					new_fld.Base().store = true                                                  // # 存储共同字段非外键字段
 					res_model.obj.SetCommonFieldByName(field_name, new_fld.ModelName(), new_fld) // 将现有表字段添加进重叠字段
 					field = new_fld
 				}
@@ -801,7 +801,7 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 	return model, nil
 }
 
-func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v interface{}) {
+func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v any) {
 	if self.dialect.DBType() == ORACLE {
 		return t
 	}
@@ -839,7 +839,7 @@ func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time
 }
 
 // TODO
-func (self *TOrm) _nowTime(sqlTypeName string) (res_val interface{}, res_time time.Time) {
+func (self *TOrm) _nowTime(sqlTypeName string) (res_val any, res_time time.Time) {
 	res_time = time.Now()
 	if self.dialect.DBType() == ORACLE {
 		return
@@ -931,7 +931,7 @@ func (self *TOrm) _handleTags(fieldCtx *TTagContext, tags map[string][]string, o
 	return nil
 }
 
-func (self *TOrm) _logExecSql(sql string, args []interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
+func (self *TOrm) _logExecSql(sql string, args []any, executionBlock func() (sql.Result, error)) (sql.Result, error) {
 	if self.config.ShowSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
@@ -947,7 +947,7 @@ func (self *TOrm) _logExecSql(sql string, args []interface{}, executionBlock fun
 	}
 }
 
-func (self *TOrm) _logQuerySql(sql string, args []interface{}, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
+func (self *TOrm) _logQuerySql(sql string, args []any, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
 	if self.config.ShowSql {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()

@@ -22,10 +22,10 @@ type (
 	CompanyModel struct {
 		orm.TModel   `table:"name('company_model')"`
 		PartnerModel `field:"relate(PartnerId)"`
-		PartnerId    int64         `field:"one2one(partner_model)"`
-		Id           int64         `field:"pk autoincr title('ID') index"`
-		Name         string        `field:"varchar() unique index required"`
-		Users        []interface{} `field:"one2many(user_model,many_to_one) title('Test Title') domain([('active','=',True)])"`
+		PartnerId    int64  `field:"one2one(partner_model)"`
+		Id           int64  `field:"pk autoincr title('ID') index"`
+		Name         string `field:"varchar() unique index required"`
+		Users        []any  `field:"one2many(user_model,many_to_one) title('Test Title') domain([('active','=',True)])"`
 	}
 
 	UserModel struct {
@@ -44,14 +44,14 @@ type (
 		Help     string `field:"help('')"`
 
 		// all data types
-		Int       int           `field:"int() default(1)"`    // --
-		Bool      bool          `field:"bool default(true)"`  // --
-		Text      string        `field:"text"`                //
-		Float     float32       `field:"float"`               //
-		Bin       []byte        `field:"binary() attachment"` //
-		Selection string        `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
-		Func      string        `field:"selection(TestSelection)"`
-		Companies []interface{} `field:"many2many(company_model,user_id,company_id,)"`
+		Int       int     `field:"int() default(1)"`    // --
+		Bool      bool    `field:"bool default(true)"`  // --
+		Text      string  `field:"text"`                //
+		Float     float32 `field:"float"`               //
+		Bin       []byte  `field:"binary() attachment"` //
+		Selection string  `field:"selection('{\"person\":\"Individual\",\"company\":\"Company\"}')"`
+		Func      string  `field:"selection(TestSelection)"`
+		Companies []any   `field:"many2many(company_model,user_id,company_id,)"`
 	}
 )
 

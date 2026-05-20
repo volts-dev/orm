@@ -65,17 +65,17 @@ type FieldSchema struct {
 type RemoteRequest struct {
 	ModelName string
 	Op        string
-	Ids       []int64                // used by read/write/unlink
-	Values    map[string]interface{} // used by create/write
-	Domain    [][]interface{}        // used by search (Odoo-style domain)
-	Fields    []string               // used by read (returned field filter)
+	Ids       []int64        // used by read/write/unlink
+	Values    map[string]any // used by create/write
+	Domain    [][]any        // used by search (Odoo-style domain)
+	Fields    []string       // used by read (returned field filter)
 	Limit     int
 	Offset    int
 }
 
 // RemoteResponse is the result returned by IRemoteResolver.Execute.
 type RemoteResponse struct {
-	Records []map[string]interface{}
+	Records []map[string]any
 	Ids     []int64
 	Count   int64
 }
@@ -146,9 +146,9 @@ func buildFieldFromSchema(fs FieldSchema, ownerModel string) IField {
 
 // ----- IModel: metadata accessors -----
 
-func (self *TRemoteModelObject) String() string                  { return self.schema.Name }
-func (self *TRemoteModelObject) Table() string                   { return self.tableName }
-func (self *TRemoteModelObject) IdField(field ...string) string  { return self.schema.IdField }
+func (self *TRemoteModelObject) String() string                 { return self.schema.Name }
+func (self *TRemoteModelObject) Table() string                  { return self.tableName }
+func (self *TRemoteModelObject) IdField(field ...string) string { return self.schema.IdField }
 func (self *TRemoteModelObject) NameField(field ...string) string {
 	if f := self.GetFieldByName("name"); f != nil {
 		return "name"
@@ -281,10 +281,10 @@ func remoteResponseToDataset(resp *RemoteResponse, schema *ModelSchema) *dataset
 	}
 	return ds
 }
-func (self *TRemoteModelObject) NameSearch(name string, dom *domain.TDomainNode, operator string, limit int64, nameGetUid string, ctxMap map[string]interface{}) (*dataset.TDataSet, error) {
+func (self *TRemoteModelObject) NameSearch(name string, dom *domain.TDomainNode, operator string, limit int64, nameGetUid string, ctxMap map[string]any) (*dataset.TDataSet, error) {
 	return nil, ErrRemoteOpNotSupported
 }
-func (self *TRemoteModelObject) NameGet(ids []interface{}) (*dataset.TDataSet, error) {
+func (self *TRemoteModelObject) NameGet(ids []any) (*dataset.TDataSet, error) {
 	return nil, ErrRemoteOpNotSupported
 }
 func (self *TRemoteModelObject) DefaultGet(fields ...string) (map[string]any, error) {
@@ -314,20 +314,20 @@ func (self *TRemoteModelObject) _setOrm(o *TOrm) {
 		self.osv = o.osv
 	}
 }
-func (self *TRemoteModelObject) _setBaseModel(m *TModel)                       {}
-func (self *TRemoteModelObject) _relations_reload()                            {}
-func (self *TRemoteModelObject) _onBuildFields() error                         { return nil }
-func (self *TRemoteModelObject) OnBuildModel() error                           { return nil }
-func (self *TRemoteModelObject) OnBuildFields() error                          { return nil }
-func (self *TRemoteModelObject) BeforeSetup() error                            { return nil }
-func (self *TRemoteModelObject) AfterSetup() error                             { return nil }
-func (self *TRemoteModelObject) BeforeSession(s *TSession) (*TSession, error)  { return s, nil }
-func (self *TRemoteModelObject) AfterSession(s *TSession) (*TSession, error)   { return s, nil }
+func (self *TRemoteModelObject) _setBaseModel(m *TModel)                      {}
+func (self *TRemoteModelObject) _relations_reload()                           {}
+func (self *TRemoteModelObject) _onBuildFields() error                        { return nil }
+func (self *TRemoteModelObject) OnBuildModel() error                          { return nil }
+func (self *TRemoteModelObject) OnBuildFields() error                         { return nil }
+func (self *TRemoteModelObject) BeforeSetup() error                           { return nil }
+func (self *TRemoteModelObject) AfterSetup() error                            { return nil }
+func (self *TRemoteModelObject) BeforeSession(s *TSession) (*TSession, error) { return s, nil }
+func (self *TRemoteModelObject) AfterSession(s *TSession) (*TSession, error)  { return s, nil }
 func (self *TRemoteModelObject) Clone(opts ...ModelOption) (IModel, error)    { return self, nil }
-func (self *TRemoteModelObject) GetDefault() *sync.Map                         { return &sync.Map{} }
-func (self *TRemoteModelObject) GetDefaultByName(name string) interface{}      { return nil }
-func (self *TRemoteModelObject) SetDefaultByName(name string, v interface{})   {}
-func (self *TRemoteModelObject) SetRecordName(name string)                     {}
-func (self *TRemoteModelObject) GetRecordName() string                         { return self.schema.IdField }
-func (self *TRemoteModelObject) SetName(n string)                              {}
-func (self *TRemoteModelObject) MethodByName(name string) *TMethod             { return nil }
+func (self *TRemoteModelObject) GetDefault() *sync.Map                        { return &sync.Map{} }
+func (self *TRemoteModelObject) GetDefaultByName(name string) any             { return nil }
+func (self *TRemoteModelObject) SetDefaultByName(name string, v any)          {}
+func (self *TRemoteModelObject) SetRecordName(name string)                    {}
+func (self *TRemoteModelObject) GetRecordName() string                        { return self.schema.IdField }
+func (self *TRemoteModelObject) SetName(n string)                             {}
+func (self *TRemoteModelObject) MethodByName(name string) *TMethod            { return nil }

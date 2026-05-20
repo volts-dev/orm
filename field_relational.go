@@ -73,7 +73,7 @@ func defaultIdSqlType() SQLType {
 	return GoType2SQLType(reflect.TypeOf(int64(0)))
 }
 
-func (self *TRelational) Attributes(ctx *TTagContext) map[string]interface{} {
+func (self *TRelational) Attributes(ctx *TTagContext) map[string]any {
 	attrs := self.Base().Attributes(ctx)
 	attrs["relation"] = self.relatedModelName
 	return attrs
@@ -381,7 +381,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 					model.Tx(ctx.Session.Clone())
 					ids, err := model.Create(&CreateRequest{
 						Context: ctx.Context,
-						Data: []any{map[string]interface{}{
+						Data: []any{map[string]any{
 							recName: v,
 						}},
 					})
@@ -399,7 +399,7 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 			}
 
 		}
-	case []interface{}:
+	case []any:
 		if len(v) > 0 {
 			ctx.SetValue(v[0])
 		}
@@ -434,10 +434,10 @@ func (self *TMany2ManyField) Init(ctx *TTagContext) {
 	switch cnt {
 	case 1:
 		// many2many(关联表)
-		middle_model := fmt.Sprintf("%s.%s.rel", model_name, related_model)          // 表字段关系的Model
-		field.joinModelName = middle_model                                           //提供目标表格关系的表
-		field.joinSourceKey = fmtFieldName(fmt.Sprintf("%s_id", model_name))         // 关系表关键字段
-		field.relatedKeyName = fmtFieldName(fmt.Sprintf("%s_id", related_model))     //目标表关键字段
+		middle_model := fmt.Sprintf("%s.%s.rel", model_name, related_model)      // 表字段关系的Model
+		field.joinModelName = middle_model                                       //提供目标表格关系的表
+		field.joinSourceKey = fmtFieldName(fmt.Sprintf("%s_id", model_name))     // 关系表关键字段
+		field.relatedKeyName = fmtFieldName(fmt.Sprintf("%s_id", related_model)) //目标表关键字段
 
 	case 2:
 		// many2many(关联表,关系表)
@@ -654,7 +654,7 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 }
 
 // # beware of duplicates when inserting
-func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
+func (self *TMany2ManyField) link(ctx *TFieldContext, ids []any) error {
 	quoter := ctx.Session.Orm().dialect.Quoter()
 	field := ctx.Field
 
@@ -688,7 +688,7 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []interface{}) error {
 
 // TODO 错误将IDS删除基数
 // # remove all records for which user has access rights
-func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) error {
+func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []any) error {
 	quote := ctx.Session.Orm().dialect.Quoter().Quote
 	field := ctx.Field
 	middle_table_name := quote(strings.Replace(field.JoinModelName(), ".", "_", -1))
@@ -699,7 +699,7 @@ func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []interface{}) e
 	fmt.Fprintf(&b, "DELETE FROM %s WHERE %s.%s IN (%s) ",
 		middle_table_name, middle_table_name, quote(field.JoinSourceKey()), ctxIdsSql)
 
-	args := append([]interface{}{}, ctx.Ids...)
+	args := append([]any{}, ctx.Ids...)
 	if len(ids) > 0 {
 		relIdsSql := strings.Repeat("?,", len(ids)-1) + "?"
 		fmt.Fprintf(&b, " AND %s.%s IN (%s)", middle_table_name, quote(field.RelatedKeyName()), relIdsSql)

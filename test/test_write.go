@@ -87,7 +87,7 @@ func test_write_by_id(ids []any, o *orm.TOrm, t *testing.T) {
 	data := new(UserModel)
 	*data = *user
 	data.Title = title
-    data.Name = "WriteTestedUnique123"
+	data.Name = "WriteTestedUnique123"
 	effect, err := model.Records().Ids(ids[0]).Write(data)
 	if err != nil {
 		t.Fatal(err)

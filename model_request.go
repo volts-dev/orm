@@ -800,7 +800,7 @@ func (self *TModel) NameGet(ids []any) (*dataset.TDataSet, error) {
 
 	ds := dataset.NewDataSet()
 	for _, id := range ids {
-		ds.NewRecord(map[string]interface{}{
+		ds.NewRecord(map[string]any{
 			id_field: id,
 			name:     self.String(),
 		})
@@ -810,7 +810,7 @@ func (self *TModel) NameGet(ids []any) (*dataset.TDataSet, error) {
 }
 
 // search record by name field only
-func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, operator string, limit int64, access_rights_uid string, context map[string]interface{}) (result *dataset.TDataSet, err error) {
+func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, operator string, limit int64, access_rights_uid string, context map[string]any) (result *dataset.TDataSet, err error) {
 	if operator == "" {
 		operator = "ilike"
 	}

@@ -471,7 +471,7 @@ func (db *mysql) DropDatabase(dbx *sql.DB, ctx context.Context, name string) err
 
 func (db *mysql) IsDatabaseExist(ctx context.Context, name string) bool {
 	s := "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?"
-	db.LogSQL(s, []interface{}{name})
+	db.LogSQL(s, []any{name})
 
 	rows, err := db.queryer.QueryContext(ctx, s, name)
 	if err != nil {
@@ -486,15 +486,15 @@ func (db *mysql) AutoIncrStr() string {
 	return "AUTO_INCREMENT"
 }
 
-func (db *mysql) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
-	args := []interface{}{db.DbName, tableName, idxName}
+func (db *mysql) IndexCheckSql(tableName, idxName string) (string, []any) {
+	args := []any{db.DbName, tableName, idxName}
 	sql := "SELECT `INDEX_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS`"
 	sql += " WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? AND `INDEX_NAME`=?"
 	return sql, args
 }
 
-func (db *mysql) TableCheckSql(tableName string) (string, []interface{}) {
-	args := []interface{}{db.DbName, tableName}
+func (db *mysql) TableCheckSql(tableName string) (string, []any) {
+	args := []any{db.DbName, tableName}
 	return "SELECT `TABLE_NAME` FROM `INFORMATION_SCHEMA`.`TABLES` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ?", args
 }
 
@@ -559,7 +559,7 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 }
 
 func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
-	args := []interface{}{db.DbName, tableName}
+	args := []any{db.DbName, tableName}
 	alreadyQuoted := "(INSTR(VERSION(), 'maria') > 0 && " +
 		"(SUBSTRING_INDEX(VERSION(), '.', 1) > 10 || " +
 		"(SUBSTRING_INDEX(VERSION(), '.', 1) = 10 && " +
@@ -694,7 +694,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName str
 
 func (db *mysql) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
 	//func (db *mysql) GetTables(queryer Queryer, ctx context.Context) ([]*Table, error) {
-	args := []interface{}{db.DbName}
+	args := []any{db.DbName}
 	s := "SELECT `TABLE_NAME`, `ENGINE`, `AUTO_INCREMENT`, `TABLE_COMMENT` from " +
 		"`INFORMATION_SCHEMA`.`TABLES` WHERE `TABLE_SCHEMA`=? AND (`ENGINE`='MyISAM' OR `ENGINE` = 'InnoDB' OR `ENGINE` = 'TokuDB')"
 
@@ -731,7 +731,7 @@ func (db *mysql) GetModels(ctx context.Context, session *TSession) ([]IModel, er
 }
 
 func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
-	args := []interface{}{db.DbName, tableName}
+	args := []any{db.DbName, tableName}
 	s := "SELECT `INDEX_NAME`, `NON_UNIQUE`, `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? ORDER BY `SEQ_IN_INDEX`"
 
 	rows, err := db.queryer.QueryContext(ctx, s, args...)

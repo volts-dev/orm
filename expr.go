@@ -44,12 +44,12 @@ var (
 		domain.OR_OPERATOR:  2,
 	}
 
-	HIERARCHY_FUNCS = map[string]func(*domain.TDomainNode, *domain.TDomainNode, *TModel, string, string, map[string]interface{}) *domain.TDomainNode{
+	HIERARCHY_FUNCS = map[string]func(*domain.TDomainNode, *domain.TDomainNode, *TModel, string, string, map[string]any) *domain.TDomainNode{
 		"child_of":  child_of_domain,
 		"parent_of": parent_of_domain}
 )
 
-func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context map[string]interface{}) (*TExpression, error) {
+func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context map[string]any) (*TExpression, error) {
 	exp := &TExpression{
 		orm:        orm,
 		root_model: model,
@@ -123,7 +123,6 @@ def get_alias_from_query(from_query):
 
 */
 
-
 /*
 # --------------------------------------------------
 # Generic domain manipulation
@@ -190,7 +189,7 @@ func create_substitution_leaf(leaf *TExtendedLeaf, new_elements *domain.TDomainN
 	return NewExtendedLeaf(new_elements, new_model, new_join_context, internal)
 }
 
-func child_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]interface{}) *domain.TDomainNode {
+func child_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]any) *domain.TDomainNode {
 	//""" Return a domain implementing the child_of operator for [(left,child_of,ids)],
 	//    either as a range using the parent_path tree lookup field
 	//    (when available), or as an expanded [(left,in,child_ids)] """
@@ -217,7 +216,7 @@ func child_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_mod
 	return nil
 }
 
-func parent_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]interface{}) *domain.TDomainNode {
+func parent_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]any) *domain.TDomainNode {
 	/*
 	   // Return a domain implementing the parent_of operator for [(left,parent_of,ids)],
 	   // either as a range using the parent_path tree lookup field
@@ -358,7 +357,7 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 	return srcTableName, fmt.Sprintf("%s as %s", quoteStr(joined_tables[0][0]), quoteStr(srcTableName))
 }
 
-func idsToSqlHolder(ids ...interface{}) string {
+func idsToSqlHolder(ids ...any) string {
 	ln := len(ids)
 	if ln == 0 {
 		return ""
@@ -425,7 +424,7 @@ func (self *TExpression) reverse(lst []*TExtendedLeaf) {
 //	     return the list of related ids
 //
 // 获得Ids
-func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, context map[string]interface{}, limit int64) *domain.TDomainNode {
+func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, context map[string]any, limit int64) *domain.TDomainNode {
 	var names []string
 
 	/* 分类 id 直接返回 Name 则需要查询获得其Id */
@@ -497,7 +496,7 @@ func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, cont
             (res_partner.bank_ids -> res.partner.bank)
 """*/
 // @转换提取Model和Filed ("foo.bar" -> ["foo", "bar"])
-func (self *TExpression) parse(context map[string]interface{}) error {
+func (self *TExpression) parse(context map[string]any) error {
 	var (
 		ex_leaf               *TExtendedLeaf
 		left, operator, right *domain.TDomainNode
@@ -847,14 +846,14 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 // res_query：查询语法
 // res_params：新占位符？参数值
 // res_arg：params 分配给占用符后剩下的值
-func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{}) (res_query string, res_params []interface{}, res_arg []interface{}) {
+func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_query string, res_params []any, res_arg []any) {
 	var (
 	//first_right_value interface{}   // 提供最终值以供条件判断
 	)
 	quoter := self.orm.dialect.Quoter()
-	var vals []interface{}              // 该Term 的值 每个Or,And等条件都有自己相当数量的值
-	res_params = make([]interface{}, 0) //domain.NewDomainNode()
-	res_arg = params                    // 初始化剩余参数
+	var vals []any              // 该Term 的值 每个Or,And等条件都有自己相当数量的值
+	res_params = make([]any, 0) //domain.NewDomainNode()
+	res_arg = params            // 初始化剩余参数
 
 	model := eleaf.model
 
@@ -1104,13 +1103,13 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 }
 
 // to generate the SQL expression and params
-func (self *TExpression) ToSql(params ...interface{}) ([]string, []interface{}) {
+func (self *TExpression) ToSql(params ...any) ([]string, []any) {
 	return self.toSql(params...)
 }
 
 // 传递domain值并重新生成
 // params sql value
-func (self *TExpression) toSql(params ...interface{}) ([]string, []interface{}) {
+func (self *TExpression) toSql(params ...any) ([]string, []any) {
 	var (
 		stack  = domain.NewDomainNode()
 		q1, q2 *domain.TDomainNode
@@ -1123,7 +1122,7 @@ func (self *TExpression) toSql(params ...interface{}) ([]string, []interface{}) 
 	params = utils.Reversed(params...)
 
 	// 遍历并生成
-	res_params := make([]interface{}, 0)
+	res_params := make([]any, 0)
 	for _, eleaf := range self.result {
 		if eleaf.leaf.IsLeafNode() {
 			query, query_params, other_params := self.leaf_to_sql(eleaf, params) //internal: allow or not the 'inselect' internal operator in the term. This should be always left to False.

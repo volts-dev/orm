@@ -27,7 +27,7 @@ const (
 
 // CacheEntry 代表单个缓存条目，包含过期时间
 type CacheEntry struct {
-	Value      interface{}
+	Value      any
 	ExpiryTime int64 // Unix时间戳，秒级
 }
 
@@ -87,7 +87,7 @@ func New() (*TCacher, error) {
 }
 
 // @removed 是否用于移除（内部版本，不持有锁）
-func (self *TCacher) _genIdKeyUnsafe(table string, key interface{}, removed bool) string {
+func (self *TCacher) _genIdKeyUnsafe(table string, key any, removed bool) string {
 	str := fmt.Sprintf("%v-%v", table, key)
 
 	var (
@@ -120,13 +120,13 @@ func (self *TCacher) _genIdKeyUnsafe(table string, key interface{}, removed bool
 }
 
 // @removed 是否用于移除
-func (self *TCacher) genIdKey(table string, key interface{}, removed bool) string {
+func (self *TCacher) genIdKey(table string, key any, removed bool) string {
 	self.table_id_key_index_lock.Lock()
 	defer self.table_id_key_index_lock.Unlock()
 	return self._genIdKeyUnsafe(table, key, removed)
 }
 
-func (self *TCacher) genSqlKey(table string, sql string, args interface{}, removed bool) string {
+func (self *TCacher) genSqlKey(table string, sql string, args any, removed bool) string {
 	//# lock
 	self.table_sql_key_index_lock.Lock()
 	defer self.table_sql_key_index_lock.Unlock()
@@ -134,7 +134,7 @@ func (self *TCacher) genSqlKey(table string, sql string, args interface{}, remov
 }
 
 // @removed 是否用于移除（内部版本，不持有锁）
-func (self *TCacher) _genSqlKeyUnsafe(table string, sql string, args interface{}, removed bool) string {
+func (self *TCacher) _genSqlKeyUnsafe(table string, sql string, args any, removed bool) string {
 	str := fmt.Sprintf("%v-%v-%v", table, sql, args)
 	// # 添加索引
 	var (
@@ -205,7 +205,7 @@ func (self *TCacher) SetStatus(sw bool, table_name string) {
 }
 
 // #缓存Sql查询结果ID集
-func (self *TCacher) PutBySql(table string, sql string, arg interface{}, data *dataset.TDataSet) {
+func (self *TCacher) PutBySql(table string, sql string, arg any, data *dataset.TDataSet) {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
 		self.sql_caches.Set(&cacher.CacheBlock{Key: key, Value: data})
@@ -225,7 +225,7 @@ func (self *TCacher) PutBySql(table string, sql string, arg interface{}, data *d
 // @Return:  nil or 空[]string
 // WARNING: 返回的 *dataset.TDataSet 是缓存中的直接引用，请勿修改其内容，否则会污染缓存。
 // 如需修改，请先复制一份副本。
-func (self *TCacher) GetBySql(table string, sql string, arg interface{}) *dataset.TDataSet {
+func (self *TCacher) GetBySql(table string, sql string, arg any) *dataset.TDataSet {
 	if open, has := self.status[table]; has && open {
 		key := self.genSqlKey(table, sql, arg, false)
 
@@ -256,7 +256,7 @@ func (self *TCacher) GetBySql(table string, sql string, arg interface{}) *datase
 }
 
 // #缓存记录及ID
-func (self *TCacher) PutById(table string, id interface{}, record *dataset.TRecordSet) {
+func (self *TCacher) PutById(table string, id any, record *dataset.TRecordSet) {
 	if open, has := self.status[table]; !has || (has && open) {
 		//ck := self.RecCacher(table)
 		key := self.genIdKey(table, id, false)
@@ -274,7 +274,7 @@ func (self *TCacher) PutById(table string, id interface{}, record *dataset.TReco
 }
 
 // #通过ID获取记录
-func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*dataset.TRecordSet, ids_less []interface{}) {
+func (self *TCacher) GetByIds(table string, ids ...any) (records []*dataset.TRecordSet, ids_less []any) {
 	if !self.active {
 		return nil, ids
 	}
@@ -288,7 +288,7 @@ func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*data
 			expiryTime, expired := self.table_id_expiry[table][key]
 			self.table_id_expiry_lock.RUnlock()
 
-			var v interface{}
+			var v any
 			var err error
 
 			if expired && self.isExpired(expiryTime) {
@@ -315,7 +315,7 @@ func (self *TCacher) GetByIds(table string, ids ...interface{}) (records []*data
 	}
 }
 
-func (self *TCacher) RemoveById(table string, ids ...interface{}) {
+func (self *TCacher) RemoveById(table string, ids ...any) {
 	self.table_id_key_index_lock.Lock()
 	defer self.table_id_key_index_lock.Unlock()
 
@@ -393,9 +393,9 @@ type CacheWarmer struct {
 type WarmupTask struct {
 	Table    string
 	SQL      string
-	Args     []interface{}
-	QueryFn  func(sql string, args ...interface{}) (*dataset.TDataSet, error) // 查询函数
-	Priority int                                                              // 优先级（0-100，数字越大优先级越高）
+	Args     []any
+	QueryFn  func(sql string, args ...any) (*dataset.TDataSet, error) // 查询函数
+	Priority int                                                      // 优先级（0-100，数字越大优先级越高）
 }
 
 // NewCacheWarmer 创建新的缓存预热器
@@ -418,7 +418,7 @@ func (cw *CacheWarmer) AddTask(task WarmupTask) {
 }
 
 // AddHighPriorityTask 添加高优先级任务（优先级=80）
-func (cw *CacheWarmer) AddHighPriorityTask(table, sql string, args []interface{}, queryFn func(sql string, args ...interface{}) (*dataset.TDataSet, error)) {
+func (cw *CacheWarmer) AddHighPriorityTask(table, sql string, args []any, queryFn func(sql string, args ...any) (*dataset.TDataSet, error)) {
 	cw.AddTask(WarmupTask{
 		Table:    table,
 		SQL:      sql,
@@ -429,7 +429,7 @@ func (cw *CacheWarmer) AddHighPriorityTask(table, sql string, args []interface{}
 }
 
 // AddNormalTask 添加中优先级任务（优先级=50）
-func (cw *CacheWarmer) AddNormalTask(table, sql string, args []interface{}, queryFn func(sql string, args ...interface{}) (*dataset.TDataSet, error)) {
+func (cw *CacheWarmer) AddNormalTask(table, sql string, args []any, queryFn func(sql string, args ...any) (*dataset.TDataSet, error)) {
 	cw.AddTask(WarmupTask{
 		Table:    table,
 		SQL:      sql,

@@ -11,7 +11,7 @@ import (
 )
 
 // search and return the id list only
-func (self *TSession) Search() ([]interface{}, int64, error) {
+func (self *TSession) Search() ([]any, int64, error) {
 	if self.IsDeprecated {
 		return nil, 0, ErrInvalidSession
 	}
@@ -28,7 +28,7 @@ func (self *TSession) Search() ([]interface{}, int64, error) {
 }
 
 // Query a raw sql and return records as dataset
-func (self *TSession) Query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error) {
+func (self *TSession) Query(sql string, paramStr ...any) (*dataset.TDataSet, error) {
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -37,7 +37,7 @@ func (self *TSession) Query(sql string, paramStr ...interface{}) (*dataset.TData
 }
 
 // Exec raw sql
-func (self *TSession) Exec(sql_str string, args ...interface{}) (sql.Result, error) {
+func (self *TSession) Exec(sql_str string, args ...any) (sql.Result, error) {
 	if self.IsAutoClose {
 		defer self.Close()
 	}
@@ -110,7 +110,7 @@ func (self *TSession) Sum(fieldName string) (float64, error) {
 // 查询所有符合条件的主键/索引值
 // :param access_rights_uid: optional user ID to use when checking access rights
 // (not for ir.rules, this is only for ir.model.access)
-func (self *TSession) _search(access_rights_uid string, context map[string]interface{}) (res_ids []interface{}, count int64, err error) {
+func (self *TSession) _search(access_rights_uid string, context map[string]any) (res_ids []any, count int64, err error) {
 	var (
 		//fields_str string
 		//where_str    string
@@ -120,12 +120,12 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 		where_clause        string
 		query_str           string
 		order_by            string
-		where_clause_params []interface{}
+		where_clause_params []any
 		query               *TQuery
 	)
 
 	if context == nil {
-		context = make(map[string]interface{})
+		context = make(map[string]any)
 	}
 	//	self.check_access_rights("read")
 
@@ -206,7 +206,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]inter
 	return res_ids, int64(len(res_ids)), nil
 }
 
-func (self *TSession) _query(sql string, paramStr ...interface{}) (*dataset.TDataSet, error) {
+func (self *TSession) _query(sql string, paramStr ...any) (*dataset.TDataSet, error) {
 	defer self._resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
 		sql = filter.Do(sql, self.orm.dialect, self.Statement.Model)
@@ -220,7 +220,7 @@ func (self *TSession) _query(sql string, paramStr ...interface{}) (*dataset.TDat
 	})
 }
 
-func (self *TSession) _queryWithOrg(sql_str string, args ...interface{}) (*dataset.TDataSet, error) {
+func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TDataSet, error) {
 	var rows *core.Rows
 	var err error
 
@@ -245,7 +245,7 @@ func (self *TSession) _queryWithOrg(sql_str string, args ...interface{}) (*datas
 	return self._scanRows(rows)
 }
 
-func (self *TSession) _queryWithTx(query string, params ...interface{}) (*dataset.TDataSet, error) {
+func (self *TSession) _queryWithTx(query string, params ...any) (*dataset.TDataSet, error) {
 	rows, err := self.tx.QueryContext(self.context, query, params...)
 	if err != nil {
 		return nil, err
@@ -255,7 +255,7 @@ func (self *TSession) _queryWithTx(query string, params ...interface{}) (*datase
 }
 
 // Exec raw sql
-func (self *TSession) _exec(sql_str string, args ...interface{}) (sql.Result, error) {
+func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 	defer self._resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
 		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.Model)
@@ -291,7 +291,7 @@ func (self *TSession) _exec(sql_str string, args ...interface{}) (sql.Result, er
 }
 
 // Execute sql
-func (self *TSession) _execWithOrg(query string, args ...interface{}) (sql.Result, error) {
+func (self *TSession) _execWithOrg(query string, args ...any) (sql.Result, error) {
 	if self.Prepared {
 		stmt, err := self._doPrepare(query)
 		if err != nil {
@@ -305,7 +305,7 @@ func (self *TSession) _execWithOrg(query string, args ...interface{}) (sql.Resul
 	return self.db.ExecContext(self.context, query, args...)
 }
 
-func (self *TSession) _execWithTx(sql string, args ...interface{}) (sql.Result, error) {
+func (self *TSession) _execWithTx(sql string, args ...any) (sql.Result, error) {
 	return self.tx.ExecContext(self.context, sql, args...)
 }
 
@@ -331,9 +331,9 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 		}
 
 		length := len(cols)
-		vals := make([]interface{}, length)
+		vals := make([]any, length)
 
-		var value interface{}
+		var value any
 		var field IField
 		hasModel := self.Statement.Model != nil
 		for rows.Next() {
@@ -364,16 +364,16 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 						// 处理函数字段 Count 等
 						for _, funcName := range self.Statement.FuncsClause {
 							if strings.HasPrefix(funcName, name) { // TODO 这里需要更高效的判断
-								value = *vals[idx].(*interface{})
+								value = *vals[idx].(*any)
 							}
 						}
 
 						if value == nil {
-							value = *vals[idx].(*interface{})
+							value = *vals[idx].(*any)
 						}
 					}
 				} else {
-					value = *vals[idx].(*interface{})
+					value = *vals[idx].(*any)
 				}
 
 				if !rec.SetByField(name, value, false) {

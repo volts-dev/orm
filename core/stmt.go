@@ -46,13 +46,13 @@ func (db *DB) Prepare(query string) (*Stmt, error) {
 }
 
 // ExecMapContext execute with map
-func (s *Stmt) ExecMapContext(ctx context.Context, mp interface{}) (sql.Result, error) {
+func (s *Stmt) ExecMapContext(ctx context.Context, mp any) (sql.Result, error) {
 	vv := reflect.ValueOf(mp)
 	if vv.Kind() != reflect.Ptr || vv.Elem().Kind() != reflect.Map {
 		return nil, errors.New("mp should be a map's pointer")
 	}
 
-	args := make([]interface{}, len(s.names))
+	args := make([]any, len(s.names))
 	for k, i := range s.names {
 		args[i] = vv.Elem().MapIndex(reflect.ValueOf(k)).Interface()
 	}
@@ -61,18 +61,18 @@ func (s *Stmt) ExecMapContext(ctx context.Context, mp interface{}) (sql.Result, 
 }
 
 // ExecMap executes with map
-func (s *Stmt) ExecMap(mp interface{}) (sql.Result, error) {
+func (s *Stmt) ExecMap(mp any) (sql.Result, error) {
 	return s.ExecMapContext(context.Background(), mp)
 }
 
 // ExecStructContext executes with struct
-func (s *Stmt) ExecStructContext(ctx context.Context, st interface{}) (sql.Result, error) {
+func (s *Stmt) ExecStructContext(ctx context.Context, st any) (sql.Result, error) {
 	vv := reflect.ValueOf(st)
 	if vv.Kind() != reflect.Ptr || vv.Elem().Kind() != reflect.Struct {
 		return nil, errors.New("mp should be a map's pointer")
 	}
 
-	args := make([]interface{}, len(s.names))
+	args := make([]any, len(s.names))
 	for k, i := range s.names {
 		args[i] = vv.Elem().FieldByName(k).Interface()
 	}
@@ -81,12 +81,12 @@ func (s *Stmt) ExecStructContext(ctx context.Context, st interface{}) (sql.Resul
 }
 
 // ExecStruct executes with struct
-func (s *Stmt) ExecStruct(st interface{}) (sql.Result, error) {
+func (s *Stmt) ExecStruct(st any) (sql.Result, error) {
 	return s.ExecStructContext(context.Background(), st)
 }
 
 // ExecContext with args
-func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
+func (s *Stmt) ExecContext(ctx context.Context, args ...any) (sql.Result, error) {
 	hookCtx := NewContextHook(ctx, s.query, args)
 	ctx, err := s.db.beforeProcess(hookCtx)
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (sql.Result
 }
 
 // QueryContext query with args
-func (s *Stmt) QueryContext(ctx context.Context, args ...interface{}) (*Rows, error) {
+func (s *Stmt) QueryContext(ctx context.Context, args ...any) (*Rows, error) {
 	hookCtx := NewContextHook(ctx, s.query, args)
 	ctx, err := s.db.beforeProcess(hookCtx)
 	if err != nil {
@@ -120,18 +120,18 @@ func (s *Stmt) QueryContext(ctx context.Context, args ...interface{}) (*Rows, er
 }
 
 // Query query with args
-func (s *Stmt) Query(args ...interface{}) (*Rows, error) {
+func (s *Stmt) Query(args ...any) (*Rows, error) {
 	return s.QueryContext(context.Background(), args...)
 }
 
 // QueryMapContext query with map
-func (s *Stmt) QueryMapContext(ctx context.Context, mp interface{}) (*Rows, error) {
+func (s *Stmt) QueryMapContext(ctx context.Context, mp any) (*Rows, error) {
 	vv := reflect.ValueOf(mp)
 	if vv.Kind() != reflect.Ptr || vv.Elem().Kind() != reflect.Map {
 		return nil, errors.New("mp should be a map's pointer")
 	}
 
-	args := make([]interface{}, len(s.names))
+	args := make([]any, len(s.names))
 	for k, i := range s.names {
 		args[i] = vv.Elem().MapIndex(reflect.ValueOf(k)).Interface()
 	}
@@ -140,18 +140,18 @@ func (s *Stmt) QueryMapContext(ctx context.Context, mp interface{}) (*Rows, erro
 }
 
 // QueryMap query with map
-func (s *Stmt) QueryMap(mp interface{}) (*Rows, error) {
+func (s *Stmt) QueryMap(mp any) (*Rows, error) {
 	return s.QueryMapContext(context.Background(), mp)
 }
 
 // QueryStructContext query with struct
-func (s *Stmt) QueryStructContext(ctx context.Context, st interface{}) (*Rows, error) {
+func (s *Stmt) QueryStructContext(ctx context.Context, st any) (*Rows, error) {
 	vv := reflect.ValueOf(st)
 	if vv.Kind() != reflect.Ptr || vv.Elem().Kind() != reflect.Struct {
 		return nil, errors.New("mp should be a map's pointer")
 	}
 
-	args := make([]interface{}, len(s.names))
+	args := make([]any, len(s.names))
 	for k, i := range s.names {
 		args[i] = vv.Elem().FieldByName(k).Interface()
 	}
@@ -160,29 +160,29 @@ func (s *Stmt) QueryStructContext(ctx context.Context, st interface{}) (*Rows, e
 }
 
 // QueryStruct query with struct
-func (s *Stmt) QueryStruct(st interface{}) (*Rows, error) {
+func (s *Stmt) QueryStruct(st any) (*Rows, error) {
 	return s.QueryStructContext(context.Background(), st)
 }
 
 // QueryRowContext query row with args
-func (s *Stmt) QueryRowContext(ctx context.Context, args ...interface{}) *Row {
+func (s *Stmt) QueryRowContext(ctx context.Context, args ...any) *Row {
 	rows, err := s.QueryContext(ctx, args...)
 	return &Row{rows, err}
 }
 
 // QueryRow query row with args
-func (s *Stmt) QueryRow(args ...interface{}) *Row {
+func (s *Stmt) QueryRow(args ...any) *Row {
 	return s.QueryRowContext(context.Background(), args...)
 }
 
 // QueryRowMapContext query row with map
-func (s *Stmt) QueryRowMapContext(ctx context.Context, mp interface{}) *Row {
+func (s *Stmt) QueryRowMapContext(ctx context.Context, mp any) *Row {
 	vv := reflect.ValueOf(mp)
 	if vv.Kind() != reflect.Ptr || vv.Elem().Kind() != reflect.Map {
 		return &Row{nil, errors.New("mp should be a map's pointer")}
 	}
 
-	args := make([]interface{}, len(s.names))
+	args := make([]any, len(s.names))
 	for k, i := range s.names {
 		args[i] = vv.Elem().MapIndex(reflect.ValueOf(k)).Interface()
 	}
@@ -191,18 +191,18 @@ func (s *Stmt) QueryRowMapContext(ctx context.Context, mp interface{}) *Row {
 }
 
 // QueryRowMap query row with map
-func (s *Stmt) QueryRowMap(mp interface{}) *Row {
+func (s *Stmt) QueryRowMap(mp any) *Row {
 	return s.QueryRowMapContext(context.Background(), mp)
 }
 
 // QueryRowStructContext query row with struct
-func (s *Stmt) QueryRowStructContext(ctx context.Context, st interface{}) *Row {
+func (s *Stmt) QueryRowStructContext(ctx context.Context, st any) *Row {
 	vv := reflect.ValueOf(st)
 	if vv.Kind() != reflect.Ptr || vv.Elem().Kind() != reflect.Struct {
 		return &Row{nil, errors.New("st should be a struct's pointer")}
 	}
 
-	args := make([]interface{}, len(s.names))
+	args := make([]any, len(s.names))
 	for k, i := range s.names {
 		args[i] = vv.Elem().FieldByName(k).Interface()
 	}
@@ -211,6 +211,6 @@ func (s *Stmt) QueryRowStructContext(ctx context.Context, st interface{}) *Row {
 }
 
 // QueryRowStruct query row with struct
-func (s *Stmt) QueryRowStruct(st interface{}) *Row {
+func (s *Stmt) QueryRowStruct(st any) *Row {
 	return s.QueryRowStructContext(context.Background(), st)
 }

@@ -18,8 +18,8 @@ type (
 		Statement              TStatement
 		context                context.Context
 		Schema                 string // Schema namespace
-		IsDeprecated           bool // sometime the session did not reach the request it shoud be deprecated
-		IsAutoCommit           bool // dflt is true
+		IsDeprecated           bool   // sometime the session did not reach the request it shoud be deprecated
+		IsAutoCommit           bool   // dflt is true
 		IsAutoClose            bool
 		IsCommitedOrRollbacked bool
 		AutoResetStatement     bool
@@ -31,7 +31,7 @@ type (
 		CacheNameIds map[string]any         //
 		Sets         map[string]TFieldValue // 预存数据值 供更新或者限制字段 如多租户字段
 		lastSQL      string                 //
-		lastSQLArgs  []interface{}          // 储存有序值
+		lastSQLArgs  []any                  // 储存有序值
 	}
 )
 
@@ -359,7 +359,7 @@ func (self *TSession) Direct() *TSession {
 }
 
 // LastSQL returns last query information
-func (self *TSession) LastSQL() (string, []interface{}) {
+func (self *TSession) LastSQL() (string, []any) {
 	return self.lastSQL, self.lastSQLArgs
 }
 

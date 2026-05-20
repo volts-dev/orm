@@ -91,7 +91,7 @@ type (
 
 	TDomainNode struct {
 		nodeType NodeType // 不可外部修改
-		Value    interface{}
+		Value    any
 		children []*TDomainNode
 	}
 )
@@ -132,7 +132,7 @@ func printNodes(idx int, node *TDomainNode) {
 
 // TODO 考虑废除 不简便易混要
 // domain 只负责where条件语句编写
-func NewDomainNode(values ...interface{}) *TDomainNode {
+func NewDomainNode(values ...any) *TDomainNode {
 	node := &TDomainNode{}
 
 	// set the default option
@@ -144,7 +144,7 @@ func NewDomainNode(values ...interface{}) *TDomainNode {
 	return node
 }
 
-func New(field any, operators any, values ...interface{}) *TDomainNode {
+func New(field any, operators any, values ...any) *TDomainNode {
 	node := &TDomainNode{
 		nodeType: LEAF_NODE,
 	}
@@ -211,7 +211,7 @@ func (self *TDomainNode) OR(nodes ...*TDomainNode) *TDomainNode {
 	return self
 }
 
-func (self *TDomainNode) IN(name string, args ...interface{}) *TDomainNode {
+func (self *TDomainNode) IN(name string, args ...any) *TDomainNode {
 	if len(args) == 0 {
 		// TODO report err stack
 		return self
@@ -227,7 +227,7 @@ func (self *TDomainNode) IN(name string, args ...interface{}) *TDomainNode {
 	return self
 }
 
-func (self *TDomainNode) NotIn(name string, args ...interface{}) *TDomainNode {
+func (self *TDomainNode) NotIn(name string, args ...any) *TDomainNode {
 	if len(args) == 0 {
 		// TODO report err stack
 		return self
@@ -342,7 +342,7 @@ func (self *TDomainNode) Pop() *TDomainNode {
 // 栈方法Push：叠加元素
 // 推入的值除TDomainNode类型外一律存储Value值
 // 所有推入的数据都使得节点成为LIST_NODE节点
-func (self *TDomainNode) Push(items ...interface{}) *TDomainNode {
+func (self *TDomainNode) Push(items ...any) *TDomainNode {
 	for _, node := range items {
 		if n, ok := node.(*TDomainNode); ok {
 			if self.nodeType == VALUE_NODE && self.Value != nil {
@@ -544,7 +544,7 @@ func (self *TDomainNode) IsTermOperator() bool {
 	return utils.IndexOf(self.String(), TERM_OPERATORS...) != -1
 }
 
-func (self *TDomainNode) ValueIn(strs ...interface{}) bool {
+func (self *TDomainNode) ValueIn(strs ...any) bool {
 	for _, itr := range strs {
 		switch v := itr.(type) {
 		case string: // 处理字符串
@@ -589,8 +589,8 @@ Examples::
 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 "*/
 // 返回列表中的所有值
-func (self *TDomainNode) Flatten() []interface{} {
-	var lst []interface{}
+func (self *TDomainNode) Flatten() []any {
+	var lst []any
 
 	// # 当StringList作为一个单字符串
 	if self.Value != nil && len(self.children) == 0 {
@@ -632,7 +632,7 @@ func (self *TDomainNode) FlattenNode() *TDomainNode {
 	return flat
 }
 
-func (self *TDomainNode) Insert(idx int, value interface{}) *TDomainNode {
+func (self *TDomainNode) Insert(idx int, value any) *TDomainNode {
 	if self.nodeType == VALUE_NODE && self.Value != nil {
 		self.children = append(self.children, NewDomainNode(self.Value))
 		self.Value = nil

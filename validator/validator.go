@@ -106,7 +106,7 @@ func (v *Validator) ValidateSQL(sql string) bool {
 }
 
 // ValidateID 验证ID (必须是正整数或UUID格式)
-func (v *Validator) ValidateID(id interface{}) bool {
+func (v *Validator) ValidateID(id any) bool {
 	if id == nil {
 		v.AddError("id", "ID不能为nil")
 		return false
@@ -130,7 +130,7 @@ func (v *Validator) ValidateID(id interface{}) bool {
 }
 
 // ValidateIDs 验证多个ID
-func (v *Validator) ValidateIDs(ids []interface{}) bool {
+func (v *Validator) ValidateIDs(ids []any) bool {
 	if len(ids) == 0 {
 		v.AddError("ids", "ID列表不能为空")
 		return false

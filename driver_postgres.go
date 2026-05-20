@@ -29,7 +29,7 @@ func (vs values) Get(k string) (v string) {
 	return vs[k]
 }
 
-func errorf(s string, args ...interface{}) {
+func errorf(s string, args ...any) {
 	panic(fmt.Errorf("pq: %s", fmt.Sprintf(s, args...)))
 }
 

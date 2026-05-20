@@ -264,6 +264,7 @@ func pgDeepCreate(t *testing.T, chain *Testchain) {
 		}
 	})
 }
+
 // ── Step 3: Query ───────────────────────────────────────────────────────────────
 
 func pgDeepQuery(t *testing.T, chain *Testchain) {
@@ -391,6 +392,7 @@ func pgDeepQuery(t *testing.T, chain *Testchain) {
 		}
 	})
 }
+
 // ── Step 4: Conditions ───────────────────────────────────────────────────────
 
 func pgDeepConditions(t *testing.T, chain *Testchain) {

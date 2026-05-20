@@ -131,4 +131,3 @@ func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 func PrintSubject(t *testing.T, subject, option string) {
 	t.Logf("-------------- %s : %s --------------", subject, option)
 }
-

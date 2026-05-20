@@ -65,7 +65,7 @@ func TestORMInterfaces(t *testing.T) {
 				}
 			}()
 
-			// Step 1: Database Initialization & Table Generation 
+			// Step 1: Database Initialization & Table Generation
 			// Dependencies: None
 			t.Run("1_InitializeDatabase", func(t *testing.T) {
 				testChain.Log("Executing Step 1: Initialization")
@@ -101,7 +101,7 @@ func TestORMInterfaces(t *testing.T) {
 				testChain.In()
 				testChain.NotIn()
 				testChain.Domain()
-				testChain.Limit() 
+				testChain.Limit()
 			})
 
 			// Step 5: Data Modification (Write)

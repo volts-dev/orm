@@ -103,12 +103,12 @@ func (db *sqlite) AutoIncrStr() string {
 	return "AUTOINCREMENT"
 }
 
-func (db *sqlite) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
-	return "SELECT name FROM sqlite_master WHERE type='index' and name=?", []interface{}{idxName}
+func (db *sqlite) IndexCheckSql(tableName, idxName string) (string, []any) {
+	return "SELECT name FROM sqlite_master WHERE type='index' and name=?", []any{idxName}
 }
 
-func (db *sqlite) TableCheckSql(tableName string) (string, []interface{}) {
-	return "SELECT name FROM sqlite_master WHERE type='table' and name=?", []interface{}{tableName}
+func (db *sqlite) TableCheckSql(tableName string) (string, []any) {
+	return "SELECT name FROM sqlite_master WHERE type='table' and name=?", []any{tableName}
 }
 
 // SQLite can't reliably ALTER COLUMN to SET/DROP NOT NULL or DEFAULT.

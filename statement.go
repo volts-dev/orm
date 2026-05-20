@@ -17,11 +17,11 @@ type (
 		session        *TSession
 		Model          IModel              //*TModel
 		domain         *domain.TDomainNode // 查询条件
-		Params         []interface{}       // 储存有序值
+		Params         []any               // 储存有序值
 		IdKey          string              // 开发者决定的数据表主键
-		IdParam        []interface{}
-		Sets           map[string]interface{} // 预存数据值 供更新
-		Fields         map[string]bool        // show which fields will be list out
+		IdParam        []any
+		Sets           map[string]any  // 预存数据值 供更新
+		Fields         map[string]bool // show which fields will be list out
 		NullableFields map[string]bool
 		//TableNameClause    string
 		//AltTableNameClause string // 当无Objet实例时使用字符串表名称
@@ -49,7 +49,7 @@ type (
 // Init reset all the statment's fields
 func (self *TStatement) Init() {
 	self.domain = domain.NewDomainNode()
-	self.IdParam = make([]interface{}, 0)
+	self.IdParam = make([]any, 0)
 	self.Fields = make(map[string]bool)         // TODO 优化
 	self.NullableFields = make(map[string]bool) // TODO 优化
 	self.FromClause = ""
@@ -59,7 +59,7 @@ func (self *TStatement) Init() {
 	self.LimitClause = 0
 	self.OffsetClause = 0
 	self.IsCount = false
-	self.Params = make([]interface{}, 0, 16)
+	self.Params = make([]any, 0, 16)
 	self.Sets = nil // 不预先创建添加GC负担
 
 	/* 复制session */
@@ -73,7 +73,7 @@ func (self *TStatement) Init() {
 }
 
 // Id generate "where id = ? " statment or for composite key "where key1 = ? and key2 = ?"
-func (self *TStatement) Ids(ids ...interface{}) *TStatement {
+func (self *TStatement) Ids(ids ...any) *TStatement {
 	self.IdParam = append(self.IdParam, ids...)
 	return self
 }
@@ -97,7 +97,7 @@ func (self *TStatement) Select(fields ...string) *TStatement {
 }
 
 // Where add Where statment
-func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
+func (self *TStatement) Where(query string, args ...any) *TStatement {
 	if !strings.Contains(query, self.session.orm.dialect.EqStr()) {
 		query = strings.Replace(query, "=", self.session.orm.dialect.EqStr(), -1)
 	}
@@ -105,11 +105,11 @@ func (self *TStatement) Where(query string, args ...interface{}) *TStatement {
 	return self.Op(domain.AND_OPERATOR, query, args...)
 }
 
-func (self *TStatement) Domain(dom interface{}, args ...interface{}) *TStatement {
+func (self *TStatement) Domain(dom any, args ...any) *TStatement {
 	return self.Op(domain.AND_OPERATOR, dom, args...)
 }
 
-func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) *TStatement {
+func (self *TStatement) Op(op string, cond any, args ...any) *TStatement {
 	var new_cond *domain.TDomainNode
 	var err error
 	switch v := cond.(type) {
@@ -119,7 +119,7 @@ func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) *TS
 		if err != nil {
 			log.Err(err)
 		}
-	case []interface{}: // synonym for []any
+	case []any:
 		if len(v) == 0 {
 			return self
 		}
@@ -142,17 +142,17 @@ func (self *TStatement) Op(op string, cond interface{}, args ...interface{}) *TS
 }
 
 // And add Where & and statment
-func (self *TStatement) And(query string, args ...interface{}) *TStatement {
+func (self *TStatement) And(query string, args ...any) *TStatement {
 	return self.Op(domain.AND_OPERATOR, query, args...)
 }
 
 // Or add Where & Or statment
-func (self *TStatement) Or(query string, args ...interface{}) *TStatement {
+func (self *TStatement) Or(query string, args ...any) *TStatement {
 	return self.Op(domain.OR_OPERATOR, query, args...)
 }
 
 // In generate "Where column IN (?) " statement
-func (self *TStatement) In(field string, args ...interface{}) *TStatement {
+func (self *TStatement) In(field string, args ...any) *TStatement {
 	if len(args) == 0 {
 		// FIXME IN Condition must pass at least one arguments
 		// TODO report err stack
@@ -170,7 +170,7 @@ func (self *TStatement) In(field string, args ...interface{}) *TStatement {
 	return self
 }
 
-func (self *TStatement) NotIn(field string, args ...interface{}) *TStatement {
+func (self *TStatement) NotIn(field string, args ...any) *TStatement {
 	if len(args) == 0 {
 		// FIXME IN Condition must pass at least one arguments
 		// TODO report err stack
@@ -189,9 +189,9 @@ func (self *TStatement) NotIn(field string, args ...interface{}) *TStatement {
 	return self
 }
 
-func (self *TStatement) Set(fieldName string, value interface{}) *TStatement {
+func (self *TStatement) Set(fieldName string, value any) *TStatement {
 	if self.Sets == nil {
-		self.Sets = make(map[string]interface{})
+		self.Sets = make(map[string]any)
 	}
 	self.Sets[fieldName] = value
 	return self
@@ -201,7 +201,7 @@ func (self *TStatement) Set(fieldName string, value interface{}) *TStatement {
 // Example: Join("INNER", "users", "users.id = orders.user_id")
 // Note: This method builds JOIN clauses for SQL queries to avoid N+1 query problems.
 // Use this when you need to fetch related data in a single query rather than multiple queries.
-func (self *TStatement) Join(joinOperator string, tablename interface{}, condition string, args ...interface{}) *TStatement {
+func (self *TStatement) Join(joinOperator string, tablename any, condition string, args ...any) *TStatement {
 	var table string
 	switch v := tablename.(type) {
 	case string:
@@ -291,7 +291,7 @@ func (self *TStatement) generate_create_table() string {
 	return self.session.orm.dialect.CreateTableSql(self.Model, self.StoreEngine, self.Charset)
 }
 
-func (self *TStatement) generate_sum(columns ...string) (string, []interface{}, error) {
+func (self *TStatement) generate_sum(columns ...string) (string, []any, error) {
 	/*	var sumStrs = make([]string, 0, len(columns))
 		for _, colName := range columns {
 			if !strings.Contains(colName, " ") && !strings.Contains(colName, "(") {
@@ -328,9 +328,9 @@ func (self *TStatement) generate_unique() []string {
 	return sqls
 }
 
-func (self *TStatement) generate_add_column(field IField) (string, []interface{}) {
+func (self *TStatement) generate_add_column(field IField) (string, []any) {
 	sql := self.session.orm.dialect.GenAddColumnSQL(self.Model.Table(), field)
-	return sql, []interface{}{}
+	return sql, []any{}
 }
 
 func (self *TStatement) generate_index() ([]string, error) {
@@ -365,11 +365,11 @@ func (self *TStatement) generate_insert(fields, uniqueFields []string) (string, 
 
 // ___generate_query is kept for reference but is currently unused.
 // Auto generating conditions according a struct
-func (self *TStatement) ___generate_query(vals map[string]interface{}, includeVersion bool, includeUpdated bool, includeNil bool,
-	includeAutoIncr bool, allUseBool bool, useAllCols bool, unscoped bool, mustColumnMap map[string]bool) (res_clause string, res_params []interface{}) {
+func (self *TStatement) ___generate_query(vals map[string]any, includeVersion bool, includeUpdated bool, includeNil bool,
+	includeAutoIncr bool, allUseBool bool, useAllCols bool, unscoped bool, mustColumnMap map[string]bool) (res_clause string, res_params []any) {
 	//res_domain = utils.NewStringList()
 	lClauses := make([]string, 0, len(vals))
-	res_params = make([]interface{}, 0, len(vals))
+	res_params = make([]any, 0, len(vals))
 
 	var (
 		//		field                *TField
@@ -581,9 +581,9 @@ Computes the WHERE clause needed to implement an OpenERP domain.
 	:return: the query expressing the given domain as provided in domain
 	:rtype: osv.query.Query
 */
-func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, context map[string]interface{}) (*TQuery, error) {
+func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, context map[string]any) (*TQuery, error) {
 	if context == nil {
-		context = make(map[string]interface{})
+		context = make(map[string]any)
 	}
 
 	// domain = domain[:]
@@ -621,7 +621,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 
 	tables := make([]string, 0)
 	var where_clause []string
-	var where_params []interface{}
+	var where_params []any
 	if node != nil && node.Count() > 0 {
 		exp, err := NewExpression(self.session.orm, self.Model.GetBase(), node, context)
 		if err != nil {
@@ -868,7 +868,7 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 *
 *        :raise ValueError in case order_spec is malformed
  */
-func (self *TStatement) generate_order_by(query *TQuery, context map[string]interface{}) string {
+func (self *TStatement) generate_order_by(query *TQuery, context map[string]any) string {
 	order_by_clause := ""
 
 	if self.OrderByClause != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0 {

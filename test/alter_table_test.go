@@ -65,4 +65,3 @@ func TestAlterTable_UpdatesConstraints_SQLite(t *testing.T) {
 		t.Fatalf("expected duplicate 'A' to succeed after dropping unique, got: %v", err)
 	}
 }
-

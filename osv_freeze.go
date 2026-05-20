@@ -29,11 +29,12 @@ func (self *TOsv) markPending(ref fieldRef) {
 // Freeze ends the model registration phase and resolves all pending field refs.
 //
 // Phases:
-//   2 (LocalResolve)  — bind refs whose target is already registered locally,
-//                       including One2One field inheritance
-//   3 (RemoteResolve) — for unresolved refs, ask resolver to LookupSchema and
-//                       register a TRemoteModelObject locally (added in Task 7)
-//   4 (Verify)        — strict-mode validation (added in Task 9)
+//
+//	2 (LocalResolve)  — bind refs whose target is already registered locally,
+//	                    including One2One field inheritance
+//	3 (RemoteResolve) — for unresolved refs, ask resolver to LookupSchema and
+//	                    register a TRemoteModelObject locally (added in Task 7)
+//	4 (Verify)        — strict-mode validation (added in Task 9)
 //
 // Idempotent: calling twice is a no-op (second call returns nil immediately).
 func (self *TOsv) Freeze(ctx context.Context) error {

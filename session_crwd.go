@@ -14,7 +14,7 @@ import (
 )
 
 // TODO 支持数据组/
-func (self *TSession) Create(src interface{}, classic_create ...bool) (uid interface{}, err error) {
+func (self *TSession) Create(src any, classic_create ...bool) (uid any, err error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func (self *TSession) Read(classic_read ...bool) (*TDataset, error) {
 // TODO 接受多值 dataset
 // TODO 当只有M2M被更新时不更新主数据倒数据库
 // start to write data from the database
-func (self *TSession) Write(data interface{}, classic_write ...bool) (effect int64, err error) {
+func (self *TSession) Write(data any, classic_write ...bool) (effect int64, err error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return 0, err
@@ -95,7 +95,7 @@ func (self *TSession) Write(data interface{}, classic_write ...bool) (effect int
 
 // TODO 根据条件删除
 // delete records
-func (self *TSession) Delete(ids ...interface{}) (res_effect int64, err error) {
+func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return 0, err
@@ -267,7 +267,7 @@ func (self *TSession) _create(src any) (any, error) {
 	ids := make([]any, 0, multiSql)
 	for idx := 0; idx < multiSql; idx++ {
 		fields := make([]string, 0)
-		params := make([]interface{}, 0)
+		params := make([]any, 0)
 		uniqueFields := make([]string, 0)
 
 		// 字段,值
@@ -403,7 +403,7 @@ func (self *TSession) _write(src any) (int64, error) {
 	}
 
 	// #获取Ids
-	var ids []interface{}
+	var ids []any
 	if len(self.Statement.IdParam) > 0 {
 		ids = self.Statement.IdParam
 	} else {
@@ -411,7 +411,7 @@ func (self *TSession) _write(src any) (int64, error) {
 		if id := data.Record().GetByField(idField); id != nil {
 			//  必须不是 Set 语句值
 			if _, has := self.Statement.Sets[idField]; !has {
-				ids = []interface{}{id}
+				ids = []any{id}
 			}
 		}
 	}
@@ -420,7 +420,7 @@ func (self *TSession) _write(src any) (int64, error) {
 	// 组合查询语句
 	var (
 		from_clause, where_clause string
-		where_clause_params       []interface{}
+		where_clause_params       []any
 	)
 
 	if includePkey {
@@ -458,7 +458,7 @@ func (self *TSession) _write(src any) (int64, error) {
 			return 0, fmt.Errorf("Not records found from database matching for writing update!")
 		}
 
-		ids = make([]interface{}, len)
+		ids = make([]any, len)
 		ds.Range(func(pos int, record *dataset.TRecordSet) error {
 			ids[pos] = record.GetByField(self.Statement.IdKey)
 			return nil
@@ -485,7 +485,7 @@ func (self *TSession) _write(src any) (int64, error) {
 		for idx, id := range ids {
 			//self.check_access_rule(cr, user, ids, 'write', context=context)
 
-			params := make([]interface{}, 0, len(newVals)+len(datas)+1)
+			params := make([]any, 0, len(newVals)+len(datas)+1)
 			//set_clause := ""
 
 			// TODO 验证数据类型
@@ -756,7 +756,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		query *TQuery
 		select_clause, from_clause, where_clause,
 		order_clause, limit_clause, offset_clause, groupby_clause string
-		where_clause_params []interface{}
+		where_clause_params []any
 	)
 	// 生成查询条件
 	// 当指定了主键其他查询条件将失效
@@ -876,7 +876,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 
 // TODO
 // 验证输入的数据
-func (self *TSession) _validateValues(values interface{}) (*dataset.TDataSet, error) {
+func (self *TSession) _validateValues(values any) (*dataset.TDataSet, error) {
 	var result *dataset.TDataSet
 	if values != nil {
 		valuesMap := self._convertItf2ItfMap(values)
@@ -1007,10 +1007,10 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 //	columnMap map[string]bool, update, unscoped bool
 //
 // needID is the values inclduing key
-func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]interface{}, map[string]map[string]interface{}, []IField, error) {
+func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]any, map[string]map[string]any, []IField, error) {
 	/* 用于更新本Model的实际数据 */
-	new_vals := make(map[string]interface{})
-	rel_vals := make(map[string]map[string]interface{})
+	new_vals := make(map[string]any)
+	rel_vals := make(map[string]map[string]any)
 	ext_todo := make([]IField, 0) // 最后处理的字段 Created Updated
 	upd_todo := make([]IField, 0) // function 字段组 采用其他存储方式
 
@@ -1019,7 +1019,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 	self.Statement.Model.Obj().GetRelations().Range(func(key, value any) bool {
 		tbl := utils.ToString(key)
 		field_name := utils.ToString(value)
-		rel_vals[tbl] = make(map[string]interface{}) //NOTE 新建空Map以防Nil导致内存出错
+		rel_vals[tbl] = make(map[string]any) //NOTE 新建空Map以防Nil导致内存出错
 
 		/* 添加非空值到关系表数据集里*/
 		if val := record.GetByField(field_name); !utils.IsBlank(val) {
@@ -1305,7 +1305,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 	return new_vals, rel_vals, upd_todo, nil
 }
 
-func (self *TSession) _convertStruct2Itfmap(src interface{}) (res_map map[string]interface{}) {
+func (self *TSession) _convertStruct2Itfmap(src any) (res_map map[string]any) {
 	var (
 		lField           reflect.StructField
 		lFieldType       reflect.Type
@@ -1314,10 +1314,10 @@ func (self *TSession) _convertStruct2Itfmap(src interface{}) (res_map map[string
 		lCol             *TField
 
 		lName  string
-		lValue interface{} //
+		lValue any //
 	)
 
-	res_map = make(map[string]interface{})
+	res_map = make(map[string]any)
 	v := reflect.ValueOf(src)
 
 	// if pointer get the underlying element≤
@@ -1453,7 +1453,7 @@ func (self *TSession) _convertStruct2Itfmap(src interface{}) (res_map map[string
 
 // # transfer struct to Itf map and record model name if could
 // #1 限制字段使用 2.添加Model
-func (self *TSession) _convertItf2ItfMap(value interface{}) map[string]interface{} {
+func (self *TSession) _convertItf2ItfMap(value any) map[string]any {
 	if value == nil {
 		return nil
 	}
@@ -1475,10 +1475,10 @@ func (self *TSession) _convertItf2ItfMap(value interface{}) map[string]interface
 
 		return self._convertStruct2Itfmap(value)
 	} else if valueType.Kind() == reflect.Map {
-		if m, ok := value.(map[string]interface{}); ok {
+		if m, ok := value.(map[string]any); ok {
 			return m
 		} else if m, ok := value.(map[string]string); ok {
-			res_map := make(map[string]interface{})
+			res_map := make(map[string]any)
 
 			for key, val := range m {
 				res_map[key] = val // 格式化为字段类型
@@ -1494,7 +1494,7 @@ func (self *TSession) _convertItf2ItfMap(value interface{}) map[string]interface
 // Check whether value is among the valid values for the given
 //
 //	selection/reference field, and raise an exception if not.
-func (self *TSession) _check_selection_field_value(field IField, value interface{}) {
+func (self *TSession) _check_selection_field_value(field IField, value any) {
 	//   field = self._fields[field]
 	// field.convert_to_cache(value, self)
 }

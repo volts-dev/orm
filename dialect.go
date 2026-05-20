@@ -42,8 +42,8 @@ type (
 		SupportDropIfExists() bool
 		ShowCreateNull() bool
 
-		IndexCheckSql(tableName, idxName string) (string, []interface{})
-		TableCheckSql(tableName string) (string, []interface{})
+		IndexCheckSql(tableName, idxName string) (string, []any)
+		TableCheckSql(tableName string) (string, []any)
 		CreateTableSql(table IModel, storeEngine, charset string) string
 		DropTableSql(tableName string) string
 		CreateIndexUniqueSql(tableName string, index *TIndex) string
@@ -173,7 +173,7 @@ func (db *TDialect) DropTableSql(tableName string) string {
 	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoter.Quote(tableName))
 }
 
-func (db *TDialect) HasRecords(ctx context.Context, query string, args ...interface{}) (bool, error) {
+func (db *TDialect) HasRecords(ctx context.Context, query string, args ...any) (bool, error) {
 	//db.LogSQL(query, args)
 	rows, err := db.queryer.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -357,12 +357,12 @@ func (db *TDialect) GenInsertSql(tableName string, fields []string, uniqueFields
 	return sql.String()
 }
 
-func (db *TDialect) TableCheckSql(tableName string) (string, []interface{}) {
-	args := []interface{}{tableName}
+func (db *TDialect) TableCheckSql(tableName string) (string, []any) {
+	args := []any{tableName}
 	return `SELECT 1 FROM $1 LIMIT 1`, args
 }
 
-func (db *TDialect) LogSQL(sql string, args []interface{}) {
+func (db *TDialect) LogSQL(sql string, args []any) {
 	/*	if db.logger != nil && db.logger.IsShowSQL() {
 		if len(args) > 0 {
 			db.logger.Infof("[SQL] %v %v", sql, args)

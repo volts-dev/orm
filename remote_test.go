@@ -119,7 +119,7 @@ func TestRemoteModel_Read_BasicRoundtrip(t *testing.T) {
 				t.Errorf("expected Ids=[7], got %+v", req.Ids)
 			}
 			return &RemoteResponse{
-				Records: []map[string]interface{}{
+				Records: []map[string]any{
 					{"id": int64(7), "name": "Alice"},
 				},
 				Count: 1,

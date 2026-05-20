@@ -25,14 +25,14 @@ type (
 		// the table names are stored double-quoted (backwards compatibility)
 		tables              []string
 		where_clause        []string
-		where_clause_params []interface{}
+		where_clause_params []any
 		joins               map[string][]*utils.TStringList
 		extras              map[string]*utils.TStringList
 		alias_mapping       map[string]string
 	}
 )
 
-func NewQuery(session *TSession, tables []string, where_clause []string, params []interface{}, joins map[string][]*utils.TStringList, extras map[string]*utils.TStringList) (q *TQuery) {
+func NewQuery(session *TSession, tables []string, where_clause []string, params []any, joins map[string][]*utils.TStringList, extras map[string]*utils.TStringList) (q *TQuery) {
 	q = &TQuery{session: session}
 
 	//# holds the list of tables joined using default JOIN.
@@ -81,14 +81,14 @@ func NewQuery(session *TSession, tables []string, where_clause []string, params 
 }
 
 // Returns (query_from, query_where, query_params).
-func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams []interface{}) {
+func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams []any) {
 	self.alias_mapping = self.getAliasMapping()
 
 	var table_alias string
 	var has bool
 	tables_to_process := self.tables
 	from_clause := make([]string, 0)
-	from_params := make([]interface{}, 0)
+	from_params := make([]any, 0)
 	for pos, table := range tables_to_process {
 		if pos > 0 {
 			from_clause = append(from_clause, ",")
@@ -139,7 +139,7 @@ func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams 
     :param extra_params: a list of parameters for the `extra` condition.
 """*/
 // 添加目标表到当前表
-func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extra, extra_params map[string]interface{}) (string, string) {
+func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extra, extra_params map[string]any) (string, string) {
 	// (lhs.lhs_col = table.col)
 	lhs := connection[0]     // mdoel name
 	lhs_col := connection[1] // field
@@ -185,7 +185,7 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 }
 
 // :lhs table name
-func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause []string, from_params []interface{}) {
+func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause []string, from_params []any) {
 	if tablelst, has := self.joins[lhs]; has {
 		for _, table := range tablelst {
 			rhs, lhs_col, rhs_col, join := table.String(0), table.String(1), table.String(2), table.String(3)

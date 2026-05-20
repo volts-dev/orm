@@ -114,7 +114,7 @@ func (d *testDialect) Version(ctx context.Context) (*core.Version, error) { retu
 func (d *testDialect) GetSqlType(f IField) string                         { return f.SQLType().Name }
 func (d *testDialect) IsReserved(s string) bool                           { return false }
 func (d *testDialect) AutoIncrStr() string                                { return "AUTOINCREMENT" }
-func (d *testDialect) IndexCheckSql(t, i string) (string, []interface{})  { return "", nil }
+func (d *testDialect) IndexCheckSql(t, i string) (string, []any)          { return "", nil }
 func (d *testDialect) GenAddColumnSQL(t string, f IField) string          { return "" }
 func (d *testDialect) GetFields(ctx context.Context, session *TSession, t string) ([]string, map[string]IField, error) {
 	return nil, nil, nil
@@ -162,7 +162,7 @@ func testSession(modelName, idKey string, obj *TModelObject) *TSession {
 }
 
 // makeDataSet creates a TDataSet with a single record from the given map.
-func makeDataSet(vals map[string]interface{}) *dataset.TDataSet {
+func makeDataSet(vals map[string]any) *dataset.TDataSet {
 	ds := dataset.NewDataSet()
 	// Ensure the record is not "blank" so it's actually appended
 	if len(vals) == 0 {
@@ -182,7 +182,7 @@ func TestSeparateValues_StoreField(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "hello"})
+	data := makeDataSet(map[string]any{"name": "hello"})
 
 	newVals, relVals, updTodo, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -210,7 +210,7 @@ func TestSeparateValues_SkipAutoIncrement(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"id": 1, "name": "hello"})
+	data := makeDataSet(map[string]any{"id": 1, "name": "hello"})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -233,7 +233,7 @@ func TestSeparateValues_SkipIdKey(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"id": 99, "title": "test"})
+	data := makeDataSet(map[string]any{"id": 99, "title": "test"})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestSeparateValues_UpdatedField(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "val"})
+	data := makeDataSet(map[string]any{"name": "val"})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -283,7 +283,7 @@ func TestSeparateValues_CreatedFieldBlankNoIds(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "val"})
+	data := makeDataSet(map[string]any{"name": "val"})
 	// create_date not in data, blank
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
@@ -305,7 +305,7 @@ func TestSeparateValues_CreatedFieldWithIds(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "val"})
+	data := makeDataSet(map[string]any{"name": "val"})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, []any{1})
 	if err != nil {
@@ -327,7 +327,7 @@ func TestSeparateValues_InheritedField(t *testing.T) {
 	relations := map[string]string{parentModel: "partner_id"}
 	obj := testModelObj(fields, relations, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "val", "street": "123 Main St"})
+	data := makeDataSet(map[string]any{"name": "val", "street": "123 Main St"})
 
 	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -361,7 +361,7 @@ func TestSeparateValues_InheritedFieldWithSetterWritesRelVals(t *testing.T) {
 	relations := map[string]string{parentModel: "partner_id"}
 	obj := testModelObj(fields, relations, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "val", "street": "123 Main St"})
+	data := makeDataSet(map[string]any{"name": "val", "street": "123 Main St"})
 
 	_, relVals, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -385,7 +385,7 @@ func TestSeparateValues_NumericConversion(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"age": "0"})
+	data := makeDataSet(map[string]any{"age": "0"})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -407,7 +407,7 @@ func TestSeparateValues_NumericStringParse(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"quantity": "42"})
+	data := makeDataSet(map[string]any{"quantity": "42"})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -433,7 +433,7 @@ func TestSeparateValues_SetterFieldToNewVals(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "val", "computed": "calc"})
+	data := makeDataSet(map[string]any{"name": "val", "computed": "calc"})
 
 	newVals, _, updTodo, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -460,7 +460,7 @@ func TestSeparateValues_RequiredFieldError(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{}) // name is blank
+	data := makeDataSet(map[string]any{}) // name is blank
 
 	_, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err == nil {
@@ -475,7 +475,7 @@ func TestSeparateValues_RequiredFieldWithIdsNoError(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{})
+	data := makeDataSet(map[string]any{})
 
 	_, _, _, err := session._separateValues(data, nil, nil, false, []any{1})
 	if err != nil {
@@ -490,7 +490,7 @@ func TestSeparateValues_IncludeNilWithIds(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"description": ""})
+	data := makeDataSet(map[string]any{"description": ""})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, true, []any{1})
 	if err != nil {
@@ -520,7 +520,7 @@ func TestSeparateValues_CommonFieldDistribution(t *testing.T) {
 	fields := []IField{nameField}
 	obj := testModelObj(fields, relations, commonFields)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "shared_name"})
+	data := makeDataSet(map[string]any{"name": "shared_name"})
 
 	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -546,7 +546,7 @@ func TestSeparateValues_MultipleStoreFields(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{
+	data := makeDataSet(map[string]any{
 		"name":  "Alice",
 		"email": "alice@example.com",
 		"phone": "1234567890",
@@ -573,9 +573,9 @@ func TestSeparateValues_NonStoreRelatedField(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{
+	data := makeDataSet(map[string]any{
 		"name":    "val",
-		"tag_ids": []interface{}{1, 2, 3},
+		"tag_ids": []any{1, 2, 3},
 	})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
@@ -596,7 +596,7 @@ func TestSeparateValues_DefaultValueFill(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{}) // status is blank
+	data := makeDataSet(map[string]any{}) // status is blank
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -619,7 +619,7 @@ func TestSeparateValues_MustFieldRequired(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{})
+	data := makeDataSet(map[string]any{})
 
 	mustFields := map[string]bool{"code": true}
 
@@ -636,7 +636,7 @@ func TestSeparateValues_NullableFieldNoError(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{})
+	data := makeDataSet(map[string]any{})
 
 	// Note: In current implementation, adding a field to nullableFields with 'true'
 	// actually makes it REQUIRED due to !isNullableField logic.
@@ -658,7 +658,7 @@ func TestSeparateValues_RelationInit(t *testing.T) {
 	relations := map[string]string{parentModel: "company_id"}
 	obj := testModelObj(fields, relations, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{"name": "val"})
+	data := makeDataSet(map[string]any{"name": "val"})
 
 	_, relVals, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -677,7 +677,7 @@ func TestSeparateValues_EmptyDataNoRequired(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{})
+	data := makeDataSet(map[string]any{})
 
 	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -705,7 +705,7 @@ func TestSeparateValues_MultipleInheritedTables(t *testing.T) {
 	}
 	obj := testModelObj(fields, relations, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{
+	data := makeDataSet(map[string]any{
 		"name":   "val",
 		"street": "Baker St",
 		"vat":    "DE123456",
@@ -738,7 +738,7 @@ func TestSeparateValues_SetterFieldNoRequiredError(t *testing.T) {
 	}
 	obj := testModelObj(fields, nil, nil)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]interface{}{})
+	data := makeDataSet(map[string]any{})
 
 	_, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
@@ -749,7 +749,7 @@ func TestSeparateValues_SetterFieldNoRequiredError(t *testing.T) {
 // BenchmarkSeparateValues to verify performance with many fields
 func BenchmarkSeparateValues(b *testing.B) {
 	fields := make([]IField, 20)
-	vals := make(map[string]interface{})
+	vals := make(map[string]any)
 	for i := 0; i < 20; i++ {
 		name := "field_" + string(rune('a'+i))
 		fields[i] = newTestField(name, withModelName("bench.model"))

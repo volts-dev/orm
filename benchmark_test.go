@@ -31,7 +31,7 @@ func setupBenchOrm(b *testing.B) *TOrm {
 func seedBenchRows(b *testing.B, o *TOrm, n int) {
 	b.Helper()
 	for i := 0; i < n; i++ {
-		_, err := o.Model("bench.model").Create(map[string]interface{}{
+		_, err := o.Model("bench.model").Create(map[string]any{
 			"name": "seed",
 			"age":  i,
 		})
@@ -46,7 +46,7 @@ func BenchmarkCreate_Single(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := o.Model("bench.model").Create(map[string]interface{}{
+		_, err := o.Model("bench.model").Create(map[string]any{
 			"name": "alice",
 			"age":  30,
 		})
@@ -62,7 +62,7 @@ func BenchmarkCreate_Batch_100(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < 100; j++ {
-			_, err := o.Model("bench.model").Create(map[string]interface{}{
+			_, err := o.Model("bench.model").Create(map[string]any{
 				"name": "alice",
 				"age":  j,
 			})
@@ -79,7 +79,7 @@ func BenchmarkRead_OneById(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := o.Model("bench.model").Ids(int64((i%1000)+1)).Read()
+		_, err := o.Model("bench.model").Ids(int64((i % 1000) + 1)).Read()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -105,7 +105,7 @@ func BenchmarkWrite_Single(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := o.Model("bench.model").Ids(int64((i%1000)+1)).Write(map[string]interface{}{
+		_, err := o.Model("bench.model").Ids(int64((i % 1000) + 1)).Write(map[string]any{
 			"age": i % 100,
 		})
 		if err != nil {

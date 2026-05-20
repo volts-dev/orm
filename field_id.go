@@ -65,21 +65,21 @@ func (self *TIdField) Init(ctx *TTagContext) {
 	model.IdField(field.Name())
 }
 
-func (self *TIdField) OnCreate(ctx *TFieldContext) interface{} {
+func (self *TIdField) OnCreate(ctx *TFieldContext) any {
 	id := uuid.Generate()
 	return id.Int64()
 }
 
 // 转换值到字段输出数据类型
-func (self *TIdField) onConvertToRead(session *TSession, cols []string, record []interface{}, colIndex int) interface{} {
-	value := *record[colIndex].(*interface{})
+func (self *TIdField) onConvertToRead(session *TSession, cols []string, record []any, colIndex int) any {
+	value := *record[colIndex].(*any)
 	l := len(cols)
 	if value == nil && l > 1 {
 		node := domain.NewDomainNode()
 		for I, name := range cols {
 			// 过滤某些大内容的字段
 			if name != self.Name() {
-				fieldValue := *record[I].(*interface{})
+				fieldValue := *record[I].(*any)
 				if !utils.IsBlank(fieldValue) {
 					// only use those not null value as condition for where clause
 					// because of null/0/nil maybe the same when read from database

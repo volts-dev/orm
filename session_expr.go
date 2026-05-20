@@ -72,7 +72,7 @@ func (self *TSession) Omit(fields ...string) *TSession {
 }
 
 // Id provides converting id as a query condition
-func (self *TSession) Ids(ids ...interface{}) *TSession {
+func (self *TSession) Ids(ids ...any) *TSession {
 	self.Statement.Ids(ids...)
 	return self
 }
@@ -80,41 +80,41 @@ func (self *TSession) Ids(ids ...interface{}) *TSession {
 // Where condition
 // Example: Where("id==?",1)
 // 支持Domain 返回解析为Domain
-func (self *TSession) Where(clause string, args ...interface{}) *TSession {
+func (self *TSession) Where(clause string, args ...any) *TSession {
 	self.Statement.Where(clause, args...)
 	return self
 }
 
 // Join join_operator should be one of INNER, LEFT OUTER, CROSS etc - this will be prepended to JOIN
-func (self *TSession) Join(joinOperator string, tablename interface{}, condition string, args ...interface{}) *TSession {
+func (self *TSession) Join(joinOperator string, tablename any, condition string, args ...any) *TSession {
 	self.Statement.Join(joinOperator, tablename, condition, args...)
 	return self
 }
 
 // And provides custom query condition.
-func (self *TSession) And(clause string, args ...interface{}) *TSession {
+func (self *TSession) And(clause string, args ...any) *TSession {
 	self.Statement.And(clause, args...)
 	return self
 }
 
 // Or provides custom query condition.
-func (self *TSession) Or(clause string, args ...interface{}) *TSession {
+func (self *TSession) Or(clause string, args ...any) *TSession {
 	self.Statement.Or(clause, args...)
 	return self
 }
 
-func (self *TSession) In(clause string, args ...interface{}) *TSession {
+func (self *TSession) In(clause string, args ...any) *TSession {
 	self.Statement.In(clause, args...)
 	return self
 }
 
-func (self *TSession) NotIn(clause string, args ...interface{}) *TSession {
+func (self *TSession) NotIn(clause string, args ...any) *TSession {
 	self.Statement.NotIn(clause, args...)
 	return self
 }
 
 // set the pointed field value for create/write operations
-func (self *TSession) Set(fieldName string, value interface{}) *TSession {
+func (self *TSession) Set(fieldName string, value any) *TSession {
 	self.Statement.Set(fieldName, value)
 	return self
 }
@@ -146,7 +146,7 @@ id in (1, 2, 3)
 [('|', (('a', '=', 1), ('b', '=', 2)), (('c', '=', 3), ('d', '=', 4)))]
 ( ( a = 1 AND b = 2 ) OR ( c = 3 AND d = 4 ) )
 */
-func (self *TSession) Domain(domain interface{}, args ...interface{}) *TSession {
+func (self *TSession) Domain(domain any, args ...any) *TSession {
 	self.Statement.Domain(domain, args...)
 	return self
 }

@@ -73,7 +73,7 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 	}
 }
 
-func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]interface{} {
+func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]any {
 	model := ctx.Model
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 

@@ -68,8 +68,8 @@ type (
 
 		// 对象被创建时
 		GetDefault() *sync.Map // map[string]interface{}
-		GetDefaultByName(fieldName string) (value interface{})
-		SetDefaultByName(fieldName string, value interface{}) // 默认值修改获取
+		GetDefaultByName(fieldName string) (value any)
+		SetDefaultByName(fieldName string, value any) // 默认值修改获取
 
 		// return the model name
 		//GetModelName() string
@@ -116,11 +116,11 @@ type (
 		// UTF file only
 		Load(field []string, records ...any) (ids []any, err error)
 		NameCreate(name string) (*dataset.TDataSet, error)
-		NameGet(ids []interface{}) (*dataset.TDataSet, error)
+		NameGet(ids []any) (*dataset.TDataSet, error)
 		DefaultGet(...string) (map[string]any, error)
 		//Search(domain string, offset int64, limit int64, order string, count bool, context map[string]interface{}) []string
 		//SearchRead(domain string, fields []string, offset int64, limit int64, order string, context map[string]interface{}) *dataset.TDataSet
-		NameSearch(name string, domain *domain.TDomainNode, operator string, limit int64, name_get_uid string, context map[string]interface{}) (*dataset.TDataSet, error)
+		NameSearch(name string, domain *domain.TDomainNode, operator string, limit int64, name_get_uid string, context map[string]any) (*dataset.TDataSet, error)
 		//SearchCount(domain string, context map[string]interface{}) int
 
 		/* Lifecycle
@@ -169,21 +169,21 @@ type (
 	 */
 	TModel struct {
 		prototype      IModel
-		super          IModel                // 继承的Model
-		modelType      reflect.Type          // Model 反射类
-		modelValue     reflect.Value         // Model 反射值 供某些程序调用方法
-		orm            *TOrm                 //
-		osv            *TOsv                 // 对象服务
-		obj            *TModelObject         //
-		options        *ModelOptions         //
-		transaction    *TSession             //
-		name           string                // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
-		table          string                // mapping table name
-		description    string                // 描述
-		idField        string                // the field name which is the UID represent a record
-		recName        string                // the field name which is the name represent a record @examples: Name,Title,PartNo
-		recNamesSearch string                // names_search会搜索的字段
-		isCustomModel  bool                  // 该Model是否是基Model,并非扩展Model
+		super          IModel        // 继承的Model
+		modelType      reflect.Type  // Model 反射类
+		modelValue     reflect.Value // Model 反射值 供某些程序调用方法
+		orm            *TOrm         //
+		osv            *TOsv         // 对象服务
+		obj            *TModelObject //
+		options        *ModelOptions //
+		transaction    *TSession     //
+		name           string        // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
+		table          string        // mapping table name
+		description    string        // 描述
+		idField        string        // the field name which is the UID represent a record
+		recName        string        // the field name which is the name represent a record @examples: Name,Title,PartNo
+		recNamesSearch string        // names_search会搜索的字段
+		isCustomModel  bool          // 该Model是否是基Model,并非扩展Model
 
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
 		_sequence string //
@@ -412,7 +412,7 @@ func (self *TModel) GetIndexes() map[string]*TIndex {
 }
 
 // 实际注册的model原型
-func (self *TModel) Interface() interface{} {
+func (self *TModel) Interface() any {
 	return self.modelValue.Interface()
 }
 
@@ -485,11 +485,11 @@ func (self *TModel) GetDefault() *sync.Map {
 	return self.obj.GetDefault()
 }
 
-func (self *TModel) GetDefaultByName(fieldName string) (value interface{}) {
+func (self *TModel) GetDefaultByName(fieldName string) (value any) {
 	return self.obj.GetDefaultByName(fieldName)
 }
 
-func (self *TModel) SetDefaultByName(fieldName string, value interface{}) {
+func (self *TModel) SetDefaultByName(fieldName string, value any) {
 	self.obj.SetDefaultByName(fieldName, value)
 }
 
@@ -628,7 +628,6 @@ func (self *TModel) _relations_reload_visited(visited map[string]bool) {
 	})
 }
 
-
 func (self *TModel) ___getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	field := ctx.Field
 	if !field.IsRelated() {
@@ -649,9 +648,8 @@ func (self *TModel) ___getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) 
 	return nil, fmt.Errorf("the type <%s> of relate field not implemented!", field.TypeName())
 }
 
-
 // 转换
-func (self *TModel) _validate(vals map[string]interface{}) {
+func (self *TModel) _validate(vals map[string]any) {
 	for key, val := range vals {
 		if f := self.GetFieldByName(key); f != nil && !f.IsRelated() {
 			switch f.TypeName() {
@@ -674,4 +672,87 @@ func (self *TModel) _validate(vals map[string]interface{}) {
 			}
 		}
 	}
+}
+type (
+	TMethod struct {
+		name   string
+		args   []reflect.Value
+		method reflect.Value
+		result []reflect.Value
+	}
+
+	// A MethodsCollection is a collection of methods for use in a model
+	// Model 的方法集
+	TMethodsSet struct {
+		model    *TModel
+		registry map[string]*TMethod
+		//powerGroups  map[*security.Group]bool
+	}
+)
+
+func NewMethod(name string, method reflect.Value) *TMethod {
+	return &TMethod{
+		name: name,
+		//args:   make([]reflect.Value, 0),
+		method: method,
+	}
+}
+
+func (self *TMethod) Name() string {
+	return self.name
+}
+
+// TODO dataset
+func (self *TMethod) Result() []reflect.Value {
+	return self.result
+}
+
+// 废弃
+func (self *TMethod) ___SetArgs(args ...any) bool {
+	self.args = make([]reflect.Value, 0)
+
+	for _, arg := range args {
+		self.args = append(self.args, reflect.ValueOf(arg))
+	}
+	return true
+}
+
+func (self *TMethod) AsInterface() any {
+	return self.method.Interface()
+}
+
+func (self *TMethod) Call(model any, args ...any) bool {
+	self.args = make([]reflect.Value, 0)
+	self.args = append(self.args, reflect.ValueOf(model))
+
+	for _, arg := range args {
+		self.args = append(self.args, reflect.ValueOf(arg))
+	}
+
+	if self.method.IsValid() {
+		self.result = self.method.Call(self.args)
+		return true
+	}
+
+	return false
+}
+
+// get returns the Method with the given method name.
+func (self *TMethodsSet) get(methodName string) (*TMethod, bool) {
+	mi, ok := self.registry[methodName]
+	if !ok {
+		// TODO: search mixins when not found in registry (bootstrapped path)
+		return nil, false
+	}
+	return mi, true
+}
+
+// MustGet returns the Method of the given method. It panics if the
+// method is not found.
+func (self *TMethodsSet) MustGet(methodName string) *TMethod {
+	methInfo, exists := self.get(methodName)
+	if !exists {
+		log.Panic("Unknown method in model", "model", self.model.String(), "method", methodName)
+	}
+	return methInfo
 }

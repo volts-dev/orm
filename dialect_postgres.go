@@ -952,14 +952,14 @@ func (db *postgres) AutoIncrStr() string {
 	return ""
 }
 
-func (db *postgres) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
-	args := []interface{}{tableName, idxName}
+func (db *postgres) IndexCheckSql(tableName, idxName string) (string, []any) {
+	args := []any{tableName, idxName}
 	return `SELECT indexname FROM pg_indexes ` +
 		`WHERE tablename = ? AND indexname = ?`, args
 }
 
-func (db *postgres) TableCheckSql(tableName string) (string, []interface{}) {
-	args := []interface{}{tableName}
+func (db *postgres) TableCheckSql(tableName string) (string, []any) {
+	args := []any{tableName}
 	return `SELECT tablename FROM pg_tables WHERE tablename = $1`, args
 }
 
@@ -1161,7 +1161,7 @@ func (db *postgres) DropColumnDefaultSql(tableName string, col IField) string {
 
 func (db *postgres) IsDatabaseExist(ctx context.Context, name string) bool {
 	s := "SELECT datname FROM pg_database WHERE datname = $1"
-	db.LogSQL(s, []interface{}{name})
+	db.LogSQL(s, []any{name})
 
 	rows, err := db.queryer.QueryContext(ctx, s, name)
 	if err != nil {
@@ -1245,7 +1245,7 @@ func (db *postgres) DropIndexUniqueSql(tableName string, index *TIndex) string {
 }
 
 func (db *postgres) IsColumnExist(ctx context.Context, tableName, colName string) (bool, error) {
-	args := []interface{}{tableName, colName}
+	args := []any{tableName, colName}
 	query := "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = $1" +
 		" AND column_name = $2"
 	db.LogSQL(query, args)
@@ -1261,7 +1261,7 @@ func (db *postgres) IsColumnExist(ctx context.Context, tableName, colName string
 
 func (db *postgres) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
 	// FIXME: the schema should be replaced by user custom's
-	args := []interface{}{tableName, db.getSchema(session)}
+	args := []any{tableName, db.getSchema(session)}
 	s := `SELECT column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
     CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
     CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
@@ -1469,7 +1469,7 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 
 func (db *postgres) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
 	// FIXME: replace public to user customrize schema
-	args := []interface{}{db.getSchema(session)}
+	args := []any{db.getSchema(session)}
 	s := "SELECT tablename FROM pg_tables WHERE schemaname = $1"
 	db.LogSQL(s, args)
 
@@ -1502,7 +1502,7 @@ func (db *postgres) GetModels(ctx context.Context, session *TSession) ([]IModel,
 
 func (db *postgres) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
 	// FIXME: replace the public schema to user specify schema
-	args := []interface{}{db.getSchema(session), tableName}
+	args := []any{db.getSchema(session), tableName}
 	s := "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname=$1 AND tablename=$2"
 	db.LogSQL(s, args)
 

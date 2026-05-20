@@ -42,7 +42,7 @@ func (self *Testchain) Domain() *Testchain {
 }
 
 // idListString converts first two ids to a comma-separated string for domain expressions
-func idListString(ids []interface{}) string {
+func idListString(ids []any) string {
 	result := ""
 	for i, id := range ids {
 		if i > 0 {
