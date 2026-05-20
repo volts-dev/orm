@@ -287,7 +287,7 @@ func unquote(s string) (string, error) {
 		}
 		s = ss
 		if c < utf8.RuneSelf || !multibyte {
-			buf = append(buf, byte(c))
+			buf = append(buf, byte(c)) //nolint:gosec // c < utf8.RuneSelf (0x80) — fits in a byte
 		} else {
 			n := utf8.EncodeRune(runeTmp[:], c)
 			buf = append(buf, runeTmp[:n]...)

@@ -98,6 +98,9 @@ func test_write_by_id(ids []any, o *orm.TOrm, t *testing.T) {
 	}
 
 	ds, err := model.Records().Ids(1).Read()
+	if err != nil {
+		t.Fatalf("Read after Write failed: %v", err)
+	}
 	if ds.FieldByName("title").AsString() != title {
 		t.Logf("Write data didn't effect record 1, continuing...")
 	}

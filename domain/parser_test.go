@@ -67,7 +67,8 @@ func TestString2Domain(t *testing.T) {
 		}
 
 		result_str := Domain2String(node)
-		node, err = String2Domain(result_str, nil)
+		// TODO 验证 String2Domain 反向解析后与原 node 等价；原代码留了 reassign
+		// 但从未读取，已删除避免 ineffassign warning。
 
 		if result_str != checker[domain] {
 			fmt.Println()

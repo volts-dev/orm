@@ -192,22 +192,16 @@ func (self *TSession) _create(src any) (any, error) {
 		return nil, err
 	}
 
-	//
-	var idValue any
 	idField := self.Statement.Model.IdField()
 	if field := self.Statement.Model.GetFieldByName(idField); field != nil {
-		idValue = data.Record().GetByField(idField)
-		//if utils.IsBlank(idValue) {
 		if f, ok := field.(*TIdField); ok {
-			idValue = f.OnCreate(&TFieldContext{
+			newValues[idField] = f.OnCreate(&TFieldContext{
 				Session: self,
 				Model:   self.Statement.Model,
 				Dataset: data,
 				Field:   field,
 			})
-			newValues[idField] = idValue
 		}
-		//}
 	}
 
 	// 根据字段计算数据值
@@ -469,7 +463,6 @@ func (self *TSession) _write(src any) (int64, error) {
 			ids[pos] = record.GetByField(self.Statement.IdKey)
 			return nil
 		})
-		includePkey = true
 	} else {
 		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}
@@ -1167,8 +1160,8 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 					if ctx.values != nil {
 						fieldValue = ctx.values
-						isBlank = false
 					}
+					// isBlank is unconditionally reset to false after this if/else chain
 				} else if fieldValue = field.Default(); fieldValue != nil {
 					/* 关系字段不自动转换类型！将由字段独自处理 */
 					fieldValue = value2FieldTypeValue(field, fieldValue)

@@ -177,12 +177,8 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 
 			// 添加到Joins
 			//self.joins.setdefault(lhs, []).append(join_tuple)
-			join := self.joins[lhs]
-			if join == nil {
-				join = make([]*utils.TStringList, 0) // NewStringList()
-				self.joins[lhs] = join
-			}
-			join = append(join, join_tuple)
+			// 注意：append 可能 realloc，必须把结果存回 self.joins[lhs]
+			self.joins[lhs] = append(self.joins[lhs], join_tuple)
 
 			if extra != nil {
 				//extra = extra.format(lhs=lhs, rhs=alias)

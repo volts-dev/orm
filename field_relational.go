@@ -674,7 +674,7 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 
 	// TODO　更多类型
 	// 支持一下几种M2M数据类型 (旧版逻辑兼容)
-	ids := make([]any, 0)
+	var ids []any
 	switch v := ctx.Value.(type) {
 	case []int:
 		ids = utils.ToAnySlice(v...)

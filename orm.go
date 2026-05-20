@@ -514,7 +514,6 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 
 			// # 忽略无Tag的匿名继承结构
 			if member_name == field_type.Name() {
-				isSuper = true
 				// TODO 验证继承的加载合法情况
 				continue
 			}

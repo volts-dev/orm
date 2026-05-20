@@ -91,21 +91,24 @@ func (self *Testchain) CreateOnConflict(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err := model.Tx(ss).OnConflict(&orm.OnConflict{
+	// 1st conflict mode: DoUpdates (result intentionally discarded)
+	_, err = model.Tx(ss).OnConflict(&orm.OnConflict{
 		DoUpdates: []string{"name"},
 	}).Create(company_data, isClassic)
 	if err != nil {
 		self.Fatal(err)
 	}
 
-	companyId, err = model.Tx(ss).OnConflict(&orm.OnConflict{
+	// 2nd conflict mode: DoUpdates again (idempotency check, result discarded)
+	_, err = model.Tx(ss).OnConflict(&orm.OnConflict{
 		DoUpdates: []string{"name"},
 	}).Create(company_data, isClassic)
 	if err != nil {
 		self.Fatal(err)
 	}
 
-	companyId, err = model.Tx(ss).OnConflict(&orm.OnConflict{
+	// 3rd conflict mode: DoNothing (result discarded)
+	_, err = model.Tx(ss).OnConflict(&orm.OnConflict{
 		Fields:    []string{"name"},
 		DoNothing: true,
 	}).Create(company_data, isClassic)
@@ -113,7 +116,8 @@ func (self *Testchain) CreateOnConflict(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err = model.Tx(ss).OnConflict(&orm.OnConflict{
+	// Final: UpdateAll; this id is what we assert below.
+	companyId, err := model.Tx(ss).OnConflict(&orm.OnConflict{
 		UpdateAll: true,
 	}).Create(company_data, isClassic)
 	if err != nil {
@@ -160,7 +164,8 @@ func (self *Testchain) CreateNone(classic ...bool) *Testchain {
 	if err != nil {
 		self.Logf("CreateNone properly handled invalid insert or succeeded: %v", err)
 		// We shouldn't fatal if it's explicitly testing missing fields handling.
-        err = nil // we swallow this error as validation is part of the feature
+		// (We intentionally don't propagate err here — validation failure is the
+		// feature under test; the commit below will pick up any real DB error.)
 	}
 
 	// We cannot expect companyId != nil if validation failed
