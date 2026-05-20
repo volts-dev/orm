@@ -77,33 +77,7 @@ func (v *Validator) ValidateTableName(tableName string) bool {
 	return true
 }
 
-// ValidateSQL 验证SQL语句（基础检查）
-func (v *Validator) ValidateSQL(sql string) bool {
-	if sql == "" {
-		v.AddError("sql", "SQL语句不能为空")
-		return false
-	}
-
-	sql = strings.ToUpper(strings.TrimSpace(sql))
-
-	// 检查是否包含常见的SQL注入特征
-	dangerousPatterns := []string{
-		"DROP", "DELETE FROM", "TRUNCATE", "ALTER",
-		";--", "/*", "*/", "xp_", "sp_",
-	}
-
-	for _, pattern := range dangerousPatterns {
-		if strings.Contains(sql, pattern) {
-			// 这只是基础检查，真正的SQL注入防护应该通过参数化查询
-			// 但这里我们警告用户
-			if pattern == "DROP" || pattern == "TRUNCATE" {
-				v.AddError("sql", fmt.Sprintf("检测到危险操作: %s，请确保这是有意的", pattern))
-			}
-		}
-	}
-
-	return true
-}
+// ValidateSQL 已删除（Phase 1）—— 危险操作守护见 Phase 2 session.AllowUnsafe()
 
 // ValidateID 验证ID (必须是正整数或UUID格式)
 func (v *Validator) ValidateID(id any) bool {
