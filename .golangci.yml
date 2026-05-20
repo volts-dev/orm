@@ -1,6 +1,8 @@
-# volts-dev/orm lint 配置
+# volts-dev/orm lint 配置（golangci-lint v2 schema）
 # 启用 4 个 linter：staticcheck / gosec / ineffassign / unused
 # 排除与项目命名风格冲突的规则（self / IXxx / TXxx）
+
+version: "2"
 
 run:
   timeout: 5m
@@ -15,40 +17,63 @@ linters:
     - ineffassign
     - unused
 
-linters-settings:
-  staticcheck:
-    # 排除规则：
-    # - ST1003: 命名风格（self / IXxx / TXxx 与 Go 惯例冲突，本项目保留）
-    # - ST1005: error string 大写起头 / 末尾标点（多语言现状暂不强制）
-    checks:
-      - "all"
-      - "-ST1003"
-      - "-ST1005"
+  settings:
+    staticcheck:
+      # 排除规则：
+      # - ST1003/ST1006: 命名风格（self 接收器 / IXxx / TXxx 与 Go 惯例冲突，本项目保留）
+      # - ST1005: error string 大写起头 / 末尾标点（多语言现状暂不强制）
+      # - ST1000/ST1020/ST1021: package/导出函数 doc 注释要求（Phase 4 godoc 阶段处理）
+      # - QF*: quick fix 美化建议（非 bug，Phase 4 处理）
+      checks:
+        - "all"
+        - "-ST1000"
+        - "-ST1003"
+        - "-ST1005"
+        - "-ST1006"
+        - "-ST1020"
+        - "-ST1021"
+        - "-QF1003"
+        - "-QF1004"
+        - "-QF1008"
+        - "-QF1012"
 
-  gosec:
-    # 排除规则：
-    # - G201/G202: SQL string formatting（Phase 2 才修，暂时 silence + TODO）
-    # - G101: hardcoded credentials（测试数据 / 文档中允许）
-    excludes:
-      - G201
-      - G202
-      - G101
+    gosec:
+      # 排除规则：
+      # - G201/G202: SQL string formatting（Phase 2 才修，暂时 silence + TODO）
+      # - G101: hardcoded credentials（测试数据 / 文档中允许）
+      # - G104: unchecked errors（127 处普遍存在，整改超过 Phase 0 范围，
+      #   留 PR-3.B 处理 #TBD-phase0-g104-cleanup）
+      excludes:
+        - G201
+        - G202
+        - G101
+        - G104
+
+  exclusions:
+    rules:
+      # 测试代码里的 unused（test helper、setup 函数）通常是误报
+      - path: _test\.go
+        linters:
+          - unused
+
+      # benchmark_test.go 的 setup 函数显然不会被 lint 识别为 used
+      - path: benchmark_test\.go
+        linters:
+          - unused
+
+      # ___xxx 命名是项目"软删除"约定：保留实现等待重构 / 历史参考
+      # 暂时排除，避免 unused/staticcheck 一直报
+      - source: "^func.*\\b___[A-Za-z_]+\\b"
+        linters:
+          - unused
+
+      # test/ 包是 integration test 入口，其内 helper 函数都通过 t.Run 调用
+      # 静态分析常误报 unused
+      - path: ^test/
+        linters:
+          - unused
 
 issues:
-  exclude-rules:
-    # 测试代码里的 unused（test helper、setup 函数）通常是误报
-    - path: _test\.go
-      linters:
-        - unused
-
-    # benchmark_test.go 的 setup 函数显然不会被 lint 识别为 used
-    - path: benchmark_test\.go
-      linters:
-        - unused
-
   # 不要把 issue 全部展开（避免 PR 描述刷屏）
   max-issues-per-linter: 0
   max-same-issues: 0
-
-  # 默认会排除一些 issue，关掉让我们看全
-  exclude-use-default: false
