@@ -486,13 +486,11 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 		member_name     string
 		tagMaps         map[string][]string // 记录Tag的
 		tagsOrder       []string
-		isSuper         bool
 		tagCtx          *TTagContext
 	)
 
 	for i := 0; i < model_type.NumField(); i++ {
 		{ // 初始化循环变量值
-			isSuper = false
 			field_type_name = ""
 		}
 
@@ -527,7 +525,6 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 			if tag_str == "" {
 				tag_str = lookup(string(field_tag), self.config.TableIdentifier)
 				is_table_tag = true
-				isSuper = true
 			}
 
 			// 识别分割Tag各属性
@@ -569,11 +566,7 @@ func (self *TOrm) _mapping(model interface{}) (*TModel, error) {
 		}
 
 		// 更新超级类
-		if isSuper {
-			// TODO 考虑是否需要
-			//	aaa := field_value.Addr().Interface().(IModel)
-			//res_model.super = aaa // TODO 带路径的类名称
-		}
+		// TODO(isSuper): consider setting res_model.super = field_value.Addr().Interface().(IModel)
 
 		// # 忽略TModel类字段
 		tagCtx = &TTagContext{

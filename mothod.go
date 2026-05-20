@@ -73,17 +73,8 @@ func (self *TMethod) Call(model interface{}, args ...interface{}) bool {
 func (self *TMethodsSet) get(methodName string) (*TMethod, bool) {
 	mi, ok := self.registry[methodName]
 	if !ok {
-		/*	// We didn't find the method, but maybe it exists in mixins
-			miMethod, found := self.model.findMethodInMixin(methodName)
-			if !found || self.bootstrapped {
-				return nil, false
-			}
-			// The method exists in a mixin so we create it here with our layer.
-			// Bootstrap will take care of putting them the right way round afterwards.
-			mi = copyMethod(self.model, miMethod)
-			self.set(methodName, mi)
-
-		*/
+		// TODO: search mixins when not found in registry (bootstrapped path)
+		return nil, false
 	}
 	return mi, true
 }

@@ -488,24 +488,8 @@ func (self *TOsv) GetModel(name string, opts ...ModelOption) (IModel, error) {
 	// 默认取Web模块注册的Models
 	if len(options.Module) > 0 && utils.Trim(options.Module) != "" {
 		options.Module = utils.Trim(options.Module)
-	} else {
-		//TODO 实现智能选
-		/*
-						//_, lFilePath, _, ok := runtime.Caller(1)
-						//lAppPath := utils.AppDir()
-						//lFilePath := utils.CurPath()
-						//lFilePath := strings.TrimLeft(utils.CurPath(), utils.AppDir())
-						//lDirLst := strings.Split(lFilePath, string(filepath.Separator))
-						lFilePath := filepath.FromSlash(utils.CurFilePath()) //strings.TrimLeft(utils.CurFilePath(), utils.AppFilePath())
-						lDirLst := strings.Split(lFilePath, string(filepath.Separator))
-						if idx := utils.IndexOf("module", lDirLst...); idx > -1 {
-							lModule = lDirLst[idx+1]
-						}
-			 			//if len(lDirLst) > 1 { // && lDirLst[0] == AppModuleDir
-						//	lModule = lDirLst[1]
-						//}
-		*/
 	}
+	// TODO: else auto-detect module from caller path (smart selection)
 
 	model, err := self.GetModelByModule(fmtModelName(name), options)
 	if err != nil {

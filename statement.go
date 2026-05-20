@@ -506,9 +506,8 @@ func (self *TStatement) generate_query(vals map[string]interface{}, includeVersi
 						}
 						val = bytes
 					}
-				} else {
-					// any other
 				}
+				// else: any other type — no conversion needed
 			}
 		case reflect.Array, reflect.Slice, reflect.Map:
 			if lFieldVal == reflect.Zero(lFieldType) {
@@ -654,9 +653,7 @@ func (self *TStatement) _check_qorder(word string) (result bool) {
 }
 
 func (self *TStatement) generate_order_by_inner(alias, order_spec string, query *TQuery, reverse_direction bool, seen []string) []string {
-	if seen == nil {
-		//初始化
-	}
+	// TODO: initialize seen when nil (e.g. seen = []string{})
 	order_by_elements := make([]string, 0)
 
 	generate_order := func(fields []string, order_direction string) {
@@ -673,16 +670,10 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 					continue
 				}
 
-				if field.IsRelated() {
-
-				}
+				// TODO: handle related fields (IsRelated) ordering
 
 				if field.Store() && field.TypeName() == TYPE_M2O {
-					// key = (self._name, order_column._obj, order_field)
-					// if key not in seen{
-					//     seen.add(key)
-					//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
-					//	}
+					// TODO: generate_m2o_order_by (track via seen to avoid cycles)
 				} else if field.Store() && field.SQLType().Name != "" {
 					qualifield_name := query.inherits_join_calc(fieldName, self.Model)
 					if field.TypeName() == "boolean" {
@@ -716,9 +707,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 }
 
 func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, query *TQuery, reverse_direction bool, seen []string) []string {
-	if seen == nil {
-		//初始化
-	}
+	// TODO: initialize seen when nil (e.g. seen = []string{})
 	order_by_elements := make([]string, 0)
 	self._check_qorder(order_spec)
 	var (
@@ -759,16 +748,10 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 				continue
 			}
 
-			if field.IsRelated() {
-
-			}
+			// TODO: handle related fields (IsRelated) ordering
 
 			if field.Store() && field.TypeName() == TYPE_M2O {
-				// key = (self._name, order_column._obj, order_field)
-				// if key not in seen{
-				//     seen.add(key)
-				//     inner_clauses = self.generate_m2o_order_by(alias, order_field, query, do_reverse, seen)
-				//	}
+				// TODO: generate_m2o_order_by (track via seen to avoid cycles)
 			} else if field.Store() && field.SQLType().Name != "" {
 				qualifield_name := query.inherits_join_calc(order_field, self.Model)
 				if field.TypeName() == "boolean" {

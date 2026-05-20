@@ -877,11 +877,7 @@ func (self *TExpression) parse(context map[string]interface{}) error {
 			// -------------------------------------------------
 
 			if field.TypeName() == "datetime" && right != nil && right.Count() == 10 {
-				if operator.ValueIn(">", "<=") {
-					//  right += ' 23:59:59'
-				} else {
-					//  right += ' 00:00:00'
-				}
+				// TODO: append time part to right (' 23:59:59' for >/<=, ' 00:00:00' otherwise)
 				ltemp := domain.NewDomainNode()
 				ltemp.Push(left, operator, right)
 				self.push(create_substitution_leaf(ex_leaf, ltemp, model, false))

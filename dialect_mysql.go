@@ -658,9 +658,6 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName str
 
 		if colDefault != nil && (!alreadyQuoted || *colDefault != "NULL") {
 			col.Base().defaultValue = *colDefault
-			//col.Base().defaultIsEmpty = false
-		} else {
-			//col.Base().defaultIsEmpty = true
 		}
 
 		col.Base().label = comment

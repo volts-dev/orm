@@ -311,10 +311,7 @@ func (db *DB) ExecStruct(query string, st interface{}) (sql.Result, error) {
 }
 
 func (db *DB) beforeProcess(c *ContextHook) (context.Context, error) {
-	if db.NeedLogSQL(c.Ctx) {
-		//db.Logger.BeforeSQL(log.LogContext(*c))
-	}
-
+	// TODO: db.Logger.BeforeSQL(log.LogContext(*c)) when NeedLogSQL
 	ctx, err := db.hooks.BeforeProcess(c)
 	if err != nil {
 		return nil, err
@@ -325,10 +322,7 @@ func (db *DB) beforeProcess(c *ContextHook) (context.Context, error) {
 
 func (db *DB) afterProcess(c *ContextHook) error {
 	err := db.hooks.AfterProcess(c)
-	if db.NeedLogSQL(c.Ctx) {
-		//db.Logger.AfterSQL(log.LogContext(*c))
-	}
-
+	// TODO: db.Logger.AfterSQL(log.LogContext(*c)) when NeedLogSQL
 	return err
 }
 

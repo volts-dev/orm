@@ -826,9 +826,7 @@ func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, oper
 		limit = DefaultLimit
 	}
 
-	if access_rights_uid == "" {
-		//	access_rights_uid = self.session.AuthInfo("id")
-	}
+	// TODO: if access_rights_uid == "" { access_rights_uid = self.session.AuthInfo("id") }
 
 	/* */
 	if (domainNode == nil || domainNode.Count() == 0) && name == "" {

@@ -94,12 +94,8 @@ func NewExtendedLeaf(leaf *domain.TDomainNode, model *TModel, context []TJoinCon
 "
 */
 func (self *TExtendedLeaf) check_leaf(internal bool) {
-	//if !isOperator(self.leaf) && !isLeaf(self.leaf, internal) {
-	if !self.leaf.IsDomainOperator() && !self.leaf.IsLeafNode() {
-
-		//raise ValueError("Invalid leaf %s" % str(self.leaf))
-		//提示错误
-	}
+	// TODO: return error when !IsDomainOperator && !IsLeafNode
+	// raise ValueError("Invalid leaf %s" % str(self.leaf))
 }
 
 func (self *TExtendedLeaf) generate_alias() (string, string) {

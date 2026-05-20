@@ -395,11 +395,7 @@ func tag_name(ctx *TTagContext) error {
 		field.name = name
 	}
 
-	if cnt == 2 {
-		//old_name := params[1]
-		//new_ame := params[2]
-		//TODO
-	}
+	// TODO: if cnt == 2 { rename field from params[1] to params[2] }
 	return nil
 }
 

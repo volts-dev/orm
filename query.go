@@ -154,10 +154,8 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 			self.tables = append(self.tables, alias_statement)
 			condition := fmt.Sprintf(`("%s"."%s" = "%s"."%s")`, lhs, lhs_col, alias, col)
 			self.where_clause = append(self.where_clause, condition)
-		} else {
-			//# already joined
-			// pass
 		}
+		// else: already joined, no-op
 
 		return alias, alias_statement
 	} else {
@@ -180,10 +178,7 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 			// 注意：append 可能 realloc，必须把结果存回 self.joins[lhs]
 			self.joins[lhs] = append(self.joins[lhs], join_tuple)
 
-			if extra != nil {
-				//extra = extra.format(lhs=lhs, rhs=alias)
-				//self.extras[(lhs, join_tuple)] = (extra, extra_params)
-			}
+			// TODO: if extra != nil { self.extras[(lhs, join_tuple)] = extra.format(lhs, alias), extra_params }
 		}
 		return alias, alias_statement
 	}
@@ -285,10 +280,8 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 				nil,
 				nil)
 			model, alias = parent_model, parent_alias
-
-		} else {
-			//log.Dbg("inherits_join_calc:", field, alias, fld)
 		}
+		// else: field not in inherited parent, continue
 	}
 	//# handle the case where the field is translated
 	field := model.GetFieldByName(fieldName)
