@@ -3,12 +3,14 @@ package orm
 import (
 	"context"
 	"database/sql"
+	stdErrors "errors"
 	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -387,4 +389,32 @@ func (db *sqlite) GenInsertSql(tableName string, fields []string, uniqueFields [
 	}
 
 	return sqlStr.String()
+}
+
+// MapError 把 SQLite driver 错误翻译为 ormerr sentinel
+// modernc.org/sqlite 错误暴露为字符串，靠 message 匹配
+func (db *sqlite) MapError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "UNIQUE constraint failed"):
+		return ormerr.New(ormerr.ErrDuplicate, err)
+	case strings.Contains(msg, "database is locked"):
+		return ormerr.New(ormerr.ErrConflict, err)
+	case strings.Contains(msg, "no such table"),
+		strings.Contains(msg, "FOREIGN KEY constraint failed"),
+		strings.Contains(msg, "NOT NULL constraint failed"):
+		return ormerr.New(ormerr.ErrValidation, err)
+	}
+
+	if stdErrors.Is(err, context.DeadlineExceeded) {
+		return ormerr.New(ormerr.ErrTimeout, err)
+	}
+	if stdErrors.Is(err, sql.ErrNoRows) {
+		return ormerr.New(ormerr.ErrNotFound, err)
+	}
+	return err
 }

@@ -3,14 +3,16 @@ package orm
 import (
 	"context"
 	"database/sql"
-	"errors"
+	stdErrors "errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 
+	"github.com/lib/pq"
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -813,7 +815,7 @@ func (db *postgres) Version(ctx context.Context) (*core.Version, error) {
 		if rows.Err() != nil {
 			return nil, rows.Err()
 		}
-		return nil, errors.New("unknow version")
+		return nil, stdErrors.New("unknow version")
 	}
 
 	if err := rows.Scan(&version); err != nil {
@@ -837,7 +839,7 @@ func (db *postgres) Version(ctx context.Context) (*core.Version, error) {
 		}, nil
 	}
 
-	return nil, errors.New("unknow database version")
+	return nil, stdErrors.New("unknow database version")
 }
 
 func (db *postgres) SyncToSqlType(ctx *TTagContext) {
@@ -1571,4 +1573,33 @@ func (db *postgres) getSchema(session *TSession) string {
 		return db.Schema
 	}
 	return DefaultPostgresSchema
+}
+
+// MapError 把 PostgreSQL driver 错误翻译为 ormerr sentinel
+func (db *postgres) MapError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var pe *pq.Error
+	if stdErrors.As(err, &pe) {
+		switch pe.Code {
+		case "23505": // unique_violation
+			return ormerr.New(ormerr.ErrDuplicate, err)
+		case "23503", "23502": // foreign_key_violation / not_null_violation
+			return ormerr.New(ormerr.ErrValidation, err)
+		case "40001", "40P01": // serialization_failure / deadlock_detected
+			return ormerr.New(ormerr.ErrConflict, err)
+		case "08006", "08003", "08001": // connection_failure / connection_does_not_exist / sqlclient_unable_to_establish_sqlconnection
+			return ormerr.New(ormerr.ErrConnection, err)
+		}
+	}
+
+	if stdErrors.Is(err, context.DeadlineExceeded) {
+		return ormerr.New(ormerr.ErrTimeout, err)
+	}
+	if stdErrors.Is(err, sql.ErrNoRows) {
+		return ormerr.New(ormerr.ErrNotFound, err)
+	}
+	return err
 }

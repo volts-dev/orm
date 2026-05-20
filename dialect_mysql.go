@@ -3,14 +3,16 @@ package orm
 import (
 	"context"
 	"database/sql"
-	"errors"
+	stdErrors "errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -214,7 +216,7 @@ func (db *mysql) Version(ctx context.Context) (*core.Version, error) {
 		if rows.Err() != nil {
 			return nil, rows.Err()
 		}
-		return nil, errors.New("unknow version")
+		return nil, stdErrors.New("unknow version")
 	}
 
 	if err := rows.Scan(&version); err != nil {
@@ -852,4 +854,33 @@ func (db *mysql) CreateTableSql(model IModel, storeEngine, charset string) strin
 
 func (db *mysql) Fmter() []IFmter {
 	return []IFmter{}
+}
+
+// MapError 把 MySQL driver 错误翻译为 ormerr sentinel
+func (db *mysql) MapError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var me *mysqldriver.MySQLError
+	if stdErrors.As(err, &me) {
+		switch me.Number {
+		case 1062: // ER_DUP_ENTRY
+			return ormerr.New(ormerr.ErrDuplicate, err)
+		case 1213, 1205: // ER_LOCK_DEADLOCK / ER_LOCK_WAIT_TIMEOUT
+			return ormerr.New(ormerr.ErrConflict, err)
+		case 2006, 2013: // CR_SERVER_GONE_ERROR / CR_SERVER_LOST
+			return ormerr.New(ormerr.ErrConnection, err)
+		case 1452, 1451: // ER_NO_REFERENCED_ROW_2 / ER_ROW_IS_REFERENCED_2
+			return ormerr.New(ormerr.ErrValidation, err)
+		}
+	}
+
+	if stdErrors.Is(err, context.DeadlineExceeded) {
+		return ormerr.New(ormerr.ErrTimeout, err)
+	}
+	if stdErrors.Is(err, sql.ErrNoRows) {
+		return ormerr.New(ormerr.ErrNotFound, err)
+	}
+	return err
 }
