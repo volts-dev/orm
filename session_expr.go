@@ -180,9 +180,9 @@ func (self *TSession) Desc(fileds ...string) *TSession {
 }
 
 // Method Asc provide asc order by query condition, the input parameters are columns.
-func (session *TSession) Asc(colNames ...string) *TSession {
-	session.Statement.Asc(colNames...)
-	return session
+func (self *TSession) Asc(colNames ...string) *TSession {
+	self.Statement.Asc(colNames...)
+	return self
 }
 
 /*

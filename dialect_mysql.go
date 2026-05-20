@@ -443,8 +443,8 @@ func (db *mysql) IsReserved(name string) bool {
 	return ok
 }
 
-func (self *mysql) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
-	ds := *self.TDataSource
+func (db *mysql) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	ds := *db.TDataSource
 	ds.DbName = ""
 	db_driver := ds.DbType
 	db_src, err := ds.toString()
@@ -452,19 +452,19 @@ func (self *mysql) CreateDatabase(dbx *sql.DB, ctx context.Context, name string)
 		return err
 	}
 
-	db, err := sql.Open(db_driver, db_src)
+	dbConn, err := sql.Open(db_driver, db_src)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer dbConn.Close()
 
-	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", self.quoter.Quote(name))
-	_, err = db.ExecContext(ctx, query)
+	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", db.quoter.Quote(name))
+	_, err = dbConn.ExecContext(ctx, query)
 	return err
 }
 
-func (self *mysql) DropDatabase(dbx *sql.DB, ctx context.Context, name string) error {
-	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", self.quoter.Quote(name))
+func (db *mysql) DropDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", db.quoter.Quote(name))
 	_, err := dbx.ExecContext(ctx, query)
 	return err
 }

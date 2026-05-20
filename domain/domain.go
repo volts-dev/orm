@@ -410,10 +410,7 @@ func (self *TDomainNode) Nodes(idx ...int) []*TDomainNode {
 		return result
 	} else if cnt > 1 && idx[0] < self.Count() && idx[1] < self.Count() {
 		result := make([]*TDomainNode, 0)
-		for _, node := range self.children[idx[0]:idx[1]] {
-			result = append(result, node)
-		}
-
+		result = append(result, self.children[idx[0]:idx[1]]...)
 		return result
 	}
 
@@ -549,13 +546,13 @@ func (self *TDomainNode) IsTermOperator() bool {
 
 func (self *TDomainNode) ValueIn(strs ...interface{}) bool {
 	for _, itr := range strs {
-		switch itr.(type) {
+		switch v := itr.(type) {
 		case string: // 处理字符串
-			if self.String() == itr.(string) {
+			if self.String() == v {
 				return true
 			}
 		case *TDomainNode: // 处理*TStringList 类型
-			if self.Value == itr.(*TDomainNode).Value {
+			if self.Value == v.Value {
 				return true
 			}
 

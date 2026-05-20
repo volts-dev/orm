@@ -115,12 +115,6 @@ func TestInit(dataSource *orm.TDataSource, show_sql bool) error {
 		test_orm.CreateDatabase(dataSource.DbName)
 	}
 
-	// drop all table
-	var table_Names []string
-	for _, table := range test_orm.GetModels() {
-		table_Names = append(table_Names, table)
-	}
-
 	_, err = test_orm.SyncModel("test",
 		new(PartnerModel),
 		new(CompanyModel),

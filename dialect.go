@@ -105,61 +105,61 @@ func QueryDialect(dbName string) IDialect {
 	return nil
 }
 
-func (b *TDialect) _DB() core.Queryer {
-	return b.queryer
+func (db *TDialect) _DB() core.Queryer {
+	return db.queryer
 }
 
-func (b *TDialect) Init(queryer core.Queryer, dialect IDialect, datasource *TDataSource) error {
-	b.queryer, b.dialect, b.TDataSource = queryer, dialect, datasource
+func (db *TDialect) Init(queryer core.Queryer, dialect IDialect, datasource *TDataSource) error {
+	db.queryer, db.dialect, db.TDataSource = queryer, dialect, datasource
 	return nil
 }
 
-func (b *TDialect) DataSource() *TDataSource {
-	return b.TDataSource
+func (db *TDialect) DataSource() *TDataSource {
+	return db.TDataSource
 }
 
-func (b *TDialect) DBType() string {
-	return b.TDataSource.DbType
+func (db *TDialect) DBType() string {
+	return db.TDataSource.DbType
 }
 
 func (db *TDialect) SyncToSqlType(ctx *TTagContext) {
 
 }
 
-func (b *TDialect) FormatBytes(bs []byte) string {
+func (db *TDialect) FormatBytes(bs []byte) string {
 	return fmt.Sprintf("0x%x", bs)
 }
 
-func (b *TDialect) Quoter() dialect.Quoter {
-	return b.quoter
+func (db *TDialect) Quoter() dialect.Quoter {
+	return db.quoter
 }
 
-func (b *TDialect) DriverName() string {
-	return b.TDataSource.DbType
+func (db *TDialect) DriverName() string {
+	return db.TDataSource.DbType
 }
 
-func (b *TDialect) ShowCreateNull() bool {
+func (db *TDialect) ShowCreateNull() bool {
 	return true
 }
 
-func (b *TDialect) DataSourceName() string {
-	s, _ := b.TDataSource.toString()
+func (db *TDialect) DataSourceName() string {
+	s, _ := db.TDataSource.toString()
 	return s
 }
 
-func (b *TDialect) SupportReturning() bool {
+func (db *TDialect) SupportReturning() bool {
 	return false
 }
 
-func (b *TDialect) AndStr() string {
+func (db *TDialect) AndStr() string {
 	return "AND"
 }
 
-func (b *TDialect) OrStr() string {
+func (db *TDialect) OrStr() string {
 	return "OR"
 }
 
-func (b *TDialect) EqStr() string {
+func (db *TDialect) EqStr() string {
 	return "="
 }
 
@@ -280,8 +280,8 @@ func (db *TDialect) ModifyColumnSql(tableName string, col IField) string {
 	return fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s", db.quoter.Quote(tableName), s)
 }
 
-func (self *TDialect) CreateTableSql(model IModel, storeEngine, charset string) string {
-	quoter := self.dialect.Quoter()
+func (db *TDialect) CreateTableSql(model IModel, storeEngine, charset string) string {
+	quoter := db.dialect.Quoter()
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
 	quoter.QuoteTo(&b, fmtTableName(model.String()))
@@ -300,7 +300,7 @@ func (self *TDialect) CreateTableSql(model IModel, storeEngine, charset string) 
 			b.WriteString(", ")
 		}
 
-		s, _ := ColumnString(self.dialect, field, field.IsPrimaryKey() && len(model.GetPrimaryKeys()) == 1)
+		s, _ := ColumnString(db.dialect, field, field.IsPrimaryKey() && len(model.GetPrimaryKeys()) == 1)
 		b.WriteString(s)
 
 		fieldCnt++
@@ -314,7 +314,7 @@ func (self *TDialect) CreateTableSql(model IModel, storeEngine, charset string) 
 	b.WriteString(")")
 
 	if len(charset) == 0 {
-		charset = self.Charset
+		charset = db.Charset
 	}
 	if len(charset) != 0 {
 		b.WriteString(" DEFAULT CHARSET ")
@@ -324,7 +324,7 @@ func (self *TDialect) CreateTableSql(model IModel, storeEngine, charset string) 
 	return b.String()
 }
 
-func (b *TDialect) ForUpdateSql(query string) string {
+func (db *TDialect) ForUpdateSql(query string) string {
 	return query + " FOR UPDATE"
 }
 
@@ -365,17 +365,17 @@ func (db *TDialect) TableCheckSql(tableName string) (string, []interface{}) {
 	return `SELECT 1 FROM $1 LIMIT 1`, args
 }
 
-func (b *TDialect) LogSQL(sql string, args []interface{}) {
-	/*	if b.logger != nil && b.logger.IsShowSQL() {
+func (db *TDialect) LogSQL(sql string, args []interface{}) {
+	/*	if db.logger != nil && db.logger.IsShowSQL() {
 		if len(args) > 0 {
-			b.logger.Infof("[SQL] %v %v", sql, args)
+			db.logger.Infof("[SQL] %v %v", sql, args)
 		} else {
-			b.logger.Infof("[SQL] %v", sql)
+			db.logger.Infof("[SQL] %v", sql)
 		}
 	}*/
 }
 
-func (b *TDialect) SetParams(params map[string]string) {
+func (db *TDialect) SetParams(params map[string]string) {
 }
 
 // ColumnString generate column description string according dialect

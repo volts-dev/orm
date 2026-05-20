@@ -797,7 +797,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	//	当字段为field.base_field.column.translate可调用即是translate为回调函数而非Bool值时不加入Join
 	for _, fld := range fields {
 		//if fld.IsClassicRead() && !(fld.IsRelatedField() && false) { //用false代替callable(field.base_field.column.translate)
-		if fld.Store() && fld.SQLType().Name != "" && !(fld.IsRelated() && false) { //用false代替callable(field.base_field.column.translate)
+		if fld.Store() && fld.SQLType().Name != "" { //用false代替callable(field.base_field.column.translate) — IsRelated check pending
 			fields_pre = append(fields_pre, fld)
 		}
 	}
@@ -910,7 +910,7 @@ func (self *TSession) _validateValues(values interface{}) (*dataset.TDataSet, er
 
 func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []IField) (map[string][]any, int, error) {
 	// 根据字段计算数据值
-	var multiSql int = 1
+	var multiSql = 1
 	var name string
 	var value any
 	var ctx *TFieldContext

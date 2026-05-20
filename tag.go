@@ -637,7 +637,6 @@ func tag_table_extends(ctx *TTagContext) error {
 	switch fld_val.Kind() {
 	case reflect.Ptr:
 		log.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
-		break
 	case reflect.Struct:
 		// #当该值为空时表示不限制字段
 		lRelFields := params
@@ -767,7 +766,6 @@ func ___tag_relate(ctx *TTagContext) error {
 	switch fld_val.Kind() {
 	case reflect.Ptr:
 		log.Errf("field:%s as pointer is not supported!", fld_val.Type().Name())
-		break
 	case reflect.Struct:
 		// #当该值为空时表示不限制字段
 		lRelFields := params

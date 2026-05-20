@@ -1083,13 +1083,7 @@ func (db *postgres) GenInsertSql(tableName string, fields []string, uniqueFields
 				}
 			} else if len(uniqueFields) > 0 {
 				/* 暂时只支持一个字段作为唯一约束，否则会报错 */
-				for idx, field := range uniqueFields {
-					if idx > 0 {
-						sql.WriteByte(',')
-					}
-					sql.WriteString(quoter(field))
-					break // only one field
-				}
+				sql.WriteString(quoter(uniqueFields[0]))
 			} else {
 				sql.WriteString(quoter(idField))
 			}
@@ -1178,8 +1172,8 @@ func (db *postgres) IsDatabaseExist(ctx context.Context, name string) bool {
 	return rows.Next()
 }
 
-func (self *postgres) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
-	ds := *self.TDataSource
+func (db *postgres) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error {
+	ds := *db.TDataSource
 	ds.DbName = "postgres"
 	db_driver := ds.DbType
 	db_src, err := ds.toString()
@@ -1187,14 +1181,14 @@ func (self *postgres) CreateDatabase(dbx *sql.DB, ctx context.Context, name stri
 		return err
 	}
 
-	db, err := sql.Open(db_driver, db_src)
+	dbConn, err := sql.Open(db_driver, db_src)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer dbConn.Close()
 
 	query := fmt.Sprintf("CREATE DATABASE %v", name)
-	_, err = db.ExecContext(ctx, query)
+	_, err = dbConn.ExecContext(ctx, query)
 	if err != nil {
 		return err
 	}
@@ -1202,8 +1196,8 @@ func (self *postgres) CreateDatabase(dbx *sql.DB, ctx context.Context, name stri
 	return nil
 }
 
-func (self *postgres) DropDatabase(db *sql.DB, ctx context.Context, name string) error {
-	ds := self.TDataSource
+func (db *postgres) DropDatabase(_ *sql.DB, ctx context.Context, name string) error {
+	ds := db.TDataSource
 	ds.DbName = "postgres"
 	db_driver := ds.DbType
 	db_src, err := ds.toString()
@@ -1211,13 +1205,13 @@ func (self *postgres) DropDatabase(db *sql.DB, ctx context.Context, name string)
 		return err
 	}
 
-	db, err = sql.Open(db_driver, db_src)
+	dbConn, err := sql.Open(db_driver, db_src)
 	if err != nil {
 		return err
 	}
 
 	query := fmt.Sprintf("DROP DATABASE IF EXISTS %v", name)
-	result, err := db.Exec(query)
+	result, err := dbConn.Exec(query)
 	if err != nil {
 		return err
 	}
@@ -1413,7 +1407,7 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		}
 
 		if _, ok := SqlTypes[sql_type.Name]; !ok {
-			return nil, nil, errors.New(fmt.Sprintf("unknow colType: %v", dataType))
+			return nil, nil, fmt.Errorf("unknow colType: %v", dataType)
 		}
 
 		col, err := NewField(strings.Trim(colName, `" `), WithSQLType(sql_type))
@@ -1476,7 +1470,7 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 func (db *postgres) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
 	// FIXME: replace public to user customrize schema
 	args := []interface{}{db.getSchema(session)}
-	s := fmt.Sprintf("SELECT tablename FROM pg_tables WHERE schemaname = $1")
+	s := "SELECT tablename FROM pg_tables WHERE schemaname = $1"
 	db.LogSQL(s, args)
 
 	rows, err := db.queryer.QueryContext(ctx, s, args...)
@@ -1509,7 +1503,7 @@ func (db *postgres) GetModels(ctx context.Context, session *TSession) ([]IModel,
 func (db *postgres) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
 	// FIXME: replace the public schema to user specify schema
 	args := []interface{}{db.getSchema(session), tableName}
-	s := fmt.Sprintf("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname=$1 AND tablename=$2")
+	s := "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname=$1 AND tablename=$2"
 	db.LogSQL(s, args)
 
 	rows, err := db.queryer.QueryContext(ctx, s, args...)

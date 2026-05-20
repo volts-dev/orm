@@ -158,7 +158,7 @@ func (mapper GonicMapper) Table2Obj(name string) string {
 	return string(newstr)
 }
 
-// A GonicMapper that contains a list of common initialisms taken from golang/lint
+// LintGonicMapper is a GonicMapper that contains a list of common initialisms taken from golang/lint
 var LintGonicMapper = GonicMapper{
 	"API":   true,
 	"ASCII": true,

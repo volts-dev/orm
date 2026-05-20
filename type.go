@@ -304,54 +304,52 @@ func value2SqlTypeValue(field IField, value interface{}) interface{} {
 
 // Type2SQLType generate SQLType acorrding Go's type
 func GoType2SQLType(t reflect.Type) (st SQLType) {
-	if typ, ok := t.(reflect.Type); ok {
-		switch k := typ.Kind(); k {
-		case reflect.Int8:
-			st = SQLType{TinyInt, 0, 0}
-		case reflect.Int, reflect.Int16, reflect.Int32:
-			st = SQLType{Int, 0, 0}
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
-			st = SQLType{UnsignedInt, 0, 0}
-		case reflect.Int64:
-			st = SQLType{BigInt, 0, 0}
-		case reflect.Uint64:
-			st = SQLType{UnsignedBigInt, 0, 0}
-		case reflect.Float32:
-			st = SQLType{Float, 0, 0}
-		case reflect.Float64:
-			st = SQLType{Double, 0, 0}
-		case reflect.Complex64, reflect.Complex128:
-			st = SQLType{Varchar, 64, 0}
-		case reflect.Array, reflect.Slice, reflect.Map:
-			if t.Elem() == reflect.TypeOf(g_DATATYPE_BYTE_DEFAULT) {
-				st = SQLType{Blob, 0, 0}
-			} else {
-				st = SQLType{Text, 0, 0}
-			}
-		case reflect.Bool:
-			st = SQLType{Bool, 0, 0}
-		case reflect.String:
-			st = SQLType{Varchar, 0, 0}
-		case reflect.Struct:
-			if t.ConvertibleTo(TimeType) {
-				st = SQLType{DateTime, 0, 0}
-			} else {
-				// TODO need to handle association struct
-				st = SQLType{Text, 0, 0}
-			}
-		case reflect.Ptr:
-			st = GoType2SQLType(t.Elem())
-		default:
+	switch k := t.Kind(); k {
+	case reflect.Int8:
+		st = SQLType{TinyInt, 0, 0}
+	case reflect.Int, reflect.Int16, reflect.Int32:
+		st = SQLType{Int, 0, 0}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
+		st = SQLType{UnsignedInt, 0, 0}
+	case reflect.Int64:
+		st = SQLType{BigInt, 0, 0}
+	case reflect.Uint64:
+		st = SQLType{UnsignedBigInt, 0, 0}
+	case reflect.Float32:
+		st = SQLType{Float, 0, 0}
+	case reflect.Float64:
+		st = SQLType{Double, 0, 0}
+	case reflect.Complex64, reflect.Complex128:
+		st = SQLType{Varchar, 64, 0}
+	case reflect.Array, reflect.Slice, reflect.Map:
+		if t.Elem() == reflect.TypeOf(g_DATATYPE_BYTE_DEFAULT) {
+			st = SQLType{Blob, 0, 0}
+		} else {
 			st = SQLType{Text, 0, 0}
 		}
+	case reflect.Bool:
+		st = SQLType{Bool, 0, 0}
+	case reflect.String:
+		st = SQLType{Varchar, 0, 0}
+	case reflect.Struct:
+		if t.ConvertibleTo(TimeType) {
+			st = SQLType{DateTime, 0, 0}
+		} else {
+			// TODO need to handle association struct
+			st = SQLType{Text, 0, 0}
+		}
+	case reflect.Ptr:
+		st = GoType2SQLType(t.Elem())
+	default:
+		st = SQLType{Text, 0, 0}
 	}
 
 	return
 }
 
 // default sql type change to go types
-func (st *SQLType) ToGoType() reflect.Type {
-	name := strings.ToUpper(st.Name)
+func (s *SQLType) ToGoType() reflect.Type {
+	name := strings.ToUpper(s.Name)
 	switch name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
 		return reflect.TypeOf(1)

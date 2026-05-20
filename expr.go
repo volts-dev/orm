@@ -196,7 +196,7 @@ func normalize_domain(node *domain.TDomainNode) (*domain.TDomainNode, error) {
 	}
 
 	result := domain.NewDomainNode()
-	var expected int = 1
+	var expected = 1
 	for _, n := range node.Nodes() {
 		if expected == 0 { // more than expected, like in [A, B]
 			result.Insert(0, domain.AND_OPERATOR) //put an extra '&' in front
@@ -227,8 +227,7 @@ func create_substitution_leaf(leaf *TExtendedLeaf, new_elements *domain.TDomainN
 	if new_model == nil {
 		new_model = leaf.model
 	}
-	var new_join_context []TJoinContext
-	new_join_context = leaf.join_context //复制
+	new_join_context := leaf.join_context //复制
 	return NewExtendedLeaf(new_elements, new_model, new_join_context, internal)
 }
 
@@ -941,7 +940,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		log.Errf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
 	}
 
-	if !(left.ValueIn(domain.TRUE_LEAF, domain.FALSE_LEAF) || model.GetFieldByName(left.String()) != nil || left.ValueIn(MAGIC_COLUMNS)) { //
+	if !left.ValueIn(domain.TRUE_LEAF, domain.FALSE_LEAF) && model.GetFieldByName(left.String()) == nil && !left.ValueIn(MAGIC_COLUMNS) { //
 		log.Errf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 	}
 	//        assert not isinstance(right, BaseModel), \
@@ -1013,7 +1012,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 
 			check_nulls := false
 			for idx, item := range res_params {
-				if utils.IsBoolItf(item) && utils.ToBool(item) == false {
+				if utils.IsBoolItf(item) && !utils.ToBool(item) {
 					check_nulls = true
 					res_params = utils.SliceDelete(res_params, any(idx))
 				}
@@ -1081,7 +1080,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 
 		}
 	} else if is_field && (field.TypeName() == Bool) &&
-		((operator.String() == "=" && utils.ToBool(vals[0]) == false) || (operator.String() == "!=" && utils.ToBool(vals[0]) == true)) {
+		((operator.String() == "=" && !utils.ToBool(vals[0])) || (operator.String() == "!=" && utils.ToBool(vals[0]))) {
 		// 字段是否Bool类型
 		res_query = fmt.Sprintf(`(%s."%s" IS NULL or %s."%s" = false )`, aliasTable, left.String(), aliasTable, left.String())
 		res_params = nil
@@ -1091,7 +1090,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []interface{})
 		res_params = nil
 
 	} else if is_field && field.TypeName() == Bool &&
-		((operator.String() == "!=" && utils.ToBool(vals[0]) == false) || (operator.String() == "==" && utils.ToBool(vals[0]) == true)) {
+		((operator.String() == "!=" && !utils.ToBool(vals[0])) || (operator.String() == "==" && utils.ToBool(vals[0]))) {
 		res_query = fmt.Sprintf(`(%s."%s" IS NOT NULL and %s."%s" != false)`, aliasTable, left.String(), aliasTable, left.String())
 		res_params = nil
 

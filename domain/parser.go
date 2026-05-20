@@ -282,8 +282,8 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 				} else {
 					list.Push("!=")
 				}
-
-				break
+				// break exits the switch case, not the outer for loop — intentional
+				break //nolint:staticcheck // SA4011: break exits switch, not outer for; intentional
 			} else if utils.IndexOf(value, "and", "or") != -1 {
 				if value == "and" {
 					result.Insert(0, AND_OPERATOR)

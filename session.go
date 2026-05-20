@@ -470,7 +470,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 						//}
 						//其他
 					} else {
-						if !(strings.HasPrefix(curType, expectedType) && curType[len(expectedType)] == '(') {
+						if !strings.HasPrefix(curType, expectedType) || curType[len(expectedType)] != '(' {
 							log.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", tableName, fieldName, curType, expectedType)
 						}
 					}
@@ -633,7 +633,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 		// 清除已经作删除的索引
 		for name, index := range curIndexs {
-			if foundIndexNames[name] != true {
+			if !foundIndexNames[name] {
 				sql := orm.dialect.DropIndexUniqueSql(tableName, index)
 				if _, err = self.Exec(sql); err != nil {
 					return err

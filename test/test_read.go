@@ -58,18 +58,18 @@ func test_read(o *orm.TOrm, t *testing.T) {
 		t.Fatal(err)
 	}
 	// 测试Select 默认所有
-	ds, err := model.Records().Read()
+	_, err = model.Records().Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 测试Select 所有
-	ds, err = model.Records().Select("*").Read()
+	_, err = model.Records().Select("*").Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ds, err = model.Records().Select("id", "name").Read()
+	ds, err := model.Records().Select("id", "name").Read()
 	if err != nil {
 		t.Fatal(err)
 	}
