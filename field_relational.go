@@ -232,57 +232,6 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 	return nil
 }
 
-func (self *TOne2ManyField) _OnWrite(ctx *TFieldContext) error {
-	/* comodel = records.env[self.related_model_name].with_context(**self.context)
-	   inverse = self.inverse_name
-	   vals_list = []                  # vals for lines to create in batch
-
-	   def flush():
-	       if vals_list:
-	           comodel.create(vals_list)
-	           vals_list.clear()
-
-	   def drop(lines):
-	       if getattr(comodel._fields[inverse], 'ondelete', False) == 'cascade':
-	           lines.unlink()
-	       else:
-	           lines.write({inverse: False})
-
-	   with records.env.norecompute():
-	       for act in (value or []):
-	           if act[0] == 0:
-	               for record in records:
-	                   vals_list.append(dict(act[2], **{inverse: record.id}))
-	           elif act[0] == 1:
-	               comodel.browse(act[1]).write(act[2])
-	           elif act[0] == 2:
-	               comodel.browse(act[1]).unlink()
-	           elif act[0] == 3:
-	               drop(comodel.browse(act[1]))
-	           elif act[0] == 4:
-	               record = records[-1]
-	               line = comodel.browse(act[1])
-	               line_sudo = line.sudo().with_context(prefetch_fields=False)
-	               if int(line_sudo[inverse]) != record.id:
-	                   line.write({inverse: record.id})
-	           elif act[0] == 5:
-	               flush()
-	               domain = self.domain(records) if callable(self.domain) else self.domain
-	               domain = domain + [(inverse, 'in', records.ids)]
-	               drop(comodel.search(domain))
-	           elif act[0] == 6:
-	               flush()
-	               record = records[-1]
-	               comodel.browse(act[2]).write({inverse: record.id})
-	               domain = self.domain(records) if callable(self.domain) else self.domain
-	               domain = domain + [(inverse, 'in', records.ids), ('id', 'not in', act[2] or [0])]
-	               drop(comodel.search(domain))
-
-	       flush()
-	*/
-	return nil
-}
-
 func (self *TMany2OneField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	params := ctx.Params

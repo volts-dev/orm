@@ -8,6 +8,7 @@ import (
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
+	"github.com/volts-dev/utils"
 )
 
 type (
@@ -103,10 +104,6 @@ func QueryDialect(dbName string) IDialect {
 	}
 
 	return nil
-}
-
-func (db *TDialect) _DB() core.Queryer {
-	return db.queryer
 }
 
 func (db *TDialect) Init(queryer core.Queryer, dialect IDialect, datasource *TDataSource) error {
@@ -413,39 +410,23 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 			return "", err
 		}
 
-		dv := field.Base().defaultValue
-		if dv == "" {
+		dvStr := utils.ToString(field.Base().defaultValue)
+		if dvStr == "" {
 			if _, err := bd.WriteString("''"); err != nil {
 				return "", err
 			}
 		} else {
 			if field.SQLType().IsText() {
 				bd.WriteByte('\'')
-				bd.WriteString(dv)
+				bd.WriteString(dvStr)
 				bd.WriteByte('\'')
-				//dv = quoter.Quote(dv)
+				//dvStr = quoter.Quote(dvStr)
 			} else {
-				if _, err := bd.WriteString(dv); err != nil {
+				if _, err := bd.WriteString(dvStr); err != nil {
 					return "", err
 				}
 			}
 		}
-
-		/*
-			dv := utils.ToString(field.Base()._attr_default)
-			if dv == "" {
-				if _, err := bd.WriteString("''"); err != nil {
-					return "", err
-				}
-			} else {
-				///if field.SQLType().IsText() {
-				//	dv = quoter.Quote(dv)
-				//}
-				if _, err := bd.WriteString(dv); err != nil {
-					return "", err
-				}
-			}
-		*/
 	}
 
 	if !field.Required() {

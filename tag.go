@@ -323,21 +323,25 @@ func tag_default(ctx *TTagContext) error {
 	params := ctx.Params
 	model := ctx.Model
 
-	if field.defaultValue == "" {
+	if field.defaultValue == nil {
 		if len(params) > 0 {
 			value := strings.Trim(params[0], "'")
 			field.defaultValue = value
 		}
 	}
 
+	if field.SqlType.IsNumeric() {
+		field.defaultValue = utils.ToInt64(field.defaultValue)
+	}
 	if field.typeName == Bool {
-		field.defaultValue = strings.ToLower(field.defaultValue)
+		field.defaultValue = utils.ToString(field.defaultValue)
 	}
 
-	model.Obj().SetDefaultByName(field.Name(), utils.ToString(field.defaultValue)) // save to model object
+	model.Obj().SetDefaultByName(field.Name(), field.defaultValue) // save to model object
 
 	return nil
 }
+
 func tag_created(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 	field.isCreatedAt = true
@@ -687,11 +691,6 @@ func tag_table_extends(ctx *TTagContext) error {
 
 }
 
-// relation(关系表)
-func tag_relation(ctx *TTagContext) error {
-	return nil
-
-}
 
 // 废弃O2O
 // relate(modelName,relateField)

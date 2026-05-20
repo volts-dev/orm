@@ -738,11 +738,6 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	return dataset, nil
 }
 
-// # ids_less 缺少的ID
-func (self *TSession) _readFromCache(ids []interface{}) (res []*dataset.TRecordSet, ids_less []interface{}) {
-	return self.orm.Cacher.GetByIds(self.Statement.Model.Table(), ids...)
-}
-
 /*
    """ Read the given fields of the records in ``self`` from the database,
        and store them in cache. Access errors are also stored in cache.

@@ -73,52 +73,6 @@ func (self *TSelectionField) Init(ctx *TTagContext) {
 	}
 }
 
-func (self *TSelectionField) _description_selection() {
-	// """ return the selection list (pairs (value, label)); labels are
-	/////      translated according to context language
-	//  """
-	////!	selection = self.selection
-	/*     if isinstance(selection, basestring):
-	           return getattr(env[self.model_name], selection)()
-	       if callable(selection):
-	           return selection(env[self.model_name])
-
-	       # translate selection labels
-	       if env.lang:
-	           name = "%s,%s" % (self.model_name, self.name)
-	           translate = partial(
-	               env['ir.translation']._get_source, name, 'selection', env.lang)
-	           return [(value, translate(label) if label else label) for value, label in selection]
-	       else:
-	           return selection
-	*/
-}
-
-func (self *TSelectionField) _setup_regular_base(model IModel) {
-	//  super(Selection, self)._setup_regular_base(model)
-	//  assert self.selection is not None, "Field %s without selection" % self
-}
-func (self *TSelectionField) _setup_related_full(model IModel) {
-	// super(Selection, self)._setup_related_full(model)
-	// # selection must be computed on related field
-	//field = self.related_field
-	///self.selection = self._description_selection(model.env)
-}
-
-// Full field setup: everything else, except recomputation triggers
-//
-// 配置字段内容
-func (self *TSelectionField) setup_full(model IModel) {
-	if self.setupStage != "full" {
-		/*		if !self.IsRelated() {
-				} else {
-
-				}
-		*/
-		self.setupStage = "full"
-	}
-}
-
 func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]interface{} {
 	model := ctx.Model
 	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池

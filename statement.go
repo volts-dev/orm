@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 
@@ -364,8 +363,9 @@ func (self *TStatement) generate_insert(fields, uniqueFields []string) (string, 
 	return sql, dialect.SupportReturning()
 }
 
+// ___generate_query is kept for reference but is currently unused.
 // Auto generating conditions according a struct
-func (self *TStatement) generate_query(vals map[string]interface{}, includeVersion bool, includeUpdated bool, includeNil bool,
+func (self *TStatement) ___generate_query(vals map[string]interface{}, includeVersion bool, includeUpdated bool, includeNil bool,
 	includeAutoIncr bool, allUseBool bool, useAllCols bool, unscoped bool, mustColumnMap map[string]bool) (res_clause string, res_params []interface{}) {
 	//res_domain = utils.NewStringList()
 	lClauses := make([]string, 0, len(vals))
@@ -638,20 +638,6 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 	return NewQuery(self.session, tables, where_clause, where_params, nil, nil), nil
 }
 
-func (self *TStatement) _check_qorder(word string) (result bool) {
-	re, err := regexp.Compile(`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+$`) //`^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+(?<!,)$`
-	if err != nil {
-		log.Err(err)
-	}
-
-	//matches := re.FindAllStringSubmatch(word, -1)
-	if re.Match([]byte(word)) {
-		//  raise UserError(_('Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)'))
-		log.Err(`Invalid "order" specified. A valid "order" specification is a comma-separated list of valid field names (optionally followed by asc/desc for the direction)`)
-	}
-	return true
-}
-
 func (self *TStatement) generate_order_by_inner(alias, order_spec string, query *TQuery, reverse_direction bool, seen []string) []string {
 	// TODO: initialize seen when nil (e.g. seen = []string{})
 	order_by_elements := make([]string, 0)
@@ -709,7 +695,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, query *TQuery, reverse_direction bool, seen []string) []string {
 	// TODO: initialize seen when nil (e.g. seen = []string{})
 	order_by_elements := make([]string, 0)
-	self._check_qorder(order_spec)
+	_ = order_spec // order validation removed; add back when _check_qorder is reinstated
 	var (
 		order_direction string
 
@@ -897,45 +883,6 @@ func (self *TStatement) generate_order_by(query *TQuery, context map[string]inte
 	}
 
 	return ""
-}
-
-func (self *TStatement) generate_fields() []string {
-	table := self.Model
-	quoter := self.session.orm.dialect.Quoter()
-
-	var fields []string
-	for _, field := range table.GetFields() {
-		if self.OmitClause != "" {
-			if _, ok := self.Fields[strings.ToLower(field.Name())]; ok {
-				continue
-			}
-		}
-
-		if !field.Store() || field.Base().MapType == WriteOnly {
-			continue
-		}
-
-		quote := quoter.Quote
-		var name string
-		if self.JoinClause != "" {
-			if self.AliasTableName != "" {
-				name = quote(self.AliasTableName)
-			} else {
-				name = quote(self.Model.Table())
-			}
-			name += "." + quote(field.Name())
-		} else {
-			name = quote(field.Name())
-		}
-
-		if field.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
-			fields = append(fields, "id() AS "+name)
-		} else {
-			fields = append(fields, name)
-		}
-	}
-
-	return fields
 }
 
 // QuoteTable returns the fully qualified table name including active schema namespace

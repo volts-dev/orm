@@ -9,18 +9,6 @@ import (
 	"github.com/volts-dev/utils"
 )
 
-type flag uintptr
-
-const (
-	flagKindWidth        = 5 // there are 27 kinds
-	flagKindMask    flag = 1<<flagKindWidth - 1
-	flagRO          flag = 1 << 5
-	flagIndir       flag = 1 << 6
-	flagAddr        flag = 1 << 7
-	flagMethod      flag = 1 << 8
-	flagMethodShift      = 9
-)
-
 var (
 // 提供类对比
 // handlerType = reflect.TypeOf(server.THandler{})
@@ -59,7 +47,6 @@ type (
 		object_val    map[reflect.Type]*TModel           // map[Model] 备份对象
 		object_types  map[string]map[string]reflect.Type // map[Modul][Model] 存储Models的Type
 		defaultValues sync.Map                           // map[string]interface{}             // store the default values of model
-		fieldsLock    sync.RWMutex
 		//relationsLock sync.RWMutex
 		//defaultValuesLock sync.RWMutex
 		relatedFieldsLock sync.RWMutex

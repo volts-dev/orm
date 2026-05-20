@@ -16,13 +16,6 @@ import (
 )
 
 type (
-	___Paginator struct {
-		PageIndex int64 `json:"page"  `   //当前页数
-		PageSize  int64 `json:"limit"   ` //每页多少条
-		//Offset int64 `json:"offset" ` //偏移量
-		Total int64 `json:"total" ` //总页数
-	}
-
 	// Model字段请求
 	FieldRequest struct {
 		Fields []string

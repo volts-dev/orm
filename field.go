@@ -10,7 +10,6 @@ import (
 	"errors"
 
 	"github.com/volts-dev/dataset"
-	"github.com/volts-dev/utils"
 )
 
 // FieldAccessMode 字段读写模式
@@ -218,16 +217,12 @@ type (
 		DisableTimeZone bool
 		TimeZone        *time.Location // column specified time zone
 
-		formatChar       string              // printf 风格的格式占位符（如 "%s"）
-		formatFunc       func(string) string // 对格式化后字符串再加工的函数
-		autoJoin         bool                // 查询时是否自动 JOIN 关联表
-		inheritAllFields bool                // 是否继承该字段所指向 model 的所有字段
-		tagArgs          map[string]string   // 字段 Tag `xxx(<params>)` 中的参数 map
-		setupStage       string              // 字段安装阶段标记（Base / full 等）
-		isInherited      bool                // 该字段是否来自 inherits 继承
-		isRelated        bool                // 该字段是否指向其他 model 的外键
-		isAutoCreated    bool                // 是否为框架自动创建的 "magic" 字段
-		modelName        string              // 当前字段所属 model 的名字
+		formatChar  string              // printf 风格的格式占位符（如 "%s"）
+		formatFunc  func(string) string // 对格式化后字符串再加工的函数
+		autoJoin    bool                // 查询时是否自动 JOIN 关联表
+		isInherited bool                // 该字段是否来自 inherits 继承
+		isRelated   bool                // 该字段是否指向其他 model 的外键
+		modelName   string              // 当前字段所属 model 的名字
 		relatedModelName string              // 关联到的 model 名
 		relatedKeyName   string              // 关联表的主键字段名
 		joinModelName    string              // M2M 连接表对应的 model 名
@@ -250,30 +245,24 @@ type (
 		sortable         bool                   // 是否可排序
 		searchable       bool                   // 是否可搜索
 		typeName         string                 // ORM 层字段类型标识（最终存入 dataset）
-		defaultValue     string                 // 默认值字符串
+		defaultValue     any                    // 默认值字符串
 		relatedPath      string                 // 关联路径表达式（用途未确认，保留兼容）
 		relationModel    string                 // 关联到的 model 名（与 relatedModelName 用途略有差异）
 		uiStates         map[string]interface{} // 传递给 UI 的 state 属性 map
 		selection        [][]string             // selection 字段的可选值列表
-		companyDependent bool                   // 是否多公司隔离（用途未确认，保留兼容）
-		changeDefault    bool                   // 默认值是否随其他字段变化（用途未确认，保留兼容）
 		domain           string                 // 字段级的搜索域表达式
 		permissionGroups string                 // 限制访问该字段的权限组名（逗号分隔）
-		deprecatedNote   string                 // 字段已废弃的说明文字（用途未确认，保留兼容）
 		onDelete         string                 // 关联记录被删除时的处理策略（cascade/set null/restrict/...）
 
 		inverseHandler interface{} // 计算字段的反向写入处理器
 		computeGroup   string      // 同一 compute group 的字段在单次调用中一起计算
-		searchHandler  string      // 在该字段上定义搜索行为的函数
 		defaultFunc    FieldFunc   // 默认值生成函数
 		setterFunc     FieldFunc   // 写入计算/格式化函数
 		getterFunc     FieldFunc   // 读取计算/格式化函数
 		boundModel     any         // 绑定的 model 引用（供 compute 使用）
 		setterMethod   string      // 写入方法名
 		getterMethod   string      // 读取方法名
-		computeDepends []string    // compute 计算依赖的字段名列表
 		computeAsAdmin bool        // 计算字段是否以 admin 权限重新计算
-		previousName   string      // 字段旧名，迁移时用于自动重命名
 
 		oneToManyFK        string // one-to-many 关系中对端的外键字段名
 		m2mLimit           int64  // many-to-many 关系单次取回的上限
@@ -585,7 +574,7 @@ func (self *TField) Store(val ...bool) bool {
 // Default returns the default value; when val is supplied, sets it first.
 func (self *TField) Default(val ...any) any {
 	if len(val) > 0 {
-		self.defaultValue = utils.ToString(val[0])
+		self.defaultValue = val[0]
 	}
 
 	return self.defaultValue
@@ -615,16 +604,6 @@ func (self *TField) States(val ...map[string]interface{}) map[string]interface{}
 // SearchOnSelf reports whether searches on the related field may be performed on self.
 func (self *TField) SearchOnSelf() bool {
 	return self.searchOnSelf
-}
-
-// __IsClassicRead is retained for compatibility; classic-read mode is currently disabled.
-func (self *TField) __IsClassicRead() bool {
-	return false //self._classic_read
-}
-
-// __IsClassicWrite is retained for compatibility; classic-write mode is currently disabled.
-func (self *TField) __IsClassicWrite() bool {
-	return false //self._classic_write
 }
 
 // IsIndexed reports whether the database has an index on this field.
@@ -667,7 +646,7 @@ func (self *TField) IsAutoIncrement() bool {
 
 // IsDefaultEmpty reports whether the field has no default value (literal or function).
 func (self *TField) IsDefaultEmpty() bool {
-	return self.defaultValue == "" && self.defaultFunc == nil
+	return self.defaultValue == nil && self.defaultFunc == nil
 }
 
 // IsUnique reports whether the field has a UNIQUE constraint.

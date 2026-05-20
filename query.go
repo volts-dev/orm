@@ -295,17 +295,6 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 	return fmt.Sprintf(`"%s".%s`, alias, fieldName)
 }
 
-func (self *TQuery) _get_table_aliases() (aliases []string) {
-	//from openerp.osv.expression import get_alias_from_query
-	aliases = make([]string, 0)
-	for _, from_statement := range self.tables {
-		_, alias := get_alias_from_query(from_statement)
-		aliases = append(aliases, alias)
-	}
-	return aliases // [get_alias_from_query(from_statement)[1] for from_statement in self.tables]
-
-}
-
 // 获得表别名枚举
 func (self *TQuery) getAliasMapping() map[string]string {
 	mapping := make(map[string]string)

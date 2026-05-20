@@ -18,7 +18,6 @@ type (
 		model    *TModel
 		registry map[string]*TMethod
 		//powerGroups  map[*security.Group]bool
-		bootstrapped bool
 	}
 )
 
@@ -89,7 +88,3 @@ func (self *TMethodsSet) MustGet(methodName string) *TMethod {
 	return methInfo
 }
 
-// set adds the given Method to the MethodsCollection.
-func (self *TMethodsSet) set(methodName string, methInfo *TMethod) {
-	self.registry[methodName] = methInfo
-}

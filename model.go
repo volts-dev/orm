@@ -184,16 +184,11 @@ type (
 		recName        string                // the field name which is the name represent a record @examples: Name,Title,PartNo
 		recNamesSearch string                // names_search会搜索的字段
 		isCustomModel  bool                  // 该Model是否是基Model,并非扩展Model
-		beforeSession  func(*TSession) error //
-		afterSession   func(*TSession) error //
 
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
-		_parent_name  string // #! 父表中的字段名称
-		_parent_store bool   // #! 是否有父系关联 比如类目，菜单
-		_sequence     string //
-		_auto         bool   // # True # create database backend
-		_transient    bool   // # 暂时的
-		//_relate       bool
+		_sequence string //
+		_auto     bool   // # True # create database backend
+		//_relate   bool
 	}
 )
 
@@ -633,58 +628,6 @@ func (self *TModel) _relations_reload_visited(visited map[string]bool) {
 	})
 }
 
-//	""" Determine inherited fields. """
-//
-// 添加关联字段到Model
-func (self *TModel) _add_inherited_fields() {
-
-	//# determine candidate inherited fields
-	//	var fields = make([]*TField, 0)
-	var lNew IField
-	var parent_model string
-	self.obj.GetRelations().Range(func(key, value any) bool {
-		parent_model = key.(string)
-		parent, err := self.osv.GetModel(parent_model) // #i
-		if err != nil {
-			log.Err(err, "@_add_inherited_fields")
-		}
-
-		for _, ref := range parent.GetFields() {
-			refname := ref.Name()
-			//# inherited fields are implemented as related fields, with the
-			//# following specific properties:
-			//#  - reading inherited fields should not bypass access rights
-			//#  - copy inherited fields iff their original field is copied
-			//# add inherited fields that are not redefined locally
-			if has := self.obj.GetFieldByName(refname); has == nil {
-				lNew = utils.Clone(ref).(IField)
-				lNew.SetBase(ref.Base())
-				lNew.IsInherited(true)
-				self.obj.SetField(lNew)
-			}
-		}
-
-		return true
-	})
-
-	/*
-	   for parent_model, parent_field in self._inherits.iteritems():
-	       parent = self.env[parent_model]
-	       for name, field in parent._fields.iteritems():
-
-	           fields[name] = field.new(
-	               inherited=True,
-	               related=(parent_field, name),
-	               related_sudo=False,
-	               copy=field.copy,
-	           )
-
-	   # add inherited fields that are not redefined locally
-	   for name, field in fields.iteritems():
-	       if name not in self._fields:
-	           self._add_field(name, field)
-	*/
-}
 
 func (self *TModel) ___getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	field := ctx.Field
@@ -706,42 +649,6 @@ func (self *TModel) ___getRelate(ctx *TFieldContext) (*dataset.TDataSet, error) 
 	return nil, fmt.Errorf("the type <%s> of relate field not implemented!", field.TypeName())
 }
 
-/*
-Call _field_create and, unless _auto is False:
-
-  - create the corresponding table in database for the model,
-  - possibly add the parent columns in database,
-  - possibly add the columns 'create_uid', 'create_date', 'write_uid',
-    'write_date' in database if _log_access is True (the default),
-  - report on database columns no more existing in _columns,
-  - remove no more existing not null constraints,
-  - alter existing database columns to match _columns,
-  - create database tables to match _columns,
-  - add database indices to match _columns,
-  - save in self._foreign_keys a list a foreign keys to create (see
-    _auto_end).
-*/
-func (self *TModel) __select_column_data() *dataset.TDataSet {
-	//# attlen is the number of bytes necessary to represent the type when
-	// # the type has a fixed size. If the type has a varying size attlen is
-	//# -1 and atttypmod is the size limit + 4, or -1 if there is no limit.
-	/* cr.execute("SELECT c.relname,a.attname,a.attlen,a.atttypmod,a.attnotnull,a.atthasdef,t.typname,CASE WHEN a.attlen=-1 THEN (CASE WHEN a.atttypmod=-1 THEN 0 ELSE a.atttypmod-4 END) ELSE a.attlen END as size " \
-	           "FROM pg_class c,pg_attribute a,pg_type t " \
-	           "WHERE c.relname=%s " \
-	           "AND c.oid=a.attrelid " \
-	           "AND a.atttypid=t.oid", (self._table,))
-			  return dict(map(lambda x: (x['attname'], x),cr.dictfetchall()))
-	*/
-	lDs, err := self.orm.Query(`SELECT c.relname,a.attname,a.attlen,a.atttypmod,a.attnotnull,a.atthasdef,t.typname,CASE WHEN a.attlen=-1 THEN (CASE WHEN a.atttypmod=-1 THEN 0 ELSE a.atttypmod-4 END) ELSE a.attlen END as size
-           FROM pg_class c,pg_attribute a,pg_type t
-           WHERE c.relname=%s 
-           AND c.oid=a.attrelid
-           AND a.atttypid=t.oid`, self.table)
-	log.Err(err)
-
-	return lDs
-
-}
 
 // 转换
 func (self *TModel) _validate(vals map[string]interface{}) {

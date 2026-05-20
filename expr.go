@@ -123,47 +123,6 @@ def get_alias_from_query(from_query):
 
 */
 
-/*
-Returns a new domain expression where all domain components from “domains“
-
-	have been added together using the binary operator ``operator``. The given
-	domains must be normalized.
-
-	:param unit: the identity element of the domains "set" with regard to the operation
-	             performed by ``operator``, i.e the domain component ``i`` which, when
-	             combined with any domain ``x`` via ``operator``, yields ``x``.
-	             E.g. [(1,'=',1)] is the typical unit for AND_OPERATOR: adding it
-	             to any domain component gives the same domain.
-	:param zero: the absorbing element of the domains "set" with regard to the operation
-	             performed by ``operator``, i.e the domain component ``z`` which, when
-	             combined with any domain ``x`` via ``operator``, yields ``z``.
-	             E.g. [(1,'=',1)] is the typical zero for OR_OPERATOR: as soon as
-	             you see it in a domain component the resulting domain is the zero.
-	:param domains: a list of normalized domains.
-*/
-func combine(operator, unit, zero string, domains []string) (result *utils.TStringList) {
-	result = utils.NewStringList()
-	count := 0
-	for _, domain := range domains {
-		if domain == unit {
-			continue
-		}
-		if domain == zero {
-			return utils.NewStringList(zero)
-		}
-		if domain != "" {
-			result.PushString(domain)
-			count++
-		}
-	}
-
-	//result = [operator] * (count - 1) + result
-	for i := 0; i < count-1; i++ {
-		result.Insert(0, operator)
-	}
-
-	return
-}
 
 /*
 # --------------------------------------------------
@@ -419,33 +378,6 @@ func get_alias_from_query(from_query string) (string, string) {
 	} else {
 		return strings.Replace(from_splitted[0], `"`, "", -1), strings.Replace(from_splitted[0], `"`, "", -1)
 	}
-}
-
-func (self *TExpression) recursive_children(ids []interface{}, model *TModel, parent_field string, context map[string]interface{}) (*domain.TDomainNode, error) {
-	result := domain.NewDomainNode()
-	if ids == nil {
-		return result, nil
-	}
-
-	//lRec := model.Search(fmt.Sprintf("[('%s', 'in', '%s')]", parent_field, ids), 0, 0, "", false, context)
-	//lRec := model.SearchRead(fmt.Sprintf("[('%s', 'in', '%s')]", parent_field, ids), nil, 0, 0, "", context)
-	//lRec, _ := model.Records().Domain(fmt.Sprintf("[('%s', 'in', '%s')]", parent_field, ids.Flatten())).Read()
-	rc, err := model.Records().In(parent_field, ids...).Read()
-	if err != nil {
-		return nil, err
-	}
-
-	result.Push(ids...)
-	lst, err := self.recursive_children(rc.Keys(), model, parent_field, context)
-	if err != nil {
-		return nil, err
-	}
-	for _, node := range lst.Nodes() {
-		result.Push(node)
-
-	}
-
-	return result, nil // ids + recursive_children(ids2, model, parent_field)
 }
 
 // Pop a leaf to process.
