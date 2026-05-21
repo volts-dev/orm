@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// 8 个 sentinel errors —— 调用方用 errors.Is(err, ErrXxx) 判断
+// 11 个 sentinel errors —— 调用方用 errors.Is(err, ErrXxx) 判断
 var (
 	// ErrNotFound 查询无结果
 	ErrNotFound = errors.New("orm: record not found")
@@ -25,7 +25,12 @@ var (
 	// ErrTransaction 事务相关错误
 	ErrTransaction = errors.New("orm: transaction error")
 	// ErrUnsafe 危险操作被默认守护拒绝（Phase 2 启用）
-	ErrUnsafe = errors.New("orm: unsafe operation rejected")
+	// 无 WHERE 的 DELETE/UPDATE、DROP TABLE、TRUNCATE 需要 AllowUnsafe() 明确 opt-in
+	ErrUnsafe = errors.New("orm: unsafe operation denied; use AllowUnsafe() to opt-in")
+	// ErrNoSoftDelete 软删除相关：模型无 deleted tag 字段
+	ErrNoSoftDelete = errors.New("orm: model has no 'deleted' tag field")
+	// ErrSoftDeleteMisconfigured 软删除相关：模型有多个 deleted tag 字段
+	ErrSoftDeleteMisconfigured = errors.New("orm: model has multiple 'deleted' tag fields")
 )
 
 // ORMError 携带上下文的 ORM 错误，支持 errors.Is/As
