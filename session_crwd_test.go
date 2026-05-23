@@ -80,7 +80,7 @@ func withHasGetter() func(*TField) {
 	}
 }
 func withDefault(v any) func(*TField) {
-	return func(f *TField) { f.defaultValue = v }
+	return func(f *TField) { f.SetDefault(v) }
 }
 
 // testModelObj builds a TModelObject with the given fields and optional relations.
@@ -116,7 +116,7 @@ func (d *testDialect) IsReserved(s string) bool                           { retu
 func (d *testDialect) AutoIncrStr() string                                { return "AUTOINCREMENT" }
 func (d *testDialect) IndexCheckSql(t, i string) (string, []any)          { return "", nil }
 func (d *testDialect) GenAddColumnSQL(t string, f IField) string          { return "" }
-func (d *testDialect) GetFields(ctx context.Context, session *TSession, t string) ([]string, map[string]IField, error) {
+func (d *testDialect) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	return nil, nil, nil
 }
 func (d *testDialect) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
@@ -744,6 +744,34 @@ func TestSeparateValues_SetterFieldNoRequiredError(t *testing.T) {
 	_, _, _, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
 		t.Fatalf("setter field should not produce required error: %v", err)
+	}
+}
+
+// Test: OneToOne field is correctly preserved and resolved in todoCompute for DB writing
+func TestSeparateValues_OneToOne(t *testing.T) {
+	fields := []IField{
+		newTestField("name", withModelName("test.model")),
+		newTestField("partner_id", withModelName("test.model"), withType("one2one"), withStore(true), withRelated()),
+	}
+	obj := testModelObj(fields, nil, nil)
+	session := testSession("test.model", "id", obj)
+	data := makeDataSet(map[string]any{"name": "val", "partner_id": int64(103)})
+
+	_, _, newTodo, err := session._separateValues(data, nil, nil, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	datas, _, err := session._todoCompute(data, nil, newTodo)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 确认 partner_id 包含在最终待写入数据库的 datas 中！
+	if v, ok := datas["partner_id"]; !ok {
+		t.Error("expected 'partner_id' in datas for OneToOne")
+	} else if len(v) == 0 || utils.ToInt64(v[0]) != int64(103) {
+		t.Errorf("expected 103, got %v", v)
 	}
 }
 

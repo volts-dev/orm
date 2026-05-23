@@ -62,7 +62,7 @@ type (
 		//CreateTableIfNotExists(table *Table, tableName, storeEngine, charset string) error
 		//MustDropTable(tableName string) error
 
-		GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error)
+		GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error)
 		GetModels(ctx context.Context, session *TSession) ([]IModel, error)
 		GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error)
 
@@ -414,11 +414,18 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 			return "", err
 		}
 
-		dvStr := utils.ToString(field.Base().defaultValue)
+		dvStr := utils.ToString(field.Default())
 		if dvStr == "" {
-			if _, err := bd.WriteString("''"); err != nil {
-				return "", err
+			if field.SQLType().IsNumeric() {
+				if _, err := bd.WriteString("0"); err != nil {
+					return "", err
+				}
+			} else {
+				if _, err := bd.WriteString("''"); err != nil {
+					return "", err
+				}
 			}
+
 		} else {
 			if field.SQLType().IsText() {
 				bd.WriteByte('\'')
@@ -446,8 +453,8 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 	return bd.String(), nil
 }
 
-func (db *TDialect) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
-	return db.dialect.GetFields(ctx, session, tableName)
+func (db *TDialect) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
+	return db.dialect.GetFields(ctx, session, model)
 }
 
 func (db *TDialect) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {

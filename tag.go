@@ -221,7 +221,7 @@ func tag_getter(ctx *TTagContext) error {
 		methodName = strings.Replace(methodName, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(methodName); m.IsValid() {
 			if fn, ok := m.Interface().(FieldFunc); ok {
-				field.boundModel = ctx.Model.GetBase().modelValue.Interface()
+				field.boundModel = ctx.Model.GetBase() //.modelValue.Interface()
 				field.getterMethod = methodName
 				field.getterFunc = fn
 			}
@@ -250,7 +250,7 @@ func tag_setter(ctx *TTagContext) error {
 		funcName = strings.Replace(funcName, "''", "'", -1)
 		if m := ctx.Model.GetBase().modelValue.MethodByName(funcName); m.IsValid() {
 			if fn, ok := m.Interface().(FieldFunc); ok {
-				field.boundModel = ctx.Model.GetBase().modelValue.Interface()
+				field.boundModel = ctx.Model.GetBase() //.modelValue.Interface()
 				field.setterMethod = funcName
 				field.setterFunc = fn
 			}
@@ -323,22 +323,22 @@ func tag_default(ctx *TTagContext) error {
 	params := ctx.Params
 	model := ctx.Model
 
-	if field.defaultValue == nil {
+	var defaultValue any
+	if defaultValue = field.Default(); defaultValue == nil {
 		if len(params) > 0 {
-			value := strings.Trim(params[0], "'")
-			field.defaultValue = value
+			defaultValue = strings.Trim(params[0], "'")
 		}
 	}
 
 	if field.SqlType.IsNumeric() {
-		field.defaultValue = utils.ToInt64(field.defaultValue)
+		defaultValue = utils.ToInt64(defaultValue)
 	}
+
 	if field.typeName == Bool {
-		field.defaultValue = utils.ToString(field.defaultValue)
+		defaultValue = utils.ToString(defaultValue)
 	}
 
-	model.Obj().SetDefaultByName(field.Name(), field.defaultValue) // save to model object
-
+	model.Obj().SetDefaultByName(field.Name(), defaultValue) // save to model object
 	return nil
 }
 
@@ -363,7 +363,7 @@ func tag_deleted(ctx *TTagContext) error {
 func tag_ver(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 	field.isVersion = true
-	field.defaultValue = "1"
+	field.SetDefault("1")
 	return nil
 }
 

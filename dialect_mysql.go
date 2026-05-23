@@ -560,8 +560,8 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 	return sql.String()
 }
 
-func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
-	args := []any{db.DbName, tableName}
+func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
+	args := []any{db.DbName, model.Table()}
 	alreadyQuoted := "(INSTR(VERSION(), 'maria') > 0 && " +
 		"(SUBSTRING_INDEX(VERSION(), '.', 1) > 10 || " +
 		"(SUBSTRING_INDEX(VERSION(), '.', 1) = 10 && " +
@@ -650,7 +650,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName str
 			return nil, nil, fmt.Errorf("unknown colType %v", colType)
 		}
 
-		col, err := NewField(strings.Trim(columnName, `" `), WithSQLType(SQLType{Name: colType, DefaultLength: int(len1), DefaultLength2: int(len2)}))
+		col, err := NewField(strings.Trim(columnName, `" `), WithSQLType(SQLType{Name: colType, DefaultLength: int(len1), DefaultLength2: int(len2)}), WithModel(model))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -659,7 +659,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName str
 		col.Base().SetOptions = setOptions
 
 		if colDefault != nil && (!alreadyQuoted || *colDefault != "NULL") {
-			col.Base().defaultValue = *colDefault
+			col.Base().SetDefault(*colDefault)
 		}
 
 		col.Base().label = comment
@@ -678,9 +678,9 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, tableName str
 
 		if !col.IsDefaultEmpty() {
 			if !alreadyQuoted && col.SQLType().IsText() {
-				col.Base().defaultValue = "'" + utils.ToString(col.Default()) + "'"
+				col.Base().SetDefault("'" + utils.ToString(col.Default()) + "'")
 			} else if col.SQLType().IsTime() && !alreadyQuoted && col.Default() != "CURRENT_TIMESTAMP" {
-				col.Base().defaultValue = "'" + utils.ToString(col.Default()) + "'"
+				col.Base().SetDefault("'" + utils.ToString(col.Default()) + "'")
 			}
 		}
 

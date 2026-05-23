@@ -105,7 +105,7 @@ func (self *ModelBuilder) Field(name, fieldType string) *fieldStatment {
 	//field := self.model.GetFieldByName(name)
 	//if field == nil {
 	//var err error
-	field, err := NewField(name, WithFieldType(fieldType))
+	field, err := NewField(name, WithFieldType(fieldType), WithModel(self.model))
 	if err != nil {
 		log.Fatal(err)
 	}

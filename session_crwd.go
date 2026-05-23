@@ -208,8 +208,19 @@ func (self *TSession) _create(src any) (any, error) {
 	/* 创建关联数据 */
 	var relModel IModel
 	for tbl, rel_vals := range refValues {
-		if len(rel_vals) == 0 {
-			continue // # 关系表无数据更新则忽略
+		fieldName := self.Statement.Model.Obj().GetRelationByName(tbl)
+		hasExplicitValue := false
+		if v := newValues[fieldName]; v != nil && !utils.IsBlank(v) {
+			hasExplicitValue = true
+		}
+		if v := datas[fieldName]; v != nil {
+			if slice, ok := v.([]any); ok && len(slice) > 0 && !utils.IsBlank(slice[0]) {
+				hasExplicitValue = true
+			}
+		}
+
+		if len(rel_vals) == 0 && hasExplicitValue {
+			continue // # 关系表无数据更新且已经指定关联ID则忽略
 		}
 
 		// ???删除关联外键
@@ -931,8 +942,6 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 
 		if field.Store() {
 			switch field.TypeName() {
-			case TYPE_O2O:
-				continue
 			case TYPE_M2O:
 				/* 字符串为Name */
 				if v, ok := value.(string); ok {

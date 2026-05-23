@@ -126,12 +126,12 @@ func (self *TModelObject) GetDefault() *sync.Map {
 	return &self.defaultValues
 }
 
-func (self *TModelObject) GetDefaultByName(fieldName string) any {
+func (self *TModelObject) GetDefaultByName(fieldName string) (bool, any) {
 	if value, ok := self.defaultValues.Load(fieldName); ok {
-		return value
+		return true, value
 	}
 
-	return nil
+	return false, nil
 }
 
 func (self *TModelObject) SetDefaultByName(fieldName string, value any) {

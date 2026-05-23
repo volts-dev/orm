@@ -117,7 +117,8 @@ type (
 		// Size returns the size constraint (length/precision); when val is supplied, sets it first.
 		Size(val ...int) int
 		// Default returns the default value; when val is supplied, sets it first.
-		Default(val ...any) any
+		Default() any
+		SetDefault(val any)
 		// DefaultFunc returns the default-value function, or nil if none.
 		DefaultFunc() FieldFunc
 		// States returns the per-state UI attribute map; when val is supplied, replaces it first.
@@ -232,20 +233,20 @@ type (
 		translatable     bool                // 字段值是否可翻译
 		outputAs         string              // 读取时将值伪装为哪种类型（char/int/bool 等）
 
-		name             string         // 字段在数据库中的列名
-		store            bool           // 是否将字段值持久化到数据库
-		manual           bool           // 是否手动管理（非框架自动）
-		depends          []string       // 依赖的其他字段名列表
-		readonly         bool           // 是否只读
-		writeonly        bool           // 是否只写
-		required         bool           // 是否非空
-		description      string         // 字段的长描述（help text）
-		label            string         // 字段在 UI 表单中显示的名字
-		size             int            // 长度或精度约束
-		sortable         bool           // 是否可排序
-		searchable       bool           // 是否可搜索
-		typeName         string         // ORM 层字段类型标识（最终存入 dataset）
-		defaultValue     any            // 默认值字符串
+		name        string   // 字段在数据库中的列名
+		store       bool     // 是否将字段值持久化到数据库
+		manual      bool     // 是否手动管理（非框架自动）
+		depends     []string // 依赖的其他字段名列表
+		readonly    bool     // 是否只读
+		writeonly   bool     // 是否只写
+		required    bool     // 是否非空
+		description string   // 字段的长描述（help text）
+		label       string   // 字段在 UI 表单中显示的名字
+		size        int      // 长度或精度约束
+		sortable    bool     // 是否可排序
+		searchable  bool     // 是否可搜索
+		typeName    string   // ORM 层字段类型标识（最终存入 dataset）
+		//defaultValue     any            // 默认值字符串
 		relatedPath      string         // 关联路径表达式（用途未确认，保留兼容）
 		relationModel    string         // 关联到的 model 名（与 relatedModelName 用途略有差异）
 		uiStates         map[string]any // 传递给 UI 的 state 属性 map
@@ -259,7 +260,7 @@ type (
 		defaultFunc    FieldFunc // 默认值生成函数
 		setterFunc     FieldFunc // 写入计算/格式化函数
 		getterFunc     FieldFunc // 读取计算/格式化函数
-		boundModel     any       // 绑定的 model 引用（供 compute 使用）
+		boundModel     IModel    // 绑定的 model 引用（供 compute 使用）
 		setterMethod   string    // 写入方法名
 		getterMethod   string    // 读取方法名
 		computeAsAdmin bool      // 计算字段是否以 admin 权限重新计算
@@ -267,6 +268,7 @@ type (
 		oneToManyFK        string // one-to-many 关系中对端的外键字段名
 		m2mLimit           int64  // many-to-many 关系单次取回的上限
 		useAttachmentStore bool   // 值是否存入 attachment 表（适合大字段）
+		staticDefault      any    // 备用静态默认值，用于 boundModel 为 nil 的测试或脱水环境
 	}
 
 	// TRelatedField 描述 inherits 继承字段的映射：
@@ -572,12 +574,36 @@ func (self *TField) Store(val ...bool) bool {
 }
 
 // Default returns the default value; when val is supplied, sets it first.
-func (self *TField) Default(val ...any) any {
-	if len(val) > 0 {
-		self.defaultValue = val[0]
+func (self *TField) Default() any {
+	if self.boundModel != nil {
+		if has, v := self.boundModel.GetDefaultByName(self.Name()); has {
+			return v
+		}
 	}
 
-	return self.defaultValue
+	if self.staticDefault != nil {
+		return self.staticDefault
+	}
+
+	if self.defaultFunc != nil {
+		ctx := &TFieldContext{
+			Field: self,
+			Model: self.boundModel,
+		}
+		self.defaultFunc(ctx)
+		return ctx.Value
+	}
+
+	return nil
+}
+
+// SetDefault sets the default value; when val is supplied, sets it first.
+func (self *TField) SetDefault(val any) {
+	if self.boundModel != nil {
+		self.boundModel.SetDefaultByName(self.Name(), val)
+	} else {
+		self.staticDefault = val
+	}
 }
 
 // DefaultFunc returns the default-value function, or nil if none.
@@ -646,7 +672,7 @@ func (self *TField) IsAutoIncrement() bool {
 
 // IsDefaultEmpty reports whether the field has no default value (literal or function).
 func (self *TField) IsDefaultEmpty() bool {
-	return self.defaultValue == nil && self.defaultFunc == nil
+	return self.Default() == nil && self.defaultFunc == nil
 }
 
 // IsUnique reports whether the field has a UNIQUE constraint.
@@ -783,7 +809,7 @@ func (self *TField) Attributes(ctx *TTagContext) map[string]any {
 		"sortable":          self.sortable,
 		"searchable":        self.searchable,
 		"type":              self.typeName,
-		"default":           self.defaultValue,
+		"default":           self.Default(),
 		"related":           self.relatedPath,
 		"states":            self.uiStates,
 		"selection":         self.selection,

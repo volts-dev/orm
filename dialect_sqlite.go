@@ -118,10 +118,10 @@ func (db *sqlite) TableCheckSql(tableName string) (string, []any) {
 func (db *sqlite) DropColumnNotNullSql(tableName string, col IField) string { return "" }
 func (db *sqlite) DropColumnDefaultSql(tableName string, col IField) string { return "" }
 
-func (db *sqlite) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
+func (db *sqlite) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	// SQLite doesn't have a direct information_schema.columns-like interface for all details easily,
 	// but we can use PRAGMA table_info
-	s := fmt.Sprintf("PRAGMA table_info(%v)", db.quoter.Quote(tableName))
+	s := fmt.Sprintf("PRAGMA table_info(%v)", db.quoter.Quote(model.Table()))
 	db.LogSQL(s, nil)
 
 	rows, err := db.queryer.QueryContext(ctx, s)
@@ -166,7 +166,7 @@ func (db *sqlite) GetFields(ctx context.Context, session *TSession, tableName st
 			sqlType = SQLType{Name: dataType, DefaultLength: len1, DefaultLength2: len2}
 		}
 
-		col, err := NewField(name, WithSQLType(sqlType))
+		col, err := NewField(name, WithSQLType(sqlType), WithModel(model))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -174,7 +174,7 @@ func (db *sqlite) GetFields(ctx context.Context, session *TSession, tableName st
 		col.Base().isPrimaryKey = (pk > 0)
 		col.Base().required = (notNull > 0)
 		if dfltVal.Valid && dfltVal.String != "" && dfltVal.String != "NULL" {
-			col.Base().defaultValue = strings.Trim(dfltVal.String, "'")
+			col.Base().SetDefault(strings.Trim(dfltVal.String, "'"))
 		}
 
 		cols[name] = col

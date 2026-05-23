@@ -132,7 +132,7 @@ func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 		return err
 	}
 
-	if ds.Count() > 0 {
+	if ds != nil && ds.Count() > 0 {
 		field := ctx.Field
 
 		relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())

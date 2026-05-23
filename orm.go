@@ -61,7 +61,7 @@ type (
 )
 
 /*
- create a new ORM instance
+create a new ORM instance
 */
 func New(opt ...Option) (*TOrm, error) {
 	cfg := newConfig(opt...)
@@ -593,7 +593,7 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 			if field == nil {
 				/* 由GO数据类型转为ORM数据类型 */
 				sql_type = GoType2SQLType(field_type)
-				field, err = NewField(field_name, WithSQLType(sql_type))
+				field, err = NewField(field_name, WithSQLType(sql_type), WithModel(res_model))
 				if err != nil {
 					return nil, err
 				}
@@ -624,7 +624,7 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 			// 尝试获取新的Field以替换
 			if IsFieldType(field_type_name) { // # 当属性非忽略或者BaseModel
 				if field == nil || (field.TypeName() != field_type_name) { // #字段实例为空 [或者] 字段类型和当前类型不一致时重建字段实例
-					field, err = NewField(field_name, WithFieldType(field_type_name)) // 根据Tag里的 属性类型创建Field实例
+					field, err = NewField(field_name, WithFieldType(field_type_name), WithModel(res_model)) // 根据Tag里的 属性类型创建Field实例
 					if err != nil {
 						return nil, err
 					}
@@ -750,7 +750,7 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 	model.GetBase().obj = modelObject
 	model.GetBase().isCustomModel = false
 
-	colSeq, fields, err := self.dialect.GetFields(self.context, session, tableName)
+	colSeq, fields, err := self.dialect.GetFields(self.context, session, model)
 	if err != nil {
 		return nil, err
 	}

@@ -68,7 +68,7 @@ type (
 
 		// 对象被创建时
 		GetDefault() *sync.Map // map[string]interface{}
-		GetDefaultByName(fieldName string) (value any)
+		GetDefaultByName(fieldName string) (has bool, value any)
 		SetDefaultByName(fieldName string, value any) // 默认值修改获取
 
 		// return the model name
@@ -485,7 +485,7 @@ func (self *TModel) GetDefault() *sync.Map {
 	return self.obj.GetDefault()
 }
 
-func (self *TModel) GetDefaultByName(fieldName string) (value any) {
+func (self *TModel) GetDefaultByName(fieldName string) (bool, any) {
 	return self.obj.GetDefaultByName(fieldName)
 }
 
@@ -673,6 +673,7 @@ func (self *TModel) _validate(vals map[string]any) {
 		}
 	}
 }
+
 type (
 	TMethod struct {
 		name   string

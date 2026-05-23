@@ -892,7 +892,7 @@ func (self *TModel) DefaultGet(fields ...string) (map[string]any, error) {
 			}
 
 			value = ctx.values
-		} else if v := self.GetDefaultByName(fieldName); v != nil {
+		} else if ok, v := self.GetDefaultByName(fieldName); ok {
 			value = v
 		}
 

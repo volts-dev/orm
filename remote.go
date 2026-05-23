@@ -325,7 +325,7 @@ func (self *TRemoteModelObject) BeforeSession(s *TSession) (*TSession, error) { 
 func (self *TRemoteModelObject) AfterSession(s *TSession) (*TSession, error)  { return s, nil }
 func (self *TRemoteModelObject) Clone(opts ...ModelOption) (IModel, error)    { return self, nil }
 func (self *TRemoteModelObject) GetDefault() *sync.Map                        { return &sync.Map{} }
-func (self *TRemoteModelObject) GetDefaultByName(name string) any             { return nil }
+func (self *TRemoteModelObject) GetDefaultByName(name string) (bool, any)     { return false, nil }
 func (self *TRemoteModelObject) SetDefaultByName(name string, v any)          {}
 func (self *TRemoteModelObject) SetRecordName(name string)                    {}
 func (self *TRemoteModelObject) GetRecordName() string                        { return self.schema.IdField }

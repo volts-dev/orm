@@ -1261,9 +1261,9 @@ func (db *postgres) IsColumnExist(ctx context.Context, tableName, colName string
 	return rows.Next(), nil
 }
 
-func (db *postgres) GetFields(ctx context.Context, session *TSession, tableName string) ([]string, map[string]IField, error) {
+func (db *postgres) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	// FIXME: the schema should be replaced by user custom's
-	args := []any{tableName, db.getSchema(session)}
+	args := []any{model.Table(), db.getSchema(session)}
 	s := `SELECT column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
     CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
     CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
@@ -1412,7 +1412,7 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 			return nil, nil, fmt.Errorf("unknow colType: %v", dataType)
 		}
 
-		col, err := NewField(strings.Trim(colName, `" `), WithSQLType(sql_type))
+		col, err := NewField(strings.Trim(colName, `" `), WithSQLType(sql_type), WithModel(model))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1436,7 +1436,7 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		}
 
 		if defaultValueStr != "" {
-			col.Base().defaultValue = defaultValue
+			col.Base().SetDefault(defaultValue)
 		}
 		col.Base().required = (isNullable == "NO")
 		col.Base().size = sql_type.DefaultLength
