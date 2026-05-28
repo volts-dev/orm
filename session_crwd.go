@@ -85,6 +85,10 @@ func (self *TSession) Write(data any) (effect int64, err error) {
 		return -1, ErrInvalidSession
 	}
 
+	if !self.allowUnsafe && !self.hasCondition() {
+		return 0, errors.ErrUnsafe
+	}
+
 	return self._write(data)
 }
 
@@ -119,6 +123,12 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 		self.Statement.IdParam = append(self.Statement.IdParam, ids...)
 	}
 	ids = self.Statement.IdParam
+
+	// Phase 2: safety guard — block no-condition deletes unless explicitly opted-in
+	if !self.allowUnsafe && !self.hasCondition() {
+		return 0, errors.ErrUnsafe
+	}
+
 	if len(ids) == 0 {
 		var err error
 		ids, _, err = self._search("", nil)
@@ -1065,10 +1075,6 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		name = field.Name()
 		if name == idKeyName {
 			continue
-		}
-
-		if name == "tenant_id" {
-			log.Dbgf("tenant_id")
 		}
 
 		fieldValue = record.GetByField(name)
