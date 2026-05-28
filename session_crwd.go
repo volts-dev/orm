@@ -468,7 +468,7 @@ func (self *TSession) _write(src any) (int64, error) {
 			where_clause,
 		)
 		// 获得Id占位符索引
-		ds, err := self.Query(sql, where_clause_params...) //cr.execute(res_sql, params)
+		ds, err := self._query(sql, where_clause_params...) // use internal _query to avoid premature AutoClose
 		if err != nil {
 			return 0, err
 		}
@@ -834,6 +834,27 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 
 	// # determine the actual query to execute
 	from_clause, where_clause, where_clause_params = query.getSql()
+
+	// Phase 2: soft-delete auto-filter
+	if deletedField := self.Statement.Model.Obj().DeletedField; deletedField != "" {
+		quoter := self.orm.dialect.Quoter()
+		quoted := quoter.QuoteIdentMust(deletedField)
+		var sdFilter string
+		switch self.softDeleteMode {
+		case softDeleteFilterActive:
+			sdFilter = quoted + " IS NULL"
+		case softDeleteOnlyDeleted:
+			sdFilter = quoted + " IS NOT NULL"
+		}
+		if sdFilter != "" {
+			if where_clause == "" {
+				where_clause = sdFilter
+			} else {
+				where_clause = where_clause + " AND " + sdFilter
+			}
+		}
+	}
+
 	if where_clause != "" {
 		where_clause = "WHERE " + where_clause
 	}
@@ -1207,7 +1228,12 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 				/* 更新不需要检测字段 */
 				if isIncludedIds {
-					// 包含主键的数据,说明已经是被创建过了,则不补全该字段
+					// If field is explicitly marked nullable, write nil as SQL NULL
+					if nullableFields != nil {
+						if isNullable, ok := nullableFields[name]; ok && isNullable {
+							new_vals[name] = nil
+						}
+					}
 					continue
 				} else {
 					// 未包含主键的数据,需要检测是否为必须字段
@@ -1271,9 +1297,14 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		}
 
 		if field.Store() && field.SQLType().Name != "" {
-			if includeNil || !isBlank {
-				fieldValue = field.onConvertToWrite(self, fieldValue)
-				new_vals[name] = fieldValue
+			isExplicitlyNullable := nullableFields != nil && nullableFields[name]
+			if includeNil || !isBlank || isExplicitlyNullable {
+				if isExplicitlyNullable && isBlank {
+					new_vals[name] = nil // write SQL NULL for explicitly nullable blank field
+				} else {
+					fieldValue = field.onConvertToWrite(self, fieldValue)
+					new_vals[name] = fieldValue
+				}
 				record.SetByField(name, fieldValue)
 			}
 		} else {

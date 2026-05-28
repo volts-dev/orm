@@ -214,3 +214,16 @@ func (self *TSession) OnConflict(conflict *OnConflict) *TSession {
 	self.Statement.OnConflict = conflict
 	return self
 }
+
+// Nullable marks the given field names as explicitly nullable in the next Write
+// call, allowing nil values to be written as SQL NULL rather than skipped.
+// Use when restoring soft-deleted records: .Nullable("deleted_at").Write({deleted_at: nil}).
+func (self *TSession) Nullable(fields ...string) *TSession {
+	if self.Statement.NullableFields == nil {
+		self.Statement.NullableFields = make(map[string]bool)
+	}
+	for _, f := range fields {
+		self.Statement.NullableFields[f] = true
+	}
+	return self
+}

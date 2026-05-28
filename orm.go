@@ -21,6 +21,7 @@ import (
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/cacher"
 	"github.com/volts-dev/orm/core"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 	"github.com/volts-dev/volts/logger"
 )
@@ -697,7 +698,15 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 
 			// 添加字段进Table
 			if field.TypeName() != "" && field.Name() != "" {
-				res_model.obj.SetField(field) //
+				res_model.obj.SetField(field)
+
+				// Phase 2: populate DeletedField; reject models with multiple deleted tags
+				if field.Base().isDeletedAt {
+					if res_model.obj.DeletedField != "" {
+						return nil, ormerr.ErrSoftDeleteMisconfigured
+					}
+					res_model.obj.DeletedField = field.Name()
+				}
 			}
 		}
 	}

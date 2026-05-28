@@ -32,7 +32,8 @@ type (
 		Sets         map[string]TFieldValue // 预存数据值 供更新或者限制字段 如多租户字段
 		lastSQL      string                 //
 		lastSQLArgs  []any                  // 储存有序值
-		allowUnsafe  bool                   // Phase 2: bypasses no-WHERE Delete/Write guard; set via AllowUnsafe()
+		allowUnsafe    bool           // Phase 2: bypasses no-WHERE Delete/Write guard; set via AllowUnsafe()
+		softDeleteMode softDeleteMode // Phase 2: controls Read-path soft-delete filtering (default: filterActive)
 	}
 )
 
