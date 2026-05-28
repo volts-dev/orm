@@ -213,10 +213,8 @@ func (self *TSession) _create(src any) (any, error) {
 		if v := newValues[fieldName]; v != nil && !utils.IsBlank(v) {
 			hasExplicitValue = true
 		}
-		if v := datas[fieldName]; v != nil {
-			if slice, ok := v.([]any); ok && len(slice) > 0 && !utils.IsBlank(slice[0]) {
-				hasExplicitValue = true
-			}
+		if v := datas[fieldName]; len(v) > 0 && !utils.IsBlank(v[0]) {
+			hasExplicitValue = true
 		}
 
 		if len(rel_vals) == 0 && hasExplicitValue {
@@ -1067,6 +1065,10 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 		name = field.Name()
 		if name == idKeyName {
 			continue
+		}
+
+		if name == "tenant_id" {
+			log.Dbgf("tenant_id")
 		}
 
 		fieldValue = record.GetByField(name)

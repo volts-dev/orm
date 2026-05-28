@@ -1,7 +1,7 @@
 module github.com/volts-dev/orm
 
 go 1.25.0
- 
+
 require (
 	github.com/bwmarrin/snowflake v0.3.0
 	github.com/go-sql-driver/mysql v1.9.3

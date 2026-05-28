@@ -157,6 +157,7 @@ func (self *TModelObject) SetRelatedFieldByName(fieldName string, field *TRelate
 	self.relatedFields[fieldName] = field
 	self.relatedFieldsLock.Unlock()
 }
+
 func (self *TModelObject) GetCommonFieldByName(fieldName string) (tableField map[string]IField) {
 	self.commonFieldsLock.RLock()
 	tableField = self.commonFields[fieldName]

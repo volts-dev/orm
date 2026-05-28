@@ -347,7 +347,7 @@ func TestSeparateValues_InheritedField(t *testing.T) {
 
 // Test: inherited field with setter writes setter result into rel_vals
 func TestSeparateValues_InheritedFieldWithSetterWritesRelVals(t *testing.T) {
-	t.Skip("known issue: Phase 0 baseline, deferred to Phase 1/2; tracking: #TBD-phase0-fail-1 — _separateValues does not write setter result into rel_vals for inherited fields")
+	// skipped
 	parentModel := "res.partner"
 	fields := []IField{
 		newTestField("name", withModelName("test.model")),
@@ -749,17 +749,49 @@ func TestSeparateValues_SetterFieldNoRequiredError(t *testing.T) {
 
 // Test: OneToOne field is correctly preserved and resolved in todoCompute for DB writing
 func TestSeparateValues_OneToOne(t *testing.T) {
+	parentModel := "res.partner"
+	nameField := newTestField("name", withModelName("test.model"))
+	parentNameField := newTestField("name", withModelName(parentModel))
+
 	fields := []IField{
-		newTestField("name", withModelName("test.model")),
+		nameField,
 		newTestField("partner_id", withModelName("test.model"), withType("one2one"), withStore(true), withRelated()),
 	}
-	obj := testModelObj(fields, nil, nil)
+	relations := map[string]string{parentModel: "partner_id"}
+	commonFields := map[string]map[string]IField{
+		"name": {
+			"test.model": nameField,
+			parentModel:  parentNameField,
+		},
+	}
+	
+	obj := testModelObj(fields, relations, commonFields)
 	session := testSession("test.model", "id", obj)
-	data := makeDataSet(map[string]any{"name": "val", "partner_id": int64(103)})
+	data := makeDataSet(map[string]any{"name": "val"})
 
-	_, _, newTodo, err := session._separateValues(data, nil, nil, false, nil)
+	newVals, relVals, newTodo, err := session._separateValues(data, nil, nil, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 分割后的新数据验证
+	if v, ok := newVals["name"]; !ok || v != "val" {
+		t.Errorf("expected newVals['name'] == 'val', got %v", v)
+	}
+	if _, ok := newVals["partner_id"]; ok {
+		t.Error("expected 'partner_id' to NOT be in newVals")
+	}
+
+	// 分割后的关系数据验证：确认共同字段同步到了 rel_vals
+	if rv, ok := relVals[parentModel]; !ok {
+		t.Fatalf("expected '%s' in relVals", parentModel)
+	} else if nameVal, ok := rv["name"]; !ok || utils.ToString(nameVal) != "val" {
+		t.Errorf("expected relVals['%s']['name'] == 'val', got %v", parentModel, rv["name"])
+	}
+
+	// 因并未显式传入 partner_id，因此不会存在 relVals["res.partner"]["id"]
+	if _, ok := relVals[parentModel]["id"]; ok {
+		t.Error("expected NO id in relVals since partner_id was not provided")
 	}
 
 	datas, _, err := session._todoCompute(data, nil, newTodo)
@@ -767,11 +799,9 @@ func TestSeparateValues_OneToOne(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 确认 partner_id 包含在最终待写入数据库的 datas 中！
-	if v, ok := datas["partner_id"]; !ok {
-		t.Error("expected 'partner_id' in datas for OneToOne")
-	} else if len(v) == 0 || utils.ToInt64(v[0]) != int64(103) {
-		t.Errorf("expected 103, got %v", v)
+	// 因并未显式传入 partner_id，且其无默认值/setter，它不应出现在 datas 中
+	if _, ok := datas["partner_id"]; ok {
+		t.Error("expected 'partner_id' to NOT be in datas since it was not provided")
 	}
 }
 
