@@ -85,10 +85,6 @@ func (self *TSession) Write(data any) (effect int64, err error) {
 		return -1, ErrInvalidSession
 	}
 
-	if !self.allowUnsafe && !self.hasCondition() {
-		return 0, errors.ErrUnsafe
-	}
-
 	return self._write(data)
 }
 
@@ -434,6 +430,12 @@ func (self *TSession) _write(src any) (int64, error) {
 		}
 	}
 	includePkey := len(ids) > 0
+
+	// Phase 2: safety guard — block no-condition writes unless explicitly opted-in.
+	// Guard runs here (after ID extraction from data) so Write(map_with_id) is allowed.
+	if !self.allowUnsafe && !includePkey && self.Statement.domain.Count() == 0 {
+		return 0, errors.ErrUnsafe
+	}
 
 	// 组合查询语句
 	var (

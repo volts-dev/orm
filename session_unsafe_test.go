@@ -101,6 +101,23 @@ func TestWrite_NoConditionReturnsErrUnsafe(t *testing.T) {
 	}
 }
 
+// TestWrite_DataWithIdIsAllowed verifies that Write(map_with_id) is not blocked
+// by the ErrUnsafe guard. The ID in the data acts as an implicit condition.
+func TestWrite_DataWithIdIsAllowed(t *testing.T) {
+	o := setupTestOrm(t)
+	defer o.Close()
+
+	id, err := o.Model("bench.model").Create(map[string]any{"name": "before", "age": 0})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err = o.Model("bench.model").Write(map[string]any{"id": id, "name": "after"})
+	if err != nil {
+		t.Fatalf("Write(data_with_id) should succeed, got: %v", err)
+	}
+}
+
 func TestDelete_WithIdsAllowed(t *testing.T) {
 	o := setupTestOrm(t)
 	defer o.Close()
