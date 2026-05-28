@@ -148,7 +148,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 
 			// 如果数据库不存在改Model对应的表则创建
 			//err = self.StoreEngine(s.Statement.StoreEngine).CreateTable(bean)
-			if err = self.CreateTable(modelName); err != nil {
+			if err = self.createTableImpl(modelName); err != nil {
 				return modelNames, err
 			}
 
@@ -156,7 +156,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 				return modelNames, err
 			}
 
-			if err = self.CreateIndexes(modelName); err != nil {
+			if err = self.createIndexesImpl(modelName); err != nil {
 				return modelNames, err
 			}
 
@@ -215,7 +215,7 @@ func (self *TSession) SetSchema(schema string) *TSession {
 
 // CreateTable create a table according a bean
 // TODO考虑添加参数 达到INHERITS
-func (self *TSession) CreateTable(model string) error {
+func (self *TSession) createTableImpl(model string) error {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -259,6 +259,13 @@ func (self *TSession) CreateTable(model string) error {
 	return err
 }
 
+// CreateTable is the legacy entry point.
+//
+// Deprecated: use session.DDL().CreateTable(model). Will be removed in Phase 3.
+func (self *TSession) CreateTable(model string) error {
+	return self.DDL().CreateTable(model)
+}
+
 // CreateUniques create uniques
 func (self *TSession) CreateUniques(model string) error {
 	defer self.Statement.Init()
@@ -282,8 +289,7 @@ func (self *TSession) CreateUniques(model string) error {
 	return nil
 }
 
-// CreateIndexes create indexes
-func (self *TSession) CreateIndexes(model string) error {
+func (self *TSession) createIndexesImpl(model string) error {
 	defer self.Statement.Init()
 	if self.IsAutoClose {
 		defer self.Close()
@@ -310,8 +316,14 @@ func (self *TSession) CreateIndexes(model string) error {
 	return nil
 }
 
-// drop table will drop table if exist, if drop failed, it will return error
-func (self *TSession) DropTable(name string) (err error) {
+// CreateIndexes is the legacy entry point.
+//
+// Deprecated: use session.DDL().CreateIndexes(model). Will be removed in Phase 3.
+func (self *TSession) CreateIndexes(model string) error {
+	return self.DDL().CreateIndexes(model)
+}
+
+func (self *TSession) dropTableImpl(name string) (err error) {
 	var needDrop = true
 	if !self.orm.dialect.SupportDropIfExists() {
 		sql, args := self.orm.dialect.TableCheckSql(name)
@@ -345,6 +357,14 @@ func (self *TSession) DropTable(name string) (err error) {
 	}
 
 	return
+}
+
+// DropTable is the legacy entry point.
+//
+// Deprecated: use session.DDL().AllowUnsafe().DropTable(name). Will be removed in Phase 3.
+// This alias bypasses the AllowUnsafe guard for backward compatibility.
+func (self *TSession) DropTable(name string) error {
+	return self.dropTableImpl(name)
 }
 
 // TODO 缓存方式
