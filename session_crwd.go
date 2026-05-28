@@ -145,9 +145,13 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 
 	// get the model id field name
 	id_field := self.Statement.Model.IdField()
+	quoter := self.orm.dialect.Quoter()
 
 	//#1 删除目标Model记录
-	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `, self.Statement.Model.Table(), id_field, idsToSqlHolder(ids...))
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `,
+		quoter.QuoteIdentMust(self.Statement.Model.Table()),
+		quoter.QuoteIdentMust(id_field),
+		idsToSqlHolder(ids...))
 	res, err := self._exec(sql, ids...)
 	if err != nil {
 		return 0, err
