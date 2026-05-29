@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/volts-dev/dataset"
@@ -1353,6 +1354,21 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 	return new_vals, rel_vals, upd_todo, nil
 }
+
+// structFieldInfo holds the reflection metadata for one struct field that
+// does not change between calls (name, index, kind flags). Per-call
+// context-dependent checks (model field existence, SQLType) still run each time.
+type structFieldInfo struct {
+	reflectIdx int    // index for reflect.Type.Field(i) / reflect.Value.Field(i)
+	ormName    string // final ORM field name after fmtFieldName + tag "name" override
+	isExtends  bool   // tag has "extends" or "relate" — recurse into nested struct
+	isTime     bool   // field type is ConvertibleTo(TimeType)
+	skip       bool   // unexported or tag == "-"
+}
+
+// structInfoCache maps reflect.Type → []structFieldInfo.
+// Populated lazily; struct field shapes never change, so entries are never invalidated.
+var structInfoCache sync.Map
 
 func (self *TSession) _convertStruct2Itfmap(src any) (res_map map[string]any) {
 	var (

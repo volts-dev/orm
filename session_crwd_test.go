@@ -3,6 +3,7 @@ package orm
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -824,5 +825,28 @@ func BenchmarkSeparateValues(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		data := makeDataSet(vals)
 		session._separateValues(data, nil, nil, false, nil)
+	}
+}
+
+// Test: structInfoCache is populated on first call to _structToMap
+func Test_structInfoCache_PopulatedOnFirstCall(t *testing.T) {
+	type SimpleStruct struct {
+		Name string `field:"name('user_name')"`
+		Age  int    `field:""`
+	}
+
+	fields := []IField{newTestField("user_name"), newTestField("age")}
+	obj := testModelObj(fields, nil, nil)
+	sess := testSession("simple.struct", "id", obj)
+	sess._structToMap(&SimpleStruct{Name: "alice", Age: 30})
+
+	typ := reflect.TypeOf(SimpleStruct{})
+	v, ok := structInfoCache.Load(typ)
+	if !ok {
+		t.Fatal("structInfoCache should be populated after first call")
+	}
+	infos := v.([]structFieldInfo)
+	if len(infos) == 0 {
+		t.Fatal("cache entry should contain at least one field")
 	}
 }
