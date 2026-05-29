@@ -1370,6 +1370,148 @@ type structFieldInfo struct {
 // Populated lazily; struct field shapes never change, so entries are never invalidated.
 var structInfoCache sync.Map
 
+// _structToMap converts a struct to map[string]any using cached field metadata.
+// Model-dependent checks (GetFieldByName, SQLType) still run per call.
+func (self *TSession) _structToMap(src any) (res_map map[string]any) {
+	v := reflect.ValueOf(src)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		log.Warn("_structToMap: not a struct")
+		return nil
+	}
+
+	vType := v.Type()
+
+	// load or build cache entry
+	var infos []structFieldInfo
+	if cached, ok := structInfoCache.Load(vType); ok {
+		infos = cached.([]structFieldInfo)
+	} else {
+		infos = make([]structFieldInfo, 0, vType.NumField())
+		for i := 0; i < vType.NumField(); i++ {
+			sf := vType.Field(i)
+			info := structFieldInfo{reflectIdx: i}
+
+			// unexported
+			if sf.PkgPath != "" {
+				info.skip = true
+				infos = append(infos, info)
+				continue
+			}
+
+			tag := sf.Tag.Get(self.orm.config.FieldIdentifier)
+			if tag == "-" {
+				info.skip = true
+				infos = append(infos, info)
+				continue
+			}
+
+			// default ORM name
+			info.ormName = fmtFieldName(sf.Name)
+
+			// parse tag for name override and extends/relate
+			for _, part := range splitTag(tag) {
+				parsed := parseTag(part)
+				switch strings.ToLower(parsed[0]) {
+				case "name":
+					if len(parsed) > 1 {
+						info.ormName = fmtFieldName(parsed[1])
+					}
+				case "extends", "relate":
+					info.isExtends = true
+				}
+			}
+
+			// time detection (type-level, not value-level)
+			ft := sf.Type
+			if ft.Kind() == reflect.Ptr {
+				ft = ft.Elem()
+			}
+			info.isTime = ft.ConvertibleTo(TimeType)
+
+			infos = append(infos, info)
+		}
+		structInfoCache.Store(vType, infos)
+	}
+
+	res_map = make(map[string]any)
+	lToOmitFields := len(self.Statement.Fields) > 0
+
+	for _, info := range infos {
+		if info.skip {
+			continue
+		}
+
+		// per-call: Statement.Fields filter
+		if lToOmitFields {
+			if b, ok := self.Statement.Fields[info.ormName]; ok && !b {
+				continue
+			}
+		}
+
+		fv := v.Field(info.reflectIdx)
+
+		// extends/relate: recurse
+		if info.isExtends {
+			if (fv.Kind() == reflect.Ptr && fv.Elem().Kind() == reflect.Struct) ||
+				fv.Kind() == reflect.Struct {
+				for col, val := range self._structToMap(fv.Interface()) {
+					res_map[col] = val
+				}
+			}
+			continue
+		}
+
+		// per-call: model field existence check
+		lCol := self.Statement.Model.Obj().GetFieldByName(info.ormName)
+		if lCol == nil {
+			continue
+		}
+
+		var lValue any
+		if info.isTime {
+			t := fv.Convert(TimeType).Interface().(time.Time)
+			lValue = self.orm.FormatTime(lCol.Base().SQLType().Name, t)
+		} else {
+			switch fv.Kind() {
+			case reflect.Struct:
+				// non-time struct: JSON or blob
+				col := lCol.Base()
+				if col.SQLType().IsJson() {
+					if col.SQLType().IsText() {
+						if b, err := json.Marshal(fv.Interface()); err == nil {
+							lValue = string(b)
+						} else {
+							log.Errf("IsJson/Text", err)
+							continue
+						}
+					} else if col.SQLType().IsBlob() {
+						if b, err := json.Marshal(fv.Interface()); err == nil {
+							lValue = b
+						} else {
+							log.Errf("IsJson/Blob", err)
+							continue
+						}
+					} else {
+						log.Err("unhandled struct field type", info.ormName)
+					}
+				}
+			default:
+				lValue = fv.Interface()
+			}
+		}
+
+		if lValue == nil && fv.IsValid() {
+			lValue = fv.Interface()
+		}
+		res_map[info.ormName] = lValue
+	}
+
+	return
+}
+
 func (self *TSession) _convertStruct2Itfmap(src any) (res_map map[string]any) {
 	var (
 		lField           reflect.StructField

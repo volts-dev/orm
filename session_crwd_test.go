@@ -828,6 +828,42 @@ func BenchmarkSeparateValues(b *testing.B) {
 	}
 }
 
+func Test_structToMap_BasicConversion(t *testing.T) {
+	type Person struct {
+		Name string `field:""`
+		Age  int    `field:""`
+	}
+	fields := []IField{newTestField("name"), newTestField("age")}
+	obj := testModelObj(fields, nil, nil)
+	sess := testSession("person", "id", obj)
+
+	m := sess._structToMap(&Person{Name: "bob", Age: 25})
+	if m["name"] != "bob" {
+		t.Errorf("name: got %v, want bob", m["name"])
+	}
+	if m["age"] != 25 {
+		t.Errorf("age: got %v, want 25", m["age"])
+	}
+}
+
+func Test_structToMap_CacheReused(t *testing.T) {
+	type Item struct {
+		Title string `field:""`
+	}
+	fields := []IField{newTestField("title")}
+	obj := testModelObj(fields, nil, nil)
+	sess := testSession("item", "id", obj)
+
+	sess._structToMap(&Item{Title: "first"})
+	sess._structToMap(&Item{Title: "second"}) // must not panic or return wrong data
+
+	typ := reflect.TypeOf(Item{})
+	_, ok := structInfoCache.Load(typ)
+	if !ok {
+		t.Fatal("cache should be populated after two calls")
+	}
+}
+
 // Test: structInfoCache is populated on first call to _structToMap
 func Test_structInfoCache_PopulatedOnFirstCall(t *testing.T) {
 	type SimpleStruct struct {
