@@ -858,7 +858,8 @@ func Test_structToMap_CacheReused(t *testing.T) {
 	sess._structToMap(&Item{Title: "second"}) // must not panic or return wrong data
 
 	typ := reflect.TypeOf(Item{})
-	_, ok := structInfoCache.Load(typ)
+	cacheKey := structCacheKey{t: typ, fieldIdentifier: sess.orm.config.FieldIdentifier}
+	_, ok := structInfoCache.Load(cacheKey)
 	if !ok {
 		t.Fatal("cache should be populated after two calls")
 	}
@@ -877,7 +878,8 @@ func Test_structInfoCache_PopulatedOnFirstCall(t *testing.T) {
 	sess._structToMap(&SimpleStruct{Name: "alice", Age: 30})
 
 	typ := reflect.TypeOf(SimpleStruct{})
-	v, ok := structInfoCache.Load(typ)
+	cacheKey := structCacheKey{t: typ, fieldIdentifier: sess.orm.config.FieldIdentifier}
+	v, ok := structInfoCache.Load(cacheKey)
 	if !ok {
 		t.Fatal("structInfoCache should be populated after first call")
 	}

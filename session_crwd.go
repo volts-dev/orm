@@ -1366,7 +1366,16 @@ type structFieldInfo struct {
 	skip       bool   // unexported or tag == "-"
 }
 
-// structInfoCache maps reflect.Type → []structFieldInfo.
+// structCacheKey is a compound key for structInfoCache.
+// Includes both the reflect.Type and the FieldIdentifier tag name,
+// so that different TOrm instances with different FieldIdentifiers
+// don't share the same cache entry.
+type structCacheKey struct {
+	t               reflect.Type
+	fieldIdentifier string
+}
+
+// structInfoCache maps structCacheKey → []structFieldInfo.
 // Populated lazily; struct field shapes never change, so entries are never invalidated.
 var structInfoCache sync.Map
 
@@ -1386,7 +1395,8 @@ func (self *TSession) _structToMap(src any) (res_map map[string]any) {
 
 	// load or build cache entry
 	var infos []structFieldInfo
-	if cached, ok := structInfoCache.Load(vType); ok {
+	cacheKey := structCacheKey{t: vType, fieldIdentifier: self.orm.config.FieldIdentifier}
+	if cached, ok := structInfoCache.Load(cacheKey); ok {
 		infos = cached.([]structFieldInfo)
 	} else {
 		infos = make([]structFieldInfo, 0, vType.NumField())
@@ -1433,7 +1443,7 @@ func (self *TSession) _structToMap(src any) (res_map map[string]any) {
 
 			infos = append(infos, info)
 		}
-		structInfoCache.Store(vType, infos)
+		structInfoCache.Store(cacheKey, infos)
 	}
 
 	res_map = make(map[string]any)
