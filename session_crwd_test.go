@@ -996,3 +996,28 @@ func Test_write_SetsApplied(t *testing.T) {
 		t.Fatalf("write with Sets and nil src failed: %v", err)
 	}
 }
+
+func Test_create_SetsOverrideSrc(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	// Create with both src data and Sets — Sets should override
+	id, err := o.Model("bench.model").Set("name", "override").Create(map[string]any{"name": "original", "age": 5})
+	if err != nil {
+		t.Fatalf("create with src+Sets failed: %v", err)
+	}
+	if id == nil {
+		t.Fatal("expected non-nil id")
+	}
+}
+
+func Test_write_SetsOverrideSrc(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	id, err := o.Model("bench.model").Create(map[string]any{"name": "initial", "age": 1})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// Write with both src data and Sets — Sets should override
+	_, err = o.Model("bench.model").Ids(id).Set("name", "overridden").Write(map[string]any{"name": "from_src", "age": 2})
+	if err != nil {
+		t.Fatalf("write with src+Sets failed: %v", err)
+	}
+}

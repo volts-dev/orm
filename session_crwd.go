@@ -1514,7 +1514,14 @@ func (self *TSession) _structToMap(src any) (res_map map[string]any) {
 
 		var lValue any
 		if info.isTime {
-			t := fv.Convert(TimeType).Interface().(time.Time)
+			timeFv := fv
+			if timeFv.Kind() == reflect.Ptr {
+				if timeFv.IsNil() {
+					continue  // nil *time.Time — skip this field
+				}
+				timeFv = timeFv.Elem()
+			}
+			t := timeFv.Convert(TimeType).Interface().(time.Time)
 			lValue = self.orm.FormatTime(lCol.Base().SQLType().Name, t)
 		} else {
 			switch fv.Kind() {
