@@ -56,6 +56,26 @@ func BenchmarkCreate_Single(b *testing.B) {
 	}
 }
 
+// BenchmarkCreate_Struct measures _validateValues with a struct input,
+// exercising the structInfoCache path.
+func BenchmarkCreate_Struct(b *testing.B) {
+	type PersonStruct struct {
+		TModel `table:"name('bench_model')"`
+		Id     int64  `field:"pk autoincr"`
+		Name   string `field:"varchar() size(64)"`
+		Age    int    `field:"int()"`
+	}
+	o := setupBenchOrm(b)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := o.Model("bench.model").Create(&PersonStruct{Name: "alice", Age: i})
+		if err != nil {
+			b.Fatalf("Create failed: %v", err)
+		}
+	}
+}
+
 func BenchmarkCreate_Batch_100(b *testing.B) {
 	o := setupBenchOrm(b)
 	b.ReportAllocs()
