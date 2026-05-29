@@ -963,3 +963,24 @@ func Test_validateValues_UnsupportedTypeReturnsError(t *testing.T) {
 		t.Fatal("expected error for unsupported input type")
 	}
 }
+
+func setupIntegrationOrm(t *testing.T) *TOrm {
+	t.Helper()
+	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatalf("orm.New: %v", err)
+	}
+	if _, err := o.SyncModel("", new(BenchModel)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	return o
+}
+
+func Test_create_SetsApplied(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	_, err := o.Model("bench.model").Set("name", "from_set").Create(nil)
+	if err != nil {
+		t.Fatalf("create with Sets and nil src failed: %v", err)
+	}
+}

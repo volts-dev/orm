@@ -186,10 +186,29 @@ func (self *TSession) _create(src any) (any, error) {
 		return nil, ErrTableNotFound
 	}
 
+	// If src is nil but Sets are present, use Sets as the data source.
+	// If src is provided, _validateValues converts it; Sets are applied afterward.
+	if src == nil && len(self.Statement.Sets) == 0 {
+		return nil, fmt.Errorf("must submit the values for create")
+	}
+	srcWasSets := false
+	if src == nil {
+		src = self.Statement.Sets
+		srcWasSets = true
+	}
+
 	/* 解析数据 */
 	data, res_err := self._validateValues(src)
 	if res_err != nil {
 		return nil, res_err
+	}
+
+	/* 应用 Sets（覆盖已有值） */
+	if !srcWasSets && len(self.Statement.Sets) > 0 {
+		rec := data.Record()
+		for k, v := range self.Statement.Sets {
+			rec.SetByField(k, v)
+		}
 	}
 
 	/* 拆分数据 */
