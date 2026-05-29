@@ -920,3 +920,46 @@ func Test_toMap_UnsupportedType(t *testing.T) {
 		t.Errorf("expected nil for unsupported type, got %v", result)
 	}
 }
+
+func Test_validateValues_MapStringAny(t *testing.T) {
+	fields := []IField{newTestField("name")}
+	sess := testSession("person", "id", testModelObj(fields, nil, nil))
+
+	ds, err := sess._validateValues(map[string]any{"name": "alice"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := ds.Record().GetByField("name"); got != "alice" {
+		t.Errorf("name: got %v, want alice", got)
+	}
+}
+
+func Test_validateValues_TDataSetPassthrough(t *testing.T) {
+	sess := testSession("m", "id", testModelObj(nil, nil, nil))
+	existing := dataset.NewDataSet()
+	_ = existing.NewRecord(map[string]any{"id": 99})
+
+	ds, err := sess._validateValues(existing)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ds != existing {
+		t.Error("expected the same TDataSet pointer to be returned")
+	}
+}
+
+func Test_validateValues_NilReturnsError(t *testing.T) {
+	sess := testSession("m", "id", testModelObj(nil, nil, nil))
+	_, err := sess._validateValues(nil)
+	if err == nil {
+		t.Fatal("expected error for nil input")
+	}
+}
+
+func Test_validateValues_UnsupportedTypeReturnsError(t *testing.T) {
+	sess := testSession("m", "id", testModelObj(nil, nil, nil))
+	_, err := sess._validateValues(12345)
+	if err == nil {
+		t.Fatal("expected error for unsupported input type")
+	}
+}

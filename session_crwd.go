@@ -917,32 +917,27 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 }
 
 // TODO
-// 验证输入的数据
+// _validateValues converts any supported value into a *dataset.TDataSet.
+// It does NOT apply Statement.Sets — callers handle Sets inline after this call.
+// Supported inputs: *dataset.TDataSet (returned as-is), map[string]any,
+// map[string]string, or a struct pointer/value.
 func (self *TSession) _validateValues(values any) (*dataset.TDataSet, error) {
-	var result *dataset.TDataSet
-	if values != nil {
-		valuesMap := self._convertItf2ItfMap(values)
-		if len(self.Statement.Sets) > 0 {
-			result = dataset.NewDataSet(dataset.WithData(self.Statement.Sets))
-			rec := result.Record()
-			for k, v := range valuesMap {
-				rec.SetByField(k, v)
-			}
-		} else {
-			result = dataset.NewDataSet()
-			if err := result.NewRecord(valuesMap); err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		if len(self.Statement.Sets) == 0 {
-			return nil, fmt.Errorf("must submit the values for update")
-		}
-
-		result = dataset.NewDataSet(dataset.WithData(self.Statement.Sets))
+	if values == nil {
+		return nil, fmt.Errorf("must submit the values for update")
 	}
 
-	return result, nil
+	// fast path: already a TDataSet — return directly
+	if ds, ok := values.(*dataset.TDataSet); ok {
+		return ds, nil
+	}
+
+	m := self._toMap(values)
+	if m == nil {
+		return nil, fmt.Errorf("unsupported values type: %T", values)
+	}
+
+	ds := dataset.NewDataSet()
+	return ds, ds.NewRecord(m)
 }
 
 func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []IField) (map[string][]any, int, error) {
