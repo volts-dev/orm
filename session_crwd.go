@@ -1668,6 +1668,42 @@ func (self *TSession) _convertStruct2Itfmap(src any) (res_map map[string]any) {
 	return
 }
 
+// _toMap converts any supported input type to map[string]any.
+// For structs, uses _structToMap (reflection-cached).
+// Returns nil for nil input or unsupported types.
+func (self *TSession) _toMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+
+	vType := reflect.TypeOf(value)
+	if vType.Kind() == reflect.Ptr {
+		vType = vType.Elem()
+	}
+
+	switch vType.Kind() {
+	case reflect.Struct:
+		if self.Statement.Model == nil {
+			if name := fmtModelName(utils.Obj2Name(value)); name != "" {
+				self.Model(name)
+			}
+		}
+		return self._structToMap(value)
+	case reflect.Map:
+		if m, ok := value.(map[string]any); ok {
+			return m
+		}
+		if m, ok := value.(map[string]string); ok {
+			res := make(map[string]any, len(m))
+			for k, v := range m {
+				res[k] = v
+			}
+			return res
+		}
+	}
+	return nil
+}
+
 // # transfer struct to Itf map and record model name if could
 // #1 限制字段使用 2.添加Model
 func (self *TSession) _convertItf2ItfMap(value any) map[string]any {

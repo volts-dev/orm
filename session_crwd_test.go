@@ -888,3 +888,35 @@ func Test_structInfoCache_PopulatedOnFirstCall(t *testing.T) {
 		t.Fatal("cache entry should contain at least one field")
 	}
 }
+
+func Test_toMap_MapStringAny(t *testing.T) {
+	sess := testSession("m", "id", testModelObj(nil, nil, nil))
+	input := map[string]any{"x": 1, "y": "hello"}
+	result := sess._toMap(input)
+	if result["x"] != 1 || result["y"] != "hello" {
+		t.Errorf("unexpected result: %v", result)
+	}
+}
+
+func Test_toMap_MapStringString(t *testing.T) {
+	sess := testSession("m", "id", testModelObj(nil, nil, nil))
+	input := map[string]string{"a": "foo", "b": "bar"}
+	result := sess._toMap(input)
+	if result["a"] != "foo" || result["b"] != "bar" {
+		t.Errorf("unexpected result: %v", result)
+	}
+}
+
+func Test_toMap_Nil(t *testing.T) {
+	sess := testSession("m", "id", testModelObj(nil, nil, nil))
+	if result := sess._toMap(nil); result != nil {
+		t.Errorf("expected nil, got %v", result)
+	}
+}
+
+func Test_toMap_UnsupportedType(t *testing.T) {
+	sess := testSession("m", "id", testModelObj(nil, nil, nil))
+	if result := sess._toMap(42); result != nil {
+		t.Errorf("expected nil for unsupported type, got %v", result)
+	}
+}
