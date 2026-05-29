@@ -431,9 +431,27 @@ func (self *TSession) _write(src any) (int64, error) {
 		return 0, ErrTableNotFound
 	}
 
+	// If src is nil but Sets are present, use Sets as the data source.
+	if src == nil && len(self.Statement.Sets) == 0 {
+		return 0, fmt.Errorf("must submit the values for update")
+	}
+	srcWasSets := false
+	if src == nil {
+		src = self.Statement.Sets
+		srcWasSets = true
+	}
+
 	data, err := self._validateValues(src)
 	if err != nil {
 		return 0, err
+	}
+
+	/* 应用 Sets（覆盖已有值） */
+	if !srcWasSets && len(self.Statement.Sets) > 0 {
+		rec := data.Record()
+		for k, v := range self.Statement.Sets {
+			rec.SetByField(k, v)
+		}
 	}
 
 	// #获取Ids

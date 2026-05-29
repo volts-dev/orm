@@ -984,3 +984,15 @@ func Test_create_SetsApplied(t *testing.T) {
 		t.Fatalf("create with Sets and nil src failed: %v", err)
 	}
 }
+
+func Test_write_SetsApplied(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	id, err := o.Model("bench.model").Create(map[string]any{"name": "original", "age": 1})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	_, err = o.Model("bench.model").Ids(id).Set("name", "updated").Write(nil)
+	if err != nil {
+		t.Fatalf("write with Sets and nil src failed: %v", err)
+	}
+}
