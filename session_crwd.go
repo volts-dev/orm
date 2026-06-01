@@ -2,23 +2,20 @@ package orm
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
-// TODO 支持数据组/
-// Create 在指定 model 上插入一条记录。
+// Create 在指定 model 上插入一条或多条记录，支持传入多个 src（变参/数组）。
+// 返回值：单条（或不传 src 走 Sets）时返回该记录的 id；传入多条时返回 []any 形式的 id 列表。
 // 如需 classic 模式，先链式调 session.Classic()；
 // 如需自定义 ctx，先链式调 session.WithContext(ctx)。
-func (self *TSession) Create(src any) (uid any, err error) {
+func (self *TSession) Create(src ...any) (uid any, err error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return nil, err
@@ -36,7 +33,19 @@ func (self *TSession) Create(src any) (uid any, err error) {
 		return nil, ErrInvalidSession
 	}
 
-	return self._create(src)
+	ids, err := self._create(src...)
+	if err != nil {
+		return nil, err
+	}
+	// 单条输入返回标量 id，保持与历史调用方（.Ids(id)/.Delete(id)/id.(int64)）兼容；
+	// 多条输入返回 []any。
+	if len(src) > 1 {
+		return ids, nil
+	}
+	if len(ids) > 0 {
+		return ids[0], nil
+	}
+	return nil, nil
 }
 
 // Read 在 Statement 配置的条件下读取记录集。
@@ -181,245 +190,261 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	return res.RowsAffected()
 }
 
-func (self *TSession) _create(src any) (any, error) {
+// _create 支持传入多个 src（变参/数组），一次插入多条记录。
+// 优化点：整批共享的不变量（表名校验、主键字段解析）在循环外只处理一次，
+// 循环内仅保留与每条记录数据相关的处理；其余逻辑与 _create 完全一致。
+// 返回每条记录的 id（顺序与传入一致）；中途出错则返回已成功的 id 列表 + error。
+func (self *TSession) _create(src ...any) ([]any, error) {
+	// —— 整批不变量：循环外只处理一次 ——
 	if len(self.Statement.Model.String()) < 1 {
 		return nil, ErrTableNotFound
 	}
 
-	// If src is nil but Sets are present, use Sets as the data source.
-	// If src is provided, _validateValues converts it; Sets are applied afterward.
-	if src == nil && len(self.Statement.Sets) == 0 {
-		return nil, fmt.Errorf("must submit the values for create")
-	}
-	srcWasSets := false
-	if src == nil {
-		src = self.Statement.Sets
-		srcWasSets = true
-	}
-
-	/* 解析数据 */
-	data, res_err := self._validateValues(src)
-	if res_err != nil {
-		return nil, res_err
-	}
-
-	/* 应用 Sets（覆盖已有值） */
-	if !srcWasSets && len(self.Statement.Sets) > 0 {
-		rec := data.Record()
-		for k, v := range self.Statement.Sets {
-			rec.SetByField(k, v)
-		}
-	}
-
-	/* 拆分数据 */
-	newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil)
-	if err != nil {
-		return nil, err
+	// 不传 src 时回退为单条（Sets）创建
+	if len(src) == 0 {
+		src = []any{nil}
 	}
 
 	idField := self.Statement.Model.IdField()
+	// 主键字段对象与 TIdField 断言仅解析一次；OnCreate 仍按记录调用
+	var idCreator *TIdField
 	if field := self.Statement.Model.GetFieldByName(idField); field != nil {
-		if f, ok := field.(*TIdField); ok {
-			newValues[idField] = f.OnCreate(&TFieldContext{
+		idCreator, _ = field.(*TIdField)
+	}
+
+	ids := make([]any, 0, len(src))
+
+	// —— 每条记录处理 ——
+	for _, one := range src {
+		// If src is nil but Sets are present, use Sets as the data source.
+		// If src is provided, _validateValues converts it; Sets are applied afterward.
+		if one == nil && len(self.Statement.Sets) == 0 {
+			return ids, fmt.Errorf("must submit the values for create")
+		}
+		srcWasSets := false
+		if one == nil {
+			one = self.Statement.Sets
+			srcWasSets = true
+		}
+
+		/* 解析数据 */
+		data, res_err := self._validateValues(one)
+		if res_err != nil {
+			return ids, res_err
+		}
+
+		/* 应用 Sets（覆盖已有值） */
+		if !srcWasSets && len(self.Statement.Sets) > 0 {
+			rec := data.Record()
+			for k, v := range self.Statement.Sets {
+				rec.SetByField(k, v)
+			}
+		}
+
+		/* 拆分数据 */
+		newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil)
+		if err != nil {
+			return ids, err
+		}
+
+		if idCreator != nil {
+			newValues[idField] = idCreator.OnCreate(&TFieldContext{
 				Session: self,
 				Model:   self.Statement.Model,
 				Dataset: data,
-				Field:   field,
+				Field:   idCreator,
 			})
 		}
-	}
 
-	// 根据字段计算数据值
-	datas, multiSql, err := self._todoCompute(data, nil, newTodo)
-	if err != nil {
-		return 0, err
-	}
-
-	/* 创建关联数据 */
-	var relModel IModel
-	for tbl, rel_vals := range refValues {
-		fieldName := self.Statement.Model.Obj().GetRelationByName(tbl)
-		hasExplicitValue := false
-		if v := newValues[fieldName]; v != nil && !utils.IsBlank(v) {
-			hasExplicitValue = true
-		}
-		if v := datas[fieldName]; len(v) > 0 && !utils.IsBlank(v[0]) {
-			hasExplicitValue = true
-		}
-
-		if len(rel_vals) == 0 && hasExplicitValue {
-			continue // # 关系表无数据更新且已经指定关联ID则忽略
-		}
-
-		// ???删除关联外键
-		//if _, has := vals[self.model._relations[tbl]]; has {
-		//	delete(vals, self.model._relations[tbl])
-		//}
-
-		/* 使用原事物会话进行创建或者更新关联表记录 */
-		relModel, err = self._getModel(tbl) // NOTE 这里沿用了self的Tx
+		// 根据字段计算数据值
+		datas, multiSql, err := self._todoCompute(data, nil, newTodo)
 		if err != nil {
-			return nil, err
+			return ids, err
 		}
 
-		// 获取管理表UID
-		record_id := rel_vals[relModel.IdField()]
-		if record_id == nil || utils.IsBlank(record_id) {
-			/* 复制 OnConflict */
-			tx := relModel.Tx()
-			if oc := self.Statement.OnConflict; oc != nil {
-				tx.OnConflict(oc)
+		/* 创建关联数据 */
+		var relModel IModel
+		for tbl, rel_vals := range refValues {
+			fieldName := self.Statement.Model.Obj().GetRelationByName(tbl)
+			hasExplicitValue := false
+			if v := newValues[fieldName]; v != nil && !utils.IsBlank(v) {
+				hasExplicitValue = true
+			}
+			if v := datas[fieldName]; len(v) > 0 && !utils.IsBlank(v[0]) {
+				hasExplicitValue = true
 			}
 
-			id, err := tx.Create(rel_vals)
+			if len(rel_vals) == 0 && hasExplicitValue {
+				continue // # 关系表无数据更新且已经指定关联ID则忽略
+			}
+
+			/* 使用原事物会话进行创建或者更新关联表记录 */
+			relModel, err = self._getModel(tbl) // NOTE 这里沿用了self的Tx
 			if err != nil {
-				return nil, err
-			}
-			record_id = id
-		} else {
-			relModel.Tx().Ids(record_id).Write(rel_vals)
-		}
-
-		newValues[self.Statement.Model.Obj().GetRelationByName(tbl)] = record_id
-	}
-
-	// 被设置默认值的字段赋值给Val
-	self.Statement.Model.Obj().GetDefault().Range(func(key, value any) bool {
-		k := key.(string)
-		if newValues[k] == nil {
-			newValues[k] = value //fmt. lFld._symbol_c
-		}
-		return true
-	})
-
-	// #验证数据类型
-	//TODO 需要更准确安全
-	self.Statement.Model.GetBase()._validate(newValues)
-
-	var field IField
-	var id any
-	ids := make([]any, 0, multiSql)
-	for idx := 0; idx < multiSql; idx++ {
-		fields := make([]string, 0)
-		params := make([]any, 0)
-		uniqueFields := make([]string, 0)
-
-		// 字段,值
-		for k, v := range newValues {
-			if v == nil {
-				continue
+				return ids, err
 			}
 
-			// 避免计算字段重复
-			if _, has := datas[k]; has {
-				continue
-			}
-
-			if field = self.Statement.Model.GetFieldByName(k); field != nil && field.IsUnique() && !field.IsPrimaryKey() {
-				uniqueFields = append(uniqueFields, field.Name())
-				if multiSql > 1 {
-					return nil, fmt.Errorf("Create record over than exspect %d rows!", multiSql)
+			// 获取管理表UID
+			record_id := rel_vals[relModel.IdField()]
+			if record_id == nil || utils.IsBlank(record_id) {
+				/* 复制 OnConflict */
+				tx := relModel.Tx()
+				if oc := self.Statement.OnConflict; oc != nil {
+					tx.OnConflict(oc)
 				}
-			}
 
-			if k == idField {
-				id = v
-			}
-
-			fields = append(fields, k)
-			params = append(params, v)
-		}
-
-		for k, vs := range datas {
-			if vs == nil {
-				continue
-			}
-
-			if field = self.Statement.Model.GetFieldByName(k); field != nil && field.IsUnique() && !field.IsPrimaryKey() {
-				uniqueFields = append(uniqueFields, field.Name())
-				if multiSql > 1 {
-					return nil, fmt.Errorf("Create record over than exspect %d rows!", multiSql)
-				}
-			}
-
-			fields = append(fields, k)
-			if len(vs) > 1 {
-				params = append(params, vs[idx])
-			} else {
-				params = append(params, vs[0])
-			}
-		}
-
-		OnConflictValues := make([]any, 0)
-		if self.Statement.OnConflict != nil {
-			if self.Statement.OnConflict.UpdateAll {
-				self.Statement.OnConflict.DoUpdates = make([]string, 0)
-				for field_name, v := range newValues {
-					/* id 字段不参与更新 */
-					if field_name == self.Statement.Model.IdField() {
-						continue
-					}
-
-					if utils.IndexOf(field_name, self.Statement.OnConflict.Fields...) == -1 {
-						self.Statement.OnConflict.DoUpdates = append(self.Statement.OnConflict.DoUpdates, field_name)
-						OnConflictValues = append(OnConflictValues, v)
-					}
-				}
-			} else if len(self.Statement.OnConflict.DoUpdates) > 0 {
-				for _, field_name := range self.Statement.OnConflict.DoUpdates {
-					if v, ok := newValues[field_name]; ok {
-						OnConflictValues = append(OnConflictValues, v)
-					}
-				}
-			} else {
-				self.Statement.OnConflict.DoNothing = true
-			}
-		}
-
-		params = append(params, OnConflictValues...)
-		sqlExpr, isQuery := self.Statement.generate_insert(fields, uniqueFields)
-		if isQuery {
-			ds, err := self._query(sqlExpr, params...)
-			if err != nil {
-				return nil, err
-			}
-
-			id = ds.Record().GetByIndex(0)
-		} else {
-			var res sql.Result
-			res, err = self.Exec(sqlExpr, params...)
-			if err != nil {
-				return nil, err
-			}
-
-			// 支持递增字段返回ID
-			if len(self.Statement.Model.IdField()) > 0 {
-				id, err = res.LastInsertId()
+				id, err := tx.Create(rel_vals)
 				if err != nil {
-					return nil, err
+					return ids, err
+				}
+				record_id = id
+			} else {
+				relModel.Tx().Ids(record_id).Write(rel_vals)
+			}
+
+			newValues[self.Statement.Model.Obj().GetRelationByName(tbl)] = record_id
+		}
+
+		// 被设置默认值的字段赋值给Val
+		self.Statement.Model.Obj().GetDefault().Range(func(key, value any) bool {
+			k := key.(string)
+			if newValues[k] == nil {
+				newValues[k] = value //fmt. lFld._symbol_c
+			}
+			return true
+		})
+
+		// #验证数据类型
+		//TODO 需要更准确安全
+		self.Statement.Model.GetBase()._validate(newValues)
+
+		var field IField
+		var id any
+		recIds := make([]any, 0, multiSql)
+		for idx := 0; idx < multiSql; idx++ {
+			fields := make([]string, 0)
+			params := make([]any, 0)
+			uniqueFields := make([]string, 0)
+
+			// 字段,值
+			for k, v := range newValues {
+				if v == nil {
+					continue
+				}
+
+				// 避免计算字段重复
+				if _, has := datas[k]; has {
+					continue
+				}
+
+				if field = self.Statement.Model.GetFieldByName(k); field != nil && field.IsUnique() && !field.IsPrimaryKey() {
+					uniqueFields = append(uniqueFields, field.Name())
+					if multiSql > 1 {
+						return ids, fmt.Errorf("Create record over than exspect %d rows!", multiSql)
+					}
+				}
+
+				if k == idField {
+					id = v
+				}
+
+				fields = append(fields, k)
+				params = append(params, v)
+			}
+
+			for k, vs := range datas {
+				if vs == nil {
+					continue
+				}
+
+				if field = self.Statement.Model.GetFieldByName(k); field != nil && field.IsUnique() && !field.IsPrimaryKey() {
+					uniqueFields = append(uniqueFields, field.Name())
+					if multiSql > 1 {
+						return ids, fmt.Errorf("Create record over than exspect %d rows!", multiSql)
+					}
+				}
+
+				fields = append(fields, k)
+				if len(vs) > 1 {
+					params = append(params, vs[idx])
+				} else {
+					params = append(params, vs[0])
 				}
 			}
+
+			OnConflictValues := make([]any, 0)
+			if self.Statement.OnConflict != nil {
+				if self.Statement.OnConflict.UpdateAll {
+					self.Statement.OnConflict.DoUpdates = make([]string, 0)
+					for field_name, v := range newValues {
+						/* id 字段不参与更新 */
+						if field_name == self.Statement.Model.IdField() {
+							continue
+						}
+
+						if utils.IndexOf(field_name, self.Statement.OnConflict.Fields...) == -1 {
+							self.Statement.OnConflict.DoUpdates = append(self.Statement.OnConflict.DoUpdates, field_name)
+							OnConflictValues = append(OnConflictValues, v)
+						}
+					}
+				} else if len(self.Statement.OnConflict.DoUpdates) > 0 {
+					for _, field_name := range self.Statement.OnConflict.DoUpdates {
+						if v, ok := newValues[field_name]; ok {
+							OnConflictValues = append(OnConflictValues, v)
+						}
+					}
+				} else {
+					self.Statement.OnConflict.DoNothing = true
+				}
+			}
+
+			params = append(params, OnConflictValues...)
+			sqlExpr, isQuery := self.Statement.generate_insert(fields, uniqueFields)
+			if isQuery {
+				ds, err := self._query(sqlExpr, params...)
+				if err != nil {
+					return ids, err
+				}
+
+				id = ds.Record().GetByIndex(0)
+			} else {
+				var res sql.Result
+				res, err = self.Exec(sqlExpr, params...)
+				if err != nil {
+					return ids, err
+				}
+
+				// 支持递增字段返回ID
+				if len(self.Statement.Model.IdField()) > 0 {
+					id, err = res.LastInsertId()
+					if err != nil {
+						return ids, err
+					}
+				}
+			}
+
+			recIds = append(recIds, id)
+		}
+
+		/*  根据 Ids 创建 M2M 关联记录 */
+		if _, _, err = self._todoCompute(data, recIds, newTodo); err != nil {
+			return ids, err
+		}
+
+		if id != nil {
+			//更新缓存
+			table_name := self.Statement.Model.Table()
+			lRec := dataset.NewRecordSet(nil, newValues)
+			self.orm.Cacher.PutById(table_name, utils.ToString(id), lRec) //for create
+
+			// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
+			self.orm.Cacher.ClearByTable(table_name) //for create
 		}
 
 		ids = append(ids, id)
 	}
 
-	/*  根据 Ids 创建 M2M 关联记录 */
-	if _, _, err = self._todoCompute(data, ids, newTodo); err != nil {
-		return 0, err
-	}
-
-	if id != nil {
-		//更新缓存
-		table_name := self.Statement.Model.Table()
-		lRec := dataset.NewRecordSet(nil, newValues)
-		self.orm.Cacher.PutById(table_name, utils.ToString(id), lRec) //for create
-
-		// #由于表数据有所变动 所以清除所有有关于该表的SQL缓存结果
-		self.orm.Cacher.ClearByTable(table_name) //for create
-	}
-
-	return id, nil
+	return ids, nil
 }
 
 // Low-level implementation of write()
@@ -959,22 +984,21 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 // Supported inputs: *dataset.TDataSet (returned as-is), map[string]any,
 // map[string]string, or a struct pointer/value.
 func (self *TSession) _validateValues(values any) (*dataset.TDataSet, error) {
-	if values == nil {
-		return nil, fmt.Errorf("must submit the values for update")
+	// Session-specific concern: auto-detect Model from struct type name
+	// when no model is set yet on the Statement. Must happen BEFORE
+	// NormalizeValues so the struct path has a non-nil model.
+	if values != nil && self.Statement.Model == nil {
+		rv := reflect.ValueOf(values)
+		if rv.Kind() == reflect.Ptr {
+			rv = rv.Elem()
+		}
+		if rv.Kind() == reflect.Struct {
+			if name := fmtModelName(utils.Obj2Name(values)); name != "" {
+				self.Model(name)
+			}
+		}
 	}
-
-	// fast path: already a TDataSet — return directly
-	if ds, ok := values.(*dataset.TDataSet); ok {
-		return ds, nil
-	}
-
-	m := self._toMap(values)
-	if m == nil {
-		return nil, fmt.Errorf("unsupported values type: %T", values)
-	}
-
-	ds := dataset.NewDataSet()
-	return ds, ds.NewRecord(m)
+	return NormalizeValues(values, self.Statement.Model)
 }
 
 func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []IField) (map[string][]any, int, error) {
@@ -1387,217 +1411,12 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 	return new_vals, rel_vals, upd_todo, nil
 }
 
-// structFieldInfo holds the reflection metadata for one struct field that
-// does not change between calls (name, index, kind flags). Per-call
-// context-dependent checks (model field existence, SQLType) still run each time.
-type structFieldInfo struct {
-	reflectIdx int    // index for reflect.Type.Field(i) / reflect.Value.Field(i)
-	ormName    string // final ORM field name after fmtFieldName + tag "name" override
-	isExtends  bool   // tag has "extends" or "relate" — recurse into nested struct
-	isTime     bool   // field type is ConvertibleTo(TimeType)
-	skip       bool   // unexported or tag == "-"
+// _structToMap is a thin session-bound wrapper around StructToMap that wires
+// in Statement.Model and the Statement.Fields filter. Kept for backward
+// compatibility with callers (including tests) that use the session method.
+func (self *TSession) _structToMap(src any) map[string]any {
+	return StructToMap(src, self.Statement.Model, self.Statement.Fields)
 }
-
-// structCacheKey is a compound key for structInfoCache.
-// Includes both the reflect.Type and the FieldIdentifier tag name,
-// so that different TOrm instances with different FieldIdentifiers
-// don't share the same cache entry.
-type structCacheKey struct {
-	t               reflect.Type
-	fieldIdentifier string
-}
-
-// structInfoCache maps structCacheKey → []structFieldInfo.
-// Populated lazily; struct field shapes never change, so entries are never invalidated.
-var structInfoCache sync.Map
-
-// _structToMap converts a struct to map[string]any using cached field metadata.
-// Model-dependent checks (GetFieldByName, SQLType) still run per call.
-func (self *TSession) _structToMap(src any) (res_map map[string]any) {
-	v := reflect.ValueOf(src)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		log.Warn("_structToMap: not a struct")
-		return nil
-	}
-
-	vType := v.Type()
-
-	// load or build cache entry
-	var infos []structFieldInfo
-	cacheKey := structCacheKey{t: vType, fieldIdentifier: self.orm.config.FieldIdentifier}
-	if cached, ok := structInfoCache.Load(cacheKey); ok {
-		infos = cached.([]structFieldInfo)
-	} else {
-		infos = make([]structFieldInfo, 0, vType.NumField())
-		for i := 0; i < vType.NumField(); i++ {
-			sf := vType.Field(i)
-			info := structFieldInfo{reflectIdx: i}
-
-			// unexported
-			if sf.PkgPath != "" {
-				info.skip = true
-				infos = append(infos, info)
-				continue
-			}
-
-			tag := sf.Tag.Get(self.orm.config.FieldIdentifier)
-			if tag == "-" {
-				info.skip = true
-				infos = append(infos, info)
-				continue
-			}
-
-			// default ORM name
-			info.ormName = fmtFieldName(sf.Name)
-
-			// parse tag for name override and extends/relate
-			for _, part := range splitTag(tag) {
-				parsed := parseTag(part)
-				switch strings.ToLower(parsed[0]) {
-				case "name":
-					if len(parsed) > 1 {
-						info.ormName = fmtFieldName(parsed[1])
-					}
-				case "extends", "relate":
-					info.isExtends = true
-				}
-			}
-
-			// time detection (type-level, not value-level)
-			ft := sf.Type
-			if ft.Kind() == reflect.Ptr {
-				ft = ft.Elem()
-			}
-			info.isTime = ft.ConvertibleTo(TimeType)
-
-			infos = append(infos, info)
-		}
-		structInfoCache.Store(cacheKey, infos)
-	}
-
-	res_map = make(map[string]any)
-	lToOmitFields := len(self.Statement.Fields) > 0
-
-	for _, info := range infos {
-		if info.skip {
-			continue
-		}
-
-		// per-call: Statement.Fields filter
-		if lToOmitFields {
-			if b, ok := self.Statement.Fields[info.ormName]; ok && !b {
-				continue
-			}
-		}
-
-		fv := v.Field(info.reflectIdx)
-
-		// extends/relate: recurse
-		if info.isExtends {
-			if (fv.Kind() == reflect.Ptr && fv.Elem().Kind() == reflect.Struct) ||
-				fv.Kind() == reflect.Struct {
-				for col, val := range self._structToMap(fv.Interface()) {
-					res_map[col] = val
-				}
-			}
-			continue
-		}
-
-		// per-call: model field existence check
-		lCol := self.Statement.Model.Obj().GetFieldByName(info.ormName)
-		if lCol == nil {
-			continue
-		}
-
-		var lValue any
-		if info.isTime {
-			timeFv := fv
-			if timeFv.Kind() == reflect.Ptr {
-				if timeFv.IsNil() {
-					continue  // nil *time.Time — skip this field
-				}
-				timeFv = timeFv.Elem()
-			}
-			t := timeFv.Convert(TimeType).Interface().(time.Time)
-			lValue = self.orm.FormatTime(lCol.Base().SQLType().Name, t)
-		} else {
-			switch fv.Kind() {
-			case reflect.Struct:
-				// non-time struct: JSON or blob
-				col := lCol.Base()
-				if col.SQLType().IsJson() {
-					if col.SQLType().IsText() {
-						if b, err := json.Marshal(fv.Interface()); err == nil {
-							lValue = string(b)
-						} else {
-							log.Errf("IsJson/Text", err)
-							continue
-						}
-					} else if col.SQLType().IsBlob() {
-						if b, err := json.Marshal(fv.Interface()); err == nil {
-							lValue = b
-						} else {
-							log.Errf("IsJson/Blob", err)
-							continue
-						}
-					} else {
-						log.Err("unhandled struct field type", info.ormName)
-					}
-				}
-			default:
-				lValue = fv.Interface()
-			}
-		}
-
-		if lValue == nil && fv.IsValid() {
-			lValue = fv.Interface()
-		}
-		res_map[info.ormName] = lValue
-	}
-
-	return
-}
-
-
-// _toMap converts any supported input type to map[string]any.
-// For structs, uses _structToMap (reflection-cached).
-// Returns nil for nil input or unsupported types.
-func (self *TSession) _toMap(value any) map[string]any {
-	if value == nil {
-		return nil
-	}
-
-	vType := reflect.TypeOf(value)
-	if vType.Kind() == reflect.Ptr {
-		vType = vType.Elem()
-	}
-
-	switch vType.Kind() {
-	case reflect.Struct:
-		if self.Statement.Model == nil {
-			if name := fmtModelName(utils.Obj2Name(value)); name != "" {
-				self.Model(name)
-			}
-		}
-		return self._structToMap(value)
-	case reflect.Map:
-		if m, ok := value.(map[string]any); ok {
-			return m
-		}
-		if m, ok := value.(map[string]string); ok {
-			res := make(map[string]any, len(m))
-			for k, v := range m {
-				res[k] = v
-			}
-			return res
-		}
-	}
-	return nil
-}
-
 
 // Check whether value is among the valid values for the given
 //

@@ -765,7 +765,7 @@ func TestSeparateValues_OneToOne(t *testing.T) {
 			parentModel:  parentNameField,
 		},
 	}
-	
+
 	obj := testModelObj(fields, relations, commonFields)
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val"})
@@ -889,38 +889,6 @@ func Test_structInfoCache_PopulatedOnFirstCall(t *testing.T) {
 	}
 }
 
-func Test_toMap_MapStringAny(t *testing.T) {
-	sess := testSession("m", "id", testModelObj(nil, nil, nil))
-	input := map[string]any{"x": 1, "y": "hello"}
-	result := sess._toMap(input)
-	if result["x"] != 1 || result["y"] != "hello" {
-		t.Errorf("unexpected result: %v", result)
-	}
-}
-
-func Test_toMap_MapStringString(t *testing.T) {
-	sess := testSession("m", "id", testModelObj(nil, nil, nil))
-	input := map[string]string{"a": "foo", "b": "bar"}
-	result := sess._toMap(input)
-	if result["a"] != "foo" || result["b"] != "bar" {
-		t.Errorf("unexpected result: %v", result)
-	}
-}
-
-func Test_toMap_Nil(t *testing.T) {
-	sess := testSession("m", "id", testModelObj(nil, nil, nil))
-	if result := sess._toMap(nil); result != nil {
-		t.Errorf("expected nil, got %v", result)
-	}
-}
-
-func Test_toMap_UnsupportedType(t *testing.T) {
-	sess := testSession("m", "id", testModelObj(nil, nil, nil))
-	if result := sess._toMap(42); result != nil {
-		t.Errorf("expected nil for unsupported type, got %v", result)
-	}
-}
-
 func Test_validateValues_MapStringAny(t *testing.T) {
 	fields := []IField{newTestField("name")}
 	sess := testSession("person", "id", testModelObj(fields, nil, nil))
@@ -1019,5 +987,77 @@ func Test_write_SetsOverrideSrc(t *testing.T) {
 	_, err = o.Model("bench.model").Ids(id).Set("name", "overridden").Write(map[string]any{"name": "from_src", "age": 2})
 	if err != nil {
 		t.Fatalf("write with src+Sets failed: %v", err)
+	}
+}
+
+// 多条输入：Create 返回 []any 形式的 id 列表
+func TestCreate_VariadicReturnsSlice(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	res, err := o.Model("bench.model").Create(
+		map[string]any{"name": "alice", "age": 1},
+		map[string]any{"name": "bob", "age": 2},
+		map[string]any{"name": "carol", "age": 3},
+	)
+	if err != nil {
+		t.Fatalf("Create variadic: %v", err)
+	}
+	ids, ok := res.([]any)
+	if !ok {
+		t.Fatalf("expected []any for multi-create, got %T", res)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("expected 3 ids, got %d", len(ids))
+	}
+	for i, id := range ids {
+		if id == nil {
+			t.Errorf("ids[%d] is nil", i)
+		}
+	}
+}
+
+// 单条输入：Create 返回标量 id（与历史调用方兼容）
+func TestCreate_SingleReturnsScalar(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	id, err := o.Model("bench.model").Create(map[string]any{"name": "solo", "age": 99})
+	if err != nil {
+		t.Fatalf("Create single: %v", err)
+	}
+	if id == nil {
+		t.Fatal("expected non-nil scalar id")
+	}
+	if _, isSlice := id.([]any); isSlice {
+		t.Fatalf("expected scalar id for single create, got []any")
+	}
+}
+
+// 展开切片传入多条：返回 []any
+func TestCreate_SpreadSlice(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	rows := []any{
+		map[string]any{"name": "x", "age": 10},
+		map[string]any{"name": "y", "age": 20},
+	}
+	res, err := o.Model("bench.model").Create(rows...)
+	if err != nil {
+		t.Fatalf("Create spread slice: %v", err)
+	}
+	ids, ok := res.([]any)
+	if !ok {
+		t.Fatalf("expected []any for multi-create, got %T", res)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 ids, got %d", len(ids))
+	}
+}
+
+// 不传 src 走 Sets：返回标量 id
+func TestCreate_NoArgsUsesSets(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	id, err := o.Model("bench.model").Set("name", "from_set").Create()
+	if err != nil {
+		t.Fatalf("Create no-args with Sets: %v", err)
+	}
+	if id == nil {
+		t.Fatal("expected non-nil scalar id from Sets fallback")
 	}
 }

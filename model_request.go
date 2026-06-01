@@ -126,6 +126,14 @@ func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 	}
 
 	session := model.Tx()
+
+	// BeforeSession lets model overrides (e.g. vectors withSession) stamp
+	// session-scoped values like tenant_id/create_id/write_id onto session.Sets
+	// before _separateValues consumes them in _create.
+	if _, err := model.BeforeSession(session); err != nil {
+		return nil, err
+	}
+	defer model.AfterSession(session)
 	if session.IsAutoClose {
 		defer session.Close()
 	}
@@ -134,13 +142,9 @@ func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 		session.OnConflict(&req.OnConflict)
 	}
 
-	ids := make([]any, len(req.Data))
-	for i, d := range req.Data {
-		id, err := session.Create(d)
-		if err != nil {
-			return nil, err
-		}
-		ids[i] = id
+	ids, err := session._create(req.Data...)
+	if err != nil {
+		return nil, err
 	}
 
 	return ids, nil

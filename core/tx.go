@@ -175,7 +175,7 @@ func (tx *Tx) QueryMapContext(ctx context.Context, query string, mp any) (*Rows,
 
 // QueryMap query with args in a map
 func (tx *Tx) QueryMap(query string, mp any) (*Rows, error) {
-	return tx.QueryMapContext(context.Background(), query, mp)
+	return tx.QueryMapContext(tx.ctx, query, mp)
 }
 
 // QueryStructContext query with args in struct
@@ -189,7 +189,7 @@ func (tx *Tx) QueryStructContext(ctx context.Context, query string, st any) (*Ro
 
 // QueryStruct query with args in struct
 func (tx *Tx) QueryStruct(query string, st any) (*Rows, error) {
-	return tx.QueryStructContext(context.Background(), query, st)
+	return tx.QueryStructContext(tx.ctx, query, st)
 }
 
 // QueryRowContext query one row with args

@@ -69,6 +69,33 @@ func TestCancelCtx_ReadDeadline(t *testing.T) {
 	}
 }
 
+// TestCancelCtx_BeginDropsCtx: WithContext(已取消 ctx).Begin() 应传播 context，返回 context.Canceled
+func TestCancelCtx_BeginDropsCtx(t *testing.T) {
+	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	if _, err := o.SyncModel("", new(BenchModel)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	session := o.Model("bench.model").WithContext(ctx)
+	err = session.Begin()
+	if err == nil {
+		t.Fatal("expected error from Begin() with canceled ctx, got nil")
+	}
+	if !stdErrors.Is(err, context.Canceled) &&
+		!stdErrors.Is(err, context.DeadlineExceeded) &&
+		!stdErrors.Is(err, ormerr.ErrTimeout) {
+		t.Errorf("expected context.Canceled/DeadlineExceeded/ErrTimeout from Begin(), got: %v", err)
+	}
+}
+
 // TestDefaultCtx_NoChange: 不调用 WithContext 时使用默认 Background，Create 正常
 func TestDefaultCtx_NoChange(t *testing.T) {
 	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}

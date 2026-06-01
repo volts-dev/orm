@@ -116,7 +116,8 @@ type (
 		Store(val ...bool) bool
 		// Size returns the size constraint (length/precision); when val is supplied, sets it first.
 		Size(val ...int) int
-		// Default returns the default value; when val is supplied, sets it first.
+		// Default returns the static default value only. To evaluate a dynamic
+		// default, call DefaultFunc() with a complete *TFieldContext.
 		Default() any
 		SetDefault(val any)
 		// DefaultFunc returns the default-value function, or nil if none.
@@ -573,7 +574,10 @@ func (self *TField) Store(val ...bool) bool {
 	return self.store
 }
 
-// Default returns the default value; when val is supplied, sets it first.
+// Default returns the static/constant default value (boundModel override or
+// staticDefault). Dynamic defaults (defaultFunc) are NOT evaluated here —
+// callers that need them must invoke DefaultFunc() with a complete
+// *TFieldContext at the call site.
 func (self *TField) Default() any {
 	if self.boundModel != nil {
 		if has, v := self.boundModel.GetDefaultByName(self.Name()); has {
@@ -583,15 +587,6 @@ func (self *TField) Default() any {
 
 	if self.staticDefault != nil {
 		return self.staticDefault
-	}
-
-	if self.defaultFunc != nil {
-		ctx := &TFieldContext{
-			Field: self,
-			Model: self.boundModel,
-		}
-		self.defaultFunc(ctx)
-		return ctx.Value
 	}
 
 	return nil

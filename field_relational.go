@@ -347,6 +347,14 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 	/* 读取默认 */
 	if utils.IsBlank(value) {
 		value = ctx.Field.Default()
+		if utils.IsBlank(value) {
+			if fn := ctx.Field.DefaultFunc(); fn != nil {
+				if err := fn(ctx); err != nil {
+					return err
+				}
+				value = ctx.Value
+			}
+		}
 	}
 
 	switch v := value.(type) {
