@@ -490,21 +490,25 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	middle_model := strings.Replace(field.JoinModelName(), ".", "_", -1)
 	id1 := field.RelatedKeyName()
 	id2 := field.JoinSourceKey()
-	query := fmt.Sprintf(`
-	           CREATE TABLE IF NOT EXISTS "%s" (
-				"%s" %s NOT NULL,
-				"%s" %s NOT NULL,UNIQUE("%s","%s"));
-	           COMMENT ON TABLE "%s" IS '%s';
-	           CREATE INDEX ON "%s" ("%s");
-	           CREATE INDEX ON "%s" ("%s")`,
-		middle_model,
-		id1, sqlType,
-		id2, sqlType, id1, id2,
-		middle_model, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model),
-		middle_model, id1,
-		middle_model, id2)
-	if _, err := orm.Exec(query); err != nil {
-		log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelatedModelName(), query, err.Error())
+
+	// Run each DDL statement independently — SQLite/MySQL don't support
+	// multi-statement Exec, unnamed CREATE INDEX, or PG's COMMENT ON TABLE.
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" ("%s" %s NOT NULL, "%s" %s NOT NULL, UNIQUE("%s","%s"))`,
+			middle_model, id1, sqlType, id2, sqlType, id1, id2),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON "%s" ("%s")`,
+			middle_model, id1, middle_model, id1),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON "%s" ("%s")`,
+			middle_model, id2, middle_model, id2),
+	}
+	if strings.EqualFold(orm.dialect.DBType(), "postgres") {
+		stmts = append(stmts, fmt.Sprintf(`COMMENT ON TABLE "%s" IS '%s'`,
+			middle_model, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model)))
+	}
+	for _, q := range stmts {
+		if _, err := orm.Exec(q); err != nil {
+			log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelatedModelName(), q, err.Error())
+		}
 	}
 
 	self.update_db_foreign_keys(ctx)

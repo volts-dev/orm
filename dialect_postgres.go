@@ -1435,7 +1435,11 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 			//col.Base().defaultIsEmpty = true
 		}
 
-		if defaultValueStr != "" {
+		// Gate on the post-processed defaultValue, not the raw defaultValueStr:
+		// for autoincrement columns we reset defaultValue to "" above and must
+		// not propagate that empty string as the field default (it leaks into
+		// newValues["id"]="" and breaks bigint INSERTs).
+		if defaultValue != "" {
 			col.Base().SetDefault(defaultValue)
 		}
 		col.Base().required = (isNullable == "NO")

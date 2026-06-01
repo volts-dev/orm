@@ -274,8 +274,10 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 				hasExplicitValue = true
 			}
 
-			if len(rel_vals) == 0 && hasExplicitValue {
-				continue // # 关系表无数据更新且已经指定关联ID则忽略
+			// 跳过条件：(a) 关系表没有任何待写字段；或 (b) 用户已经显式提供了关联外键值。
+			// 任一成立都说明无需自动创建/更新关联记录。
+			if len(rel_vals) == 0 || hasExplicitValue {
+				continue
 			}
 
 			/* 使用原事物会话进行创建或者更新关联表记录 */

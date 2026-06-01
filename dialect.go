@@ -409,7 +409,11 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 		}
 	}
 
-	if !field.IsDefaultEmpty() {
+	// Autoincrement columns get their default from the dialect's sequence
+	// (BIGSERIAL / AUTO_INCREMENT / AUTOINCREMENT). Emitting an explicit
+	// DEFAULT alongside it makes Postgres reject the column definition with
+	// "multiple default values specified".
+	if !field.IsAutoIncrement() && !field.IsDefaultEmpty() {
 		if _, err := bd.WriteString(" DEFAULT "); err != nil {
 			return "", err
 		}
