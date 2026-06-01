@@ -284,14 +284,21 @@ func (self *TModel) Prototype() IModel {
 	return self.prototype
 }
 
-// 克隆一个新的Model包含现有事物Tx和Context
+// Clone returns a fresh model instance sharing the originating model's
+// context and transaction. Propagating the transaction is essential so
+// that read methods on the clone (NameGet, NameSearch, OneToMany, etc.)
+// invoked from a CRUD path that already opened a DB transaction can see
+// uncommitted writes — without it those reads would open a separate
+// session/connection and miss the in-flight data.
 func (self *TModel) Clone(options ...ModelOption) (IModel, error) {
 	model, err := self.osv.GetModel(self.String())
 	if err != nil {
 		return nil, err
 	}
 	model.Ctx(self.options.Context)
-	//model.Tx(self.transaction.Clone())
+	if self.transaction != nil {
+		model.Tx(self.transaction)
+	}
 	model.Options(options...)
 	return model, nil
 }

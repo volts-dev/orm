@@ -801,7 +801,10 @@ func (self *TModel) NameGet(ids []any) (*dataset.TDataSet, error) {
 			return nil, err
 		}
 
-		ds, err := model.Records().Select(id_field, name).Ids(ids...).Read()
+		// Tx() reuses the inherited transaction (propagated by Clone) so this
+		// read can see writes that the caller has not yet committed; falls
+		// back to a fresh session when there is no transaction.
+		ds, err := model.Tx().Select(id_field, name).Ids(ids...).Read()
 		if err != nil {
 			return nil, err
 		}
@@ -859,7 +862,9 @@ func (self *TModel) NameSearch(name string, domainNode *domain.TDomainNode, oper
 		return nil, err
 	}
 
-	result, err = model.Records().Select(self.idField, rec_name_field).Domain(domainNode).Limit(limit).Read()
+	// Reuse the inherited transaction (see TModel.Clone) so name_search invoked
+	// inside an open write transaction can match against uncommitted rows.
+	result, err = model.Tx().Select(self.idField, rec_name_field).Domain(domainNode).Limit(limit).Read()
 	if err != nil {
 		return nil, err
 	}
