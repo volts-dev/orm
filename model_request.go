@@ -135,12 +135,7 @@ func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 		session.OnConflict(&req.OnConflict)
 	}
 
-	ids, err := session.Create(req.Data...)
-	if err != nil {
-		return nil, err
-	}
-
-	return ids, nil
+	return session.Create(req.Data...)
 }
 
 // #被重载接口
