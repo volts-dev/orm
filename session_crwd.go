@@ -15,7 +15,7 @@ import (
 // 返回值：单条（或不传 src 走 Sets）时返回该记录的 id；传入多条时返回 []any 形式的 id 列表。
 // 如需 classic 模式，先链式调 session.Classic()；
 // 如需自定义 ctx，先链式调 session.WithContext(ctx)。
-func (self *TSession) Create(src ...any) (uid any, err error) {
+func (self *TSession) Create(src ...any) (uid []any, err error) {
 	model := self.Statement.Model
 	if _, err := model.BeforeSession(self); err != nil {
 		return nil, err
@@ -33,19 +33,7 @@ func (self *TSession) Create(src ...any) (uid any, err error) {
 		return nil, ErrInvalidSession
 	}
 
-	ids, err := self._create(src...)
-	if err != nil {
-		return nil, err
-	}
-	// 单条输入返回标量 id，保持与历史调用方（.Ids(id)/.Delete(id)/id.(int64)）兼容；
-	// 多条输入返回 []any。
-	if len(src) > 1 {
-		return ids, nil
-	}
-	if len(ids) > 0 {
-		return ids[0], nil
-	}
-	return nil, nil
+	return self._create(src...)
 }
 
 // Read 在 Statement 配置的条件下读取记录集。

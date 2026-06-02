@@ -993,7 +993,7 @@ func Test_write_SetsOverrideSrc(t *testing.T) {
 // 多条输入：Create 返回 []any 形式的 id 列表
 func TestCreate_VariadicReturnsSlice(t *testing.T) {
 	o := setupIntegrationOrm(t)
-	res, err := o.Model("bench.model").Create(
+	ids, err := o.Model("bench.model").Create(
 		map[string]any{"name": "alice", "age": 1},
 		map[string]any{"name": "bob", "age": 2},
 		map[string]any{"name": "carol", "age": 3},
@@ -1001,10 +1001,7 @@ func TestCreate_VariadicReturnsSlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create variadic: %v", err)
 	}
-	ids, ok := res.([]any)
-	if !ok {
-		t.Fatalf("expected []any for multi-create, got %T", res)
-	}
+
 	if len(ids) != 3 {
 		t.Fatalf("expected 3 ids, got %d", len(ids))
 	}
@@ -1018,15 +1015,12 @@ func TestCreate_VariadicReturnsSlice(t *testing.T) {
 // 单条输入：Create 返回标量 id（与历史调用方兼容）
 func TestCreate_SingleReturnsScalar(t *testing.T) {
 	o := setupIntegrationOrm(t)
-	id, err := o.Model("bench.model").Create(map[string]any{"name": "solo", "age": 99})
+	ids, err := o.Model("bench.model").Create(map[string]any{"name": "solo", "age": 99})
 	if err != nil {
 		t.Fatalf("Create single: %v", err)
 	}
-	if id == nil {
+	if len(ids) == 0 {
 		t.Fatal("expected non-nil scalar id")
-	}
-	if _, isSlice := id.([]any); isSlice {
-		t.Fatalf("expected scalar id for single create, got []any")
 	}
 }
 
@@ -1037,14 +1031,11 @@ func TestCreate_SpreadSlice(t *testing.T) {
 		map[string]any{"name": "x", "age": 10},
 		map[string]any{"name": "y", "age": 20},
 	}
-	res, err := o.Model("bench.model").Create(rows...)
+	ids, err := o.Model("bench.model").Create(rows...)
 	if err != nil {
 		t.Fatalf("Create spread slice: %v", err)
 	}
-	ids, ok := res.([]any)
-	if !ok {
-		t.Fatalf("expected []any for multi-create, got %T", res)
-	}
+
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 ids, got %d", len(ids))
 	}
