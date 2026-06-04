@@ -792,7 +792,7 @@ func (self *TModel) NameGet(ids []any) (*dataset.TDataSet, error) {
 		// Tx() reuses the inherited transaction (propagated by Clone) so this
 		// read can see writes that the caller has not yet committed; falls
 		// back to a fresh session when there is no transaction.
-		ds, err := model.Tx().Select(id_field, name).Ids(ids...).Read()
+		ds, err := model.Tx().Select(id_field, name).Ids(ids...).Limit(utils.ToInt64(len(ids))).Read()
 		if err != nil {
 			return nil, err
 		}

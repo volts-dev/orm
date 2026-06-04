@@ -283,11 +283,11 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 					tx.OnConflict(oc)
 				}
 
-				id, err := tx.Create(rel_vals)
+				rids, err := tx.Create(rel_vals)
 				if err != nil {
 					return ids, err
 				}
-				record_id = id
+				record_id = rids[0]
 			} else {
 				relModel.Tx().Ids(record_id).Write(rel_vals)
 			}

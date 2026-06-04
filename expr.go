@@ -878,29 +878,43 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 	//            "Invalid value %r in domain term %r" % (right, leaf)
 
 	aliasTable, _ := eleaf.generate_alias()
+	// 识别 SQL 占位符 (?, %s) 并逐个从 params 队列消费实际值。
+	// res_arg 是消费完后剩下的 params，留给下一个 Term 使用。
+	//
+	// 早期实现写成 params[holder_count:1] —— 只对第一个 ? 凑效
+	// (holder_count=0 时 params[0:1]，但 holder_count++ 之后 params[1:1] 是
+	// 空切片，多占位符场景会丢值)。改用 params[holder_count] 直接索引。
 	holder_count := 0
+	consumeHolder := func(token string) (any, bool) {
+		if utils.IndexOf(token, "?", "%s") == -1 {
+			return nil, false
+		}
+		if holder_count >= len(params) {
+			log.Errf("placeholder %q in domain term %s has no matching param (consumed %d of %d)",
+				token, leaf.String(), holder_count, len(params))
+			return nil, true
+		}
+		v := params[holder_count]
+		holder_count++
+		return v, true
+	}
+
 	if right.IsListNode() {
 		for _, node := range right.Nodes() {
-			// 识别SQL占位符并切取值
-			if utils.IndexOf(node.String(), "?", "%s") != -1 {
-				vals = append(vals, params[holder_count:1]...)
-				holder_count++
-				res_arg = params[holder_count:] // 修改params值留到下个Term 返回
-
+			if v, isHolder := consumeHolder(node.String()); isHolder {
+				vals = append(vals, v)
 			} else {
 				vals = append(vals, node.Value)
-
 			}
 		}
 	} else {
-		if utils.IndexOf(right.String(), "?", "%s") != -1 {
-			vals = append(vals, params[holder_count:1]...)
-			holder_count++
-			res_arg = params[holder_count:] // 修改params值留到下个Term 返回
+		if v, isHolder := consumeHolder(right.String()); isHolder {
+			vals = append(vals, v)
 		} else {
 			vals = append(vals, right.Value)
 		}
 	}
+	res_arg = params[holder_count:] // 剩余参数留给下个 Term
 
 	/*	// 检测查询是否占位符?并获取值
 				if utils.IndexOf(right.String(), "?", "%s") != -1 {

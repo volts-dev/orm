@@ -185,6 +185,8 @@ func (self *TDomainNode) OP(op string, node *TDomainNode) *TDomainNode {
 				self.Insert(0, op) // 添加操作符
 				self.Merge(node)   // 第二条件
 			}
+		} else {
+			logger.Panicf("the node is not a leaf node and not a domain operator")
 		}
 	}
 
