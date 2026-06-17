@@ -384,6 +384,12 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 							value = *vals[idx].(*any)
 						}
 					}
+
+					// as tag 指定输出格式
+					if typeNmae := field.OutputAs(); typeNmae != "" {
+						res_dataset.SetFieldFormater(name, converter(typeNmae))
+					}
+
 				} else {
 					value = *vals[idx].(*any)
 				}

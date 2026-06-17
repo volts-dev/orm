@@ -46,7 +46,7 @@ func (self *Testchain) Create(classic ...bool) *Testchain {
 		self.Fatal("creation didn't returnning a Id!")
 	}
 
-	user_data.CompanyId = companyId.(int64)
+	user_data.CompanyId = companyId[0].(int64)
 	// Call the API Create()
 	_, err = classicWrap(ss.Model("user_model"), isClassic).Create(user_data)
 	if err != nil {

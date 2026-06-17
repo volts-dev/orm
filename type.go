@@ -242,6 +242,55 @@ var (
 	}
 )
 
+func converter(type_name string) func(any) any {
+	switch type_name {
+	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
+		return func(value any) any {
+			return utils.ToInt(value)
+		}
+	case BigInt, BigSerial:
+		return func(value any) any {
+			return utils.ToInt64(value)
+		}
+	case Float, Real:
+		return func(value any) any {
+			return utils.ToFloat32(value)
+		}
+	case Double:
+		return func(value any) any {
+			return utils.ToFloat64(value)
+		}
+	case Char, NChar, Varchar, NVarchar, TinyText, Text, NText, MediumText, LongText, Enum, Set, Uuid, Clob, SysName:
+		return func(value any) any {
+			v := utils.ToString(value)
+			if v == "0" {
+				return ""
+			}
+			return v
+		}
+	case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary, UniqueIdentifier:
+		return func(value any) any {
+			return value
+		}
+	case Bool:
+		return func(value any) any {
+			return utils.ToBool(value)
+		}
+	case DateTime, Date, Time, TimeStamp, TimeStampz, SmallDateTime:
+		return func(value any) any {
+			return utils.ToTime(value)
+		}
+	case Decimal, Numeric, Money, SmallMoney:
+		return func(value any) any {
+			return value // TODO 2
+		}
+	default:
+		return func(value any) any {
+			return value
+		}
+	}
+}
+
 // FIXME 优化
 // 转换数据库值到字段输出数据类型
 func value2FieldTypeValue(field IField, value any) any {
@@ -250,32 +299,7 @@ func value2FieldTypeValue(field IField, value any) any {
 		type_name = field.SQLType().Name
 	}
 
-	switch type_name {
-	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
-		return utils.ToInt(value)
-	case BigInt, BigSerial:
-		return utils.ToInt64(value)
-	case Float, Real:
-		return utils.ToFloat32(value)
-	case Double:
-		return utils.ToFloat64(value)
-	case Char, NChar, Varchar, NVarchar, TinyText, Text, NText, MediumText, LongText, Enum, Set, Uuid, Clob, SysName:
-		v := utils.ToString(value)
-		if v == "0" {
-			return ""
-		}
-		return v
-	case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary, UniqueIdentifier:
-		return value // TODO 1
-	case Bool:
-		return utils.ToBool(value)
-	case DateTime, Date, Time, TimeStamp, TimeStampz, SmallDateTime:
-		return utils.ToTime(value)
-	case Decimal, Numeric, Money, SmallMoney:
-		return value // TODO 2
-	default:
-		return value
-	}
+	return converter(type_name)(value)
 }
 
 // 转换值到字段数据库类型
