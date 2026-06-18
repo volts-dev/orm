@@ -23,6 +23,10 @@ type (
 		// ref remains unresolved after Phase 3. Recommended for CI/dev.
 		// Default false (resilient cold-start in prod).
 		StrictModelResolution bool
+
+		// BigNumberToString, when true, converts big number fields (BigInt, Decimal, etc.) to string
+		// in AsMap output to avoid JavaScript precision loss.
+		BigNumberToString bool
 	}
 )
 
@@ -92,5 +96,12 @@ func WithRemoteResolver(r IRemoteResolver) Option {
 func WithStrictModelResolution(b bool) Option {
 	return func(cfg *Config) {
 		cfg.StrictModelResolution = b
+	}
+}
+
+// WithBigNumberToString enables automatic conversion of big number fields to string.
+func WithBigNumberToString(on bool) Option {
+	return func(cfg *Config) {
+		cfg.BigNumberToString = on
 	}
 }

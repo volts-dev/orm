@@ -386,8 +386,14 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 					}
 
 					// as tag 指定输出格式
-					if typeNmae := field.OutputAs(); typeNmae != "" {
-						res_dataset.SetFieldFormater(name, converter(typeNmae))
+					if field != nil {
+						typeName := field.OutputAs()
+						if typeName == "" && self.orm.config.BigNumberToString && isBigNumberField(field) {
+							typeName = Varchar
+						}
+						if typeName != "" {
+							res_dataset.SetFieldFormater(name, converter(typeName))
+						}
 					}
 
 				} else {
