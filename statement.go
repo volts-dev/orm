@@ -20,8 +20,9 @@ type (
 		Params         []any               // 储存有序值
 		IdKey          string              // 开发者决定的数据表主键
 		IdParam        []any
-		Sets           map[string]any  // 预存数据值 供更新
-		Fields         map[string]bool // show which fields will be list out
+		Sets           map[string]any // 预存数据值 供更新
+		Fields         []string       // 仅操作(读取/写入)指定字段；为空表示全部字段
+		OmitFields     []string       // 排除指定字段的读取和写入
 		NullableFields map[string]bool
 		//TableNameClause    string
 		//AltTableNameClause string // 当无Objet实例时使用字符串表名称
@@ -50,7 +51,8 @@ type (
 func (self *TStatement) Init() {
 	self.domain = domain.NewDomainNode()
 	self.IdParam = make([]any, 0)
-	self.Fields = make(map[string]bool)         // TODO 优化
+	self.Fields = nil
+	self.OmitFields = nil
 	self.NullableFields = make(map[string]bool) // TODO 优化
 	self.FromClause = ""
 	self.OrderByClause = ""
@@ -89,7 +91,7 @@ func (self *TStatement) Select(fields ...string) *TStatement {
 
 		// 安全代码应该由开发者自己检查
 		if field := obj.GetFieldByName(name); field != nil {
-			self.Fields[name] = true
+			self.Fields = append(self.Fields, name)
 		}
 	}
 
@@ -269,13 +271,24 @@ func (self *TStatement) Asc(fileds ...string) *TStatement {
 	return self
 }
 
-// Omit do not use the columns
-func (self *TStatement) Omit(fields ...string) {
+// Omit 标记排除指定字段，使其不参与数据库的读取和写入操作
+func (self *TStatement) Omit(fields ...string) *TStatement {
 	for _, field := range fields {
-		self.Fields[strings.ToLower(field)] = false
+		self.OmitFields = append(self.OmitFields, fmtFieldName(field))
 	}
 	quoter := self.session.orm.dialect.Quoter()
 	self.OmitClause = quoter.Quote(strings.Join(fields, quoter.Quote(", ")))
+	return self
+}
+
+// IsOmit 判断指定字段是否被标记为排除(不读取/不写入)
+func (self *TStatement) IsOmit(name string) bool {
+	for _, f := range self.OmitFields {
+		if f == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Limit generate LIMIT start, limit statement

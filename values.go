@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/utils"
 )
 
 // NormalizeValues converts arbitrary input values into a *dataset.TDataSet.
@@ -77,14 +78,14 @@ type structCacheKey struct {
 var structInfoCache sync.Map
 
 // StructToMap converts src (struct or *struct) to map[string]any using model
-// metadata. fieldFilter, if non-empty, filters orm-named fields: only those
-// with a true value in the map are kept (mirrors the Statement.Fields semantics).
+// metadata. omitFields, if non-empty, excludes those orm-named fields from the
+// result (mirrors the Statement.OmitFields semantics).
 //
 // The conversion needs model for:
 //   - model.Orm().Config().FieldIdentifier — struct tag name
 //   - model.Obj().GetFieldByName           — field existence + SQLType
 //   - model.Orm().FormatTime               — time field formatting
-func StructToMap(src any, model IModel, fieldFilter map[string]bool) (res_map map[string]any) {
+func StructToMap(src any, model IModel, omitFields []string) (res_map map[string]any) {
 	v := reflect.ValueOf(src)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
@@ -156,16 +157,16 @@ func StructToMap(src any, model IModel, fieldFilter map[string]bool) (res_map ma
 	}
 
 	res_map = make(map[string]any)
-	lToOmitFields := len(fieldFilter) > 0
+	lToOmitFields := len(omitFields) > 0
 
 	for _, info := range infos {
 		if info.skip {
 			continue
 		}
 
-		// per-call: fieldFilter
+		// per-call: omitFields 排除指定字段
 		if lToOmitFields {
-			if b, ok := fieldFilter[info.ormName]; ok && !b {
+			if utils.IndexOf(info.ormName, omitFields...) != -1 {
 				continue
 			}
 		}
@@ -176,7 +177,7 @@ func StructToMap(src any, model IModel, fieldFilter map[string]bool) (res_map ma
 		if info.isExtends {
 			if (fv.Kind() == reflect.Ptr && fv.Elem().Kind() == reflect.Struct) ||
 				fv.Kind() == reflect.Struct {
-				for col, val := range StructToMap(fv.Interface(), model, fieldFilter) {
+				for col, val := range StructToMap(fv.Interface(), model, omitFields) {
 					res_map[col] = val
 				}
 			}

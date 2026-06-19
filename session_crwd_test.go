@@ -623,11 +623,35 @@ func TestSeparateValues_MustFieldRequired(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{})
 
-	mustFields := map[string]bool{"code": true}
+	mustFields := []string{"code"}
 
 	_, _, _, err := session._separateValues(data, mustFields, nil, false, nil)
 	if err == nil {
 		t.Error("expected error when must field 'code' is blank")
+	}
+}
+
+// Test: OmitFields excludes a field from the write values
+func TestSeparateValues_OmitFieldExcluded(t *testing.T) {
+	fields := []IField{
+		newTestField("name", withModelName("test.model")),
+		newTestField("secret", withModelName("test.model")),
+	}
+	obj := testModelObj(fields, nil, nil)
+	session := testSession("test.model", "id", obj)
+	session.Statement.OmitFields = []string{"secret"}
+	data := makeDataSet(map[string]any{"name": "alice", "secret": "shh"})
+
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, ok := newVals["secret"]; ok {
+		t.Error("omitted field 'secret' must not appear in new_vals")
+	}
+	if _, ok := newVals["name"]; !ok {
+		t.Error("non-omitted field 'name' should appear in new_vals")
 	}
 }
 

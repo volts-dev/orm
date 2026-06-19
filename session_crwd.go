@@ -724,8 +724,9 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	// 字段分类
 	// 验证Select * From
 	if len(self.Statement.Fields) > 0 {
-		for name, allowed := range self.Statement.Fields {
-			if !allowed {
+		for _, name := range self.Statement.Fields {
+			// 排除被 Omit 标记的字段
+			if self.Statement.IsOmit(name) {
 				continue
 			}
 
@@ -747,6 +748,10 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	} else {
 		for _, field := range model.GetFields() {
 			name := field.Name()
+			// 排除被 Omit 标记的字段
+			if self.Statement.IsOmit(name) {
+				continue
+			}
 			if !field.IsRelated() { //如果是本Model的字段
 				storeFields = append(storeFields, name)
 			} else {
@@ -1093,7 +1098,7 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 //	columnMap map[string]bool, update, unscoped bool
 //
 // needID is the values inclduing key
-func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[string]bool, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]any, map[string]map[string]any, []IField, error) {
+func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []string, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]any, map[string]map[string]any, []IField, error) {
 	/* 用于更新本Model的实际数据 */
 	new_vals := make(map[string]any)
 	rel_vals := make(map[string]map[string]any)
@@ -1148,6 +1153,11 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 
 		name = field.Name()
 		if name == idKeyName {
+			continue
+		}
+
+		// 排除被 Omit 标记的字段，使其不参与写入
+		if self.Statement.IsOmit(name) {
 			continue
 		}
 
@@ -1284,10 +1294,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 					continue
 				} else {
 					// 未包含主键的数据,需要检测是否为必须字段
-					isMustField := false
-					if mustFields != nil {
-						isMustField = mustFields[name]
-					}
+					isMustField := utils.IndexOf(name, mustFields...) != -1
 
 					// nullableFields: treat "absent/nil map" as "no constraint" (i.e. nullable).
 					// If present, the value means "is nullable".
@@ -1402,10 +1409,10 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields map[str
 }
 
 // _structToMap is a thin session-bound wrapper around StructToMap that wires
-// in Statement.Model and the Statement.Fields filter. Kept for backward
+// in Statement.Model and the Statement.OmitFields filter. Kept for backward
 // compatibility with callers (including tests) that use the session method.
 func (self *TSession) _structToMap(src any) map[string]any {
-	return StructToMap(src, self.Statement.Model, self.Statement.Fields)
+	return StructToMap(src, self.Statement.Model, self.Statement.OmitFields)
 }
 
 // Check whether value is among the valid values for the given
