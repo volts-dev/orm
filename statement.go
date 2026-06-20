@@ -65,7 +65,14 @@ func (self *TStatement) Init() {
 	self.Sets = nil // 不预先创建添加GC负担
 
 	/* 复制session */
+	// 在读锁下对 session.Sets 做快照，避免与 SetMustFieldValue 并发读写 map
+	self.session.setsLock.RLock()
+	sets := make([]TFieldValue, 0, len(self.session.Sets))
 	for _, f := range self.session.Sets {
+		sets = append(sets, f)
+	}
+	self.session.setsLock.RUnlock()
+	for _, f := range sets {
 		if f.Queryable {
 			self.Where(f.Name+"=?", f.Value)
 		}

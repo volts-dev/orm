@@ -3,6 +3,7 @@ package cacher
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/volts-dev/cacher"
@@ -42,12 +43,13 @@ type (
 
 	TCacher struct {
 		sync.RWMutex
-		active                   bool
+		active                   atomic.Bool
 		interval                 int
 		expired                  int
-		ttl                      int64 // 缓存过期时间（秒）
-		lastCleanupTime          int64 // 上次清理过期缓存的时间戳
+		ttl                      atomic.Int64 // 缓存过期时间（秒）
+		lastCleanupTime          atomic.Int64 // 上次清理过期缓存的时间戳
 		status                   map[string]bool
+		statusLock               sync.RWMutex // 保护 status map 的并发读写
 		id_caches                cacher.ICacher // 缓存Id 对应记录 map[model]record
 		sql_caches               cacher.ICacher // 缓存Sql查询结果
 		table_id_key_index       map[string]map[string]bool
@@ -68,9 +70,9 @@ func New() (*TCacher, error) {
 		table_sql_key_index: make(map[string]map[string]bool),
 		table_id_expiry:     make(map[string]map[string]int64),
 		table_sql_expiry:    make(map[string]map[string]int64),
-		ttl:                 DefaultCacheTTL,
-		lastCleanupTime:     time.Now().Unix(),
 	}
+	chr.ttl.Store(DefaultCacheTTL)
+	chr.lastCleanupTime.Store(time.Now().Unix())
 	var err error
 
 	chr.id_caches, err = cacher.New("memory")
@@ -170,7 +172,7 @@ func (self *TCacher) _genSqlKeyUnsafe(table string, sql string, args any, remove
 
 // turn on the cacher for query
 func (self *TCacher) Active(sw bool) {
-	self.active = sw
+	self.active.Store(sw)
 }
 
 // SetTTL 设置缓存过期时间（秒），必须在MinCacheTTL和MaxCacheTTL之间
@@ -182,13 +184,13 @@ func (self *TCacher) SetTTL(ttl int64) {
 		ttl = MaxCacheTTL
 		log.Warn("TTL too large, using maximum: %d seconds", MaxCacheTTL)
 	}
-	self.ttl = ttl
+	self.ttl.Store(ttl)
 	log.Info("Cache TTL set to %d seconds", ttl)
 }
 
 // GetTTL 获取当前缓存过期时间
 func (self *TCacher) GetTTL() int64 {
-	return self.ttl
+	return self.ttl.Load()
 }
 
 func (self *TCacher) SetExpired(expired int) {
@@ -201,17 +203,27 @@ func (self *TCacher) SetInterval(interval int) {
 
 // set table of cacher status
 func (self *TCacher) SetStatus(sw bool, table_name string) {
+	self.statusLock.Lock()
 	self.status[table_name] = sw
+	self.statusLock.Unlock()
+}
+
+// getStatus 在持有读锁的情况下返回某表的缓存开关状态。
+func (self *TCacher) getStatus(table string) (open bool, has bool) {
+	self.statusLock.RLock()
+	open, has = self.status[table]
+	self.statusLock.RUnlock()
+	return
 }
 
 // #缓存Sql查询结果ID集
 func (self *TCacher) PutBySql(table string, sql string, arg any, data *dataset.TDataSet) {
-	if open, has := self.status[table]; has && open {
+	if open, has := self.getStatus(table); has && open {
 		key := self.genSqlKey(table, sql, arg, false)
 		self.sql_caches.Set(&cacher.CacheBlock{Key: key, Value: data})
 
 		// 记录过期时间
-		expiryTime := time.Now().Unix() + self.ttl
+		expiryTime := time.Now().Unix() + self.ttl.Load()
 		self.table_sql_expiry_lock.Lock()
 		if _, has := self.table_sql_expiry[table]; !has {
 			self.table_sql_expiry[table] = make(map[string]int64)
@@ -226,7 +238,7 @@ func (self *TCacher) PutBySql(table string, sql string, arg any, data *dataset.T
 // WARNING: 返回的 *dataset.TDataSet 是缓存中的直接引用，请勿修改其内容，否则会污染缓存。
 // 如需修改，请先复制一份副本。
 func (self *TCacher) GetBySql(table string, sql string, arg any) *dataset.TDataSet {
-	if open, has := self.status[table]; has && open {
+	if open, has := self.getStatus(table); has && open {
 		key := self.genSqlKey(table, sql, arg, false)
 
 		// 检查缓存是否已过期
@@ -257,13 +269,13 @@ func (self *TCacher) GetBySql(table string, sql string, arg any) *dataset.TDataS
 
 // #缓存记录及ID
 func (self *TCacher) PutById(table string, id any, record *dataset.TRecordSet) {
-	if open, has := self.status[table]; !has || (has && open) {
+	if open, has := self.getStatus(table); !has || (has && open) {
 		//ck := self.RecCacher(table)
 		key := self.genIdKey(table, id, false)
 		self.id_caches.Set(&cacher.CacheBlock{Key: key, Value: record})
 
 		// 记录过期时间
-		expiryTime := time.Now().Unix() + self.ttl
+		expiryTime := time.Now().Unix() + self.ttl.Load()
 		self.table_id_expiry_lock.Lock()
 		if _, has := self.table_id_expiry[table]; !has {
 			self.table_id_expiry[table] = make(map[string]int64)
@@ -275,11 +287,11 @@ func (self *TCacher) PutById(table string, id any, record *dataset.TRecordSet) {
 
 // #通过ID获取记录
 func (self *TCacher) GetByIds(table string, ids ...any) (records []*dataset.TRecordSet, ids_less []any) {
-	if !self.active {
+	if !self.active.Load() {
 		return nil, ids
 	}
 
-	if open, has := self.status[table]; !has || (has && open) {
+	if open, has := self.getStatus(table); !has || (has && open) {
 		for _, id := range ids {
 			key := self.genIdKey(table, id, false)
 
@@ -527,11 +539,14 @@ func (self *TCacher) CleanupExpiredCache() {
 	now := time.Now().Unix()
 
 	// 检查是否需要清理（每分钟最多清理一次）
-	if now-self.lastCleanupTime < 60 {
+	last := self.lastCleanupTime.Load()
+	if now-last < 60 {
 		return
 	}
-
-	self.lastCleanupTime = now
+	// CAS 确保并发调用时只有一个 goroutine 实际执行清理
+	if !self.lastCleanupTime.CompareAndSwap(last, now) {
+		return
+	}
 	expiredCount := 0
 
 	// 清理Id缓存中的过期条目

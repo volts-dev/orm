@@ -597,7 +597,9 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	defer sess.Close()
 	/* 复制必要字段 */
 	if ctx.Session != nil {
+		ctx.Session.setsLock.RLock()
 		sess.Sets = ctx.Session.Sets
+		ctx.Session.setsLock.RUnlock()
 	}
 
 	//table_name := field.comodel_name//sess.Statement.TableName()

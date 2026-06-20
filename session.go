@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/utils"
@@ -37,6 +38,9 @@ type (
 		// @格式:[field]id
 		CacheNameIds map[string]any         //
 		Sets         map[string]TFieldValue // 预存数据值 供更新或者限制字段 如多租户字段
+		// setsLock 保护 Sets 的并发读写。注意：TSession 其余字段（Statement、lastSQL 等）
+		// 仍非并发安全，每个 goroutine 应使用独立 session。
+		setsLock    sync.RWMutex
 		lastSQL      string                 //
 		lastSQLArgs  []any                  // 储存有序值
 		allowUnsafe        bool           // Phase 2: bypasses no-WHERE Delete/Write guard; set via AllowUnsafe()
@@ -216,6 +220,7 @@ func (self *TSession) Models() *TSession {
 
 // 预存数据值 供更新或者限制字段 如多租户字段
 func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) {
+	self.setsLock.Lock()
 	if self.Sets == nil {
 		self.Sets = make(map[string]TFieldValue)
 	}
@@ -224,6 +229,7 @@ func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) 
 		Value:     value,
 		Queryable: queryable,
 	}
+	self.setsLock.Unlock()
 }
 
 // SetSchema sets current session schema namespace
