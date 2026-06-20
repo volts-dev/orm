@@ -147,15 +147,23 @@ func (q Quoter) quoteWordTo(buf *strings.Builder, word string) error {
 		if err := buf.WriteByte(q.Prefix); err != nil {
 			return err
 		}
-	}
-	if _, err := buf.WriteString(realWord); err != nil {
-		return err
-	}
-	if isReserved && realWord != "*" {
+		// 转义 realWord 中与 Suffix 相同的字节（标准标识符转义：加倍），
+		// 防止内嵌引号闭合标识符造成越界/注入。
+		for i := 0; i < len(realWord); i++ {
+			if err := buf.WriteByte(realWord[i]); err != nil {
+				return err
+			}
+			if realWord[i] == q.Suffix {
+				if err := buf.WriteByte(q.Suffix); err != nil {
+					return err
+				}
+			}
+		}
 		return buf.WriteByte(q.Suffix)
 	}
 
-	return nil
+	_, err := buf.WriteString(realWord)
+	return err
 }
 
 // QuoteTo quotes the table or column names. i.e. if the quotes are [ and ]

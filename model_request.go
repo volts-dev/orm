@@ -292,7 +292,7 @@ func (self *TModel) Load(field []string, records ...any) ([]any, error) {
 
 	ids, err := model.Create(&CreateRequest{Data: records})
 	if err != nil {
-		return nil, err
+		return nil, session.Rollback(err) // 回滚并释放连接，避免已 Begin 的事务泄露
 	}
 
 	if err = session.Commit(); err != nil {
@@ -362,7 +362,7 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 
 				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
 				if err != nil {
-					return 0, err
+					return 0, tx2.Rollback(err) // 回滚并释放连接，避免事务泄露（与 EOF 分支一致）
 				}
 
 				if err := tx2.Commit(); err != nil {

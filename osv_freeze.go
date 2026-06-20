@@ -41,7 +41,7 @@ func (self *TOsv) Freeze(ctx context.Context) error {
 	self.freezeLock.Lock()
 	defer self.freezeLock.Unlock()
 
-	if self.frozen {
+	if self.frozen.Load() {
 		return nil
 	}
 
@@ -123,7 +123,7 @@ func (self *TOsv) Freeze(ctx context.Context) error {
 
 	self.unresolvedRefs = unresolved
 
-	self.frozen = true
+	self.frozen.Store(true)
 	return nil
 }
 

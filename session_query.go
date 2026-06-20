@@ -92,12 +92,28 @@ func (self *TSession) Sum(fieldName string) (float64, error) {
 		defer self.Close()
 	}
 
-	sql, args, err := self.Statement.generate_sum(fieldName)
+	// 校验字段并引用，防止注入
+	if self.Statement.Model.GetFieldByName(fieldName) == nil {
+		return 0, fmt.Errorf("Sum: field %s not found on model %s", fieldName, self.Statement.Model.String())
+	}
+	col, err := self.orm.dialect.Quoter().QuoteIdent(fieldName)
+	if err != nil {
+		return 0, fmt.Errorf("Sum: invalid field %s: %w", fieldName, err)
+	}
+
+	// 复用 where_calc 生成 from/where（与 Count 路径一致），构造真实的 SUM 查询
+	query, err := self.Statement.where_calc(self.Statement.domain, false, make(map[string]any))
 	if err != nil {
 		return 0, err
 	}
+	from_clause, where_clause, where_clause_params := query.getSql()
+	if where_clause != "" {
+		where_clause = fmt.Sprintf(` WHERE %s`, where_clause)
+	}
 
-	ds, err := self._query(sql, args...)
+	query_str := fmt.Sprintf(`SELECT COALESCE(SUM(%s),0) AS sum FROM `, col) + from_clause + where_clause
+
+	ds, err := self._query(query_str, where_clause_params...)
 	if err != nil {
 		return 0, err
 	}

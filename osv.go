@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 
 	"github.com/volts-dev/utils"
 )
@@ -52,6 +53,7 @@ type (
 		relatedFieldsLock sync.RWMutex
 		commonFieldsLock  sync.RWMutex
 		indexesLock       sync.RWMutex
+		metaLock          sync.RWMutex // 保护普通 map object_types / methods 的并发读写
 
 		//_db_fields sync.Map // 从数据库分析出来的字段
 	}
@@ -64,7 +66,7 @@ type (
 		// === remote model resolution (phased registration) ===
 		resolver       IRemoteResolver
 		strictMode     bool
-		frozen         bool
+		frozen         atomic.Bool
 		freezeLock     sync.Mutex
 		pendingLock    sync.Mutex
 		pendingRefs    []fieldRef
@@ -192,6 +194,8 @@ func (self *TModelObject) SetCommonFieldByName(fieldName string, tableName strin
 
 func (self *TModelObject) mappingMethod(model *TModel) {
 	// @添加方法映射到对象里
+	self.metaLock.Lock()
+	defer self.metaLock.Unlock()
 	var method reflect.Method
 	for i := 0; i < model.modelType.NumMethod(); i++ {
 		method = model.modelType.Method(i)
@@ -291,7 +295,7 @@ func (self *TOsv) newObject(name string) *TModelObject {
 
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, model *TModel) error {
-	if self.frozen {
+	if self.frozen.Load() {
 		return ErrOsvFrozen
 	}
 	/* 初始化ModelObject */
@@ -392,7 +396,8 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	// 为该Model对应的Table
 	//	obj.object_table[model.modelType] = model.table
 
-	// 赋值
+	// 赋值（metaLock 保护 object_types 的并发写；mappingMethod 另取同锁，故此处先释放）
+	obj.metaLock.Lock()
 	if _, has := obj.object_types[region]; !has {
 		obj.object_types[region] = make(map[string]reflect.Type)
 	}
@@ -404,6 +409,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	if region != "" {
 		delete(obj.object_types, "")
 	}
+	obj.metaLock.Unlock()
 	/*
 		 		// @添加方法映射到对象里
 				var method reflect.Method
@@ -611,13 +617,16 @@ func (self *TOsv) _getModelByModule(model string, options *ModelOptions) IModel 
 
 			//if obj, has := self.models[model]; has {
 			// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
+			obj.metaLock.RLock()
 			for region_name, module_map = range obj.object_types {
 				if region_name == options.Module {
 					break
 				}
 			}
+			model_type, has = module_map[model]
+			obj.metaLock.RUnlock()
 
-			if model_type, has = module_map[model]; has {
+			if has {
 				value := reflect.New(model_type) // 创建对象
 				return self._initObject(value, model_type, obj, model, options)
 			}
@@ -632,7 +641,10 @@ func (self *TOsv) _getModelByModule(model string, options *ModelOptions) IModel 
 func (self *TOsv) _getModelByMethod(options *ModelOptions, model string, method string) (value reflect.Value) {
 	if v, has := self.models.Load(model); has {
 		if obj, ok := v.(*TModelObject); ok {
-			if typ, has := obj.methods[utils.TitleCasedName(method)]; has {
+			obj.metaLock.RLock()
+			typ, found := obj.methods[utils.TitleCasedName(method)]
+			obj.metaLock.RUnlock()
+			if found {
 				value = reflect.New(typ)
 				self._initObject(value, typ, obj, model, options)
 				return value

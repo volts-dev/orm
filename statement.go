@@ -339,31 +339,6 @@ func (self *TStatement) generate_create_table() string {
 	return self.session.orm.dialect.CreateTableSql(self.Model, self.StoreEngine, self.Charset)
 }
 
-func (self *TStatement) generate_sum(columns ...string) (string, []any, error) {
-	/*	var sumStrs = make([]string, 0, len(columns))
-		for _, colName := range columns {
-			if !strings.Contains(colName, " ") && !strings.Contains(colName, "(") {
-				colName = self.session.Orm().Quote(colName)
-			}
-			sumStrs = append(sumStrs, fmt.Sprintf("COALESCE(sum(%s),0)", colName))
-		}
-		sumSelect := strings.Join(sumStrs, ", ")
-
-		condSQL, condArgs, err := statement.genConds(bean)
-		if err != nil {
-			return "", nil, err
-		}
-
-		sqlStr, err := statement.genSelectSQL(sumSelect, condSQL)
-		if err != nil {
-			return "", nil, err
-		}
-
-		return sqlStr, append(statement.joinArgs, condArgs...), nil
-	*/
-	return "", nil, nil
-}
-
 func (self *TStatement) generate_unique() []string {
 	indexes := self.Model.Obj().indexes
 	var sqls = make([]string, 0, len(indexes))

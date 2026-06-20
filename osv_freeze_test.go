@@ -114,7 +114,7 @@ func TestFreeze_LocalCircularDeps(t *testing.T) {
 	if len(osv.unresolvedRefs) != 0 {
 		t.Fatalf("unresolvedRefs must be empty when all targets are local, got %d", len(osv.unresolvedRefs))
 	}
-	if !osv.frozen {
+	if !osv.frozen.Load() {
 		t.Fatal("Freeze must set frozen=true on success")
 	}
 }
@@ -217,7 +217,7 @@ func TestTOrmFreeze_ForwardsToOsv(t *testing.T) {
 	if err := orm.Freeze(context.Background()); err != nil {
 		t.Fatalf("TOrm.Freeze must succeed on empty osv, got: %v", err)
 	}
-	if !osv.frozen {
+	if !osv.frozen.Load() {
 		t.Fatal("TOrm.Freeze must mark osv as frozen")
 	}
 }

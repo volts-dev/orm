@@ -530,8 +530,12 @@ func (self *TExpression) parse(context map[string]any) error {
 			operator = ex_leaf.leaf.Item(1) // =
 			right = ex_leaf.leaf.Item(2)    // 1
 		} else {
-			if ex_leaf.leaf.Count() == 0 {
-				return nil
+			// 校验叶子完整性，避免对 1~2 元素的畸形叶子越界访问 Item(1)/Item(2) 触发 panic
+			if cnt := ex_leaf.leaf.Count(); cnt != 3 {
+				if cnt == 0 {
+					return nil // 空项静默跳过（保持原行为）
+				}
+				return fmt.Errorf("invalid domain leaf: expected 3 elements, got %d: %s", cnt, ex_leaf.leaf.String())
 			}
 			left = ex_leaf.leaf.Item(0)
 			operator = ex_leaf.leaf.Item(1)

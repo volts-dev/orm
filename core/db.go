@@ -63,7 +63,12 @@ func StructToSlice(query string, st any) (string, []any, error) {
 	args := make([]any, 0)
 	var err error
 	query = re.ReplaceAllStringFunc(query, func(src string) string {
-		fv := vv.Elem().FieldByName(src[1:]).Interface()
+		fvv := vv.Elem().FieldByName(src[1:])
+		if !fvv.IsValid() { // 命名参数无对应结构体字段：返回错误而非 panic（与 MapToSlice 行为一致）
+			err = fmt.Errorf("struct field %s is missing", src[1:])
+			return "?"
+		}
+		fv := fvv.Interface()
 		if v, ok := fv.(driver.Valuer); ok {
 			var value driver.Value
 			value, err = v.Value()
