@@ -39,8 +39,9 @@ type (
 		Sets         map[string]TFieldValue // 预存数据值 供更新或者限制字段 如多租户字段
 		lastSQL      string                 //
 		lastSQLArgs  []any                  // 储存有序值
-		allowUnsafe    bool           // Phase 2: bypasses no-WHERE Delete/Write guard; set via AllowUnsafe()
-		softDeleteMode softDeleteMode // Phase 2: controls Read-path soft-delete filtering (default: filterActive)
+		allowUnsafe        bool           // Phase 2: bypasses no-WHERE Delete/Write guard; set via AllowUnsafe()
+		softDeleteMode     softDeleteMode // Phase 2: controls Read-path soft-delete filtering (default: filterActive)
+		exposeScopedFields bool           // 当 true 时，model.BeforeSession 钩子跳过字段级脱敏（如多租户 tenant_id 的 Omit）；默认 false=脱敏（fail closed）。经 IncludeScopedFields() 设置
 	}
 )
 
