@@ -17,6 +17,7 @@ import (
 // 如需自定义 ctx，先链式调 session.WithContext(ctx)。
 func (self *TSession) Create(src ...any) (uid []any, err error) {
 	model := self.Statement.Model
+	self.Op = OpCreate
 	if _, err := model.BeforeSession(self); err != nil {
 		return nil, err
 	}
@@ -41,6 +42,7 @@ func (self *TSession) Create(src ...any) (uid []any, err error) {
 // 如需自定义 ctx，先链式调 session.WithContext(ctx)。
 func (self *TSession) Read() (*TDataset, error) {
 	model := self.Statement.Model
+	self.Op = OpRead
 	if _, err := model.BeforeSession(self); err != nil {
 		return nil, err
 	}
@@ -67,6 +69,7 @@ func (self *TSession) Read() (*TDataset, error) {
 // 如需自定义 ctx，先链式调 session.WithContext(ctx)。
 func (self *TSession) Write(data any) (effect int64, err error) {
 	model := self.Statement.Model
+	self.Op = OpWrite
 	if _, err := model.BeforeSession(self); err != nil {
 		return 0, err
 	}
@@ -90,6 +93,7 @@ func (self *TSession) Write(data any) (effect int64, err error) {
 // delete records
 func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	model := self.Statement.Model
+	self.Op = OpDelete
 	if _, err := model.BeforeSession(self); err != nil {
 		return 0, err
 	}

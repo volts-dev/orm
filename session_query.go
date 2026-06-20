@@ -47,6 +47,7 @@ func (self *TSession) Exec(sql_str string, args ...any) (sql.Result, error) {
 
 func (self *TSession) Count() (int, error) {
 	model := self.Statement.Model
+	self.Op = OpCount
 	if _, err := model.BeforeSession(self); err != nil {
 		return 0, err
 	}
@@ -78,6 +79,7 @@ func (self *TSession) Count() (int, error) {
 // Sum sum the records by some column. bean's non-empty fields are conditions.
 func (self *TSession) Sum(fieldName string) (float64, error) {
 	model := self.Statement.Model
+	self.Op = OpSum
 	if _, err := model.BeforeSession(self); err != nil {
 		return 0, err
 	}

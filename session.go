@@ -11,10 +11,17 @@ import (
 )
 
 type (
+	// SessionOp 标记当前 Session 正在执行的 CRUD 操作类型。
+	// 由各 CRUD 入口（Create/Read/Write/Delete/Count/Sum）在调用 model.BeforeSession
+	// 之前写入，供 BeforeSession 钩子判断本次应当 Set（写值）还是 Where（过滤），
+	// 例如多租户场景下 Create 盖 tenant_id 戳、Read/Delete 按 tenant_id 过滤。
+	SessionOp uint8
+
 	TSession struct {
 		orm                    *TOrm
 		db                     *core.DB
 		tx                     *core.Tx // 由Begin 传递而来
+		Op                     SessionOp // 当前操作类型，见 OpCreate 等
 		Statement              TStatement
 		context                context.Context
 		Schema                 string // Schema namespace
@@ -35,6 +42,16 @@ type (
 		allowUnsafe    bool           // Phase 2: bypasses no-WHERE Delete/Write guard; set via AllowUnsafe()
 		softDeleteMode softDeleteMode // Phase 2: controls Read-path soft-delete filtering (default: filterActive)
 	}
+)
+
+const (
+	OpNone   SessionOp = iota // 未指定（DDL/Exec 等非 CRUD 入口）
+	OpCreate                  // 插入
+	OpRead                   // 读取
+	OpWrite                  // 更新
+	OpDelete                 // 删除
+	OpCount                  // 计数
+	OpSum                    // 求和
 )
 
 func NewSession(orm *TOrm) *TSession {
@@ -469,6 +486,7 @@ func (self *TSession) IsEmpty(model string) (bool, error) {
 // 重制Statement防止参数重用
 func (self *TSession) _resetStatement() {
 	if self.AutoResetStatement {
+		self.Op = OpNone
 		self.Statement.Init()
 	}
 }

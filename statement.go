@@ -29,21 +29,21 @@ type (
 		AliasTableName string
 		JoinClause     string
 		FromClause     string
-		OmitClause     string
-		GroupByClause  []string
-		FuncsClause    []string // SQL函数
-		SortClauses    []string
-		AscFields      []string
-		DescFields     []string
-		OrderByClause  string
-		LimitClause    int64
-		OffsetClause   int64
-		IsCount        bool
-		IsForUpdate    bool
-		UseCascade     bool
-		OnConflict     *OnConflict
-		Charset        string //???
-		StoreEngine    string //???
+		//OmitClause     string
+		GroupByClause []string
+		FuncsClause   []string // SQL函数
+		SortClauses   []string
+		AscFields     []string
+		DescFields    []string
+		OrderByClause string
+		LimitClause   int64
+		OffsetClause  int64
+		IsCount       bool
+		IsForUpdate   bool
+		UseCascade    bool
+		OnConflict    *OnConflict
+		Charset       string //???
+		StoreEngine   string //???
 	}
 )
 
@@ -276,8 +276,8 @@ func (self *TStatement) Omit(fields ...string) *TStatement {
 	for _, field := range fields {
 		self.OmitFields = append(self.OmitFields, fmtFieldName(field))
 	}
-	quoter := self.session.orm.dialect.Quoter()
-	self.OmitClause = quoter.Quote(strings.Join(fields, quoter.Quote(", ")))
+	//quoter := self.session.orm.dialect.Quoter()
+	//self.OmitClause = quoter.Quote(strings.Join(fields, quoter.Quote(", ")))
 	return self
 }
 
