@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
-	"sync"
 )
 
 var (
@@ -84,11 +83,6 @@ func StructToSlice(query string, st any) (string, []any, error) {
 	return query, args, nil
 }
 
-type cacheStruct struct {
-	value reflect.Value
-	idx   int
-}
-
 var (
 	_ QueryExecuter = &DB{}
 )
@@ -96,10 +90,8 @@ var (
 // DB is a wrap of sql.DB with extra contents
 type DB struct {
 	*sql.DB
-	Mapper            IMapper
-	reflectCache      map[reflect.Type]*cacheStruct
-	reflectCacheMutex sync.RWMutex
-	hooks             Hooks
+	Mapper IMapper
+	hooks  Hooks
 }
 
 // Open opens a database
@@ -109,18 +101,16 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 		return nil, err
 	}
 	return &DB{
-		DB:           db,
-		Mapper:       NewCacheMapper(&SnakeMapper{}),
-		reflectCache: make(map[reflect.Type]*cacheStruct),
+		DB:     db,
+		Mapper: NewCacheMapper(&SnakeMapper{}),
 	}, nil
 }
 
 // FromDB creates a DB from a sql.DB
 func FromDB(db *sql.DB) *DB {
 	return &DB{
-		DB:           db,
-		Mapper:       NewCacheMapper(&SnakeMapper{}),
-		reflectCache: make(map[reflect.Type]*cacheStruct),
+		DB:     db,
+		Mapper: NewCacheMapper(&SnakeMapper{}),
 	}
 }
 
@@ -138,32 +128,6 @@ func (db *DB) NeedLogSQL(ctx context.Context) bool {
 	return false
 }
 
-// maxReflectCacheTypes 是 reflectCache 的防御性容量上限。正常情况下 key 是程序中
-// 实际存在的 Go 类型，数量有限；此上限仅防止极端场景（如运行时动态构造类型）导致无限增长。
-const maxReflectCacheTypes = 4096
-
-func (db *DB) reflectNew(typ reflect.Type) reflect.Value {
-	db.reflectCacheMutex.Lock()
-	defer db.reflectCacheMutex.Unlock()
-	cs, ok := db.reflectCache[typ]
-	if !ok {
-		// 超过上限时整体清空，防止无限增长导致 OOM（已返回的 reflect.Value 仍有效，仅丢弃缓存）
-		if len(db.reflectCache) >= maxReflectCacheTypes {
-			db.reflectCache = make(map[reflect.Type]*cacheStruct, maxReflectCacheTypes)
-		}
-		// 首次创建此类型的缓存
-		cs = &cacheStruct{reflect.MakeSlice(reflect.SliceOf(typ), DefaultCacheSize, DefaultCacheSize), 0}
-		db.reflectCache[typ] = cs
-		return cs.value.Index(0).Addr()
-	}
-
-	// 使用环形缓冲区而非清空缓存
-	// 当达到容量时回到起始位置，实现循环复用
-	returnIdx := cs.idx
-	cs.idx = (cs.idx + 1) % DefaultCacheSize
-
-	return cs.value.Index(returnIdx).Addr()
-}
 
 // QueryContext overwrites sql.DB.QueryContext
 func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*Rows, error) {

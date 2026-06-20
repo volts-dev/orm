@@ -866,13 +866,17 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 	is_field := field != nil // 是否是model字段
 	//	is_holder := false
 
-	// 重新检查合法性 不行final sanity checks - should never fail
+	// 合法性闸门：非法操作符或非法字段一律中止该叶子的 SQL 生成，返回恒假谓词，
+	// 绝不把未经校验的字段名/操作符拼进 SQL（防注入）。合法查询的字段必能命中
+	// GetFieldByName / MAGIC_COLUMNS / TRUE_LEAF|FALSE_LEAF，因此不会触发此分支。
 	if utils.IndexOf(operator.String(), append(domain.TERM_OPERATORS, "inselect", "not inselect")...) == -1 {
 		log.Errf(`Invalid operator %s in domain term %s`, operator.Strings(), leaf.String())
+		return "0 = 1", res_params, res_arg
 	}
 
 	if !left.ValueIn(domain.TRUE_LEAF, domain.FALSE_LEAF) && model.GetFieldByName(left.String()) == nil && !left.ValueIn(MAGIC_COLUMNS) { //
 		log.Errf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
+		return "0 = 1", res_params, res_arg
 	}
 	//        assert not isinstance(right, BaseModel), \
 	//            "Invalid value %r in domain term %r" % (right, leaf)

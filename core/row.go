@@ -113,7 +113,10 @@ func fieldByName(v reflect.Value, name string) reflect.Value {
 		return v.Field(i)
 	}
 
-	return reflect.Zero(t)
+	// 未命中返回无效 Value（而非 reflect.Zero(t)）：reflect.Zero(struct) 的 IsValid()
+	// 为 true 但不可寻址，会让 ScanStructByName 误走 Addr() 分支 panic；返回无效 Value
+	// 使其走 EmptyScanner 兜底分支，容忍结果集中存在 struct 没有的列。
+	return reflect.Value{}
 }
 
 // ScanStructByName scan data to a struct's pointer according field name
@@ -193,7 +196,9 @@ func (rs *Rows) ScanMap(dest any) error {
 	vvv := vv.Elem()
 
 	for i := range cols {
-		newDest[i] = rs.db.reflectNew(vvv.Type().Elem()).Interface()
+		// 每列分配独立内存：旧实现用挂在共享 *DB 上的环形缓冲（reflectNew），
+		// 并发查询会对同一底层数组元素无同步并发写（data race）。
+		newDest[i] = reflect.New(vvv.Type().Elem()).Interface()
 	}
 
 	err = rs.Rows.Scan(newDest...)

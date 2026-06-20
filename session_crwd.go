@@ -695,7 +695,9 @@ func (self *TSession) _write(src any) (int64, error) {
 		if ds.Count() != 0 {
 			refIds = make([]any, ds.Count())
 			ds.Range(func(pos int, record *dataset.TRecordSet) error {
-				refIds[pos] = ds.Record().GetByField(fieldName)
+				// 用 Range 回调的 record 取每行的值；旧实现误用 ds.Record()（始终是游标位置 0），
+				// 导致多记录时所有 refIds 都取到第一行，写错关联记录。
+				refIds[pos] = record.GetByField(fieldName)
 				return nil
 			})
 
@@ -926,9 +928,25 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	// orderby clause
 	order_clause = self.Statement.generate_order_by(query, nil) // TODO 未完成
 
-	// GroupBy clause
+	// GroupBy clause — 每个字段必须命中模型字段并经标识符校验/引用，防止注入
 	if len(self.Statement.GroupByClause) > 0 {
-		groupby_clause = "GROUP BY " + strings.Join(self.Statement.GroupByClause, ",")
+		quoter := self.orm.dialect.Quoter()
+		groupCols := make([]string, 0, len(self.Statement.GroupByClause))
+		for _, name := range self.Statement.GroupByClause {
+			if field := self.Statement.Model.GetFieldByName(name); field == nil {
+				log.Warnf("GroupBy field %s not found on model %s, ignored", name, self.Statement.Model.String())
+				continue
+			}
+			q, err := quoter.QuoteIdent(name)
+			if err != nil {
+				log.Warnf("GroupBy field %s is not a valid identifier, ignored: %v", name, err)
+				continue
+			}
+			groupCols = append(groupCols, q)
+		}
+		if len(groupCols) > 0 {
+			groupby_clause = "GROUP BY " + strings.Join(groupCols, ",")
+		}
 	}
 
 	// limit clause

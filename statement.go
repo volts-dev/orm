@@ -691,6 +691,13 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 	order_by_elements := make([]string, 0)
 
 	generate_order := func(fields []string, order_direction string) {
+		// 排序方向白名单：只允许 ""/ASC/DESC，其它（用户可控）一律丢弃该排序项，
+		// 防止 order_direction 被原样拼进 SQL 造成注入。
+		order_direction = strings.ToUpper(strings.TrimSpace(order_direction))
+		if order_direction != "" && order_direction != "ASC" && order_direction != "DESC" {
+			log.Warnf("Invalid sort direction %q ignored", order_direction)
+			return
+		}
 		for _, fieldName := range fields {
 			if fieldName == self.IdKey {
 				lStr := fmt.Sprintf(`"%s"."%s" %s`, alias, fieldName, order_direction)
