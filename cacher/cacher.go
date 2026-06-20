@@ -60,6 +60,8 @@ type (
 		table_sql_expiry         map[string]map[string]int64 // 记录Sql缓存的过期时间
 		table_id_expiry_lock     sync.RWMutex
 		table_sql_expiry_lock    sync.RWMutex
+		cleanupStopCh            chan struct{} // 关闭以停止 CleanupExpiredCacheAsync 的后台 goroutine
+		cleanupStopOnce          sync.Once
 	}
 )
 
@@ -70,6 +72,7 @@ func New() (*TCacher, error) {
 		table_sql_key_index: make(map[string]map[string]bool),
 		table_id_expiry:     make(map[string]map[string]int64),
 		table_sql_expiry:    make(map[string]map[string]int64),
+		cleanupStopCh:       make(chan struct{}),
 	}
 	chr.ttl.Store(DefaultCacheTTL)
 	chr.lastCleanupTime.Store(time.Now().Unix())
@@ -397,8 +400,10 @@ func (self *TCacher) ClearByTable(table string) {
 
 // CacheWarmer 缓存预热器，用于在启动时加载热数据到缓存
 type CacheWarmer struct {
-	cacher *TCacher
-	tasks  []WarmupTask
+	cacher   *TCacher
+	tasks    []WarmupTask
+	stopCh   chan struct{} // 关闭以停止 WarmWithSchedule 的后台 goroutine
+	stopOnce sync.Once
 }
 
 // WarmupTask 代表一个缓存预热任务
@@ -415,6 +420,7 @@ func NewCacheWarmer(cacher *TCacher) *CacheWarmer {
 	return &CacheWarmer{
 		cacher: cacher,
 		tasks:  make([]WarmupTask, 0),
+		stopCh: make(chan struct{}),
 	}
 }
 
@@ -518,14 +524,28 @@ func (cw *CacheWarmer) WarmWithSchedule(interval time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			if err := cw.Warm(); err != nil {
-				log.Errf("Scheduled warmup failed: %v", err)
+		for {
+			select {
+			case <-cw.stopCh:
+				return
+			case <-ticker.C:
+				if err := cw.Warm(); err != nil {
+					log.Errf("Scheduled warmup failed: %v", err)
+				}
 			}
 		}
 	}()
 
 	log.Infof("Started scheduled cache warmup with interval: %v", interval)
+}
+
+// StopSchedule 停止由 WarmWithSchedule 启动的后台预热 goroutine。可安全重复调用。
+func (cw *CacheWarmer) StopSchedule() {
+	cw.stopOnce.Do(func() {
+		if cw.stopCh != nil {
+			close(cw.stopCh)
+		}
+	})
 }
 
 // isExpired 检查缓存是否已过期
@@ -598,12 +618,26 @@ func (self *TCacher) CleanupExpiredCacheAsync(interval time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			self.CleanupExpiredCache()
+		for {
+			select {
+			case <-self.cleanupStopCh:
+				return
+			case <-ticker.C:
+				self.CleanupExpiredCache()
+			}
 		}
 	}()
 
 	log.Infof("Started async cache cleanup with interval: %v", interval)
+}
+
+// StopCleanup 停止由 CleanupExpiredCacheAsync 启动的后台清理 goroutine。可安全重复调用。
+func (self *TCacher) StopCleanup() {
+	self.cleanupStopOnce.Do(func() {
+		if self.cleanupStopCh != nil {
+			close(self.cleanupStopCh)
+		}
+	})
 }
 
 /*

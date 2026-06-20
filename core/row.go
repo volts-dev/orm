@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"sync"
+	"sync/atomic"
 )
 
 // Rows represents rows of table
@@ -71,8 +72,13 @@ func (rs *Rows) ScanStructByIndex(dest ...any) error {
 }
 
 var (
-	fieldCache = &sync.Map{} // 使用sync.Map避免竞态条件
+	fieldCache     = &sync.Map{} // 使用sync.Map避免竞态条件
+	fieldCacheSize atomic.Int64  // 近似条目计数，用于防御性容量控制
 )
+
+// maxFieldCacheTypes 是 fieldCache 的防御性容量上限。key 是程序中实际的 struct 类型，
+// 数量有限；此上限仅防止极端场景下无限增长。
+const maxFieldCacheTypes = 4096
 
 func fieldByName(v reflect.Value, name string) reflect.Value {
 	t := v.Type()
@@ -87,8 +93,19 @@ func fieldByName(v reflect.Value, name string) reflect.Value {
 		for i := 0; i < v.NumField(); i++ {
 			cache[t.Field(i).Name] = i
 		}
+		// 超过上限时清空，防止无限增长
+		if fieldCacheSize.Load() >= maxFieldCacheTypes {
+			fieldCache.Range(func(k, _ any) bool {
+				fieldCache.Delete(k)
+				return true
+			})
+			fieldCacheSize.Store(0)
+		}
 		// 使用LoadOrStore避免重复初始化，原子地存储
-		actual, _ := fieldCache.LoadOrStore(t, cache)
+		actual, loaded := fieldCache.LoadOrStore(t, cache)
+		if !loaded {
+			fieldCacheSize.Add(1)
+		}
 		cache = actual.(map[string]int)
 	}
 

@@ -138,11 +138,19 @@ func (db *DB) NeedLogSQL(ctx context.Context) bool {
 	return false
 }
 
+// maxReflectCacheTypes 是 reflectCache 的防御性容量上限。正常情况下 key 是程序中
+// 实际存在的 Go 类型，数量有限；此上限仅防止极端场景（如运行时动态构造类型）导致无限增长。
+const maxReflectCacheTypes = 4096
+
 func (db *DB) reflectNew(typ reflect.Type) reflect.Value {
 	db.reflectCacheMutex.Lock()
 	defer db.reflectCacheMutex.Unlock()
 	cs, ok := db.reflectCache[typ]
 	if !ok {
+		// 超过上限时整体清空，防止无限增长导致 OOM（已返回的 reflect.Value 仍有效，仅丢弃缓存）
+		if len(db.reflectCache) >= maxReflectCacheTypes {
+			db.reflectCache = make(map[reflect.Type]*cacheStruct, maxReflectCacheTypes)
+		}
 		// 首次创建此类型的缓存
 		cs = &cacheStruct{reflect.MakeSlice(reflect.SliceOf(typ), DefaultCacheSize, DefaultCacheSize), 0}
 		db.reflectCache[typ] = cs
