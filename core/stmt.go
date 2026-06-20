@@ -113,6 +113,10 @@ func (s *Stmt) QueryContext(ctx context.Context, args ...any) (*Rows, error) {
 	rows, err := s.Stmt.QueryContext(ctx, args...)
 	hookCtx.End(ctx, nil, err)
 	if err := s.db.afterProcess(hookCtx); err != nil {
+		// 查询可能已成功打开 rows，afterProcess 出错时必须关闭，避免连接泄露
+		if rows != nil {
+			rows.Close()
+		}
 		return nil, err
 	}
 

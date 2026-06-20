@@ -296,8 +296,8 @@ func (self *TModel) Clone(options ...ModelOption) (IModel, error) {
 		return nil, err
 	}
 	model.Ctx(self.options.Context)
-	if self.transaction != nil {
-		model.Tx(self.transaction)
+	if tx := self.Transaction(); tx != nil {
+		model.Tx(tx)
 	}
 	model.Options(options...)
 	return model, nil
@@ -338,25 +338,47 @@ func (self *TModel) Ctx(context ...context.Context) context.Context {
 	return self.options.Context
 }
 
+// modelTxMu 保护 TModel.transaction 字段的并发读写。
+// 用包级锁而非结构体字段：TModel 会被 `*self = *model` 值拷贝、也会被反射 new(TModel)
+// 构造，任何嵌入的 sync 原语都会触发 vet "copies lock" 或在反射构造的实例上 nil deref。
+// 锁仅包住指针的读写——绝不跨越 Records()/s.Model() 调用，因为它们会经 GetModel→Clone
+// 再次进入 Tx()，而 sync.Mutex 不可重入，跨调用持锁将死锁。
+var modelTxMu sync.Mutex
+
 func (self *TModel) Tx(session ...*TSession) *TSession {
 	if len(session) > 0 {
 		if s := session[0]; s != nil {
 			/* 提供参考Model*/
 			s.Statement.Model = self.prototype
-			/* 从Model获取必要信息 */
-			self.transaction = s.Model(self.String())
-			return self.transaction
+			/* 从Model获取必要信息（在锁外计算）*/
+			tx := s.Model(self.String())
+			modelTxMu.Lock()
+			self.transaction = tx
+			modelTxMu.Unlock()
+			return tx
 		}
 	}
 
-	if self.transaction == nil {
-		self.transaction = self.Records()
+	modelTxMu.Lock()
+	tx := self.transaction
+	modelTxMu.Unlock()
+	if tx == nil {
+		// 在锁外创建会话（Records 会经 GetModel→Clone 再次进入 Tx）
+		created := self.Records()
+		modelTxMu.Lock()
+		if self.transaction == nil { // double-check：另一 goroutine 可能已创建
+			self.transaction = created
+		}
+		tx = self.transaction
+		modelTxMu.Unlock()
 	}
 
-	return self.transaction
+	return tx
 }
 
 func (self *TModel) Transaction() *TSession {
+	modelTxMu.Lock()
+	defer modelTxMu.Unlock()
 	return self.transaction
 }
 

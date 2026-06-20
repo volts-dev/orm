@@ -241,25 +241,12 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 		}
 
 		if idCreator != nil {
-			// 尊重调用方显式提供的主键：仅当未提供（或为空）时才生成雪花 id。
-			// 这是 vectors SSN 契约（res_user.id == sys_user.id —— 同一全局身份 id
-			// 直接作为各租户内 actor 的主键复用，类似社保号跨租户复用）得以落地的前提。
-			// 主键被 _separateValues 排除在 newValues 之外，故从已解析的 data 取调用方 id
-			// （与 _write 提取 id 的方式一致）；历史调用方均不传 id，行为不变。
-			var suppliedId any
-			if rec := data.Record(); rec != nil {
-				suppliedId = rec.GetByField(idField)
-			}
-			if utils.IsBlank(suppliedId) {
-				newValues[idField] = idCreator.OnCreate(&TFieldContext{
-					Session: self,
-					Model:   self.Statement.Model,
-					Dataset: data,
-					Field:   idCreator,
-				})
-			} else {
-				newValues[idField] = suppliedId
-			}
+			newValues[idField] = idCreator.OnCreate(&TFieldContext{
+				Session: self,
+				Model:   self.Statement.Model,
+				Dataset: data,
+				Field:   idCreator,
+			})
 		}
 
 		// 根据字段计算数据值

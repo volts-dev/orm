@@ -140,8 +140,13 @@ func (self *TModelObject) SetDefaultByName(fieldName string, value any) {
 
 func (self *TModelObject) GetRelatedFields() (all map[string]*TRelatedField) {
 	self.relatedFieldsLock.RLock()
-	all = self.relatedFields
-	self.relatedFieldsLock.RUnlock()
+	defer self.relatedFieldsLock.RUnlock()
+	// 返回副本而非内部 map 引用：调用方常在遍历返回值的同时调用 SetRelatedFieldByName
+	// （见 model.go 关系重载），直接返回引用会导致并发遍历+写入 panic。
+	all = make(map[string]*TRelatedField, len(self.relatedFields))
+	for k, v := range self.relatedFields {
+		all[k] = v
+	}
 	return
 }
 
@@ -160,8 +165,17 @@ func (self *TModelObject) SetRelatedFieldByName(fieldName string, field *TRelate
 
 func (self *TModelObject) GetCommonFieldByName(fieldName string) (tableField map[string]IField) {
 	self.commonFieldsLock.RLock()
-	tableField = self.commonFields[fieldName]
-	self.commonFieldsLock.RUnlock()
+	defer self.commonFieldsLock.RUnlock()
+	// 返回副本而非内部 map 引用，避免调用方遍历时与 SetCommonFieldByName 并发写冲突。
+	// 未命中时返回 nil，保持调用方 `comm_models != nil` 判断语义不变。
+	src := self.commonFields[fieldName]
+	if src == nil {
+		return nil
+	}
+	tableField = make(map[string]IField, len(src))
+	for k, v := range src {
+		tableField[k] = v
+	}
 	return
 }
 
