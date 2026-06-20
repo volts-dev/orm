@@ -158,7 +158,12 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 
 	cnt, err := res.RowsAffected()
 	if err != nil {
-		return 0, self.Rollback(err)
+		// autocommit 模式下 DELETE 已提交，RowsAffected 出错不应 Rollback（会造成"已回滚"的错觉）；
+		// 仅在确处于事务时才回滚。
+		if self.tx != nil {
+			return 0, self.Rollback(err)
+		}
+		return 0, err
 	}
 
 	/* check the row count */
@@ -627,12 +632,12 @@ func (self *TSession) _write(src any) (int64, error) {
 
 			sql.WriteString(" WHERE ")
 			if multiSql > 1 {
-				sql.WriteString(fmt.Sprintf(`%s = ?`, self.Statement.IdKey))
+				sql.WriteString(fmt.Sprintf(`%s = ?`, quoter(self.Statement.IdKey)))
 				params = append(params, id) // add in ids data
 
 			} else {
 				sql.WriteString(fmt.Sprintf(`%s IN (%s)`,
-					self.Statement.IdKey,
+					quoter(self.Statement.IdKey),
 					strings.Repeat("?,", len(ids)-1)+"?"),
 				)
 				params = append(params, ids...) // add in ids data

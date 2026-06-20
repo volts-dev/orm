@@ -93,7 +93,7 @@ func New() (*TCacher, error) {
 
 // @removed 是否用于移除（内部版本，不持有锁）
 func (self *TCacher) _genIdKeyUnsafe(table string, key any, removed bool) string {
-	str := fmt.Sprintf("%v-%v", table, key)
+	str := fmt.Sprintf("%v-%#v", table, key) // %#v 使 id 类型敏感，避免类型漂移键冲突
 
 	var (
 		tb  map[string]bool
@@ -140,7 +140,8 @@ func (self *TCacher) genSqlKey(table string, sql string, args any, removed bool)
 
 // @removed 是否用于移除（内部版本，不持有锁）
 func (self *TCacher) _genSqlKeyUnsafe(table string, sql string, args any, removed bool) string {
-	str := fmt.Sprintf("%v-%v-%v", table, sql, args)
+	// 用 %#v 使参数类型敏感（int64(1)/"1"/float64(1) 不再同形），避免类型漂移命中错误缓存键
+	str := fmt.Sprintf("%#v-%v-%#v", table, sql, args)
 	// # 添加索引
 	var (
 		tb  map[string]bool
@@ -402,6 +403,7 @@ func (self *TCacher) ClearByTable(table string) {
 type CacheWarmer struct {
 	cacher   *TCacher
 	tasks    []WarmupTask
+	tasksMu  sync.Mutex    // 保护 tasks 切片的并发追加/读取
 	stopCh   chan struct{} // 关闭以停止 WarmWithSchedule 的后台 goroutine
 	stopOnce sync.Once
 }
@@ -432,7 +434,9 @@ func (cw *CacheWarmer) AddTask(task WarmupTask) {
 	if task.Priority > 100 {
 		task.Priority = 100
 	}
+	cw.tasksMu.Lock()
 	cw.tasks = append(cw.tasks, task)
+	cw.tasksMu.Unlock()
 }
 
 // AddHighPriorityTask 添加高优先级任务（优先级=80）
@@ -459,16 +463,22 @@ func (cw *CacheWarmer) AddNormalTask(table, sql string, args []any, queryFn func
 
 // Warm 执行缓存预热（阻塞操作）
 func (cw *CacheWarmer) Warm() error {
-	if len(cw.tasks) == 0 {
+	// 在锁下复制快照，避免与 AddTask 并发追加竞争，且不就地修改共享切片
+	cw.tasksMu.Lock()
+	tasks := make([]WarmupTask, len(cw.tasks))
+	copy(tasks, cw.tasks)
+	cw.tasksMu.Unlock()
+
+	if len(tasks) == 0 {
 		log.Info("No warmup tasks to execute")
 		return nil
 	}
 
 	// 按优先级排序（从高到低）
-	for i := 0; i < len(cw.tasks); i++ {
-		for j := i + 1; j < len(cw.tasks); j++ {
-			if cw.tasks[j].Priority > cw.tasks[i].Priority {
-				cw.tasks[i], cw.tasks[j] = cw.tasks[j], cw.tasks[i]
+	for i := 0; i < len(tasks); i++ {
+		for j := i + 1; j < len(tasks); j++ {
+			if tasks[j].Priority > tasks[i].Priority {
+				tasks[i], tasks[j] = tasks[j], tasks[i]
 			}
 		}
 	}
@@ -477,7 +487,7 @@ func (cw *CacheWarmer) Warm() error {
 	successCount := 0
 	failedCount := 0
 
-	for idx, task := range cw.tasks {
+	for idx, task := range tasks {
 		if task.QueryFn == nil {
 			log.Warnf("Task %d skipped: no query function provided", idx)
 			failedCount++

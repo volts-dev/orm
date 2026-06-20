@@ -437,7 +437,14 @@ func (self *TModel) GetTableDescription() string {
 }
 
 func (self *TModel) GetIndexes() map[string]*TIndex {
-	return self.obj.indexes
+	// 在读锁下返回副本，避免调用方遍历时与 AddIndex 并发写冲突（参照 GetRelatedFields）
+	self.obj.indexesLock.RLock()
+	defer self.obj.indexesLock.RUnlock()
+	out := make(map[string]*TIndex, len(self.obj.indexes))
+	for k, v := range self.obj.indexes {
+		out[k] = v
+	}
+	return out
 }
 
 // 实际注册的model原型

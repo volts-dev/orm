@@ -626,11 +626,13 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 				}
 
 				if !hasfield {
-					node, err := domain.String2Domain(`[('active', '=', 1)]`, nil)
+					// 用赋值（非 := 短声明）把 active 过滤插入外层 node；旧代码用 := 声明
+					// 局部 node 遮蔽参数，导致 active 过滤被丢弃且节点自插入自身。
+					activeNode, err := domain.String2Domain(`[('active', '=', 1)]`, nil)
 					if err != nil {
-						log.Panic(err)
+						return nil, err
 					}
-					node.Insert(0, node)
+					node.Insert(0, activeNode)
 				}
 			} else {
 				var err error

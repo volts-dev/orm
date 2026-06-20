@@ -356,6 +356,11 @@ func (row *Row) ScanMap(dest any) error {
 
 // ToMapString returns all clumns of this record
 func (row *Row) ToMapString() (map[string]string, error) {
+	// 防御性关闭：若 Columns() 早退（错误路径）也不泄露底层 rows。
+	// ScanMap 内部也会 Close，sql.Rows.Close 幂等，重复调用安全。
+	if row.rows != nil {
+		defer row.rows.Close()
+	}
 	cols, err := row.Columns()
 	if err != nil {
 		return nil, err
