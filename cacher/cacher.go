@@ -107,7 +107,7 @@ func (self *TCacher) _genIdKeyUnsafe(table string, key any, removed bool) string
 	} else {
 		// 防止缓存索引无限增长，超过容量时清理
 		if len(tb) >= DefaultMaxCacheSize {
-			log.Warn("table_id_key_index for table %s reached max size %d, clearing old entries",
+			log.Warnf("table_id_key_index for table %s reached max size %d, clearing old entries",
 				table, DefaultMaxCacheSize)
 			// 清理缓存中的数据
 			for k := range tb {
@@ -156,7 +156,7 @@ func (self *TCacher) _genSqlKeyUnsafe(table string, sql string, args any, remove
 	} else {
 		// 防止缓存索引无限增长，超过容量时清理
 		if len(tb) >= DefaultMaxCacheSize {
-			log.Warn("table_sql_key_index for table %s reached max size %d, clearing old entries",
+			log.Warnf("table_sql_key_index for table %s reached max size %d, clearing old entries",
 				table, DefaultMaxCacheSize)
 			// 清理缓存中的数据
 			for k := range tb {
@@ -179,13 +179,13 @@ func (self *TCacher) Active(sw bool) {
 func (self *TCacher) SetTTL(ttl int64) {
 	if ttl < MinCacheTTL {
 		ttl = MinCacheTTL
-		log.Warn("TTL too small, using minimum: %d seconds", MinCacheTTL)
+		log.Warnf("TTL too small, using minimum: %d seconds", MinCacheTTL)
 	} else if ttl > MaxCacheTTL {
 		ttl = MaxCacheTTL
-		log.Warn("TTL too large, using maximum: %d seconds", MaxCacheTTL)
+		log.Warnf("TTL too large, using maximum: %d seconds", MaxCacheTTL)
 	}
 	self.ttl.Store(ttl)
-	log.Info("Cache TTL set to %d seconds", ttl)
+	log.Infof("Cache TTL set to %d seconds", ttl)
 }
 
 // GetTTL 获取当前缓存过期时间
@@ -260,7 +260,7 @@ func (self *TCacher) GetBySql(table string, sql string, arg any) *dataset.TDataS
 			return nil
 		}
 		ds := v.(*dataset.TDataSet)
-		log.Trace("Cache hit for table %s, key %s", table, key)
+		log.Tracef("Cache hit for table %s, key %s", table, key)
 		return ds
 	}
 
@@ -473,14 +473,14 @@ func (cw *CacheWarmer) Warm() error {
 
 	for idx, task := range cw.tasks {
 		if task.QueryFn == nil {
-			log.Warn("Task %d skipped: no query function provided", idx)
+			log.Warnf("Task %d skipped: no query function provided", idx)
 			failedCount++
 			continue
 		}
 
 		result, err := task.QueryFn(task.SQL, task.Args...)
 		if err != nil {
-			log.Warn("Task %d failed for table '%s': %v", idx, task.Table, err)
+			log.Warnf("Task %d failed for table '%s': %v", idx, task.Table, err)
 			failedCount++
 			continue
 		}
@@ -493,7 +493,7 @@ func (cw *CacheWarmer) Warm() error {
 	}
 
 	elapsed := time.Since(startTime)
-	log.Info("Cache warmup completed: %d succeeded, %d failed, elapsed: %.2fs",
+	log.Infof("Cache warmup completed: %d succeeded, %d failed, elapsed: %.2fs",
 		successCount, failedCount, elapsed.Seconds())
 
 	return nil
@@ -525,7 +525,7 @@ func (cw *CacheWarmer) WarmWithSchedule(interval time.Duration) {
 		}
 	}()
 
-	log.Info("Started scheduled cache warmup with interval: %v", interval)
+	log.Infof("Started scheduled cache warmup with interval: %v", interval)
 }
 
 // isExpired 检查缓存是否已过期
@@ -584,7 +584,7 @@ func (self *TCacher) CleanupExpiredCache() {
 	self.table_sql_expiry_lock.Unlock()
 
 	if expiredCount > 0 {
-		log.Info("Cleaned up %d expired cache entries", expiredCount)
+		log.Infof("Cleaned up %d expired cache entries", expiredCount)
 	}
 }
 
@@ -603,7 +603,7 @@ func (self *TCacher) CleanupExpiredCacheAsync(interval time.Duration) {
 		}
 	}()
 
-	log.Info("Started async cache cleanup with interval: %v", interval)
+	log.Infof("Started async cache cleanup with interval: %v", interval)
 }
 
 /*

@@ -117,8 +117,9 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	}
 
 	// get id list — merge explicit args with any ids already set via Ids()
+	// flattenIds 使 Create 返回的 []any 可直接回喂给 Delete()
 	if len(ids) > 0 {
-		self.Statement.IdParam = append(self.Statement.IdParam, ids...)
+		self.Statement.IdParam = append(self.Statement.IdParam, flattenIds(ids)...)
 	}
 	ids = self.Statement.IdParam
 
@@ -240,12 +241,25 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 		}
 
 		if idCreator != nil {
-			newValues[idField] = idCreator.OnCreate(&TFieldContext{
-				Session: self,
-				Model:   self.Statement.Model,
-				Dataset: data,
-				Field:   idCreator,
-			})
+			// 尊重调用方显式提供的主键：仅当未提供（或为空）时才生成雪花 id。
+			// 这是 vectors SSN 契约（res_user.id == sys_user.id —— 同一全局身份 id
+			// 直接作为各租户内 actor 的主键复用，类似社保号跨租户复用）得以落地的前提。
+			// 主键被 _separateValues 排除在 newValues 之外，故从已解析的 data 取调用方 id
+			// （与 _write 提取 id 的方式一致）；历史调用方均不传 id，行为不变。
+			var suppliedId any
+			if rec := data.Record(); rec != nil {
+				suppliedId = rec.GetByField(idField)
+			}
+			if utils.IsBlank(suppliedId) {
+				newValues[idField] = idCreator.OnCreate(&TFieldContext{
+					Session: self,
+					Model:   self.Statement.Model,
+					Dataset: data,
+					Field:   idCreator,
+				})
+			} else {
+				newValues[idField] = suppliedId
+			}
 		}
 
 		// 根据字段计算数据值
@@ -482,7 +496,8 @@ func (self *TSession) _write(src any) (int64, error) {
 		if id := data.Record().GetByField(idField); id != nil {
 			//  必须不是 Set 语句值
 			if _, has := self.Statement.Sets[idField]; !has {
-				ids = []any{id}
+				// flattenIds 处理 data 中 id 值本身为 []any 的情况（如直接回喂 Create 返回值）
+				ids = flattenIds([]any{id})
 			}
 		}
 	}
@@ -1215,8 +1230,9 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 
 		// 字段有值处理函数无论如何都要调用
 		if field.HasSetter() {
-			// update 不处理Setter
-			if (!setted && !isIncludedIds) || (setted && isIncludedIds) {
+			// 创建时（无 ids）总是运行 Setter（无值时补算、有值时转换）；
+			// 更新时（有 ids）仅当显式提供了值时才运行。仅 (update && 无值) 不运行。
+			if !isIncludedIds || setted {
 				ctx := &TFieldContext{
 					Session: self,
 					Model:   self.Statement.Model,

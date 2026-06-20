@@ -82,8 +82,36 @@ func (self *TStatement) Init() {
 }
 
 // Id generate "where id = ? " statment or for composite key "where key1 = ? and key2 = ?"
+// flattenIds 展平 id 变参：若某元素本身是切片（如 Create 返回的 []any），
+// 逐个展开其元素，使 Create 的返回值可直接回喂给 Ids()/Delete()。
+// 字符串与 []byte 视为标量 id，不展开；nil 元素被丢弃。
+func flattenIds(ids []any) []any {
+	out := make([]any, 0, len(ids))
+	for _, id := range ids {
+		if id == nil {
+			continue
+		}
+		rv := reflect.ValueOf(id)
+		switch rv.Kind() {
+		case reflect.Slice, reflect.Array:
+			if rv.Type().Elem().Kind() == reflect.Uint8 { // []byte 当作标量
+				out = append(out, id)
+				continue
+			}
+			for i := 0; i < rv.Len(); i++ {
+				if e := rv.Index(i).Interface(); e != nil {
+					out = append(out, e)
+				}
+			}
+		default:
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func (self *TStatement) Ids(ids ...any) *TStatement {
-	self.IdParam = append(self.IdParam, ids...)
+	self.IdParam = append(self.IdParam, flattenIds(ids)...)
 	return self
 }
 

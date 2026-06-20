@@ -45,6 +45,14 @@ func (self *ModelBuilder) SetIndex(fieldNames ...string) *ModelBuilder {
 	return self
 }
 
+// SetUniqueIndex 在给定字段集合上建立一个复合唯一索引，且不要求其中任何单列自身唯一。
+// 区别于 SetIndex（其唯一性由单列 IsUnique 推导，会顺带产生单列唯一索引）：
+// 用于 (provider, provider_user_id) 这类「单列可重复、组合必须唯一」的约束。
+func (self *ModelBuilder) SetUniqueIndex(fieldNames ...string) *ModelBuilder {
+	self.model.Obj().AddIndex(newIndex("", self.model.Table(), UniqueType, fieldNames...))
+	return self
+}
+
 func (self *ModelBuilder) TableName(name string) *ModelBuilder {
 	if err := tag_table_name(&TTagContext{
 		Orm:    self.Orm,
