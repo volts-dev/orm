@@ -881,14 +881,27 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	}
 
 	//	当字段为field.base_field.column.translate可调用即是translate为回调函数而非Bool值时不加入Join
+	hasInherited := false
 	for _, fld := range fields {
 		//if fld.IsClassicRead() && !(fld.IsRelatedField() && false) { //用false代替callable(field.base_field.column.translate)
 		if fld.Store() && fld.SQLType().Name != "" { //用false代替callable(field.base_field.column.translate) — IsRelated check pending
 			fields_pre = append(fields_pre, fld)
+		} else if fld.IsInherited() && fld.SQLType().Name != "" && !fld.HasGetter() &&
+			fld.TypeName() != TYPE_O2M && fld.TypeName() != TYPE_M2M {
+			// _inherits 委托字段：本表无列(store=false)，靠 qualify→inherits_join_calc
+			// JOIN 父表(o2o FK)取值，故仍须进入 SELECT 并带模型限定。
+			// 仅纳入父表上有真实列者：标量字段与 m2o(FK 列)。
+			// o2m/m2m 是虚拟关系字段、永远没有物理列(注意它们仍可能被赋了 SQLType，
+			// 故必须按 TypeName 排除，不能只看 SQLType)；getter 函数字段同样无列。
+			// 这些由各自的 OnRead 单独取值，不进 JOIN-SELECT。
+			fields_pre = append(fields_pre, fld)
+			hasInherited = true
 		}
 	}
 
-	if len(query.tables) > 1 {
+	// 多表(域条件引入 JOIN)或存在继承字段时，所有字段都带表限定，
+	// 以触发 qualify→inherits_join_calc 为继承字段补上父表 JOIN。
+	if len(query.tables) > 1 || hasInherited {
 		for _, f := range fields_pre {
 			qual_names = append(qual_names, query.qualify(f, self.Statement.Model))
 		}

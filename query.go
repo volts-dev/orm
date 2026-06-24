@@ -258,18 +258,24 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 	       return '"%s"."%s"' % (alias, field)
 	*/
 	alias := model.Table()
-	if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil {
-		//for name, _ := range self._relate_fields {
-		if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInherited() {
-			// # retrieve the parent model where field is inherited from
-			parent_model_name := rel.RelatedTableName
-			parent_model, err := model.Osv().GetModel(parent_model_name) // #i
-			if err != nil {
-				log.Err(err, "@inherits_join_calc")
-			}
+	// _inherits 委托字段：本表无此列，需 JOIN 父表(o2o 的 FK)取值。
+	// 父表来源优先用 relatedFields，缺失时回退到字段自身 base.modelName，
+	// 与写入路径 _separateValues 保持一致（不强依赖 relatedFields 是否填充）。
+	if fld := model.GetFieldByName(fieldName); fld != nil && fld.IsInherited() {
+		// # retrieve the parent model where field is inherited from
+		parent_model_name := fld.ModelName()
+		if rel := model.Obj().GetRelatedFieldByName(fieldName); rel != nil && rel.RelatedTableName != "" {
+			parent_model_name = rel.RelatedTableName
+		}
 
-			//NOTE JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
-			parent_field := model.Obj().GetRelationByName(parent_model_name)
+		//NOTE JOIN parent_model._table AS parent_alias ON alias.parent_field = parent_alias.id
+		parent_field := model.Obj().GetRelationByName(parent_model_name)
+		parent_model, err := model.Osv().GetModel(parent_model_name) // #i
+		if err != nil || parent_field == "" {
+			// 解析不到父表/外键则不 JOIN，退回本表限定（由调用方保证字段可读），并记录。
+			log.Errf("@inherits_join_calc: cannot resolve parent %q (fk=%q) for inherited field %q: %v",
+				parent_model_name, parent_field, fieldName, err)
+		} else {
 			parent_alias, _ := self.addJoin(
 				[]string{
 					alias, parent_field,
@@ -281,7 +287,6 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 				nil)
 			model, alias = parent_model, parent_alias
 		}
-		// else: field not in inherited parent, continue
 	}
 	//# handle the case where the field is translated
 	field := model.GetFieldByName(fieldName)

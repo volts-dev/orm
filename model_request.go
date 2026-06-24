@@ -414,6 +414,19 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 	return total, nil
 }
 
+// relAnchorKey 返回本记录上"锚定关系读取"的字段名。
+// 普通关系字段用本模型主键；_inherits 委托来的关系字段(IsInherited)则改用委托外键
+// (如 partner_id)——因为 o2m/m2m 关系锚定在父模型主键上，本记录通过该 FK 持有父主键值。
+// 不是继承字段、或解析不到委托 FK 时回退到本模型主键，保持原有行为。
+func relAnchorKey(ctx *TFieldContext) string {
+	if ctx.Field != nil && ctx.Field.IsInherited() {
+		if fk := ctx.Model.Obj().GetRelationByName(ctx.Field.ModelName()); fk != "" {
+			return fk
+		}
+	}
+	return ctx.Model.IdField()
+}
+
 func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	if !ctx.UseNameGet {
 		// do nothing
@@ -458,7 +471,7 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	if len(ctx.Ids) > 0 {
 		ids = unique(ctx.Ids)
 	} else if ds.Count() != 0 {
-		ids = unique(ds.Keys(ctx.Model.IdField()))
+		ids = unique(ds.Keys(relAnchorKey(ctx)))
 	}
 
 	if len(ids) == 0 {
@@ -479,9 +492,11 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, err
 	}
 
+	// 反向键须是指回本表的 many2one；one2one(委托继承/_inherits)本质是带唯一约束的
+	// many2one，其 FK 列同样物理存在(store=true)，故一并接受，使委托表可作 o2m 目标。
 	rel_filed := relateModel.GetFieldByName(relFieldName)
-	if rel_filed == nil || rel_filed.TypeName() != TYPE_M2O {
-		return nil, fmt.Errorf("the relate model <%s> field <%s> is not OneToMany type.", relModelName, relFieldName)
+	if rel_filed == nil || (rel_filed.TypeName() != TYPE_M2O && rel_filed.TypeName() != TYPE_O2O) {
+		return nil, fmt.Errorf("the relate model <%s> field <%s> is not a many2one/one2one back-reference for one2many.", relModelName, relFieldName)
 	}
 
 	session := relateModel.Records()
@@ -546,7 +561,7 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	if len(ctx.Ids) > 0 {
 		ids = unique(ctx.Ids)
 	} else if ds.Count() != 0 {
-		ids = unique(ds.Keys(ctx.Model.IdField()))
+		ids = unique(ds.Keys(relAnchorKey(ctx)))
 	}
 
 	field := ctx.Field

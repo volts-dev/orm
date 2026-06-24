@@ -212,7 +212,8 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 
 			group := ds.GroupBy(field.RelatedKeyName())
 			ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
-				fieldValue := record.GetByField(ctx.Model.IdField())
+				// 继承字段用委托 FK(partner_id)的值匹配子表的反向键，否则用本模型主键。
+				fieldValue := record.GetByField(relAnchorKey(ctx))
 				grp := group[fieldValue]
 				if grp.Count() > 0 {
 					//var records []map[string]any
@@ -541,10 +542,14 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	}
 
 	if ds.Count() > 0 {
-		group := ds.GroupBy(field.RelatedKeyName())
+		// 按 source 侧(本表)的 join key 分组，才能用本记录 id 命中。
+		// RelatedKeyName 是 comodel 侧的键(如 res_company_id)，用它分组会与下方
+		// 本表 id 的查找键不在同一键空间，导致永远查空。
+		group := ds.GroupBy(field.JoinSourceKey())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			//fieldValue := record.GetByField(field.Name()) // 货得many2many字段值
-			fieldValue := record.GetByField(ctx.Model.IdField()) // 货得many2many字段值
+			// 继承字段用委托 FK(partner_id)的值匹配 junction 的 source 键，否则用本模型主键。
+			fieldValue := record.GetByField(relAnchorKey(ctx)) // 货得many2many字段值
 			fieldRecord := group[fieldValue]
 			if fieldRecord.Count() > 0 {
 				var records []map[string]any
@@ -563,6 +568,38 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 }
 
 // write relate data to the reference table
+// isM2MCommandTuple 判断单个值是否为 Odoo 风格的命令元组, 兼容长短两种写法:
+//
+//	完整三元组 (code, id, value)  如 (4, id, 0)
+//	精简二元组 (code, id)         如 (4, id)  —— 前端常用
+//
+// 返回原元组及是否匹配。
+func isM2MCommandTuple(val any) ([]any, bool) {
+	if s, ok := val.([]any); ok && (len(s) == 2 || len(s) == 3) {
+		code := utils.ToInt64(s[0])
+		if code >= 0 && code <= 6 {
+			return s, true
+		}
+	}
+	return nil, false
+}
+
+// parseM2MCommands 尝试把切片整体解析成命令元组列表。
+// 仅当所有元素都是合法命令元组时 isAllCommands 才为 true;
+// 任一元素不是命令(如普通 id 列表 [1,2,3])则返回 false, 交由旧版逻辑处理。
+func parseM2MCommands(vSlice []any) (commands [][]any, isAllCommands bool) {
+	isAllCommands = len(vSlice) > 0
+	for _, v := range vSlice {
+		if cmd, ok := isM2MCommandTuple(v); ok {
+			commands = append(commands, cmd)
+		} else {
+			isAllCommands = false
+			return nil, false
+		}
+	}
+	return commands, isAllCommands
+}
+
 func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 	/* 空值不处理 */
 	if ctx.Value == nil {
@@ -571,29 +608,8 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 
 	// 支持 Odoo 风格的 Command Tuple
 	if vSlice, ok := ctx.Value.([]any); ok {
-		isCommandTuple := func(val any) ([]any, bool) {
-			if s, ok := val.([]any); ok && len(s) == 3 {
-				code := utils.ToInt64(s[0])
-				if code >= 0 && code <= 6 {
-					return s, true
-				}
-			}
-			return nil, false
-		}
-
 		// 尝试作为 Command 列表解析
-		var commands [][]any
-		isAllCommands := len(vSlice) > 0
-		for _, v := range vSlice {
-			if cmd, ok := isCommandTuple(v); ok {
-				commands = append(commands, cmd)
-			} else {
-				isAllCommands = false
-				break
-			}
-		}
-
-		if isAllCommands {
+		if commands, isAllCommands := parseM2MCommands(vSlice); isAllCommands {
 			for _, cmd := range commands {
 				code := utils.ToInt64(cmd[0])
 				switch code {
@@ -611,7 +627,9 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 					}
 				case 6: // Set (6, 0, ids)
 					var ids []any
-					if v, ok := cmd[2].([]any); ok {
+					if len(cmd) < 3 {
+						// 缺少第三元素的 Set 等价于 Clear
+					} else if v, ok := cmd[2].([]any); ok {
 						ids = v
 					} else {
 						ids = []any{cmd[2]} // Fallback if it's a single element

@@ -49,6 +49,13 @@ func NewTest(t *testing.T) *Testchain {
 		self.Fatal(err)
 	}
 
+	// 注意：暂不在 harness 里 Freeze 激活 one2one 委托继承。
+	// 原因：继承字段读取走 inherits_join_calc 的隐式(INNER)JOIN，而写入仅在
+	// 继承字段非空时才自动创建父记录；本套件的 fixture 创建 user/company 时未设
+	// 继承字段(homepage 等)，partner_id 为 NULL，INNER JOIN 会过滤掉这些记录，
+	// 导致 Read() 返回空集。待 inherits_join_calc 改 LEFT JOIN(或写入保证父记录)
+	// 后再在 harness 启用 Freeze。one2one 读写的正确性已由独立用例
+	// TestOne2OneInheritReadWrite(自带 Freeze + 父记录)覆盖。
 	return self
 }
 
