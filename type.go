@@ -303,14 +303,15 @@ func isBigNumberField(field IField) bool {
 // 转换数据库值到字段输出数据类型
 func value2FieldTypeValue(field IField, value any) any {
 	type_name := field.OutputAs()
-	if type_name == "" {
-		if field.Base() != nil && field.Base().boundModel != nil && field.Base().boundModel.Orm() != nil {
-			orm := field.Base().boundModel.Orm()
-			if orm.config != nil && orm.config.BigNumberToString && isBigNumberField(field) {
-				type_name = Varchar
+	/*
+		if type_name != "" {
+			if field.Base() != nil && field.Base().boundModel != nil && field.Base().boundModel.Orm() != nil {
+				orm := field.Base().boundModel.Orm()
+				if orm.config != nil && orm.config.BigNumberToString && isBigNumberField(field) {
+					type_name = Varchar
+				}
 			}
-		}
-	}
+		}*/
 	if type_name == "" {
 		type_name = field.SQLType().Name
 	}

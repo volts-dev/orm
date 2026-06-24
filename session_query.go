@@ -383,12 +383,19 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 			}
 
 			// 存储到数据集
+			typeName := ""
 			for idx, name := range cols {
 				// !NOTE! 转换数据类型输出
 				if hasModel { // TODO exec,query 的SQL不包含Model
 					field = self.Statement.Model.GetFieldByName(name)
 					if field != nil {
 						value = field.onConvertToRead(self, cols, vals, idx)
+						typeName = field.OutputAs()
+
+						// as tag 指定输出格式
+						if typeName == "" && self.orm.config.BigNumberToString && isBigNumberField(field) {
+							typeName = Varchar
+						}
 					} else {
 						value = nil // 初始化
 						// 处理函数字段 Count 等
@@ -401,17 +408,15 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 						if value == nil {
 							value = *vals[idx].(*any)
 						}
-					}
 
-					// as tag 指定输出格式
-					if field != nil {
-						typeName := field.OutputAs()
-						if typeName == "" && self.orm.config.BigNumberToString && isBigNumberField(field) {
+						// #兼容没有使用 as tag 的大数转换为字符串
+						if _, ok := value.(int64); ok && self.orm.config.BigNumberToString {
 							typeName = Varchar
 						}
-						if typeName != "" {
-							res_dataset.SetFieldFormater(name, converter(typeName))
-						}
+					}
+
+					if typeName != "" {
+						res_dataset.SetFieldFormater(name, converter(typeName))
 					}
 
 				} else {
