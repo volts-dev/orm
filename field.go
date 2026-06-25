@@ -44,6 +44,9 @@ type (
 		Value       any    // the current value of the field
 		Field       IField // FieldTypeValue reflect.Value
 		Fields      []string
+		// SubFields 为本关系字段 comodel 上的关系字段提供下一层嵌套读取规格，
+		// 由关系字段的子读取会话透传，支持多层内嵌(如 o2m 行内的 m2o 列)。
+		SubFields   map[string]*ReadRequest
 		Domain      string // update 支持查询条件
 		Model       IModel
 		Session     *TSession

@@ -786,7 +786,7 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 
 	// TODO 优化循环代码
 	// 处理经典字段数据
-	if (self.UseNameGet || self.IsClassic) && dataset.Count() > 0 {
+	if (self.UseNameGet || self.IsClassic || len(self.subReads) > 0) && dataset.Count() > 0 {
 		// 处理那些数据库不存在的字段：company_ids...
 		//# retrieve results from records; this takes values from the cache and
 		// # computes remaining fields
@@ -808,7 +808,14 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 
 		//FIXME　执行太多SQL
 		for _, field := range nameFields {
-			err := field.OnRead(&TFieldContext{
+			sub, hasSub := self.subReads[field.Name()]
+			// 纯嵌套规格模式(非全局 Classic/NameGet)下只内嵌带子规格的字段，
+			// 避免对未声明的 o2m/m2m 计算字段做多余查询。
+			if !self.IsClassic && !self.UseNameGet && !hasSub {
+				continue
+			}
+
+			ctx := &TFieldContext{
 				Session: self,
 				Model:   model,
 				Field:   field,
@@ -817,8 +824,19 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 				Dataset:     dataset,
 				UseNameGet:  self.UseNameGet,
 				ClassicRead: self.IsClassic, // FIXME 如果为True会无限循环查询
-			})
-			if err != nil {
+			}
+			if hasSub {
+				ctx.Fields = sub.Fields
+				ctx.SubFields = sub.SubFields
+				if s, ok := sub.Domain.(string); ok {
+					ctx.Domain = s
+				}
+				// 带子规格即按经典内嵌:返回子记录(map)而非仅 [id,name]/ids，
+				// 列范围由 ctx.Fields 限定；递归深度由 ctx.SubFields 决定(有限)。
+				ctx.ClassicRead = true
+			}
+
+			if err := field.OnRead(ctx); err != nil {
 				log.Errf("%s@%s.OnRead:%s", field.ModelName(), field.Name(), err.Error())
 			}
 		}

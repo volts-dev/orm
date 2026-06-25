@@ -211,18 +211,29 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 			}
 
 			group := ds.GroupBy(field.RelatedKeyName())
+			// 嵌套规格模式(ctx.Fields 非空)内嵌完整子记录(含内嵌 list 可见列)；
+			// 否则保持旧行为只回填 id 列表，避免影响既有调用方。
+			embedRecords := len(ctx.Fields) > 0
 			ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 				// 继承字段用委托 FK(partner_id)的值匹配子表的反向键，否则用本模型主键。
 				fieldValue := record.GetByField(relAnchorKey(ctx))
 				grp := group[fieldValue]
 				if grp.Count() > 0 {
-					//var records []map[string]any
-					var records []any // 只保存ID
-					grp.Range(func(pos int, record *dataset.TRecordSet) error {
-						records = append(records, record.GetByField(relateModel.IdField()))
-						return nil
-					})
-					record.SetByField(field.Name(), records)
+					if embedRecords {
+						var records []map[string]any
+						grp.Range(func(pos int, sub *dataset.TRecordSet) error {
+							records = append(records, sub.AsMap())
+							return nil
+						})
+						record.SetByField(field.Name(), records)
+					} else {
+						var records []any // 只保存ID
+						grp.Range(func(pos int, sub *dataset.TRecordSet) error {
+							records = append(records, sub.GetByField(relateModel.IdField()))
+							return nil
+						})
+						record.SetByField(field.Name(), records)
+					}
 				}
 
 				return nil

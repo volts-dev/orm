@@ -86,6 +86,15 @@ type (
 
 		// ClassicRead 是一个布尔值，用于控制是否查询Many2one的所有字段，默认为false
 		ClassicRead bool
+
+		// SubFields 为每个关系字段(m2o/o2m/m2m)提供嵌套的子读取规格，使单次 read
+		// 即可把每个关系字段所需的子字段内嵌进返回数据集，而无需各组件独立调用 API：
+		//   m2o          -> 子记录(map)，仅含 Fields 指定列(如 display_name)
+		//   many2many标签 -> 子记录列表，仅含 Fields 指定列(如 display_name,color)
+		//   one2many内嵌list -> 子记录列表，含 list 视图可见列
+		// 键为本模型上的关系字段名；值的 Fields/Domain/SubFields 描述其 comodel 的读取，
+		// SubFields 可递归以支持多层(如 o2m 行内的 m2o 列)。
+		SubFields map[string]*ReadRequest
 	}
 
 	// 支持多条数据更新
@@ -199,7 +208,15 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		return self.GroupBy(req)
 	}
 
-	session.Select(req.Fields...)
+	fields := req.Fields
+	if len(req.SubFields) > 0 {
+		// 注入嵌套子读取规格，并确保带子规格的关系字段出现在 Select 中，
+		// 否则它们不会进入 computedFields，OnRead 派发会跳过、无法内嵌子记录。
+		session.subReads = req.SubFields
+		fields = withSubFieldNames(fields, req.SubFields)
+	}
+
+	session.Select(fields...)
 
 	if len(req.Ids) > 0 {
 		session.Ids(req.Ids...)
@@ -212,6 +229,46 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 		rs = rs.Classic()
 	}
 	return rs.Read()
+}
+
+// withSubFieldNames 返回 fields 与 subFields 的键的并集(保持原有顺序、去重)，
+// 确保每个带嵌套子规格的关系字段都在 Select 列表里，从而进入关系字段派发被内嵌。
+func withSubFieldNames(fields []string, subFields map[string]*ReadRequest) []string {
+	seen := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		seen[f] = true
+	}
+	out := fields
+	for name := range subFields {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// ensureFields 在 fields 前补齐缺失的 required 字段(去重、保持 required 在前)。
+// 关系字段的子读取必须带上 id 及反向 FK 等连接键，否则无法按键分组回填到父记录。
+func ensureFields(fields []string, required ...string) []string {
+	if len(fields) == 0 {
+		return fields // 空表示读取全部字段，连接键天然包含
+	}
+	present := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		present[f] = true
+	}
+	var prefix []string
+	for _, r := range required {
+		if r != "" && !present[r] {
+			present[r] = true
+			prefix = append(prefix, r)
+		}
+	}
+	if len(prefix) == 0 {
+		return fields
+	}
+	return append(prefix, fields...)
 }
 
 // #被重载接口
@@ -501,7 +558,13 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	session := relateModel.Records()
 	session.UseNameGet = ctx.UseNameGet /* 使用 */
-	groups, err := session.Select(ctx.Fields...).In(relFieldName, ids...).Read()
+	if len(ctx.SubFields) > 0 {
+		// 透传下一层嵌套规格，支持 o2m 行内的 m2o/m2m 列再内嵌(多层)。
+		session.subReads = ctx.SubFields
+	}
+	// 子读取必须带上 id 与反向 FK(relFieldName)，否则 OnRead 无法按反向键分组回填。
+	selFields := ensureFields(ctx.Fields, relateModel.IdField(), relFieldName)
+	groups, err := session.Select(selFields...).In(relFieldName, ids...).Read()
 	if err != nil {
 		log.Errf("OneToMany field %s search relate model %s failed", field.Name(), relateModel.String())
 		return nil, err
@@ -538,7 +601,16 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 		var group *dataset.TDataSet
 		if ctx.ClassicRead {
-			group, err = relateModel.Records().Ids(ids...).Read()
+			sub := relateModel.Records()
+			if len(ctx.Fields) > 0 {
+				// 限定 comodel 列范围(如仅 display_name)；id 必须带上以便按主键分组回填。
+				sub.Select(ensureFields(ctx.Fields, relateModel.IdField())...)
+			}
+			if len(ctx.SubFields) > 0 {
+				// 透传下一层嵌套规格，支持 m2o 目标记录自身的关系列内嵌(多层)。
+				sub.subReads = ctx.SubFields
+			}
+			group, err = sub.Ids(ids...).Read()
 		} else if ctx.UseNameGet {
 			group, err = relateModel.NameGet(ids)
 		}

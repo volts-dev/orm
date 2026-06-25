@@ -38,6 +38,10 @@ type (
 		// @格式:[field]id
 		CacheNameIds map[string]any         //
 		Sets         map[string]TFieldValue // 预存数据值 供更新或者限制字段 如多租户字段
+		// subReads 为关系字段提供嵌套子读取规格(由 ReadRequest.SubFields 注入)。
+		// 非空时 _read 的关系字段派发会按字段名查找子规格，把 Fields/Domain/SubFields
+		// 透传进各关系字段的 OnRead，使单次 read 内嵌所需子记录(无需各组件独立请求)。
+		subReads map[string]*ReadRequest
 		// setsLock 保护 Sets 的并发读写。注意：TSession 其余字段（Statement、lastSQL 等）
 		// 仍非并发安全，每个 goroutine 应使用独立 session。
 		setsLock    sync.RWMutex

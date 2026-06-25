@@ -186,7 +186,20 @@ func (self *TDomainNode) OP(op string, node *TDomainNode) *TDomainNode {
 				self.Merge(node)   // 第二条件
 			}
 		} else {
-			logger.Panicf("the node is not a leaf node and not a domain operator")
+			// self 是一个没有逻辑操作符前缀的列表(隐式 AND),
+			// 例如 [["id","in",[...]]] 解析出来的 [leaf],或多条件 [leaf1, leaf2]。
+			// 先归一化成合法 domain 再重试 OP,而不是 panic。
+			if self.Count() == 1 {
+				// 单条件被包了一层列表 -> 解包当作该条件处理
+				*self = *self.Item(0).Clone()
+			} else {
+				// 多条件隐式 AND -> 把 '&' 显式补到前面(n 个条件需 n-1 个 '&')。
+				// 注意: Insert 会增加 Count(), 必须先固定循环次数避免死循环。
+				for i, n := 0, self.Count()-1; i < n; i++ {
+					self.Insert(0, AND_OPERATOR)
+				}
+			}
+			return self.OP(op, node)
 		}
 	}
 
