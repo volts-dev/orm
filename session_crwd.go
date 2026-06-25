@@ -733,6 +733,7 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	storeFields := make([]string, 0, 16) // 可存于数据的字段
 	relateFields := make([]string, 0, 8)
 	computedFields := make([]string, 0, 8) // 数据库没有的字段
+	hasScalarCompute := false              // 存在「非存储标量计算字段」(走 getter，不读 DB)
 
 	// 字段分类
 	// 验证Select * From
@@ -748,14 +749,15 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 				log.Warnf(`%s.read() with unknown field '%s'`, model.String(), name)
 				continue
 			}
-			if !field.IsRelated() { //如果是本Model的字段
-				storeFields = append(storeFields, name)
-			} else {
+			if field.IsRelated() {
 				computedFields = append(computedFields, name)
-
-				if field.IsRelated() { // and field.base_field.column:
-					relateFields = append(relateFields, name)
-				}
+				relateFields = append(relateFields, name)
+			} else if !field.Store() && field.HasGetter() {
+				// 非存储标量计算字段(如 display_name):走 getter 计算，不读 DB
+				computedFields = append(computedFields, name)
+				hasScalarCompute = true
+			} else { //本Model存于数据库的字段
+				storeFields = append(storeFields, name)
 			}
 		}
 	} else {
@@ -765,14 +767,15 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 			if self.Statement.IsOmit(name) {
 				continue
 			}
-			if !field.IsRelated() { //如果是本Model的字段
-				storeFields = append(storeFields, name)
-			} else {
+			if field.IsRelated() {
 				computedFields = append(computedFields, name)
-
-				if field.IsRelated() { // and field.base_field.column:
-					relateFields = append(relateFields, name)
-				}
+				relateFields = append(relateFields, name)
+			} else if !field.Store() && field.HasGetter() {
+				// 非存储标量计算字段(如 display_name):走 getter 计算，不读 DB
+				computedFields = append(computedFields, name)
+				hasScalarCompute = true
+			} else { //本Model存于数据库的字段
+				storeFields = append(storeFields, name)
 			}
 		}
 	}
@@ -786,7 +789,7 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 
 	// TODO 优化循环代码
 	// 处理经典字段数据
-	if (self.UseNameGet || self.IsClassic || len(self.subReads) > 0) && dataset.Count() > 0 {
+	if (self.UseNameGet || self.IsClassic || len(self.subReads) > 0 || hasScalarCompute) && dataset.Count() > 0 {
 		// 处理那些数据库不存在的字段：company_ids...
 		//# retrieve results from records; this takes values from the cache and
 		// # computes remaining fields
@@ -809,9 +812,10 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 		//FIXME　执行太多SQL
 		for _, field := range nameFields {
 			sub, hasSub := self.subReads[field.Name()]
-			// 纯嵌套规格模式(非全局 Classic/NameGet)下只内嵌带子规格的字段，
-			// 避免对未声明的 o2m/m2m 计算字段做多余查询。
-			if !self.IsClassic && !self.UseNameGet && !hasSub {
+			// 纯嵌套规格模式(非全局 Classic/NameGet)下只内嵌带子规格的关系字段，
+			// 避免对未声明的 o2m/m2m 计算字段做多余查询；非存储标量计算字段
+			// (如 display_name)是纯内存计算，不在此跳过。
+			if !self.IsClassic && !self.UseNameGet && !hasSub && field.IsRelated() {
 				continue
 			}
 

@@ -856,6 +856,10 @@ func (self *TField) OnRead(ctx *TFieldContext) error {
 					}
 				}
 			}
+		} else if field.getterFunc != nil {
+			// fluent builder 注册的闭包 getter(无具名方法名)，直接调用。
+			// 标量字段(非关系)走此分支;关系字段在各自 OnRead 重载里已处理。
+			return field.getterFunc(ctx)
 		}
 	}
 
