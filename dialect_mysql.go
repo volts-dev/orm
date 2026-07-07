@@ -488,22 +488,30 @@ func (db *mysql) AutoIncrStr() string {
 	return "AUTO_INCREMENT"
 }
 
-func (db *mysql) IndexCheckSql(tableName, idxName string) (string, []any) {
-	args := []any{db.DbName, tableName, idxName}
+// MySQL 语义：schema 即数据库名，空 schema 退回当前库（DbName）。
+func (db *mysql) schemaOr(schema string) string {
+	if schema != "" {
+		return schema
+	}
+	return db.DbName
+}
+
+func (db *mysql) IndexCheckSql(schema, tableName, idxName string) (string, []any) {
+	args := []any{db.schemaOr(schema), tableName, idxName}
 	sql := "SELECT `INDEX_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS`"
 	sql += " WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? AND `INDEX_NAME`=?"
 	return sql, args
 }
 
-func (db *mysql) TableCheckSql(tableName string) (string, []any) {
-	args := []any{db.DbName, tableName}
+func (db *mysql) TableCheckSql(schema, tableName string) (string, []any) {
+	args := []any{db.schemaOr(schema), tableName}
 	return "SELECT `TABLE_NAME` FROM `INFORMATION_SCHEMA`.`TABLES` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ?", args
 }
 
-func (db *mysql) GenAddColumnSQL(tableName string, field IField) string {
+func (db *mysql) GenAddColumnSQL(schema, tableName string, field IField) string {
 	quoter := db.dialect.Quoter()
 	s, _ := ColumnString(db.dialect, field, true)
-	sql := fmt.Sprintf("ALTER TABLE %v ADD %v", quoter.Quote(tableName), s)
+	sql := fmt.Sprintf("ALTER TABLE %v ADD %v", quoter.QuoteTable(schema, tableName), s)
 	if len(field.Label()) > 0 {
 		sql += " COMMENT '" + field.Label() + "'"
 	}
@@ -784,7 +792,7 @@ func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName st
 	return indexes, nil
 }
 
-func (db *mysql) CreateTableSql(model IModel, storeEngine, charset string) string {
+func (db *mysql) CreateTableSql(_ *TSession, model IModel, storeEngine, charset string) string {
 
 	//func (db *mysql) CreateTableSQL(ctx context.Context, table *Table, tableName string) (string, bool, error) {
 

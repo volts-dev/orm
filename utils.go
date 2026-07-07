@@ -67,6 +67,12 @@ func fmtModelName(name string) string {
 	return utils.DotCasedName(name)
 }
 
+// ModelName 从模型实例推导规范模型名（如 &SysUser{} → "sys.user"），
+// 与 SyncModel/_mapping 的命名一致。供调用方在注册前做模型分组/路由等预判。
+func ModelName(model any) string {
+	return fmtModelName(utils.Obj2Name(model))
+}
+
 // format the database table name to the same
 func fmtTableName(name string) string {
 	name = strings.Replace(name, ".", "_", -1)

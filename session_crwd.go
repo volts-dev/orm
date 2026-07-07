@@ -146,9 +146,9 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	id_field := self.Statement.Model.IdField()
 	quoter := self.orm.dialect.Quoter()
 
-	//#1 删除目标Model记录
+	//#1 删除目标Model记录（表名按会话 schema 限定）
 	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `,
-		quoter.QuoteIdentMust(self.Statement.Model.Table()),
+		quoter.QuoteTable(self.Schema, self.Statement.Model.Table()),
 		quoter.QuoteIdentMust(id_field),
 		idsToSqlHolder(ids...))
 	res, err := self._exec(sql, ids...)
@@ -508,7 +508,7 @@ func (self *TSession) _write(src any) (int64, error) {
 	)
 
 	if includePkey {
-		from_clause = model.Table()
+		from_clause = self.Statement.qualifiedTable(model.Table())
 
 	} else if self.Statement.domain.Count() > 0 {
 		query, err := self.Statement.where_calc(self.Statement.domain, false, nil)
@@ -564,7 +564,14 @@ func (self *TSession) _write(src any) (int64, error) {
 
 	var field IField
 	var effectedRows int64 = 0
-	if len(newVals) > 0 {
+	// newVals holds plain scalar fields; datas holds relational (m2o/o2m/m2m) fields
+	// routed through _todoCompute (see _separateValues: field.IsRelated() always
+	// diverts to upd_todo/newTodo, never touches newVals). Gating solely on
+	// len(newVals) silently no-oped any Write() whose changed fields were ALL
+	// relational: e.g. reassigning only location_dest_id or lot_id executed with
+	// effect=0, no error, no SQL emitted. Both loops below already handle datas
+	// independently, so widening the gate is sufficient.
+	if len(newVals) > 0 || len(datas) > 0 {
 		quoter := self.orm.dialect.Quoter().Quote
 		for idx, id := range ids {
 			//self.check_access_rule(cr, user, ids, 'write', context=context)
@@ -605,7 +612,12 @@ func (self *TSession) _write(src any) (int64, error) {
 				comma = true
 			}
 
-			comma = len(datas) != 0
+			// NOTE: previously reset via `comma = len(datas) != 0`, which ignored
+			// whether the newVals loop above had already written a clause — when
+			// newVals was empty (all-relational Write(), see gate fix above) this
+			// unconditionally forced a leading comma before the first datas key,
+			// producing invalid SQL like "SET ,\"col\"=?". comma must simply carry
+			// over from the newVals loop so the first clause overall never gets one.
 			for k, vs := range datas {
 				if comma {
 					sql.WriteString(",")
@@ -687,11 +699,11 @@ func (self *TSession) _write(src any) (int64, error) {
 
 		fieldName = model.Obj().GetRelationByName(tbl)
 
-		quoter := self.orm.dialect.Quoter().Quote
+		quoter := self.orm.dialect.Quoter()
 		// add in ids data
 		in_vals = strings.Repeat("?,", len(ids)-1) + "?"
 		sql = fmt.Sprintf("SELECT distinct %s FROM %s WHERE %s IN(%s)",
-			quoter(fieldName), quoter(model.Table()), quoter(self.Statement.IdKey), in_vals)
+			quoter.Quote(fieldName), quoter.QuoteTable(self.Schema, model.Table()), quoter.Quote(self.Statement.IdKey), in_vals)
 		ds, err = self._query(sql, ids...)
 		if err != nil {
 			return 0, err

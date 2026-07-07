@@ -954,23 +954,28 @@ func (db *postgres) AutoIncrStr() string {
 	return ""
 }
 
-func (db *postgres) IndexCheckSql(tableName, idxName string) (string, []any) {
-	args := []any{tableName, idxName}
+func (db *postgres) IndexCheckSql(schema, tableName, idxName string) (string, []any) {
+	// 按 schema 限定：同名表可存在于多个 schema（如 public 与 per-tenant schema），
+	// 不限定会误判「索引已存在」而跳过在目标 schema 建索引。
+	args := []any{db.schemaOr(schema), tableName, idxName}
 	return `SELECT indexname FROM pg_indexes ` +
-		`WHERE tablename = ? AND indexname = ?`, args
+		`WHERE schemaname = ? AND tablename = ? AND indexname = ?`, args
 }
 
-func (db *postgres) TableCheckSql(tableName string) (string, []any) {
-	args := []any{tableName}
-	return `SELECT tablename FROM pg_tables WHERE tablename = $1`, args
+func (db *postgres) TableCheckSql(schema, tableName string) (string, []any) {
+	// 按 schema 限定：不限定时 public 的同名表会让目标 schema 的表被误判「已存在」而不建。
+	args := []any{tableName, db.schemaOr(schema)}
+	return `SELECT tablename FROM pg_tables WHERE tablename = $1 AND schemaname = $2`, args
 }
 
-func (db *postgres) CreateTableSql(model IModel, storeEngine, charset string) string {
+func (db *postgres) CreateTableSql(session *TSession, model IModel, storeEngine, charset string) string {
 	quoter := db.dialect.Quoter()
-	tableName := ""
-	schema := db.getSchema(model.Transaction())
-	if len(schema) != 0 && !strings.Contains(fmtTableName(model.String()), ".") {
-		tableName = fmt.Sprintf("%s.%s", schema, fmtTableName(model.String()))
+	tableName := fmtTableName(model.String())
+	// schema 取自执行中的 session（原经 model.Transaction() 取——DDL 路径 createTableImpl
+	// 不给 model 绑事务，读到陈旧/空值 → SetSchema 的会话建表仍落默认 schema）。
+	schema := db.getSchema(session)
+	if len(schema) != 0 && !strings.Contains(tableName, ".") {
+		tableName = fmt.Sprintf("%s.%s", schema, tableName)
 	}
 
 	var b strings.Builder
@@ -1025,20 +1030,20 @@ func (db *postgres) CreateTableSql(model IModel, storeEngine, charset string) st
 			" AND column_name = ?", args
 	}
 */
-func (db *postgres) GenAddColumnSQL(tableName string, field IField) string {
+func (db *postgres) GenAddColumnSQL(schema, tableName string, field IField) string {
 	quoter := db.dialect.Quoter()
 	s, _ := ColumnString(db.dialect, field, true)
 
-	addColumnSQL := ""
-	commentSQL := "; "
-	if len(db.getSchema(nil)) == 0 || strings.Contains(tableName, ".") {
-		addColumnSQL = fmt.Sprintf("ALTER TABLE %s ADD %s", quoter.Quote(tableName), s)
-		commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Label())
-		return addColumnSQL + commentSQL
+	// 会话 schema 优先（原实现 getSchema(nil) 无视会话，会把 ALTER 落到默认 schema）。
+	// tableName 已带限定（含'.'）时按原样使用。
+	tbl := quoter.Quote(tableName)
+	if !strings.Contains(tableName, ".") {
+		if sch := db.schemaOr(schema); sch != "" {
+			tbl = quoter.QuoteTable(sch, tableName)
+		}
 	}
-
-	addColumnSQL = fmt.Sprintf("ALTER TABLE %s.%s ADD %s", quoter.Quote(db.getSchema(nil)), quoter.Quote(tableName), s)
-	commentSQL += fmt.Sprintf("COMMENT ON COLUMN %s.%s.%s IS '%s'", quoter.Quote(db.getSchema(nil)), quoter.Quote(tableName), quoter.Quote(field.Name()), field.Base().Label())
+	addColumnSQL := fmt.Sprintf("ALTER TABLE %s ADD %s", tbl, s)
+	commentSQL := fmt.Sprintf("; COMMENT ON COLUMN %s.%s IS '%s'", tbl, quoter.Quote(field.Name()), field.Base().Label())
 	return addColumnSQL + commentSQL
 }
 
@@ -1131,25 +1136,27 @@ func (db *postgres) GenInsertSql(tableName string, fields []string, uniqueFields
 	return sql.String()
 }
 
-func (db *postgres) ModifyColumnSql(tableName string, field IField) string {
+func (db *postgres) ModifyColumnSql(schema, tableName string, field IField) string {
+	quoter := db.dialect.Quoter()
 	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-		tableName, field.Name(), db.GetSqlType(field))
+		quoter.QuoteTable(db.schemaOr(schema), tableName), quoter.Quote(field.Name()), db.GetSqlType(field))
 }
 
 // DropColumnNotNullSql aligns NOT NULL constraint with col.Required().
-func (db *postgres) DropColumnNotNullSql(tableName string, col IField) string {
-	quoter := db.dialect.Quoter().Quote
+func (db *postgres) DropColumnNotNullSql(schema, tableName string, col IField) string {
+	quoter := db.dialect.Quoter()
+	tbl := quoter.QuoteTable(db.schemaOr(schema), tableName)
 	if col.Required() {
-		return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", quoter(tableName), quoter(col.Name()))
+		return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", tbl, quoter.Quote(col.Name()))
 	}
-	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", quoter(tableName), quoter(col.Name()))
+	return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", tbl, quoter.Quote(col.Name()))
 }
 
 // DropColumnDefaultSql aligns DEFAULT clause with col.Default()/col.IsDefaultEmpty().
-func (db *postgres) DropColumnDefaultSql(tableName string, col IField) string {
-	quoter := db.dialect.Quoter().Quote
-	tbl := quoter(tableName)
-	name := quoter(col.Name())
+func (db *postgres) DropColumnDefaultSql(schema, tableName string, col IField) string {
+	quoter := db.dialect.Quoter()
+	tbl := quoter.QuoteTable(db.schemaOr(schema), tableName)
+	name := quoter.Quote(col.Name())
 	if col.IsDefaultEmpty() {
 		return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT", tbl, name)
 	}
@@ -1230,26 +1237,17 @@ func (db *postgres) DropDatabase(_ *sql.DB, ctx context.Context, name string) er
 	return fmt.Errorf("drop database %s fail!", name)
 }
 
-func (db *postgres) DropIndexUniqueSql(tableName string, index *TIndex) string {
-	//quote := db.Quote
-	//var unique string
-	/*var idxName string = index.Name
-	if !strings.HasPrefix(idxName, "UQE_") &&
-		!strings.HasPrefix(idxName, "IDX_") {
-		if index.Type == UniqueType {
-			idxName = fmt.Sprintf("UQE_%v_%v", tableName, index.Name)
-		} else {
-			idxName = fmt.Sprintf("IDX_%v_%v", tableName, index.Name)
-		}
-	}*/
+func (db *postgres) DropIndexUniqueSql(schema, tableName string, index *TIndex) string {
+	// PG 的 DROP INDEX 接受 schema 限定的索引名（索引与表同 schema）。
 	idxName := index.GetName(tableName)
-	return fmt.Sprintf("DROP INDEX %v", db.dialect.Quoter().Quote(idxName))
+	return fmt.Sprintf("DROP INDEX %v", db.dialect.Quoter().QuoteTable(db.schemaOr(schema), idxName))
 }
 
-func (db *postgres) IsColumnExist(ctx context.Context, tableName, colName string) (bool, error) {
-	args := []any{tableName, colName}
-	query := "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = $1" +
-		" AND column_name = $2"
+func (db *postgres) IsColumnExist(ctx context.Context, schema, tableName, colName string) (bool, error) {
+	// 按 table_schema 限定：不限定时 public 同名表的列会让目标 schema 误判「列已存在」而跳过加列。
+	args := []any{db.schemaOr(schema), tableName, colName}
+	query := "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_schema = $1" +
+		" AND table_name = $2 AND column_name = $3"
 	db.LogSQL(query, args)
 
 	rows, err := db.queryer.QueryContext(ctx, query, args...)
@@ -1577,6 +1575,15 @@ func (db *postgres) getSchema(session *TSession) string {
 		return db.Schema
 	}
 	return DefaultPostgresSchema
+}
+
+// schemaOr 统一 schema 兜底：显式传入优先，空则退回 datasource 默认（public）。
+// 所有携带 schema 参数的 DDL/元数据方法经此解析，保证行为一致。
+func (db *postgres) schemaOr(schema string) string {
+	if schema != "" {
+		return schema
+	}
+	return db.getSchema(nil)
 }
 
 // MapError 把 PostgreSQL driver 错误翻译为 ormerr sentinel

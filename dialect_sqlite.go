@@ -26,7 +26,8 @@ func (db *sqlite) Fmter() []IFmter {
 	return nil
 }
 
-func (db *sqlite) GenAddColumnSQL(tableName string, field IField) string {
+// SQLite 无 schema 概念，所有方法忽略 schema 参数。
+func (db *sqlite) GenAddColumnSQL(_, tableName string, field IField) string {
 	quoter := db.dialect.Quoter()
 	s, _ := ColumnString(db.dialect, field, true)
 	sql := fmt.Sprintf("ALTER TABLE %v ADD COLUMN %v", quoter.Quote(tableName), s)
@@ -105,18 +106,18 @@ func (db *sqlite) AutoIncrStr() string {
 	return "AUTOINCREMENT"
 }
 
-func (db *sqlite) IndexCheckSql(tableName, idxName string) (string, []any) {
+func (db *sqlite) IndexCheckSql(_, tableName, idxName string) (string, []any) {
 	return "SELECT name FROM sqlite_master WHERE type='index' and name=?", []any{idxName}
 }
 
-func (db *sqlite) TableCheckSql(tableName string) (string, []any) {
+func (db *sqlite) TableCheckSql(_, tableName string) (string, []any) {
 	return "SELECT name FROM sqlite_master WHERE type='table' and name=?", []any{tableName}
 }
 
 // SQLite can't reliably ALTER COLUMN to SET/DROP NOT NULL or DEFAULT.
 // Caller should rebuild table when needed.
-func (db *sqlite) DropColumnNotNullSql(tableName string, col IField) string { return "" }
-func (db *sqlite) DropColumnDefaultSql(tableName string, col IField) string { return "" }
+func (db *sqlite) DropColumnNotNullSql(_, tableName string, col IField) string { return "" }
+func (db *sqlite) DropColumnDefaultSql(_, tableName string, col IField) string { return "" }
 
 func (db *sqlite) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	// SQLite doesn't have a direct information_schema.columns-like interface for all details easily,
@@ -270,7 +271,7 @@ func (db *sqlite) GetIndexes(ctx context.Context, session *TSession, tableName s
 	return indexes, nil
 }
 
-func (db *sqlite) CreateTableSql(model IModel, storeEngine, charset string) string {
+func (db *sqlite) CreateTableSql(_ *TSession, model IModel, storeEngine, charset string) string {
 	quoter := db.dialect.Quoter()
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
@@ -301,30 +302,30 @@ func (db *sqlite) CreateTableSql(model IModel, storeEngine, charset string) stri
 	return b.String()
 }
 
-func (db *sqlite) CreateIndexUniqueSql(tableName string, index *TIndex) string {
-	quoter := db.dialect.Quoter().Quote
+func (db *sqlite) CreateIndexUniqueSql(_, tableName string, index *TIndex) string {
+	quoter := db.dialect.Quoter()
 	var unique string
 	if index.Type == UniqueType {
 		unique = " UNIQUE"
 	}
 	idxName := index.GetName(tableName)
 	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v (%v)", unique,
-		quoter(idxName), quoter(tableName),
-		quoter(strings.Join(index.Cols, quoter(","))))
+		quoter.Quote(idxName), quoter.Quote(tableName),
+		quoter.Join(index.Cols, ","))
 }
 
 func (db *sqlite) IsDatabaseExist(ctx context.Context, name string) bool              { return true }
 func (db *sqlite) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error { return nil }
 func (db *sqlite) DropDatabase(dbx *sql.DB, ctx context.Context, name string) error   { return nil }
 func (db *sqlite) IsReserved(name string) bool                                        { return false }
-func (db *sqlite) IsColumnExist(ctx context.Context, tableName string, colName string) (bool, error) {
+func (db *sqlite) IsColumnExist(ctx context.Context, _, tableName string, colName string) (bool, error) {
 	return false, nil
 }
-func (db *sqlite) DropIndexUniqueSql(tableName string, index *TIndex) string {
+func (db *sqlite) DropIndexUniqueSql(_, tableName string, index *TIndex) string {
 	idxName := index.GetName(tableName)
 	return fmt.Sprintf("DROP INDEX IF EXISTS %v", db.quoter.Quote(idxName))
 }
-func (db *sqlite) ModifyColumnSql(tableName string, col IField) string { return "" }
+func (db *sqlite) ModifyColumnSql(_, tableName string, col IField) string { return "" }
 
 func (db *sqlite) GenInsertSql(tableName string, fields []string, uniqueFields []string, idField string, onConflict *OnConflict) string {
 	var sqlStr strings.Builder

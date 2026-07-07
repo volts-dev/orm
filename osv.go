@@ -296,6 +296,19 @@ func (self *TOsv) newObject(name string) *TModelObject {
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	if self.frozen.Load() {
+		// 冻结仅锁定“模型集合”不再变化：重复注册启动时已注册的同名模型
+		// （如运行期 SyncModel 把既有模型的表物化到另一个 schema）是幂等
+		// no-op——其元数据在启动注册时已合并完毕，跳过合并可避免运行期
+		// 改写共享映射；真正的新模型才拒绝。
+		if old, ok := self.models.Load(model.name); ok {
+			if obj, ok := old.(*TModelObject); ok {
+				// 让调用方的 model 只读共享已注册对象：_mapping 出的新鲜 obj 只含
+				// struct tag 元数据，缺 OnBuildFields（builder）里声明的复合索引等；
+				// 若不换，SyncModel→_alterTable 会把这些索引当“已删除”而 DROP 掉。
+				model.obj = obj
+			}
+			return nil
+		}
 		return ErrOsvFrozen
 	}
 	/* 初始化ModelObject */

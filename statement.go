@@ -336,7 +336,7 @@ func (self *TStatement) Limit(limit int64, offset ...int64) *TStatement {
 }
 
 func (self *TStatement) generate_create_table() string {
-	return self.session.orm.dialect.CreateTableSql(self.Model, self.StoreEngine, self.Charset)
+	return self.session.orm.dialect.CreateTableSql(self.session, self.Model, self.StoreEngine, self.Charset)
 }
 
 func (self *TStatement) generate_unique() []string {
@@ -344,7 +344,7 @@ func (self *TStatement) generate_unique() []string {
 	var sqls = make([]string, 0, len(indexes))
 	for _, index := range indexes {
 		if index.Type == UniqueType {
-			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.Model.Table(), index)
+			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Schema, self.Model.Table(), index)
 			sqls = append(sqls, sql)
 		}
 	}
@@ -352,7 +352,7 @@ func (self *TStatement) generate_unique() []string {
 }
 
 func (self *TStatement) generate_add_column(field IField) (string, []any) {
-	sql := self.session.orm.dialect.GenAddColumnSQL(self.Model.Table(), field)
+	sql := self.session.orm.dialect.GenAddColumnSQL(self.session.Schema, self.Model.Table(), field)
 	return sql, []any{}
 }
 
@@ -372,7 +372,7 @@ func (self *TStatement) generate_index() ([]string, error) {
 				continue
 			}
 
-			sql := self.session.orm.dialect.CreateIndexUniqueSql(tableName, index)
+			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Schema, tableName, index)
 			sqls = append(sqls, sql)
 		}
 	}
@@ -382,7 +382,7 @@ func (self *TStatement) generate_index() ([]string, error) {
 
 func (self *TStatement) generate_insert(fields, uniqueFields []string) (string, bool) {
 	dialect := self.session.orm.dialect
-	sql := dialect.GenInsertSql(self.Model.Table(), fields, uniqueFields, self.Model.IdField(), self.OnConflict)
+	sql := dialect.GenInsertSql(self.qualifiedTable(self.Model.Table()), fields, uniqueFields, self.Model.IdField(), self.OnConflict)
 	return sql, dialect.SupportReturning()
 }
 
@@ -655,9 +655,13 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 
 		tables = exp.get_tables().Strings()
 		where_clause, where_params = exp.toSql(self.Params...)
+		// 会话带 schema 时限定各 FROM 表（暴露别名仍是裸表名，列引用不受影响）
+		for i, tbl := range tables {
+			tables[i] = self.qualifiedTable(tbl)
+		}
 
 	} else {
-		where_clause, where_params, tables = nil, nil, append(tables, self.Model.Table())
+		where_clause, where_params, tables = nil, nil, append(tables, self.qualifiedTable(self.Model.Table()))
 	}
 
 	return NewQuery(self.session, tables, where_clause, where_params, nil, nil), nil
@@ -922,4 +926,15 @@ func (self *TStatement) QuoteTable() string {
 	tableName := fmtTableName(self.Model.String())
 	schema := self.session.Schema
 	return self.session.orm.dialect.Quoter().QuoteTable(schema, tableName)
+}
+
+// qualifiedTable 返回带会话 schema 前缀的表引用（如 system.sys_user）；无 schema
+// 或表名已限定时原样返回。用于 DML（INSERT/UPDATE/DELETE/FROM）的表名生成——
+// PG 中被限定的表在查询里仍以裸表名作暴露别名，故 where/join 里的
+// table."col" 引用不受影响。
+func (self *TStatement) qualifiedTable(table string) string {
+	if sch := self.session.Schema; sch != "" && !strings.Contains(table, ".") {
+		return sch + "." + table
+	}
+	return table
 }

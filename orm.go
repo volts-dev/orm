@@ -945,10 +945,12 @@ func (self *TOrm) _logExecSql(sql string, args []any, executionBlock func() (sql
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
+		// 值取微秒但按毫秒展示：曾直接打 Microseconds 配 "ms" 标签，0.5ms 的语句
+		// 显示成 "471 ms"，被当成性能问题追查过。
 		if len(args) > 0 {
-			log.Infof("[SQL][%d ms] %s [args] %v", execDuration.Microseconds(), sql, args)
+			log.Infof("[SQL][%.2f ms] %s [args] %v", float64(execDuration.Microseconds())/1000, sql, args)
 		} else {
-			log.Infof("[SQL][%d ms] %s", execDuration.Microseconds(), sql)
+			log.Infof("[SQL][%.2f ms] %s", float64(execDuration.Microseconds())/1000, sql)
 		}
 		return res, err
 	} else {
@@ -962,9 +964,9 @@ func (self *TOrm) _logQuerySql(sql string, args []any, executionBlock func() (*d
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		if len(args) > 0 {
-			log.Infof("[SQL][%d ms] %s [args] %v", execDuration.Microseconds(), sql, args)
+			log.Infof("[SQL][%.2f ms] %s [args] %v", float64(execDuration.Microseconds())/1000, sql, args)
 		} else {
-			log.Infof("[SQL][%d ms] %s", execDuration.Microseconds(), sql)
+			log.Infof("[SQL][%.2f ms] %s", float64(execDuration.Microseconds())/1000, sql)
 		}
 		return res, err
 	} else {

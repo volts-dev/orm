@@ -355,7 +355,7 @@ func (self *TSession) CreateIndexes(model string) error {
 func (self *TSession) dropTableImpl(name string) (err error) {
 	var needDrop = true
 	if !self.orm.dialect.SupportDropIfExists() {
-		sql, args := self.orm.dialect.TableCheckSql(name)
+		sql, args := self.orm.dialect.TableCheckSql(self.Schema, name)
 		results, err := self._query(sql, args...)
 		if err != nil {
 			return err
@@ -365,7 +365,7 @@ func (self *TSession) dropTableImpl(name string) (err error) {
 
 	if needDrop {
 		name = fmtTableName(name) /**/
-		sql := self.orm.dialect.DropTableSql(name)
+		sql := self.orm.dialect.DropTableSql(self.Schema, name)
 		_, err := self._exec(sql)
 		if err != nil {
 			return err
@@ -453,7 +453,7 @@ func (self *TSession) IsExist(model ...string) (bool, error) {
 
 	tableName := strings.Replace(model_name, ".", "_", -1)
 	tableName = utils.SnakeCasedName(tableName)
-	sql, args := self.orm.dialect.TableCheckSql(tableName)
+	sql, args := self.orm.dialect.TableCheckSql(self.Schema, tableName)
 	lDs, err := self._query(sql, args...)
 	if err != nil {
 		return false, err
@@ -475,7 +475,7 @@ func (self *TSession) IsIndexExist(tableName, idxName string, unique bool) (bool
 			idx = generate_index_name(IndexType, tableName, []string{idxName})
 		}
 	*/
-	sqlStr, args := self.orm.dialect.IndexCheckSql(tableName, idxName)
+	sqlStr, args := self.orm.dialect.IndexCheckSql(self.Schema, tableName, idxName)
 	results, err := self._query(sqlStr, args...)
 
 	// NOTE:数据库不予许不同表使用同一索引名称 索引名称必须是数据库唯一的
@@ -532,13 +532,13 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 					if expectedType == Text && strings.HasPrefix(curType, Varchar) ||
 						expectedType == Varchar && strings.HasPrefix(curType, Char) {
 						log.Warnf("Table <%s> column <%s> change type from %s to %s", tableName, fieldName, curType, expectedType)
-						_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
+						_, err = self.Exec(orm.dialect.ModifyColumnSql(self.Schema, tableName, field))
 
 					} else if strings.HasPrefix(curType, Char) && strings.HasPrefix(expectedType, Varchar) {
 						// 如果是同是字符串 则检查长度变化 for mysql
 						if cur_field.Size() != field.Size() {
 							log.Warnf("Table <%s> column <%s> change type from varchar(%d) to varchar(%d)", tableName, fieldName, cur_field.Size(), field.Size())
-							_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
+							_, err = self.Exec(orm.dialect.ModifyColumnSql(self.Schema, tableName, field))
 						}
 						//}
 						//其他
@@ -558,7 +558,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				if cur_field.Size() != field.Size() {
 					log.Warnf("Table <%s> column <%s> change size from %s(%d) to %s(%d)",
 						tableName, fieldName, cur_field.SQLType().Name, cur_field.Size(), field.SQLType().Name, field.Size())
-					_, err = self.Exec(orm.dialect.ModifyColumnSql(tableName, field))
+					_, err = self.Exec(orm.dialect.ModifyColumnSql(self.Schema, tableName, field))
 					if err != nil {
 						log.Err(err)
 						err = nil
@@ -568,11 +568,11 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 				//
 				if field.Default() != cur_field.Default() {
-					if sql := orm.dialect.DropColumnDefaultSql(tableName, field); sql != "" {
+					if sql := orm.dialect.DropColumnDefaultSql(self.Schema, tableName, field); sql != "" {
 						if _, err := self.Exec(sql); err != nil {
 							return err
 						}
-					} else if sql := orm.dialect.ModifyColumnSql(tableName, field); sql != "" {
+					} else if sql := orm.dialect.ModifyColumnSql(self.Schema, tableName, field); sql != "" {
 						if _, err := self.Exec(sql); err != nil {
 							return err
 						}
@@ -580,11 +580,11 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 				}
 
 				if field.Required() != cur_field.Required() {
-					if sql := orm.dialect.DropColumnNotNullSql(tableName, field); sql != "" {
+					if sql := orm.dialect.DropColumnNotNullSql(self.Schema, tableName, field); sql != "" {
 						if _, err := self.Exec(sql); err != nil {
 							return err
 						}
-					} else if sql := orm.dialect.ModifyColumnSql(tableName, field); sql != "" {
+					} else if sql := orm.dialect.ModifyColumnSql(self.Schema, tableName, field); sql != "" {
 						// Fallback for dialects that use full column modification.
 						if _, err := self.Exec(sql); err != nil {
 							return err
@@ -691,7 +691,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 			if existIndex != nil {
 				// 如果内容不完全一致,或者即便内容一致但名称不同,我们也重建它以确保名称契合模型定义
 				if !existIndex.Equal(index) || name != matchedName {
-					sql := orm.dialect.DropIndexUniqueSql(tableName, existIndex)
+					sql := orm.dialect.DropIndexUniqueSql(self.Schema, tableName, existIndex)
 					if _, err = self.Exec(sql); err != nil {
 						return err
 					}
@@ -707,7 +707,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 		// 清除已经作删除的索引
 		for name, index := range curIndexs {
 			if !foundIndexNames[name] {
-				sql := orm.dialect.DropIndexUniqueSql(tableName, index)
+				sql := orm.dialect.DropIndexUniqueSql(self.Schema, tableName, index)
 				if _, err = self.Exec(sql); err != nil {
 					return err
 				}
@@ -772,7 +772,7 @@ func (self *TSession) _addIndex(tableName, idxName string) error {
 	}
 
 	index := self.Statement.Model.GetIndexes()[idxName]
-	sql := self.orm.dialect.CreateIndexUniqueSql(tableName, index)
+	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
 	_, err := self._exec(sql)
 	return err
 }
@@ -784,7 +784,7 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 	}
 
 	index := self.Statement.Model.GetIndexes()[uqeName]
-	sql := self.orm.dialect.CreateIndexUniqueSql(tableName, index)
+	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
 	_, err := self._exec(sql)
 	return err
 }

@@ -115,8 +115,8 @@ func (d *testDialect) Version(ctx context.Context) (*core.Version, error) { retu
 func (d *testDialect) GetSqlType(f IField) string                         { return f.SQLType().Name }
 func (d *testDialect) IsReserved(s string) bool                           { return false }
 func (d *testDialect) AutoIncrStr() string                                { return "AUTOINCREMENT" }
-func (d *testDialect) IndexCheckSql(t, i string) (string, []any)          { return "", nil }
-func (d *testDialect) GenAddColumnSQL(t string, f IField) string          { return "" }
+func (d *testDialect) IndexCheckSql(s, t, i string) (string, []any)       { return "", nil }
+func (d *testDialect) GenAddColumnSQL(s, t string, f IField) string       { return "" }
 func (d *testDialect) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	return nil, nil, nil
 }
