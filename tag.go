@@ -468,7 +468,7 @@ func tag_index(ctx *TTagContext) error {
 	tableName := model.Table()
 	indexName := ""
 	if len(ctx.Params) > 0 {
-		indexName = ctx.Params[0]
+		indexName = strings.Trim(ctx.Params[0], "'")
 	} else {
 		indexName = generate_index_name(IndexType, tableName, []string{field_name})
 	}
