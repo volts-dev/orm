@@ -667,16 +667,19 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 		// 检查更新索引 先取消索引载添加需要的
 		// 取消Idex
-		curIndexs := oldModel.GetIndexes()
+		curIndexs := oldModel.GetIndexes() // key 是数据库里的实际索引名(加工名)
 		var existIndex *TIndex
-		for name, index := range newModel.GetIndexes() {
-			// 1. 尝试按名称完全匹配数据库索引
+		for name, index := range newModel.GetIndexes() { // key 是 struct tag 原始名
+			// 1. 按加工名(GetName)完全匹配数据库索引——curIndexs 的 key 本就是加工名,
+			// 直接拿原始 name 去查永远落空(见 issue-orm-index-idempotency-restart-fatal
+			// 的教训：两套名字体系不能直接比较),必须先转换成同一空间再比。
+			mangledName := index.GetName(tableName)
 			var matchedName string
-			existIndex = curIndexs[name]
+			existIndex = curIndexs[mangledName]
 			if existIndex != nil {
-				matchedName = name
+				matchedName = mangledName
 			} else {
-				// 2. 如果名称不匹配,尝试按内容(字段和类型)匹配,避免不必要的重建成
+				// 2. 如果加工名也没对上,尝试按内容(字段和类型)匹配,避免不必要的重建
 				for curName, curIdx := range curIndexs {
 					// 只有尚未被标记为“找到”的索引才进行内容匹配
 					if !foundIndexNames[curName] && curIdx.Equal(index) {
@@ -689,8 +692,8 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 
 			// 现有的idex
 			if existIndex != nil {
-				// 如果内容不完全一致,或者即便内容一致但名称不同,我们也重建它以确保名称契合模型定义
-				if !existIndex.Equal(index) || name != matchedName {
+				// 名字已经在上面按同一空间比对过；这里只需要看内容是否需要重建
+				if !existIndex.Equal(index) {
 					sql := orm.dialect.DropIndexUniqueSql(self.Schema, tableName, existIndex)
 					if _, err = self.Exec(sql); err != nil {
 						return err
@@ -772,8 +775,25 @@ func (self *TSession) _addIndex(tableName, idxName string) error {
 	}
 
 	index := self.Statement.Model.GetIndexes()[idxName]
+	if index == nil {
+		return fmt.Errorf("_addIndex: index %q not declared on model %s", idxName, tableName)
+	}
+	// 幂等：CREATE 前按实际索引名查存在性。名字必须用 index.GetName(tableName)
+	// (与 CreateIndexUniqueSql 同源的加工名)而非 map key 原始名——两者对 tag
+	// index('自定义名') 不一致；_alterTable 的对账匹配也因这两套名字体系匹配不上
+	// 而把已存在的索引再次送进本函数，不查直接 CREATE 会 42P07 FATAL 掉服务。
+	// 不用 IsIndexExist：它内部 defer _resetStatement/Close 会破坏本会话状态。
+	sqlStr, args := self.orm.dialect.IndexCheckSql(self.Schema, tableName, index.GetName(tableName))
+	results, err := self._query(sqlStr, args...)
+	if err != nil {
+		return err
+	}
+	if results.Count() > 0 {
+		return nil
+	}
+
 	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
-	_, err := self._exec(sql)
+	_, err = self._exec(sql)
 	return err
 }
 
@@ -784,7 +804,20 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 	}
 
 	index := self.Statement.Model.GetIndexes()[uqeName]
+	if index == nil {
+		return fmt.Errorf("_addUnique: unique index %q not declared on model %s", uqeName, tableName)
+	}
+	// 幂等检查同 _addIndex(名字须用 GetName 加工名，理由见彼处注释)。
+	sqlStr, args := self.orm.dialect.IndexCheckSql(self.Schema, tableName, index.GetName(tableName))
+	results, err := self._query(sqlStr, args...)
+	if err != nil {
+		return err
+	}
+	if results.Count() > 0 {
+		return nil
+	}
+
 	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
-	_, err := self._exec(sql)
+	_, err = self._exec(sql)
 	return err
 }

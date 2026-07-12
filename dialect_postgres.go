@@ -1239,8 +1239,31 @@ func (db *postgres) DropDatabase(_ *sql.DB, ctx context.Context, name string) er
 
 func (db *postgres) DropIndexUniqueSql(schema, tableName string, index *TIndex) string {
 	// PG 的 DROP INDEX 接受 schema 限定的索引名（索引与表同 schema）。
+	// IF EXISTS：与 CreateIndexUniqueSql 的 IF NOT EXISTS 对称，防止并发
+	// _alterTable 对账(两个 session 都判定同一索引"需要重建")时后到者 DROP 一个
+	// 已被先到者删掉的索引报错。
 	idxName := index.GetName(tableName)
-	return fmt.Sprintf("DROP INDEX %v", db.dialect.Quoter().QuoteTable(db.schemaOr(schema), idxName))
+	return fmt.Sprintf("DROP INDEX IF EXISTS %v", db.dialect.Quoter().QuoteTable(db.schemaOr(schema), idxName))
+}
+
+// CreateIndexUniqueSql overrides the generic TDialect implementation to add
+// IF NOT EXISTS (Postgres 9.5+). The exists-check in _addIndex/_addUnique/
+// generate_index (SELECT pg_indexes then CREATE) is a check-then-act that is
+// not atomic: two sessions materializing the same schema concurrently (e.g. a
+// duplicated/retried tenant-setup request) can both pass the check and then
+// race on CREATE INDEX, one winning and the other getting
+// `relation "..." already exists` (42P07). IF NOT EXISTS makes the CREATE
+// itself idempotent and closes that race window.
+func (db *postgres) CreateIndexUniqueSql(schema, tableName string, index *TIndex) string {
+	quoter := db.dialect.Quoter()
+	var unique string
+	if index.Type == UniqueType {
+		unique = " UNIQUE"
+	}
+	idxName := index.GetName(tableName)
+	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v (%v)", unique,
+		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName),
+		quoter.Join(index.Cols, ","))
 }
 
 func (db *postgres) IsColumnExist(ctx context.Context, schema, tableName, colName string) (bool, error) {

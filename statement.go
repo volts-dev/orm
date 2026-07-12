@@ -361,9 +361,13 @@ func (self *TStatement) generate_index() ([]string, error) {
 	var sqls = make([]string, 0, len(indexes))
 	tableName := fmtTableName(self.Model.String())
 
-	for idxName, index := range indexes {
+	for _, index := range indexes {
 		if index.Type == IndexType {
-			exist, err := self.session.IsIndexExist(tableName, idxName, false)
+			// 幂等检查必须用 index.GetName(tableName)——与 CreateIndexUniqueSql 实际
+			// CREATE 的名字同源。原来用 map key(原始自定义名，如 tag index('xxx') 的
+			// xxx)，而实际建出的是加工名(IDX_表缩写_xxx)，两者不一致导致自定义命名
+			// 索引永远查不到"已存在"，服务对既有库二次启动时 42P07 FATAL。
+			exist, err := self.session.IsIndexExist(tableName, index.GetName(tableName), false)
 			if err != nil {
 				return nil, err
 			}

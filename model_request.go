@@ -960,7 +960,12 @@ func (self *TModel) DefaultGet(fields ...string) (map[string]any, error) {
 
 		var value any
 		if fn := field.DefaultFunc(); fn != nil {
+			// ctx.Model 必须是完整的外层模型(prototype)而非裸 TModel 基类，
+			// 否则 defaultFunc 里对上层接口(如 module.IModel)的断言会 panic
 			mdl := IModel(self)
+			if self.prototype != nil {
+				mdl = self.prototype
+			}
 			if self.super != nil {
 				mdl = self.super
 			}
