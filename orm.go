@@ -796,7 +796,10 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 			// 数据库的字段都是存储类型
 			field.Base().store = true
 
-			modelObject.fields.Store(field.Name(), field)
+			// 必须走 SetField 而非直接 fields.Store：SetField 会把主键字段名
+			// 收进 obj.PrimaryKeys，否则 GetPrimaryKeys() 对内省出来的旧表
+			// 永远返回空切片，导致 SyncModel 每次都误报主键不一致。
+			modelObject.SetField(field)
 		}
 	}
 
