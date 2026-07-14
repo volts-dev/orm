@@ -260,6 +260,18 @@ func converterBigNumberToString(blankZero bool) func(any) any {
 	}
 }
 
+// isNumericValue 判断数据库回读的原始值是否是数值（而非字符串/[]byte）。
+// 用于把「数值零 → 空串」的归一化限制在数值来源上，见 converter 的字符类型分支。
+func isNumericValue(value any) bool {
+	switch value.(type) {
+	case int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64:
+		return true
+	}
+	return false
+}
+
 func converter(type_name string) func(any) any {
 	switch type_name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
@@ -280,11 +292,16 @@ func converter(type_name string) func(any) any {
 		}
 	case Char, NChar, Varchar, NVarchar, TinyText, Text, NText, MediumText, LongText, Enum, Set, Uuid, Clob, SysName:
 		return func(value any) any {
-			v := utils.ToString(value)
-			if v == "0" {
+			// "0" → "" 只对**数值来源**成立：BigNumberToString 打开时，int64 列（雪花 id、
+			// 外键）会被按 Varchar 走这个格式化器，空外键的 0 必须归空串，否则前端会拿到
+			// 字符串 "0" 当成一个有效 id。
+			// 但真字符串列存 "0" 是完全合法的值（selection 的 "0"/"1"、设置项默认值、
+			// 版本号、编码……），此前不分来源一律归空，导致任何 varchar/text 列只要值恰好
+			// 是 "0" 就被读成空串。
+			if isNumericValue(value) && utils.ToString(value) == "0" {
 				return ""
 			}
-			return v
+			return utils.ToString(value)
 		}
 	case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary, UniqueIdentifier:
 		return func(value any) any {
