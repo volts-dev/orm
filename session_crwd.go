@@ -1106,16 +1106,17 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 		if field.Store() {
 			switch field.TypeName() {
 			case TYPE_M2O:
-				/* 字符串为Name */
-				if v, ok := value.(string); ok {
-					ctx.Value = v
-					if err := field.OnWrite(ctx); err != nil {
-						return nil, multiSql, err
-					}
-					datas[name] = []any{ctx.values}
-					break
+				// 必须无条件走 OnWrite(TMany2OneField.OnWrite 已处理 string/tuple/裸id
+				// 等全部形态):此前只在 value 是纯字符串(输入名称查找/新建)时才调用
+				// OnWrite,其余形态(如前端 Many2OneField 提交的 [id,name] 经典元组)会
+				// 落到下面 default 分支,在没有自定义 getter/setter 时直接把整个元组扔进
+				// field.onConvertToWrite→value2SqlTypeValue,BigInt 列对 []any 调用
+				// utils.ToInt64 解析失败退回 0,写成 0 后配合 id-as-string 的"0→''"
+				// 兜底格式化,读出来就是空——表现为"更新提交成功但读不到值"。
+				if err := field.OnWrite(ctx); err != nil {
+					return nil, multiSql, err
 				}
-				fallthrough
+				datas[name] = []any{ctx.values}
 			default:
 				if field.HasGetter() || field.HasSetter() {
 					//if err := field.ComputeFunc(ctx); err != nil {
