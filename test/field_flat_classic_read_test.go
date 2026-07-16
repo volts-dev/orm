@@ -108,3 +108,55 @@ func TestFlatClassicReadO2MIdAsString(t *testing.T) {
 		}
 	}
 }
+
+// TestFlatClassicReadEmptyO2MKeyStillPresent 回归:one2many 字段一条关联行都没有时
+// (刚创建、还没加过明细行的订单),字段 key 此前会从输出里彻底消失(不是 [],是键都不
+// 存在)——TOne2ManyField.OnRead 只在 grp.Count()>0 时才调用 SetByField。调用方/前端
+// 把"键缺失"误判成"关系字段没有返回"。修复后无论有无关联行都调用 SetByField,空关联
+// 落一个空切片。
+func TestFlatClassicReadEmptyO2MKeyStillPresent(t *testing.T) {
+	o := newFlatClassicOrm(t)
+
+	orderModel, _ := o.GetModel("fc_order")
+
+	ss := o.NewSession()
+	defer ss.Close()
+	if err := ss.Begin(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 订单没有任何 partner_id、没有任何 lines —— 关联侧完全空。
+	oids, err := orderModel.Tx(ss).Create(map[string]any{"name": "SO-EMPTY"})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	orderId := oids[0]
+	if err := ss.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	rds, err := orderModel.Read(&orm.ReadRequest{
+		Ids:         []any{orderId},
+		Fields:      []string{"id", "name", "lines"},
+		ClassicRead: true,
+	})
+	if err != nil {
+		t.Fatalf("flat classic Read: %v", err)
+	}
+	if rds.Count() != 1 {
+		t.Fatalf("期望 1 条 order, 实际 %d", rds.Count())
+	}
+	m := rds.Record().AsMap()
+
+	lines, hasKey := m["lines"]
+	if !hasKey {
+		t.Fatalf("lines 键完全缺失(应始终存在,即使是空数组)")
+	}
+	arr, ok := lines.([]any)
+	if !ok {
+		t.Fatalf("lines 期望 []any, 实际 %T = %#v", lines, lines)
+	}
+	if len(arr) != 0 {
+		t.Fatalf("lines 期望空切片, 实际 len=%d", len(arr))
+	}
+}

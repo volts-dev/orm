@@ -203,52 +203,55 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 			return err
 		}
 
-		if ds.Count() > 0 {
-			// 获得关系Model 以提供idfield
-			relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
-			if err != nil {
-				return err
+		// 获得关系Model 以提供idfield。放在 ds.Count()>0 判断之外获取,因为下面
+		// SetByField 现在对每条记录都无条件调用(空关联也要落一个空切片)。
+		relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
+		if err != nil {
+			return err
+		}
+
+		// group 在 ds 为空(nil 或 0 行)时也是 nil——GroupBy/Range/Count 对 nil
+		// *TDataSet 均安全,故无需额外判空。
+		group := ds.GroupBy(field.RelatedKeyName())
+		// 嵌套规格模式(ctx.Fields 非空)内嵌完整子记录(含内嵌 list 可见列)；
+		// 否则保持旧行为只回填 id 列表，避免影响既有调用方。
+		embedRecords := len(ctx.Fields) > 0
+		idField := relateModel.IdField()
+		// BigNumberToString 打开时,雪花 id 必须以字符串形态回填。裸 int64 经
+		// JSON 传给前端会丢精度(> 2^53),x2many 的 loadSeeded 按舍入后的错 id
+		// 查询会得到空结果,o2m 列表显示不出数据。这与 AsMap 对 id/外键的
+		// id-as-string 边界保持一致(m2o/m2m 走 AsMap 天然已是字符串)。
+		idAsStr := ctx.Model.Orm().config.BigNumberToString && isBigNumberField(relateModel.GetFieldByName(idField))
+		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
+			// 继承字段用委托 FK(partner_id)的值匹配子表的反向键，否则用本模型主键。
+			fieldValue := record.GetByField(relAnchorKey(ctx))
+			grp := group[fieldValue]
+			// 无论有无关联行都调用 SetByField:此前只在 grp.Count()>0 时才设置字段值,
+			// 一条关联行都没有时(如刚创建、还没有任何子行的订单/用户)整个字段 key 会从
+			// 输出里彻底消失(不是空数组,是键都不存在)——前端/调用方误判为"关系字段
+			// 没有返回"。空切片而非 nil,确保 AsMap/JSON 序列化为 [] 而不是 null。
+			if embedRecords {
+				records := make([]map[string]any, 0, grp.Count())
+				grp.Range(func(pos int, sub *dataset.TRecordSet) error {
+					records = append(records, sub.AsMap())
+					return nil
+				})
+				record.SetByField(field.Name(), records)
+			} else {
+				records := make([]any, 0, grp.Count()) // 只保存ID
+				grp.Range(func(pos int, sub *dataset.TRecordSet) error {
+					idv := sub.GetByField(idField)
+					if idAsStr {
+						idv = utils.ToString(idv)
+					}
+					records = append(records, idv)
+					return nil
+				})
+				record.SetByField(field.Name(), records)
 			}
 
-			group := ds.GroupBy(field.RelatedKeyName())
-			// 嵌套规格模式(ctx.Fields 非空)内嵌完整子记录(含内嵌 list 可见列)；
-			// 否则保持旧行为只回填 id 列表，避免影响既有调用方。
-			embedRecords := len(ctx.Fields) > 0
-			ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
-				// 继承字段用委托 FK(partner_id)的值匹配子表的反向键，否则用本模型主键。
-				fieldValue := record.GetByField(relAnchorKey(ctx))
-				grp := group[fieldValue]
-				if grp.Count() > 0 {
-					if embedRecords {
-						var records []map[string]any
-						grp.Range(func(pos int, sub *dataset.TRecordSet) error {
-							records = append(records, sub.AsMap())
-							return nil
-						})
-						record.SetByField(field.Name(), records)
-					} else {
-						var records []any // 只保存ID
-						idField := relateModel.IdField()
-						// BigNumberToString 打开时,雪花 id 必须以字符串形态回填。裸 int64 经
-						// JSON 传给前端会丢精度(> 2^53),x2many 的 loadSeeded 按舍入后的错 id
-						// 查询会得到空结果,o2m 列表显示不出数据。这与 AsMap 对 id/外键的
-						// id-as-string 边界保持一致(m2o/m2m 走 AsMap 天然已是字符串)。
-						idAsStr := ctx.Model.Orm().config.BigNumberToString && isBigNumberField(relateModel.GetFieldByName(idField))
-						grp.Range(func(pos int, sub *dataset.TRecordSet) error {
-							idv := sub.GetByField(idField)
-							if idAsStr {
-								idv = utils.ToString(idv)
-							}
-							records = append(records, idv)
-							return nil
-						})
-						record.SetByField(field.Name(), records)
-					}
-				}
-
-				return nil
-			})
-		}
+			return nil
+		})
 	}
 
 	return nil
@@ -562,28 +565,30 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 		return err
 	}
 
-	if ds.Count() > 0 {
-		// 按 source 侧(本表)的 join key 分组，才能用本记录 id 命中。
-		// RelatedKeyName 是 comodel 侧的键(如 res_company_id)，用它分组会与下方
-		// 本表 id 的查找键不在同一键空间，导致永远查空。
-		group := ds.GroupBy(field.JoinSourceKey())
-		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
-			//fieldValue := record.GetByField(field.Name()) // 货得many2many字段值
-			// 继承字段用委托 FK(partner_id)的值匹配 junction 的 source 键，否则用本模型主键。
-			fieldValue := record.GetByField(relAnchorKey(ctx)) // 货得many2many字段值
-			fieldRecord := group[fieldValue]
-			if fieldRecord.Count() > 0 {
-				var records []map[string]any
-				fieldRecord.Range(func(pos int, record *dataset.TRecordSet) error {
-					records = append(records, record.AsMap())
-					return nil
-				})
-				record.SetByField(field.Name(), records)
-			}
-
+	// 按 source 侧(本表)的 join key 分组，才能用本记录 id 命中。
+	// RelatedKeyName 是 comodel 侧的键(如 res_company_id)，用它分组会与下方
+	// 本表 id 的查找键不在同一键空间，导致永远查空。
+	// group 在 ds 为空(nil 或 0 行)时也是 nil——GroupBy/Range/Count 对 nil *TDataSet
+	// 均安全,故下面无需额外判空。
+	group := ds.GroupBy(field.JoinSourceKey())
+	ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
+		//fieldValue := record.GetByField(field.Name()) // 货得many2many字段值
+		// 继承字段用委托 FK(partner_id)的值匹配 junction 的 source 键，否则用本模型主键。
+		fieldValue := record.GetByField(relAnchorKey(ctx)) // 货得many2many字段值
+		fieldRecord := group[fieldValue]
+		// 无论有无关联行都调用 SetByField:此前只在 fieldRecord.Count()>0 时才设置字段值,
+		// 一条关联行都没有时(如用户未分配任何 company/group)整个字段 key 会从输出里
+		// 彻底消失(不是空数组,是键都不存在)——前端/调用方误判为"关系字段没有返回"。
+		// 空切片而非 nil,确保 AsMap/JSON 序列化为 [] 而不是 null。
+		records := make([]map[string]any, 0, fieldRecord.Count())
+		fieldRecord.Range(func(pos int, record *dataset.TRecordSet) error {
+			records = append(records, record.AsMap())
 			return nil
 		})
-	}
+		record.SetByField(field.Name(), records)
+
+		return nil
+	})
 
 	return nil
 }
