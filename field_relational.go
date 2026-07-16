@@ -228,8 +228,18 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 						record.SetByField(field.Name(), records)
 					} else {
 						var records []any // 只保存ID
+						idField := relateModel.IdField()
+						// BigNumberToString 打开时,雪花 id 必须以字符串形态回填。裸 int64 经
+						// JSON 传给前端会丢精度(> 2^53),x2many 的 loadSeeded 按舍入后的错 id
+						// 查询会得到空结果,o2m 列表显示不出数据。这与 AsMap 对 id/外键的
+						// id-as-string 边界保持一致(m2o/m2m 走 AsMap 天然已是字符串)。
+						idAsStr := ctx.Model.Orm().config.BigNumberToString && isBigNumberField(relateModel.GetFieldByName(idField))
 						grp.Range(func(pos int, sub *dataset.TRecordSet) error {
-							records = append(records, sub.GetByField(relateModel.IdField()))
+							idv := sub.GetByField(idField)
+							if idAsStr {
+								idv = utils.ToString(idv)
+							}
+							records = append(records, idv)
 							return nil
 						})
 						record.SetByField(field.Name(), records)
