@@ -502,41 +502,69 @@ func (self *TMany2ManyField) Init(ctx *TTagContext) {
 
 // 创建关联表
 // model, columns
+//
+// DDL 与模型注册分两段、各自幂等：
+//   - DDL 按 (schema, 关联表) 去重执行——m2m 关联表必须在**每个**用到它的 schema 里
+//     各建一份（schema 隔离租户如 VectorsSystem 的 system schema 有自己的一套 T 表，
+//     关联表也不例外）。此前用「关系模型是否已注册」做全局守卫，进程内第一个（几乎
+//     必然是 public 的）同步建完表后，其他 schema 的同步全部被跳过——system 的
+//     res_user_group_rel 之类关联表从未建出来，而读写又因不带 schema 落到 public，
+//     两个 bug 互相掩盖成"看似能跑但数据串库"。
+//   - 模型注册仍全局一次（模型元数据与 schema 无关）。
 func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	orm := ctx.Orm
 	field := ctx.Field
 
+	// 同步会话携带目标 schema；注册期(RegisterModel)无会话 → 默认 schema。
+	schema := ""
+	if ctx.Session != nil {
+		schema = ctx.Session.Schema
+	}
+
+	middle_model := strings.Replace(field.JoinModelName(), ".", "_", -1)
+
+	// DDL：按 (schema, 表) 每进程一次；CREATE ... IF NOT EXISTS 本身幂等，重启安全。
+	ddlKey := schema + "|" + middle_model
+	if _, done := orm.osv.middleModelDDL.LoadOrStore(ddlKey, true); !done {
+		idField := ctx.Model.GetFieldByName(ctx.Model.IdField())
+		sqlType := orm.dialect.GetSqlType(idField)
+		id1 := field.RelatedKeyName()
+		id2 := field.JoinSourceKey()
+
+		// 关联表引用必须带 schema 前缀（qualifiedMiddle），否则落到 search_path
+		// 默认 schema。索引名不可加前缀（PG 索引天然归属其表所在 schema）。
+		qualifiedMiddle := `"` + middle_model + `"`
+		if schema != "" {
+			qualifiedMiddle = `"` + schema + `"."` + middle_model + `"`
+		}
+
+		// Run each DDL statement independently — SQLite/MySQL don't support
+		// multi-statement Exec, unnamed CREATE INDEX, or PG's COMMENT ON TABLE.
+		stmts := []string{
+			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s ("%s" %s NOT NULL, "%s" %s NOT NULL, UNIQUE("%s","%s"))`,
+				qualifiedMiddle, id1, sqlType, id2, sqlType, id1, id2),
+			fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON %s ("%s")`,
+				middle_model, id1, qualifiedMiddle, id1),
+			fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON %s ("%s")`,
+				middle_model, id2, qualifiedMiddle, id2),
+		}
+		if strings.EqualFold(orm.dialect.DBType(), "postgres") {
+			stmts = append(stmts, fmt.Sprintf(`COMMENT ON TABLE %s IS '%s'`,
+				qualifiedMiddle, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model)))
+		}
+		for _, q := range stmts {
+			if _, err := orm.Exec(q); err != nil {
+				log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelatedModelName(), q, err.Error())
+			}
+		}
+
+		self.update_db_foreign_keys(ctx)
+	}
+
+	// 模型注册：全局一次。
 	if _, has := orm.osv.models.Load(field.JoinModelName()); has {
 		return
 	}
-
-	idField := ctx.Model.GetFieldByName(ctx.Model.IdField())
-	sqlType := orm.dialect.GetSqlType(idField)
-	middle_model := strings.Replace(field.JoinModelName(), ".", "_", -1)
-	id1 := field.RelatedKeyName()
-	id2 := field.JoinSourceKey()
-
-	// Run each DDL statement independently — SQLite/MySQL don't support
-	// multi-statement Exec, unnamed CREATE INDEX, or PG's COMMENT ON TABLE.
-	stmts := []string{
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" ("%s" %s NOT NULL, "%s" %s NOT NULL, UNIQUE("%s","%s"))`,
-			middle_model, id1, sqlType, id2, sqlType, id1, id2),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON "%s" ("%s")`,
-			middle_model, id1, middle_model, id1),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON "%s" ("%s")`,
-			middle_model, id2, middle_model, id2),
-	}
-	if strings.EqualFold(orm.dialect.DBType(), "postgres") {
-		stmts = append(stmts, fmt.Sprintf(`COMMENT ON TABLE "%s" IS '%s'`,
-			middle_model, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model)))
-	}
-	for _, q := range stmts {
-		if _, err := orm.Exec(q); err != nil {
-			log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelatedModelName(), q, err.Error())
-		}
-	}
-
-	self.update_db_foreign_keys(ctx)
 
 	// 新建模型
 	relModel := new(TModel)
@@ -714,7 +742,10 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []any) error {
 	quoter := ctx.Session.Orm().dialect.Quoter()
 	field := ctx.Field
 
-	middle_table_name := quoter.Quote(strings.Replace(field.JoinModelName(), ".", "_", -1))
+	// 关联表写入必须带会话 schema：schema 隔离租户(如 VectorsSystem 的 system)的
+	// link/unlink 若用裸表名，会写进 search_path 默认 schema(public)的同名表——
+	// 数据跨 schema 串库(写不进自己租户的表，还污染共享表)。
+	middle_table_name := quoter.QuoteTable(ctx.Session.Schema, strings.Replace(field.JoinModelName(), ".", "_", -1))
 	for _, rec_id := range ctx.Ids {
 		for _, relate_id := range ids {
 			query := fmt.Sprintf(
@@ -745,9 +776,11 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []any) error {
 // TODO 错误将IDS删除基数
 // # remove all records for which user has access rights
 func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []any) error {
-	quote := ctx.Session.Orm().dialect.Quoter().Quote
+	quoter := ctx.Session.Orm().dialect.Quoter()
+	quote := quoter.Quote
 	field := ctx.Field
-	middle_table_name := quote(strings.Replace(field.JoinModelName(), ".", "_", -1))
+	// 同 link：删除也必须限定会话 schema，否则删的是 public 同名表的行。
+	middle_table_name := quoter.QuoteTable(ctx.Session.Schema, strings.Replace(field.JoinModelName(), ".", "_", -1))
 
 	ctxIdsSql := strings.Repeat("?,", len(ctx.Ids)-1) + "?"
 

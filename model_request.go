@@ -509,7 +509,13 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	}
 
 	//group, err := relateModel.NameGet(ids)
-	rs := relateModel.Records().Ids(ids)
+	rs := relateModel.Records()
+	// 同 ManyToOne：Records() 新会话不继承调用方 schema，schema 隔离租户下子读取
+	// 会落错 schema 查空。
+	if ctx.Session != nil {
+		rs.SetSchema(ctx.Session.Schema)
+	}
+	rs = rs.Ids(ids)
 	if ctx.ClassicRead {
 		rs = rs.Classic()
 	}
@@ -557,6 +563,11 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	}
 
 	session := relateModel.Records()
+	// 同 ManyToOne:Records() 新会话不继承调用方 schema,非默认 schema 租户下子读取
+	// 会落错 schema,o2m 列表悄悄返回空。
+	if ctx.Session != nil {
+		session.SetSchema(ctx.Session.Schema)
+	}
 	session.UseNameGet = ctx.UseNameGet /* 使用 */
 	if len(ctx.SubFields) > 0 {
 		// 透传下一层嵌套规格，支持 o2m 行内的 m2o/m2m 列再内嵌(多层)。
@@ -602,6 +613,13 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		var group *dataset.TDataSet
 		if ctx.ClassicRead {
 			sub := relateModel.Records()
+			// Records() 起一个全新会话,不继承调用方 session 的 schema。非默认 schema
+			// 的租户(如 VectorsSystem 用 "system")下,子读取会落到 search_path 默认
+			// schema(通常 public)查 comodel,找不到匹配行——classic 内嵌悄悄失败,
+			// 字段只剩裸 id(不报错,前端表现为"m2o 读不出详情/写完读不到")。
+			if ctx.Session != nil {
+				sub.SetSchema(ctx.Session.Schema)
+			}
 			if len(ctx.Fields) > 0 {
 				// 限定 comodel 列范围(如仅 display_name)；id 必须带上以便按主键分组回填。
 				sub.Select(ensureFields(ctx.Fields, relateModel.IdField())...)
@@ -687,11 +705,24 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		ctx.Session.setsLock.RLock()
 		sess.Sets = ctx.Session.Sets
 		ctx.Session.setsLock.RUnlock()
+		// NewSession 起的新会话不继承调用方 schema。非默认 schema 租户(如
+		// VectorsSystem 用 "system")下,下面手工拼接的 FROM/JOIN 裸表名(不经过
+		// where_calc/qualifiedTable 那套 schema 限定)会落到 search_path 默认
+		// schema(通常 public),m2m 悄悄查空——company_ids/group_ids 之类字段读出
+		// 来是 []而非真实数据(不报错,表现为"关系字段没有返回")。
+		sess.SetSchema(ctx.Session.Schema)
 	}
 
 	//table_name := field.comodel_name//sess.Statement.TableName()
 	midTableName := fmtTableName(midModelName)
 	relTableName := fmtTableName(relModelName)
+	// ClassicRead 分支下 from_c(经 where_calc/qualifiedTable 生成)已经带 schema
+	// 前缀；这里手工拼接的 midTableName/relTableName 引用不经过那条路径,必须单独
+	// 补上,否则两边 schema 不一致导致 JOIN 落空。
+	if sess.Schema != "" {
+		midTableName = sess.Schema + "." + midTableName
+		relTableName = sess.Schema + "." + relTableName
+	}
 	query := ""
 	order_by := ""
 	placeholder := JoinPlaceholder("?", ",", len(ids))

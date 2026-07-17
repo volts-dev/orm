@@ -102,6 +102,9 @@ func (self *TSession) Clone() *TSession {
 	session.IsCommitedOrRollbacked = self.IsCommitedOrRollbacked
 	session.Prepared = self.Prepared
 	session.CacheNameIds = self.CacheNameIds
+	// schema 必须随克隆传播：克隆出的会话常用于同一请求内的派生读写(如 m2o 名称
+	// 查找建档)，丢失 schema 会让 schema 隔离租户的派生操作落回 public。
+	session.Schema = self.Schema
 	// TODO 优化掉无用的字段
 	//session.Statement = self.Statement
 	//session.Statement.session = self
@@ -185,6 +188,22 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 
 			if err = self.createIndexesImpl(modelName); err != nil {
 				return modelNames, err
+			}
+
+			// 关系字段的衍生 DDL(m2m 关联表)：新建表分支此前完全没有这一步——
+			// 只有 _alterTable(表已存在)分支会触发 UpdateDb。schema 隔离租户
+			// (VectorsSystem)首次把模型物化进专属 schema 走的正是本分支，漏掉
+			// 这步意味着该 schema 的 m2m 关联表永远不会被创建。带上本会话
+			// (含 Schema)让关联表落进同一 schema。
+			for _, field := range model.GetFields() {
+				if field.IsRelated() {
+					field.UpdateDb(&TTagContext{
+						Orm:     self.orm,
+						Field:   field,
+						Model:   model,
+						Session: self,
+					})
+				}
 			}
 
 			model.AfterSetup()
@@ -606,12 +625,13 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 					}
 				}
 
-				/* 为M2M 添加中间表 */
+				/* 为M2M 添加中间表（带上本会话以继承目标 schema）*/
 				if field.IsRelated() {
 					field.UpdateDb(&TTagContext{
-						Orm:   self.orm,
-						Field: field,
-						Model: newModel,
+						Orm:     self.orm,
+						Field:   field,
+						Model:   newModel,
+						Session: self,
 					})
 				}
 			}

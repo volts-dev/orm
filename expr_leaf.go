@@ -105,7 +105,10 @@ func (self *TExtendedLeaf) generate_alias() (string, string) {
 		links = append(links, []string{context.DestModel.table, context.Link})
 	}
 
-	return generate_table_alias(self.models[0].table, links)
+	// TODO: domain 表达式跨关系遍历(如 "partner_id.name")生成的 JOIN 同样缺 schema
+	// 前缀,与 query.go addJoin 是同一类问题,但本次未在这条路径复现/验证,暂不改动
+	// (传空 schema 保持原行为),留待确认后再对齐。
+	return generate_table_alias(self.models[0].table, links, "")
 }
 
 func (self *TExtendedLeaf) is_true_leaf() bool {
@@ -183,7 +186,7 @@ func (self *TExtendedLeaf) get_tables() *utils.TStringList {
 
 	for _, context := range self.join_context {
 		links = append(links, []string{context.DestModel.table, context.Link})
-		_, alias_statement := generate_table_alias(self.models[0].table, links)
+		_, alias_statement := generate_table_alias(self.models[0].table, links, "")
 
 		tables.PushString(alias_statement)
 	}

@@ -147,7 +147,7 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 	col := connection[3]     // realte field
 
 	link := connection[4]
-	alias, alias_statement := generate_table_alias(lhs, [][]string{{table, link}})
+	alias, alias_statement := generate_table_alias(lhs, [][]string{{table, link}}, self.session.Schema)
 
 	if implicit {
 		if utils.IndexOf(alias_statement, self.tables...) == -1 {

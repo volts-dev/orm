@@ -339,8 +339,26 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 
    :return tuple: (table_alias, alias statement for from clause with quotes added)
 */
+// quoteTableWithSchema 与 quoteStr 同样的硬编码双引号风格，但支持 schema 前缀：
+// 生成 "schema"."table"，而不是把整个 "schema.table" 当一个字面标识符塞进一对引号
+// 里——后者在 Postgres 中会被解析成名字里带字面点号的单个标识符，永远匹配不到真实的
+// schema.table，等价于查询了一张不存在的表（对该 schema 下的所有行都是"查无此表"，
+// 但 Go 侧只是 JOIN 结果为空，不报错）。
+func quoteTableWithSchema(schema, table string) string {
+	if schema == "" {
+		return quoteStr(table)
+	}
+	return quoteStr(schema) + "." + quoteStr(table)
+}
+
 // 生成Joint用的表别名
-func generate_table_alias(src_table_alias string, joined_tables [][]string) (string, string) {
+//
+// schema 是当前会话的活动 schema（如 VectorsSystem 租户的 "system"）。被 JOIN 的
+// comodel 表名必须带上它，否则在非默认 schema 的租户下，生成的 FROM 子句里这张表
+// 会落到 search_path 的默认 schema（通常是 public），JOIN 找不到匹配行——表现为
+// 一整条主记录都读不到（如 res.user 读 company_id 触发的 res_user__partner_id
+// delegate join）。
+func generate_table_alias(src_table_alias string, joined_tables [][]string, schema string) (string, string) {
 	srcTableName := src_table_alias
 	if joined_tables == nil {
 		return srcTableName, quoteStr(srcTableName)
@@ -354,7 +372,7 @@ func generate_table_alias(src_table_alias string, joined_tables [][]string) (str
 		log.Errf("Table alias name %s is longer than the 64 characters size accepted by default in postgresql.", srcTableName)
 	}
 
-	return srcTableName, fmt.Sprintf("%s as %s", quoteStr(joined_tables[0][0]), quoteStr(srcTableName))
+	return srcTableName, fmt.Sprintf("%s as %s", quoteTableWithSchema(schema, joined_tables[0][0]), quoteStr(srcTableName))
 }
 
 func idsToSqlHolder(ids ...any) string {

@@ -36,6 +36,11 @@ type (
 		FieldTypeValue reflect.Value // 用途未确认，保留兼容
 		ModelValue     reflect.Value
 		Params         []string // 属性参数 int(<params>)
+		// Session 是触发本次 DDL 的同步会话（SyncModel/_alterTable 传入），携带
+		// 目标 schema——m2m 关联表等衍生 DDL 必须落进同一 schema，否则 schema
+		// 隔离租户(如 VectorsSystem 的 system)的关联表会漏建/错建到 public。
+		// 注册期(RegisterModel)无会话时为 nil。
+		Session *TSession
 	}
 
 	TFieldContext struct {

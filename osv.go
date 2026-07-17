@@ -62,6 +62,10 @@ type (
 		orm         *TOrm
 		models      sync.Map // map[string]*TModelObject // 为每个Model存储BaseModel // TODO 名称或许为Objects
 		middleModel sync.Map // 标识中间表
+		// middleModelDDL 按 "schema|表名" 记录 m2m 关联表 DDL 已执行——关联表须在每个
+		// schema 各建一份(见 TMany2ManyField.UpdateDb)，故不能复用按模型名全局去重的
+		// models/middleModel 作 DDL 守卫。
+		middleModelDDL sync.Map
 
 		// === remote model resolution (phased registration) ===
 		resolver       IRemoteResolver
