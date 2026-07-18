@@ -835,11 +835,8 @@ func (self *TExpression) parse(context map[string]any) error {
 				self.push(create_substitution_leaf(ex_leaf, ltemp, model, false))
 
 			} else if field.Translate() && right != nil && !utils.IsBlank(right.Value) { //column.translate and not callable(column.translate) and right:
-				// 翻译
-				need_wildcard := operator.ValueIn("like", "ilike", "not like", "not ilike")
-				if need_wildcard {
-					right.Value = "%" + utils.ToString(right.Value) + "%"
-				}
+				// 翻译字段：与普通字段一样 push_result，通配符 %...% 的包裹统一在
+				// leaf_to_sql 里按 need_wildcard 处理，避免在此再包一次导致 %%...%%。
 				self.push_result(ex_leaf)
 			} else {
 				self.push_result(ex_leaf)
@@ -1135,6 +1132,17 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 
 		if add_null {
 			res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, aliasTable, left.String())
+		}
+
+		// like/ilike 模糊匹配：把查询值包上通配符 %...%。不包的话 ilike 退化成整串
+		// 大小写不敏感精确匹配——前端 many2one 的 name_search 传入片段(operator=ilike)
+		// 就搜不到任何数据。need_wildcard 只对 like/ilike/not like/not ilike 为真；
+		// =like/=ilike 是"原样"变体(上面已映射成 like/ilike 但 need_wildcard=false)，
+		// 由调用方自带通配符，不在此包裹。
+		if need_wildcard {
+			for i, v := range vals {
+				vals[i] = "%" + utils.ToString(v) + "%"
+			}
 		}
 
 		res_params = append(res_params, vals...)
