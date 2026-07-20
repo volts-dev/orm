@@ -1312,8 +1312,16 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 
 		/* 过滤可以为空的字段空字段 */
 		if isBlank && !isIncludedIds {
-			/* 填补默认值 */
-			if !field.IsDefaultEmpty() {
+			/* 填补默认值——仅当调用方**根本没提供**该字段时(setted==false)。
+			   isBlank 只看值是不是该类型的零值(IsBlank(false)/IsBlank(0)/IsBlank("")
+			   全是 true),区分不了"没传"和"显式传了零值";而 setted 来自
+			   record.GetByField(name)!=nil,只有键真的在数据集里才为真,是精确的
+			   "调用方碰过这个字段"信号。
+			   不加这个门槛,显式传入的零值会被字段默认值顶掉——实例:XML 导入
+			   <template active="False"> 生成 active=false,却被 active 的默认值
+			   true 覆盖,库里全是 active=true(12 个 footer 模板变体因此同时生效)。
+			   显式零值走到下面 includeNil 分支照常落库。 */
+			if !setted && !field.IsDefaultEmpty() {
 				if field.DefaultFunc() != nil {
 					ctx := &TFieldContext{
 						Session: self,
