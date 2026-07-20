@@ -157,8 +157,11 @@ func (self *TSession) GroupBy(fields ...string) *TSession {
 	return self
 }
 
-func (self *TSession) OrderBy(order string) *TSession {
-	self.Statement.OrderBy(order)
+// OrderBy 追加排序字段。可一次传多个，也可链式多次调用：
+// OrderBy("sequence", "id") 与 OrderBy("sequence,id") 与 OrderBy("sequence").OrderBy("id")
+// 三者等价。
+func (self *TSession) OrderBy(order ...string) *TSession {
+	self.Statement.OrderBy(order...)
 	return self
 }
 

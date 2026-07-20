@@ -276,11 +276,23 @@ func (self *TStatement) GroupBy(fields ...string) *TStatement {
 
 // OrderBy generate "Order By order" statement
 // order string like "id desc,address asc"
-func (self *TStatement) OrderBy(clause string) *TStatement {
-	if len(self.OrderByClause) > 0 {
-		self.OrderByClause += ", "
+//
+// 变参：OrderBy("sequence", "id desc") 与 OrderBy("sequence,id desc") 等价，
+// 多次链式调用也累加。分隔符必须是不带空格的 ","——generate_order_by_inner 按 ","
+// 切分后每段还要再解析出「字段 [方向]」，历史上这里拼的是 ", "，切出的 " id" 让
+// 解析取到空字段名并静默丢弃该排序项，链式调用因此永远只有第一个字段生效。
+// 解析侧现已用 strings.Fields 容错，此处仍不写空格：少一处依赖对方容错的耦合。
+func (self *TStatement) OrderBy(clauses ...string) *TStatement {
+	for _, clause := range clauses {
+		clause = strings.TrimSpace(clause)
+		if clause == "" {
+			continue
+		}
+		if len(self.OrderByClause) > 0 {
+			self.OrderByClause += ","
+		}
+		self.OrderByClause += clause
 	}
-	self.OrderByClause += clause
 	return self
 }
 
@@ -715,14 +727,21 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 		}
 	}
 
+	// 用 Fields 而非 Split(part, " ")：后者对 " id"（调用方或拼接产生的逗号后空格）
+	// 切出 ["", "id"]，取第 0 段得到空字段名 → 字段查不到 → 该排序项被静默丢弃；
+	// 对 "id  desc"（双空格）切出 3 段，原先的 len==2 判断落空 → 方向静默退化成 ASC。
+	// Fields 按任意空白切分且不产生空段，两类都不再发生；全空段（如 "a,,b" 的中间段）
+	// 长度为 0，跳过即可。
 	for _, order_part := range strings.Split(order_spec, ",") {
-		order_split := strings.Split(order_part, " ")
-		order_field := strings.TrimSpace(order_split[0])
+		order_split := strings.Fields(order_part)
+		if len(order_split) == 0 {
+			continue
+		}
+		order_field := order_split[0]
 		order_direction := ""
-		if len(order_split) == 2 {
-			order_direction = strings.ToUpper(strings.TrimSpace(order_split[1]))
-		} else {
-			order_direction = ""
+		if len(order_split) > 1 {
+			// 方向白名单在 generate_order 内，非法值会被拒并告警，此处不必预筛。
+			order_direction = strings.ToUpper(order_split[1])
 		}
 		generate_order([]string{order_field}, order_direction)
 	}
