@@ -240,7 +240,7 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 		}
 
 		/* 拆分数据 */
-		newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil)
+		newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil, hasExplicitKeys(one) || srcWasSets)
 		if err != nil {
 			return ids, err
 		}
@@ -551,7 +551,7 @@ func (self *TSession) _write(src any) (int64, error) {
 		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}
 
-	newVals, refVals, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, false, ids)
+	newVals, refVals, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, false, ids, hasExplicitKeys(src) || srcWasSets)
 	if err != nil {
 		return 0, err
 	}
@@ -1054,6 +1054,21 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 // It does NOT apply Statement.Sets — callers handle Sets inline after this call.
 // Supported inputs: *dataset.TDataSet (returned as-is), map[string]any,
 // map[string]string, or a struct pointer/value.
+// hasExplicitKeys 判断"数据集里的键是否就是调用方明确给的那些"。
+//
+// map 源(Write(map[string]any{...})/Sets)只含调用方写下的键——键在即"碰过",
+// 这时零值 false/0/"" 是**合法值**不是"没提供"。
+// struct 源不行:StructToMap 无条件导出结构体上每个模型字段,未赋值的字段也在
+// 里面且是零值,与"显式设成零值"无法区分——那里必须保持旧语义(零值=没提供,
+// 该填默认值就填、该跳过就跳过),否则建记录时字段默认值会被结构体零值顶掉。
+func hasExplicitKeys(src any) bool {
+	switch src.(type) {
+	case map[string]any, map[string]string:
+		return true
+	}
+	return false
+}
+
 func (self *TSession) _validateValues(values any) (*dataset.TDataSet, error) {
 	// Session-specific concern: auto-detect Model from struct type name
 	// when no model is set yet on the Statement. Must happen BEFORE
@@ -1175,7 +1190,7 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 //	columnMap map[string]bool, update, unscoped bool
 //
 // needID is the values inclduing key
-func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []string, nullableFields map[string]bool, includeNil bool, ids []any) (map[string]any, map[string]map[string]any, []IField, error) {
+func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []string, nullableFields map[string]bool, includeNil bool, ids []any, explicitKeys bool) (map[string]any, map[string]map[string]any, []IField, error) {
 	/* 用于更新本Model的实际数据 */
 	new_vals := make(map[string]any)
 	rel_vals := make(map[string]map[string]any)
@@ -1321,7 +1336,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 			   <template active="False"> 生成 active=false,却被 active 的默认值
 			   true 覆盖,库里全是 active=true(12 个 footer 模板变体因此同时生效)。
 			   显式零值走到下面 includeNil 分支照常落库。 */
-			if !setted && !field.IsDefaultEmpty() {
+			if !(explicitKeys && setted) && !field.IsDefaultEmpty() {
 				if field.DefaultFunc() != nil {
 					ctx := &TFieldContext{
 						Session: self,
@@ -1438,7 +1453,10 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 
 		if field.Store() && field.SQLType().Name != "" {
 			isExplicitlyNullable := nullableFields != nil && nullableFields[name]
-			if includeNil || !isBlank || isExplicitlyNullable {
+			// explicitKeys && setted:调用方在 map 里明写了这个键,零值也要落库。
+			// 没有这一条,Write(map[...]{"active": false}) 返回成功却什么都没改
+			// (isBlank 把合法零值当"没提供"),是本仓最容易误判成业务 bug 的坑。
+			if includeNil || !isBlank || isExplicitlyNullable || (explicitKeys && setted) {
 				if isExplicitlyNullable && isBlank {
 					new_vals[name] = nil // write SQL NULL for explicitly nullable blank field
 				} else {
