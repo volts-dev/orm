@@ -242,6 +242,24 @@ var (
 	}
 )
 
+// converterBigNumberToString 是 BigNumberToString 打开时给大数列装的输出格式化器：
+// 一律转成字符串，免得 int64 过 JSON number 丢精度（雪花 id > 2^53）。
+//
+// blankZero 只对**关系字段**为真：外键取 0 表示「没有关联」，必须归成空串，否则前端
+// 会把字符串 "0" 当成一个有效 id 去解析。而普通 int64 数据列（sequence、color、各种
+// 计数）的 0 是**合法值**，归空会让「0」与「未设置」彻底不可区分——这正是本函数要
+// 与 converter(Varchar) 分家的原因：此前两者共用，任何 int 列只要值是 0，读出来就是
+// 空串（DB 里 NOT NULL 存着 0，API 返回 ""）。
+func converterBigNumberToString(blankZero bool) func(any) any {
+	return func(value any) any {
+		v := utils.ToString(value)
+		if blankZero && v == "0" {
+			return ""
+		}
+		return v
+	}
+}
+
 func converter(type_name string) func(any) any {
 	switch type_name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:

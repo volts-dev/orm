@@ -383,8 +383,16 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 			}
 
 			// 存储到数据集
-			typeName := ""
 			for idx, name := range cols {
+				// typeName/field 必须**每列重置**：早先它们声明在列循环之外，没走到
+				// 赋值分支的列(field==nil 的函数列如 Count、以及 !hasModel 分支)会
+				// 沿用上一列的值，把上一列的格式化器套到本列上——例如紧跟在 id 列
+				// 之后的 Count 列会被当成大数列转成字符串。
+				typeName := ""
+				field = nil
+				// bigNumAsString 记录「Varchar 这个输出类型是因 BigNumberToString 才
+				// 选上的」，与「本来就是字符列」区分开：前者的零值语义只对外键成立。
+				bigNumAsString := false
 				// !NOTE! 转换数据类型输出
 				if hasModel { // TODO exec,query 的SQL不包含Model
 					field = self.Statement.Model.GetFieldByName(name)
@@ -395,6 +403,7 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 						// as tag 指定输出格式
 						if typeName == "" && self.orm.config.BigNumberToString && isBigNumberField(field) {
 							typeName = Varchar
+							bigNumAsString = true
 						}
 					} else {
 						value = nil // 初始化
@@ -412,11 +421,19 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 						// #兼容没有使用 as tag 的大数转换为字符串
 						if _, ok := value.(int64); ok && self.orm.config.BigNumberToString {
 							typeName = Varchar
+							bigNumAsString = true
 						}
 					}
 
 					if typeName != "" {
-						res_dataset.SetFieldFormater(name, converter(typeName))
+						if bigNumAsString {
+							// 只有关系字段(外键)的 0 才归空串=「没有关联」；普通 int64
+							// 数据列的 0 是合法值，必须原样输出 "0"。field==nil 的函数
+							// 列(Count 等)同理不归空。详见 converterBigNumberToString。
+							res_dataset.SetFieldFormater(name, converterBigNumberToString(field != nil && field.IsRelated()))
+						} else {
+							res_dataset.SetFieldFormater(name, converter(typeName))
+						}
 					}
 
 				} else {
