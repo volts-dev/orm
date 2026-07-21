@@ -458,6 +458,19 @@ func (self *TOrm) Exec(sql string, params ...any) (sql.Result, error) {
 	return session.Exec(sql, params...)
 }
 
+// IExplicitModelName 是自动推导规范模型名(fmtModelName(Obj2Name(...)))的逃生舱。
+// 该推导先用 TitleCasedName 把结构体 Go 类型名规整一遍——它把任何下划线都当
+// snake_case 词界处理(转成大写开头后丢掉下划线本身)，再用 DotCasedName 把每个
+// 大写开头转成点号。这对模型规范名里任何一段本该保留下划线的场景(如 Odoo 原名
+// "survey.user_input"，不是三段的 "survey.user_input")是结构性有损的、且无法
+// 通过给 Go 结构体改名解决——哪怕在类型名里插字面下划线，也会在 TitleCasedName
+// 这一步被当词界吃掉，问题出在 TitleCasedName，不在 DotCasedName。凡是模型规范名
+// 里有这种"段内下划线"的，必须实现本接口显式声明，不要依赖自动推导。
+type IExplicitModelName interface {
+	// ModelName 返回规范 dotted 模型名，如 "survey.user_input"。
+	ModelName() string
+}
+
 // # 映射结构体与表
 func (self *TOrm) _mapping(model any) (*TModel, error) {
 	model_value := reflect.Indirect(reflect.ValueOf(model))
@@ -468,6 +481,18 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 
 	object_name := utils.Obj2Name(model)
 	model_name := fmtModelName(object_name)
+	// IExplicitModelName 逃生舱：fmtModelName 内部先 TitleCasedName(把任何下划线都
+	// 当 snake_case 词界处理、转成大写开头再丢下划线)再 DotCasedName(把每个大写
+	// 开头转成点号)，这套组合对模型规范名里任何一段本该保留下划线的场景(如
+	// "survey.user_input"，Odoo 原名就带下划线，不是三段的 "survey.user.input")
+	// 是结构性有损的——无论 Go 结构体怎么命名都推不出来(试过在类型名里插字面
+	// 下划线，TitleCasedName 照样把它当词界吃掉，问题不在 DotCasedName 那一步，
+	// 在更早的 TitleCasedName)。有这种名字的模型必须自己实现该接口显式声明。
+	if named, ok := model.(IExplicitModelName); ok {
+		if n := named.ModelName(); n != "" {
+			model_name = n
+		}
+	}
 	model_alt_name := model_name // model别名,当Model使用别名Tag时作用
 	model_object := self.osv.newObject(model_name)
 
