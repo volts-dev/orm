@@ -154,6 +154,26 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 	// 去重
 	models = unique(models)
 
+	// exitsModels 是从 DBMetas()(SQL 反查表结构)反推出来的，每个 model 的
+	// .name 走的是 newModel("", tableName, ...) → fmtModelName(tableName) 这条
+	// "表名→模型名"环回路径：TitleCasedName 把所有下划线一律当词界转回大写开头，
+	// DotCasedName 再把所有大写开头一律转回点号——对 "survey_user_input" 这种
+	// 本该保留一段下划线的表名（对应 "survey.user_input"，不是三段的
+	// "survey.user.input"）是有损的，反推不出下划线本该保留。下面按 .Table()
+	// （表名，来自 SQL 反查，无歧义）而不是按 .String()（模型名，可能因这条环回
+	// 有损而跟显式传入的 models 对不上）匹配「这张表是否已存在」，否则对不上号的
+	// 情况下 delete 会静默失效，那个用反查环回名字造出的、错误命名的 *TModel 会在
+	// 下面「确保获得其他没被注册的模型」那段被当成貌似合法的新模型重新注册一遍，
+	// 于 osv 里跟正确命名的模型同时存在两份，下游按模型名建路由的地方会两个都看到
+	// 或者只看到错的那个（取决于遍历顺序）——survey.user_input 真机 E2E 就是这样
+	// 假死的：自定义 CONNECT action 路由用字面量字符串没事，可是同一个模型的自动
+	// CRUD 路由（read/create/...）就是从这误命名的重复模型算出来的，全部 404。
+	existsByTable := make(map[string]IModel, len(exitsModels))
+	for _, m := range exitsModels {
+		existsByTable[m.Table()] = m
+	}
+	handledTables := make(map[string]bool, len(models))
+
 	modelNames = make([]string, 0)
 	for _, mod := range models {
 		model, err := self.orm._mapping(mod)
@@ -172,7 +192,8 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 
 		modelName := model.String()
 		self.Model(modelName, WithModuleName(region)) // #设置该Session的Model/Table
-		exitsModel := exitsModels[modelName]          // 数据库存在的
+		exitsModel := existsByTable[model.Table()]    // 数据库存在的（按表名匹配，见上）
+		handledTables[model.Table()] = true
 		if exitsModel == nil {
 			model.BeforeSetup()
 
@@ -211,17 +232,16 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 			if err = self._alterTable(model, exitsModel.(*TModel)); err != nil {
 				return modelNames, err
 			}
-
-			// 剔除已经修改保留未修改作为下面注册
-			//delete(exitsModels, modelName)
 		}
 
 		modelNames = append(modelNames, modelName)
-		delete(exitsModels, modelName)
 	}
 
-	// 确保获得其他没被注册的模型
+	// 确保获得其他没被注册的模型（按表名跳过上面已处理过的，不能再按模型名比较，见上）
 	for _, m := range exitsModels {
+		if handledTables[m.Table()] {
+			continue
+		}
 		if !self.orm.osv.HasModel(m.String()) {
 			if err = self.orm.osv.RegisterModel(region, m.(*TModel)); err != nil {
 				return nil, err
