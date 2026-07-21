@@ -150,7 +150,20 @@ func New(field any, operators any, values ...any) *TDomainNode {
 	}
 	node.Push(field)
 	node.Push(operators)
-	node.Push(values...)
+	// values 必须落成 leaf 的第三个孩子(且仅这一个),不能被 Push 拍平成 N 个平级
+	// 孩子——否则 IsLeafNode() 的 len(children)==3 判断失效,该 leaf 后续被
+	// .AND()/.OR() 或 TStatement.Op() 里的 self.domain.OP() 合并时会被
+	// OP() 误当成"没有逻辑前缀的隐式 AND 列表"处理,插入多余的 "&" 前缀节点,
+	// 产出结构性错误但不报错的 domain 树(normalize_domain 的 arity 校验对
+	// 未知 token 按 0 记账,恰好也不会报错)。单值场景(len==1)历史上一直是
+	// "3 孩子" 的巧合正确形状,原样保留,不改变其行为。
+	switch len(values) {
+	case 0:
+	case 1:
+		node.Push(values[0])
+	default:
+		node.Push(NewDomainNode(values...))
+	}
 	return node
 }
 
