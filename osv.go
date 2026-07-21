@@ -514,9 +514,19 @@ func (self *TOsv) GetModel(name string, opts ...ModelOption) (IModel, error) {
 	}
 	// TODO: else auto-detect module from caller path (smart selection)
 
-	model, err := self.GetModelByModule(fmtModelName(name), options)
+	// name 先按原样精确查一次，查不到再退化到 fmtModelName(name) 规整后重查。
+	// fmtModelName 内部 TitleCasedName→DotCasedName 这套组合对模型规范名里任何
+	// 一段本该保留下划线的场景(如 "survey.user_input"，不是三段的
+	// "survey.user.input")是结构性有损的——调用方十有八九已经传的就是规范
+	// dotted 名(RegisterModel 存进去的 key 正是这个)，不需要也不应该再regen一遍
+	// 拿去撞可能对不上号的有损结果；只有传 snake_case 表名/Go 类型名这类需要
+	// 规整的场景才落到下面这条退化路径。
+	model, err := self.GetModelByModule(name, options)
 	if err != nil {
-		return nil, err
+		model, err = self.GetModelByModule(fmtModelName(name), options)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	pkgName := options.Module
