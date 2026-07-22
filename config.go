@@ -27,6 +27,16 @@ type (
 		// BigNumberToString, when true, converts big number fields (BigInt, Decimal, etc.) to string
 		// in AsMap output to avoid JavaScript precision loss.
 		BigNumberToString bool
+
+		// DisableSchemaSync, 为 true 时 SyncModel 走"生产快路径":只把模型
+		// 映射并注册进 osv(路由/CRUD 元数据照常可用),跳过整库反查(DBMetas)
+		// 与建表/改表/建索引等全部 DDL。适用于结构已由部署期迁移保证的生产环境,
+		// 可省掉每模块一次的全 schema 内省。默认 false(保持自动同步)。
+		//
+		// 契约:开启后不再自动建表/补列,库结构必须先由迁移就位,否则运行期查询
+		// 会因缺表/缺列失败。需要跑一次同步时(如上线新版本),关掉本开关启动一次
+		// 或用专门的迁移入口。
+		DisableSchemaSync bool
 	}
 )
 
@@ -103,5 +113,12 @@ func WithStrictModelResolution(b bool) Option {
 func WithBigNumberToString(on bool) Option {
 	return func(cfg *Config) {
 		cfg.BigNumberToString = on
+	}
+}
+
+// WithDisableSchemaSync 开关生产快路径。见 Config.DisableSchemaSync。
+func WithDisableSchemaSync(on bool) Option {
+	return func(cfg *Config) {
+		cfg.DisableSchemaSync = on
 	}
 }

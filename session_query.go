@@ -279,7 +279,12 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.Model)
 	}
 
-	return self.orm._logExecSql(sql_str, args, func() (sql.Result, error) {
+	// 任何改动库结构的语句都要让 DBMetas 反查缓存失效(见 TOrm.metaCache)。
+	// 在执行前就判定关键字,执行成功后再递增 epoch;失败/回滚也递增属过度失效,
+	// 安全无害。DML(insert/update/...)不触发,不影响缓存命中。
+	ddl := isDDL(sql_str)
+
+	res, err := self.orm._logExecSql(sql_str, args, func() (sql.Result, error) {
 		if self.IsAutoCommit {
 			// FIXME: oci8 can not auto commit (github.com/mattn/go-oci8)
 			if self.orm.dialect.DBType() == ORACLE {
@@ -306,6 +311,38 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 
 		return self._execWithTx(sql_str, args...)
 	})
+
+	if err == nil && ddl {
+		self.orm.metaEpoch.Add(1)
+	}
+
+	return res, err
+}
+
+// isDDL 粗判一条语句是否会改动库结构(据以让 DBMetas 缓存失效)。只看首个
+// 关键字,宁多勿漏——多一次内省是纯性能损耗,漏一次会返回过期结构。
+func isDDL(sql_str string) bool {
+	s := strings.TrimSpace(sql_str)
+	// 跳过行首的 -- 注释与空白,取第一个真正的关键字
+	for strings.HasPrefix(s, "--") {
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = strings.TrimSpace(s[i+1:])
+		} else {
+			return false
+		}
+	}
+	end := len(s)
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '(' {
+			end = i
+			break
+		}
+	}
+	switch strings.ToUpper(s[:end]) {
+	case "CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "COMMENT":
+		return true
+	}
+	return false
 }
 
 // Execute sql

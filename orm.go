@@ -16,6 +16,8 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/volts-dev/dataset"
@@ -58,6 +60,23 @@ type (
 		context context.Context
 		// public
 		Cacher *cacher.TCacher
+
+		// DBMetas 反查缓存：见 DBMetas。启动时每个模块都会各调一次
+		// SyncModel→DBMetas，而 DBMetas 会把整个 schema 的每张表逐张内省
+		// (GetModels + 每表 GetFields/GetIndexes)——M 个模块就把同一批表反查
+		// M 遍，是冷/热启动最大的 SQL 往返来源。这里按 schema 缓存快照，用一个
+		// 全局 epoch 做失效：任何 DDL(_exec 里识别 CREATE/ALTER/DROP...)都会
+		// 递增 epoch，令所有 schema 的缓存在下次读取时重建。因此"无结构变更的
+		// 重启"里 M 次内省塌缩成 1 次；一旦真有 DDL(建表/补列)则如实重查，绝不
+		// 返回过期结构。epoch 全局(非按 schema)是刻意的：多查一次远比漏失效安全。
+		metaMu    sync.Mutex
+		metaCache map[string]dbMetaEntry
+		metaEpoch atomic.Uint64
+	}
+
+	dbMetaEntry struct {
+		epoch  uint64
+		models map[string]IModel
 	}
 )
 
@@ -417,6 +436,22 @@ func (self *TOrm) CreateUniques(modelName string) error {
 // DBMetas Retrieve all tables, columns, indexes' informations from database.
 // 从连接的数据库获取数据库及表基本信息
 func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
+	// 缓存键 = 会话的有效 schema 字符串(nil 会话/默认 schema 记作 "")。同一物理
+	// schema 可能出现两个键(如显式 "public" 与默认 "")，但 metaEpoch 是全局的，
+	// 任何 DDL 都会失效所有键,故键别名最多导致多建一次快照,不会读到过期结构。
+	key := ""
+	if session != nil {
+		key = session.Schema
+	}
+	epoch := self.metaEpoch.Load()
+
+	self.metaMu.Lock()
+	if entry, ok := self.metaCache[key]; ok && entry.epoch == epoch {
+		self.metaMu.Unlock()
+		return entry.models, nil
+	}
+	self.metaMu.Unlock()
+
 	models, err := self.dialect.GetModels(self.context, session)
 	if err != nil {
 		return nil, err
@@ -441,6 +476,15 @@ func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
 		*/
 		modelLst[model.String()] = model
 	}
+
+	// 用读取时捕获的 epoch 存储：若构建期间发生了并发 DDL,epoch 已前移,
+	// 该条目下次读取即判为过期而重建——宁可多查一次,不返回过期结构。
+	self.metaMu.Lock()
+	if self.metaCache == nil {
+		self.metaCache = make(map[string]dbMetaEntry)
+	}
+	self.metaCache[key] = dbMetaEntry{epoch: epoch, models: modelLst}
+	self.metaMu.Unlock()
 
 	return modelLst, nil
 }

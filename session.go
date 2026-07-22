@@ -145,14 +145,36 @@ func (self *TSession) Ping() error {
 
 // synchronize structs to database tables
 func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []string, err error) {
+	// 去重
+	models = unique(models)
+
+	// 生产快路径(见 Config.DisableSchemaSync):跳过整库反查与全部 DDL,只把模型
+	// 注册进 osv 让路由/CRUD 元数据照常可用。契约是库结构已由部署期迁移就位。
+	// 注意与下方"表已存在"分支保持一致——那条分支同样不调用 BeforeSetup/AfterSetup。
+	if self.orm.config.DisableSchemaSync {
+		modelNames = make([]string, 0, len(models))
+		for _, mod := range models {
+			model, err := self.orm._mapping(mod)
+			if err != nil {
+				return nil, err
+			}
+			if model == nil {
+				continue
+			}
+			if err = self.orm.osv.RegisterModel(region, model); err != nil {
+				return nil, err
+			}
+			self.Model(model.String(), WithModuleName(region))
+			modelNames = append(modelNames, model.String())
+		}
+		return modelNames, nil
+	}
+
 	// NOTE [SyncModel] 这里获取到的Model是由数据库信息创建而成.并不包含所有字段继承字段.
 	exitsModels, err := self.orm.DBMetas(self) // 获取基本数据库信息
 	if err != nil {
 		return nil, err
 	}
-
-	// 去重
-	models = unique(models)
 
 	// exitsModels 是从 DBMetas()(SQL 反查表结构)反推出来的，每个 model 的
 	// .name 走的是 newModel("", tableName, ...) → fmtModelName(tableName) 这条
