@@ -1481,19 +1481,29 @@ func (db *postgres) parsePgColumn(model IModel, colName string, colDefault *stri
 		col.Base().isUnique = isUnique
 	}
 
+	// Postgres 把默认值字面量用单引号包起来(如 ''、'-2'、'x')；统一去掉外层引号，
+	// 使反查默认值与结构体侧同义值可比——否则整型 '-2' vs -2 恒不等，_alterTable
+	// 每次启动都误发 SET DEFAULT。char/varchar 分支上面已各自 Trim,这里对
+	// integer/numeric 等未 Trim 的分支补齐(对已 Trim 的是无副作用的再 Trim);nextval
+	// 串会被去掉尾引号但下面仍按前缀识别为自增,不受影响。
+	defaultValueStr = strings.Trim(defaultValueStr, "'")
+
+	// hasDBDefault 记录"DB 这一列确实带默认值"(colDefault 非空)，据此决定是否绑定
+	// 默认值——而不是据"解析出的字符串非空"。后者会把合法的空串默认(DEFAULT '')误当
+	// 无默认：结构体侧的 "" 与反查侧的 nil 每次启动都不等,_alterTable 重发 SET DEFAULT ''。
+	hasDBDefault := colDefault != nil
 	defaultValue = defaultValueStr
 	// default value
 	if strings.HasPrefix(defaultValueStr, "nextval(") {
 		col.Base().isAutoIncrement = true
 		defaultValue = "" /* 自增加字段不绑定默认值 */
+		// 自增列即使 colDefault 非空(nextval)也不绑定：否则空串会漏进
+		// newValues["id"]="" 破坏 bigint INSERT(见原 gate 注释的初衷)。
+		hasDBDefault = false
 		//col.Base().defaultIsEmpty = true
 	}
 
-	// Gate on the post-processed defaultValue, not the raw defaultValueStr:
-	// for autoincrement columns we reset defaultValue to "" above and must
-	// not propagate that empty string as the field default (it leaks into
-	// newValues["id"]="" and breaks bigint INSERTs).
-	if defaultValue != "" {
+	if hasDBDefault {
 		col.Base().SetDefault(defaultValue)
 	}
 	col.Base().required = (isNullable == "NO")
