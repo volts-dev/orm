@@ -433,6 +433,14 @@ func (self *TOrm) CreateUniques(modelName string) error {
 	return session.CreateUniques(modelName)
 }
 
+// IBatchIntrospect 是可选的 dialect 能力：一次性内省整个 schema 的列/索引，替代
+// 逐表 GetFields/GetIndexes 的 2×N 次往返。postgres 实现它；不实现的 dialect
+// (mysql/sqlite)DBMetas 自动回退逐表路径，行为不变。返回值均按表名分桶。
+type IBatchIntrospect interface {
+	GetAllFields(ctx context.Context, session *TSession) (colSeqByTable map[string][]string, fieldsByTable map[string]map[string]IField, err error)
+	GetAllIndexes(ctx context.Context, session *TSession) (map[string]map[string]*TIndex, error)
+}
+
 // DBMetas Retrieve all tables, columns, indexes' informations from database.
 // 从连接的数据库获取数据库及表基本信息
 func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
@@ -458,23 +466,31 @@ func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
 	}
 
 	modelLst := make(map[string]IModel)
-	for _, model := range models {
-		model, err = self._modelMetas(session, model)
+
+	// 批量内省：dialect 若支持(postgres)，一次拉全 schema 的列与索引，把逐表
+	// 2×N 次往返压成 2 次。装配仍走 _buildModelMeta，与逐表路径完全一致。
+	if bi, ok := self.dialect.(IBatchIntrospect); ok {
+		seqByTable, fieldsByTable, err := bi.GetAllFields(self.context, session)
 		if err != nil {
 			return nil, err
 		}
-		/* TODO 搞清楚Indexes作用
-		for _, index := range indexes {
-			for _, name := range index.Cols {
-				if field := model.GetFieldByName(name); field != nil {
-					field.Base().Indexes[index.Name] = IndexType
-				} else {
-					return nil, fmt.Errorf("Unknown field "+name+" in indexes %v of model", index, model.GetColumnsSeq())
-				}
-			}
+		idxByTable, err := bi.GetAllIndexes(self.context, session)
+		if err != nil {
+			return nil, err
 		}
-		*/
-		modelLst[model.String()] = model
+		for _, model := range models {
+			table := model.Table()
+			m := self._buildModelMeta(model, seqByTable[table], fieldsByTable[table], idxByTable[table])
+			modelLst[m.String()] = m
+		}
+	} else {
+		for _, model := range models {
+			model, err = self._modelMetas(session, model)
+			if err != nil {
+				return nil, err
+			}
+			modelLst[model.String()] = model
+		}
 	}
 
 	// 用读取时捕获的 epoch 存储：若构建期间发生了并发 DDL,epoch 已前移,
@@ -825,6 +841,8 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 	modelName := model.String()
 	tableName := model.Table()
 	modelObject := self.osv.newObject(model.String())
+	// obj 必须在 GetFields 之前挂上：逐表 GetFields 用 WithModel(model) 绑定字段，
+	// 其 SetDefault 走 boundModel.SetDefaultByName → model.obj，obj 为 nil 会 panic。
 	model.GetBase().obj = modelObject
 	model.GetBase().isCustomModel = false
 
@@ -848,19 +866,6 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 				field.Base().typeName = field.SQLType().Name
 			}
 
-			/*
-				//没有起到作用
-				//无法鉴别来自数据库的字段是否id字段或者name字段
-				switch f := field.(type) {
-				case *TIdField:
-					model.IdField(f.Name())
-					model.Obj().uidFieldName = f.Name()
-				case *TNameField:
-					model.NameField(f.Name())
-					model.Obj().nameField = f.Name()
-				}
-			*/
-
 			field.Base().isDBColumn = true
 			// 数据库的字段都是存储类型
 			field.Base().store = true
@@ -880,6 +885,43 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 	modelObject.indexes = indexes
 
 	return model, nil
+}
+
+// _buildModelMeta 用「已批量取得」的列/索引元数据装配一个从 DB 反查出来的 model，
+// 只服务 DBMetas 的 IBatchIntrospect 分支。与 _modelMetas 的装配逻辑一致，唯一差别：
+// 批量字段(GetAllFields)不绑定 boundModel，其默认值落在 field.staticDefault，Default()
+// 取值一致(见 TField.Default)，因此这里不依赖"obj 必须先于取字段挂上"的时序。
+func (self *TOrm) _buildModelMeta(model IModel, colSeq []string, fields map[string]IField, indexes map[string]*TIndex) IModel {
+	modelName := model.String()
+	modelObject := self.osv.newObject(modelName)
+	model.GetBase().obj = modelObject
+	model.GetBase().isCustomModel = false
+
+	for _, name := range colSeq {
+		if field, has := fields[name]; has {
+			field.Base().modelName = modelName
+			if !field.IsCompositeKey() && field.IsPrimaryKey() && field.Required() && (field.IsUnique() || field.IsAutoIncrement()) {
+				model.IdField(field.Name())
+				model.Obj().uidFieldName = field.Name()
+			}
+
+			if field.Base().typeName == "" {
+				field.Base().typeName = field.SQLType().Name
+			}
+
+			field.Base().isDBColumn = true
+			field.Base().store = true
+
+			modelObject.SetField(field)
+		}
+	}
+
+	if indexes == nil {
+		indexes = make(map[string]*TIndex)
+	}
+	modelObject.indexes = indexes
+
+	return model
 }
 
 func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v any) {

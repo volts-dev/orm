@@ -1309,174 +1309,20 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 	var pkFields []IField // 用于存储主键对复合主键进行唯一处理
 
 	for rows.Next() {
-		var sql_type SQLType
 		var colName, isNullable, dataType string
 		var maxLenStr, colDefault, numPrecision, numScale, numRadix *string
 		var isPK, isUnique bool
-		err = rows.Scan(&colName, &colDefault, &isNullable, &dataType, &maxLenStr, &numPrecision, &numScale, &numRadix, &isPK, &isUnique)
-		if err != nil {
+		if err = rows.Scan(&colName, &colDefault, &isNullable, &dataType, &maxLenStr, &numPrecision, &numScale, &numRadix, &isPK, &isUnique); err != nil {
 			return nil, nil, err
 		}
 
-		var maxLen int
-		if maxLenStr != nil {
-			maxLen, err = strconv.Atoi(*maxLenStr)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-
-		var precision int
-		if numPrecision != nil {
-			precision, err = strconv.Atoi(*numPrecision)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-
-		var scale int
-		if numScale != nil {
-			scale, err = strconv.Atoi(*numScale)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-
-		var defaultValueStr string
-		var defaultValue string
-		if colDefault != nil {
-			defaultValueStr = *colDefault
-			// cockroach has type with the default value with :::
-			// and postgres with ::, we should remove them before store them
-
-			idx := strings.Index(defaultValueStr, ":::")
-			if idx == -1 {
-				idx = strings.Index(defaultValueStr, "::")
-			}
-			if idx > -1 {
-				defaultValueStr = defaultValueStr[:idx]
-			}
-
-			if strings.HasSuffix(defaultValueStr, "+00:00'") {
-				defaultValueStr = defaultValueStr[:len(defaultValueStr)-7] + "'"
-			}
-		}
-
-		/* 定义特殊类型 否则default直接返回 */
-		switch dataType {
-		case "numeric":
-			sql_type = SQLType{Numeric, precision, scale}
-			//defaultValue = utils.ToInt(defaultValueStr)
-
-		case "integer":
-			sql_type = SQLType{Int, 0, 0}
-			//defaultValue = utils.ToInt(defaultValueStr)
-
-		case "character":
-			sql_type = SQLType{Char, maxLen, 0}
-			//defaultValue = strings.Trim(defaultValueStr, "'")
-			defaultValueStr = strings.Trim(defaultValueStr, "'")
-
-		case "character varying", "string":
-			sql_type = SQLType{Varchar, maxLen, 0}
-			//defaultValue = strings.Trim(defaultValueStr, "'")
-			defaultValueStr = strings.Trim(defaultValueStr, "'")
-
-		case "timestamp without time zone":
-			sql_type = SQLType{DateTime, 0, 0}
-			//defaultValue = utils.ToTime(defaultValueStr)
-
-		case "timestamp with time zone":
-			sql_type = SQLType{TimeStampz, 0, 0}
-			//defaultValue = utils.ToTime(defaultValueStr)
-
-		case "time without time zone":
-			sql_type = SQLType{Time, 0, 0}
-			//defaultValue = utils.ToTime(defaultValueStr)
-
-		case "real":
-			sql_type = SQLType{Float, 0, 0}
-			//defaultValue = utils.ToFloat32(defaultValueStr)
-
-		case "double precision":
-			sql_type = SQLType{Double, 0, 0}
-			//defaultValue = utils.ToFloat64(defaultValueStr)
-
-		case "boolean":
-			sql_type = SQLType{Bool, 0, 0}
-			//defaultValue = utils.ToBool(defaultValueStr)
-
-		case "oid":
-			sql_type = SQLType{BigInt, 0, 0}
-			//defaultValue = utils.ToInt64(defaultValueStr)
-
-		case "array":
-			sql_type = SQLType{Array, 0, 0}
-
-		case "bytes":
-			sql_type = SQLType{Binary, 0, 0}
-
-		default:
-			startIdx := strings.Index(strings.ToLower(dataType), "string(")
-			if startIdx != -1 && strings.HasSuffix(dataType, ")") {
-				length := dataType[startIdx+8 : len(dataType)-1]
-				l, _ := strconv.ParseInt(length, 10, 64)
-				sql_type = SQLType{Name: "STRING", DefaultLength: int(l), DefaultLength2: 0}
-				defaultValueStr = strings.Trim(defaultValueStr, "'")
-			} else {
-				/* 直接返回 */
-				sql_type = SQLType{Name: strings.ToUpper(dataType), DefaultLength: 0, DefaultLength2: 0}
-			}
-		}
-
-		if _, ok := SqlTypes[sql_type.Name]; !ok {
-			return nil, nil, fmt.Errorf("unknow colType: %v", dataType)
-		}
-
-		col, err := NewField(strings.Trim(colName, `" `), WithSQLType(sql_type), WithModel(model))
+		col, isPKrow, err := db.parsePgColumn(model, colName, colDefault, isNullable, dataType, maxLenStr, numPrecision, numScale, numRadix, isPK, isUnique)
 		if err != nil {
 			return nil, nil, err
 		}
-		//		col.Base().Indexes = make(map[string]int)
-
-		if isPK {
-			// pk not must be a unique column
-			col.Base().isPrimaryKey = isPK
-			col.Base().isCompositeKey = true // 默认是由下面代码最终修改
+		if isPKrow {
 			pkFields = append(pkFields, col)
-		} else {
-			col.Base().isUnique = isUnique
 		}
-
-		defaultValue = defaultValueStr
-		// default value
-		if strings.HasPrefix(defaultValueStr, "nextval(") {
-			col.Base().isAutoIncrement = true
-			defaultValue = "" /* 自增加字段不绑定默认值 */
-			//col.Base().defaultIsEmpty = true
-		}
-
-		// Gate on the post-processed defaultValue, not the raw defaultValueStr:
-		// for autoincrement columns we reset defaultValue to "" above and must
-		// not propagate that empty string as the field default (it leaks into
-		// newValues["id"]="" and breaks bigint INSERTs).
-		if defaultValue != "" {
-			col.Base().SetDefault(defaultValue)
-		}
-		col.Base().required = (isNullable == "NO")
-		col.Base().size = sql_type.DefaultLength
-
-		/*
-			if col.SQLType().IsText() || col.SQLType().IsTime() {
-				if col.Base().size != 0 {
-					col.Base().size = "'" + col.Base().size + "'"
-				} else {
-					if col.Base().defaultIsEmpty {
-						col.Base().size = 0 //"''"
-					}
-				}
-			}
-		*/
 		cols[col.Name()] = col
 		colSeq = append(colSeq, col.Name())
 	}
@@ -1492,6 +1338,233 @@ WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.att
 		return nil, nil, rows.Err()
 	}
 	return colSeq, cols, nil
+}
+
+// parsePgColumn 把一行内省列元数据(GetFields/GetAllFields 的 SELECT 输出)转成一个
+// IField,并回报它是否主键(由调用方逐表累积 pkFields 做单主键唯一化)。逐表 vs 全库
+// 批量两条路径共用本函数,保证类型/默认值解析只有一处,不会漂移。
+//
+// model 仅用于 WithModel 绑定:逐表路径传入本表 model;批量路径无表级 model,传 nil,
+// 此时默认值落入 field.staticDefault,Default() 取值与绑定路径一致(见 TField.Default)。
+func (db *postgres) parsePgColumn(model IModel, colName string, colDefault *string, isNullable, dataType string, maxLenStr, numPrecision, numScale, numRadix *string, isPK, isUnique bool) (IField, bool, error) {
+	var sql_type SQLType
+
+	var maxLen int
+	if maxLenStr != nil {
+		var err error
+		maxLen, err = strconv.Atoi(*maxLenStr)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	var precision int
+	if numPrecision != nil {
+		var err error
+		precision, err = strconv.Atoi(*numPrecision)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	var scale int
+	if numScale != nil {
+		var err error
+		scale, err = strconv.Atoi(*numScale)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	var defaultValueStr string
+	var defaultValue string
+	if colDefault != nil {
+		defaultValueStr = *colDefault
+		// cockroach has type with the default value with :::
+		// and postgres with ::, we should remove them before store them
+
+		idx := strings.Index(defaultValueStr, ":::")
+		if idx == -1 {
+			idx = strings.Index(defaultValueStr, "::")
+		}
+		if idx > -1 {
+			defaultValueStr = defaultValueStr[:idx]
+		}
+
+		if strings.HasSuffix(defaultValueStr, "+00:00'") {
+			defaultValueStr = defaultValueStr[:len(defaultValueStr)-7] + "'"
+		}
+	}
+
+	/* 定义特殊类型 否则default直接返回 */
+	switch dataType {
+	case "numeric":
+		sql_type = SQLType{Numeric, precision, scale}
+		//defaultValue = utils.ToInt(defaultValueStr)
+
+	case "integer":
+		sql_type = SQLType{Int, 0, 0}
+		//defaultValue = utils.ToInt(defaultValueStr)
+
+	case "character":
+		sql_type = SQLType{Char, maxLen, 0}
+		//defaultValue = strings.Trim(defaultValueStr, "'")
+		defaultValueStr = strings.Trim(defaultValueStr, "'")
+
+	case "character varying", "string":
+		sql_type = SQLType{Varchar, maxLen, 0}
+		//defaultValue = strings.Trim(defaultValueStr, "'")
+		defaultValueStr = strings.Trim(defaultValueStr, "'")
+
+	case "timestamp without time zone":
+		sql_type = SQLType{DateTime, 0, 0}
+		//defaultValue = utils.ToTime(defaultValueStr)
+
+	case "timestamp with time zone":
+		sql_type = SQLType{TimeStampz, 0, 0}
+		//defaultValue = utils.ToTime(defaultValueStr)
+
+	case "time without time zone":
+		sql_type = SQLType{Time, 0, 0}
+		//defaultValue = utils.ToTime(defaultValueStr)
+
+	case "real":
+		sql_type = SQLType{Float, 0, 0}
+		//defaultValue = utils.ToFloat32(defaultValueStr)
+
+	case "double precision":
+		sql_type = SQLType{Double, 0, 0}
+		//defaultValue = utils.ToFloat64(defaultValueStr)
+
+	case "boolean":
+		sql_type = SQLType{Bool, 0, 0}
+		//defaultValue = utils.ToBool(defaultValueStr)
+
+	case "oid":
+		sql_type = SQLType{BigInt, 0, 0}
+		//defaultValue = utils.ToInt64(defaultValueStr)
+
+	case "array":
+		sql_type = SQLType{Array, 0, 0}
+
+	case "bytes":
+		sql_type = SQLType{Binary, 0, 0}
+
+	default:
+		startIdx := strings.Index(strings.ToLower(dataType), "string(")
+		if startIdx != -1 && strings.HasSuffix(dataType, ")") {
+			length := dataType[startIdx+8 : len(dataType)-1]
+			l, _ := strconv.ParseInt(length, 10, 64)
+			sql_type = SQLType{Name: "STRING", DefaultLength: int(l), DefaultLength2: 0}
+			defaultValueStr = strings.Trim(defaultValueStr, "'")
+		} else {
+			/* 直接返回 */
+			sql_type = SQLType{Name: strings.ToUpper(dataType), DefaultLength: 0, DefaultLength2: 0}
+		}
+	}
+
+	if _, ok := SqlTypes[sql_type.Name]; !ok {
+		return nil, false, fmt.Errorf("unknow colType: %v", dataType)
+	}
+
+	col, err := NewField(strings.Trim(colName, `" `), WithSQLType(sql_type), WithModel(model))
+	if err != nil {
+		return nil, false, err
+	}
+	//		col.Base().Indexes = make(map[string]int)
+
+	if isPK {
+		// pk not must be a unique column
+		col.Base().isPrimaryKey = isPK
+		col.Base().isCompositeKey = true // 默认是由下面代码最终修改
+	} else {
+		col.Base().isUnique = isUnique
+	}
+
+	defaultValue = defaultValueStr
+	// default value
+	if strings.HasPrefix(defaultValueStr, "nextval(") {
+		col.Base().isAutoIncrement = true
+		defaultValue = "" /* 自增加字段不绑定默认值 */
+		//col.Base().defaultIsEmpty = true
+	}
+
+	// Gate on the post-processed defaultValue, not the raw defaultValueStr:
+	// for autoincrement columns we reset defaultValue to "" above and must
+	// not propagate that empty string as the field default (it leaks into
+	// newValues["id"]="" and breaks bigint INSERTs).
+	if defaultValue != "" {
+		col.Base().SetDefault(defaultValue)
+	}
+	col.Base().required = (isNullable == "NO")
+	col.Base().size = sql_type.DefaultLength
+
+	return col, isPK, nil
+}
+
+// GetAllFields 一次性内省当前 schema 下所有表的列(实现 IBatchIntrospect)。等价于对每张表
+// 各调一次 GetFields,但把 2×N 次往返(每表列查询)压成 1 次——启动期 DBMetas 的主要开销。
+// 返回按表名分桶的 colSeq 与 fields。相比逐表版额外用 n.nspname 显式钉住 schema,避免同名表
+// 跨 schema(public/system)串行匹配。
+func (db *postgres) GetAllFields(ctx context.Context, session *TSession) (map[string][]string, map[string]map[string]IField, error) {
+	args := []any{db.getSchema(session)}
+	s := `SELECT c.relname AS table_name, column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
+    CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
+    CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
+FROM pg_attribute f
+    JOIN pg_class c ON c.oid = f.attrelid JOIN pg_type t ON t.oid = f.atttypid
+    LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = f.attnum
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    LEFT JOIN pg_constraint p ON p.conrelid = c.oid AND f.attnum = ANY (p.conkey)
+    LEFT JOIN pg_class AS g ON p.confrelid = g.oid
+    LEFT JOIN INFORMATION_SCHEMA.COLUMNS s ON s.column_name=f.attname AND c.relname=s.table_name
+WHERE c.relkind = 'r'::char AND n.nspname = $1 AND s.table_schema = $1 AND f.attnum > 0 ORDER BY c.relname, f.attnum;`
+	db.LogSQL(s, args)
+
+	rows, err := db.queryer.QueryContext(ctx, s, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	seqByTable := make(map[string][]string)
+	fieldsByTable := make(map[string]map[string]IField)
+	pkByTable := make(map[string][]IField)
+
+	for rows.Next() {
+		var tableName, colName, isNullable, dataType string
+		var maxLenStr, colDefault, numPrecision, numScale, numRadix *string
+		var isPK, isUnique bool
+		if err = rows.Scan(&tableName, &colName, &colDefault, &isNullable, &dataType, &maxLenStr, &numPrecision, &numScale, &numRadix, &isPK, &isUnique); err != nil {
+			return nil, nil, err
+		}
+
+		col, isPKrow, err := db.parsePgColumn(nil, colName, colDefault, isNullable, dataType, maxLenStr, numPrecision, numScale, numRadix, isPK, isUnique)
+		if err != nil {
+			return nil, nil, err
+		}
+		if fieldsByTable[tableName] == nil {
+			fieldsByTable[tableName] = make(map[string]IField)
+		}
+		if isPKrow {
+			pkByTable[tableName] = append(pkByTable[tableName], col)
+		}
+		fieldsByTable[tableName][col.Name()] = col
+		seqByTable[tableName] = append(seqByTable[tableName], col.Name())
+	}
+	if rows.Err() != nil {
+		return nil, nil, rows.Err()
+	}
+
+	// 单主键唯一化：与 GetFields 逐表口径一致，逐表处理。
+	for _, pks := range pkByTable {
+		if len(pks) == 1 {
+			pks[0].Base().isUnique = true
+			pks[0].Base().isCompositeKey = false
+		}
+	}
+
+	return seqByTable, fieldsByTable, nil
 }
 
 func (db *postgres) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
@@ -1541,46 +1614,86 @@ func (db *postgres) GetIndexes(ctx context.Context, session *TSession, tableName
 
 	indexes := make(map[string]*TIndex, 0)
 	for rows.Next() {
-		var indexType int
 		var indexName, indexdef string
-		var colNames []string
-
-		err = rows.Scan(&indexName, &indexdef)
-		if err != nil {
+		if err = rows.Scan(&indexName, &indexdef); err != nil {
 			return nil, err
 		}
 
-		indexName = strings.Trim(indexName, `" `)
-		if strings.HasSuffix(indexName, "_pkey") {
+		index, skip := parsePgIndex(tableName, indexName, indexdef)
+		if skip {
 			continue
 		}
-
-		if strings.HasPrefix(indexdef, "CREATE UNIQUE INDEX") {
-			indexType = UniqueType
-		} else {
-			indexType = IndexType
-		}
-
-		cs := strings.Split(indexdef, "(")
-		colNames = strings.Split(cs[1][0:len(cs[1])-1], ",")
-
-		var isRegular bool
-		if strings.HasPrefix(indexName, DefaultIndexPrefix+tableName) || strings.HasPrefix(indexName, DefaultUniquePrefix+tableName) {
-			isRegular = true
-		}
-
-		var indexs []string
-		for _, colName := range colNames {
-			indexs = append(indexs, strings.Trim(colName, `" `))
-		}
-
-		index := newIndex(indexName, tableName, indexType, indexs...)
-		index.IsRegular = isRegular
-		//index := &TIndex{Name: indexName, Type: indexType, Cols: make([]string, 0)}
-
 		indexes[index.Name] = index
 	}
 	return indexes, nil
+}
+
+// parsePgIndex 把一行 pg_indexes 记录(indexname, indexdef)转成 TIndex;skip=true 表示
+// 该行应跳过(主键索引 _pkey)。GetIndexes(逐表)与 GetAllIndexes(全库批量)共用。
+func parsePgIndex(tableName, indexName, indexdef string) (index *TIndex, skip bool) {
+	indexName = strings.Trim(indexName, `" `)
+	if strings.HasSuffix(indexName, "_pkey") {
+		return nil, true
+	}
+
+	var indexType int
+	if strings.HasPrefix(indexdef, "CREATE UNIQUE INDEX") {
+		indexType = UniqueType
+	} else {
+		indexType = IndexType
+	}
+
+	cs := strings.Split(indexdef, "(")
+	colNames := strings.Split(cs[1][0:len(cs[1])-1], ",")
+
+	var isRegular bool
+	if strings.HasPrefix(indexName, DefaultIndexPrefix+tableName) || strings.HasPrefix(indexName, DefaultUniquePrefix+tableName) {
+		isRegular = true
+	}
+
+	var indexs []string
+	for _, colName := range colNames {
+		indexs = append(indexs, strings.Trim(colName, `" `))
+	}
+
+	index = newIndex(indexName, tableName, indexType, indexs...)
+	index.IsRegular = isRegular
+	return index, false
+}
+
+// GetAllIndexes 一次性内省当前 schema 下所有表的索引(实现 IBatchIntrospect)。等价于
+// 对每张表各调一次 GetIndexes,但一条查询搞定,免去每表一次往返。按表名分桶返回。
+func (db *postgres) GetAllIndexes(ctx context.Context, session *TSession) (map[string]map[string]*TIndex, error) {
+	args := []any{db.getSchema(session)}
+	s := "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname=$1"
+	db.LogSQL(s, args)
+
+	rows, err := db.queryer.QueryContext(ctx, s, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]map[string]*TIndex)
+	for rows.Next() {
+		var tableName, indexName, indexdef string
+		if err = rows.Scan(&tableName, &indexName, &indexdef); err != nil {
+			return nil, err
+		}
+
+		index, skip := parsePgIndex(tableName, indexName, indexdef)
+		if skip {
+			continue
+		}
+		if result[tableName] == nil {
+			result[tableName] = make(map[string]*TIndex)
+		}
+		result[tableName][index.Name] = index
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+	return result, nil
 }
 
 func (db *postgres) Fmter() []IFmter {
