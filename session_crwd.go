@@ -212,6 +212,19 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 
 	ids := make([]any, 0, len(src))
 
+	// 批量插入期间禁止底层 _exec/_query 复位 Statement。本循环逐行执行 INSERT，
+	// 而 _exec/_query 各自 `defer self._resetStatement()`——第一行插完就把整个
+	// Statement（Sets / Fields / NullableFields / OmitFields 这些「整批不变量」）
+	// 清空，后续行读到的全是空。典型症状：vectors withSession 盖的 tenant_id/
+	// create_id 只落在第一行，其余行 tenant_id=0，被租户过滤 `WHERE tenant_id=?`
+	// 全部挡掉——按 id 读得到、按条件读不到（2026-07-24 真栈撞出，回归见
+	// create_multirow_sets_test.go）。
+	// 循环结束后由上层 Create 的 defer 统一复位一次；此处保存并恢复原值（而非
+	// 硬编码 true），以尊重批量调用方可能已经关掉自动复位的意图。
+	prevAutoReset := self.AutoResetStatement
+	self.AutoResetStatement = false
+	defer func() { self.AutoResetStatement = prevAutoReset }()
+
 	// —— 每条记录处理 ——
 	for _, one := range src {
 		// If src is nil but Sets are present, use Sets as the data source.
