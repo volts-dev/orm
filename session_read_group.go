@@ -10,6 +10,35 @@ import (
 // GroupCountField 是 read_group 结果里「本组记录数」那一列的列名，对齐 Odoo 的 __count。
 const GroupCountField = "__count"
 
+// groupGranularities 是 `字段:粒度` 分组语法允许的粒度取值（对齐 Odoo 的
+// read_group `date:month` 写法）。
+//
+// **必须是白名单**：粒度最终会作为字面量拼进 `date_trunc('<粒度>', col)`，而
+// groupby 整个来自客户端请求。放开任意字符串等于开一个 SQL 注入口子。
+var groupGranularities = map[string]bool{
+	"hour":    true,
+	"day":     true,
+	"week":    true,
+	"month":   true,
+	"quarter": true,
+	"year":    true,
+}
+
+// SplitGroupBy 拆分 `字段` 或 `字段:粒度` 两种分组写法。
+// 粒度非法时原样把整串当字段名返回，由调用方按「字段不存在」报错——比静默降级成
+// 按原始时间戳分组好：后者会画出一堆看不出错的、每个时刻自成一组的图。
+func SplitGroupBy(spec string) (field, granularity string) {
+	i := strings.IndexByte(spec, ':')
+	if i < 0 {
+		return spec, ""
+	}
+	f, g := spec[:i], spec[i+1:]
+	if !groupGranularities[g] {
+		return spec, ""
+	}
+	return f, g
+}
+
 // ReadGroupRequest 是 ReadGroup 的模型级入参，字段命名与 ReadRequest 对齐。
 type ReadGroupRequest struct {
 	// Model 模型名
@@ -108,10 +137,9 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		return nil, ErrInvalidSession
 	}
 
-	if len(groupBy) == 0 {
-		return nil, fmt.Errorf("ReadGroup: at least one groupby field is required on model %s", model.String())
-	}
-
+	// groupBy 为空是合法的：对齐 Odoo，返回**整个 domain 的一行合计**（无 GROUP BY）。
+	// graph 视图在没有分组维度时就是这么发的（前端把这一行标成 "Total"），报错会让
+	// 图表直接打不开——而它想要的只是一个总计。
 	quoter := self.orm.dialect.Quoter()
 
 	// 列一律带主表别名限定：domain 命中关系字段时 where_calc 会引入 JOIN，届时裸列名
@@ -133,7 +161,9 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 	groupCols := make([]string, 0, len(groupBy))
 	grouped := make(map[string]bool, len(groupBy))
 
-	for _, name := range groupBy {
+	for _, spec := range groupBy {
+		name, granularity := SplitGroupBy(spec)
+
 		field := model.GetFieldByName(name)
 		if field == nil {
 			return nil, fmt.Errorf("ReadGroup: groupby field %q not found on model %s", name, model.String())
@@ -152,8 +182,29 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		if err != nil {
 			return nil, fmt.Errorf("ReadGroup: invalid groupby field %q: %w", name, err)
 		}
-		selectCols = append(selectCols, qualified)
-		groupCols = append(groupCols, qualified)
+
+		expr := qualified
+		if granularity != "" {
+			if SqlTypes[strings.ToUpper(field.SQLType().Name)] != TIME_TYPE {
+				return nil, fmt.Errorf("ReadGroup: granularity %q requires a date/time field, but %q on model %s is %s",
+					granularity, name, model.String(), field.SQLType().Name)
+			}
+			// 别名保持为字段原名（不带 `:粒度`）：_scanRows 按列名回查字段拿转换器，
+			// 带冒号的别名既查不到字段、也不是合法标识符。
+			expr = fmt.Sprintf("date_trunc('%s',%s)", granularity, qualified)
+			alias, err := quoter.QuoteIdent(name)
+			if err != nil {
+				return nil, err
+			}
+			selectCols = append(selectCols, expr+" AS "+alias)
+		} else {
+			selectCols = append(selectCols, expr)
+		}
+
+		// GROUP BY / ORDER BY 都用**表达式本身**而不是输出别名：PG 里
+		// `date_trunc(...) AS "date"` 与 `GROUP BY date` 并存时，别名会遮蔽原列，
+		// 语义随写法漂移。重复表达式虽啰嗦但没有歧义。
+		groupCols = append(groupCols, expr)
 		grouped[name] = true
 	}
 
@@ -226,7 +277,12 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 
 	// 分组结果按分组键排序，保证同一份数据每次返回的组顺序一致（图表 X 轴、
 	// pivot 行序都直接取这个顺序）。模型的默认 _order 是记录级的，对分组无意义。
-	orderClause := "ORDER BY " + strings.Join(groupCols, ",")
+	// 无分组键时既不能 GROUP BY 也不能 ORDER BY——整表只出一行合计。
+	var groupClause, orderClause string
+	if len(groupCols) > 0 {
+		groupClause = "GROUP BY " + strings.Join(groupCols, ",")
+		orderClause = "ORDER BY " + strings.Join(groupCols, ",")
+	}
 
 	// limit/offset 只在调用方显式设置时施加：分组数通常远小于记录数，
 	// 套用 Read 的 DefaultLimit 会把报表悄悄截断。
@@ -244,7 +300,7 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		"FROM",
 		fromClause,
 		whereClause,
-		"GROUP BY "+strings.Join(groupCols, ","),
+		groupClause,
 		orderClause,
 		limitClause,
 		offsetClause,
