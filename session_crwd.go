@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/volts-dev/dataset"
@@ -412,6 +413,11 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 			}
 
 			params = append(params, OnConflictValues...)
+			// 冲突目标必须是**一个完整的唯一索引**。上面按字段标志收集出来的
+			// uniqueFields 是扁平的（丢了索引归属），且来自 map 遍历（顺序随机），
+			// 直接拿去用会生成 `ON CONFLICT ("其中随便一列")` —— 复合唯一索引下
+			// 永远匹配不到任何约束，Postgres 报 42P10。
+			uniqueFields = expandToUniqueIndex(self.Statement.Model.GetIndexes(), fields, uniqueFields)
 			sqlExpr, isQuery := self.Statement.generate_insert(fields, uniqueFields)
 			if isQuery {
 				ds, err := self._query(sqlExpr, params...)
@@ -1541,4 +1547,61 @@ func (self *TSession) _structToMap(src any) map[string]any {
 func (self *TSession) _check_selection_field_value(field IField, value any) {
 	//   field = self._fields[field]
 	// field.convert_to_cache(value, self)
+}
+
+// expandToUniqueIndex 把「零散的唯一字段」补全成**一个完整的唯一索引的全部列**。
+//
+// 为什么必须这么做：INSERT ... ON CONFLICT (列…) 的冲突目标必须**恰好**对应一个
+// 已存在的唯一约束/唯一索引。调用方按字段的 IsUnique() 标志收集出来的列表有两个
+// 缺陷——① 丢了「这些列同属哪个唯一索引」的归属；② 来自 map 遍历，顺序随机。
+// 于是复合唯一索引（如 pro.attr.value 的 (name, attribute_id)）会生成
+// `ON CONFLICT ("name")` 这种只含其中一列、且每次运行还可能不同的目标，Postgres
+// 必然报 42P10 "there is no unique or exclusion constraint matching..."。
+//
+// 选取规则：在模型声明的唯一索引里，挑第一个「所有列都出现在本次 INSERT 列表中」
+// 的索引，按索引自身的列序返回。按索引名排序保证同一模型每次结果一致。
+// 找不到合适的索引就原样返回入参，让上层沿用既有行为（通常回落到主键）。
+func expandToUniqueIndex(indexes map[string]*TIndex, insertFields, uniqueFields []string) []string {
+	if len(uniqueFields) == 0 || len(indexes) == 0 {
+		return uniqueFields
+	}
+
+	inInsert := make(map[string]bool, len(insertFields))
+	for _, f := range insertFields {
+		inInsert[f] = true
+	}
+	picked := make(map[string]bool, len(uniqueFields))
+	for _, f := range uniqueFields {
+		picked[f] = true
+	}
+
+	names := make([]string, 0, len(indexes))
+	for name := range indexes {
+		names = append(names, name)
+	}
+	sort.Strings(names) // map 遍历顺序随机，排序后同一模型每次选中同一个索引
+
+	for _, name := range names {
+		idx := indexes[name]
+		if idx == nil || idx.Type != UniqueType || len(idx.Cols) == 0 {
+			continue
+		}
+		// 必须整组列都在本次 INSERT 里，缺一列这个索引就用不了；
+		// 同时要求它确实覆盖了调用方识别出的某个唯一字段，避免选到无关索引。
+		complete, relevant := true, false
+		for _, col := range idx.Cols {
+			if !inInsert[col] {
+				complete = false
+				break
+			}
+			if picked[col] {
+				relevant = true
+			}
+		}
+		if complete && relevant {
+			return append([]string(nil), idx.Cols...)
+		}
+	}
+
+	return uniqueFields
 }

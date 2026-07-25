@@ -1089,8 +1089,17 @@ func (db *postgres) GenInsertSql(tableName string, fields []string, uniqueFields
 					sql.WriteString(quoter(field))
 				}
 			} else if len(uniqueFields) > 0 {
-				/* 暂时只支持一个字段作为唯一约束，否则会报错 */
-				sql.WriteString(quoter(uniqueFields[0]))
+				// 整组写出。此前只取 uniqueFields[0]（注释自认「暂时只支持一个
+				// 字段」）——复合唯一索引下生成的 `ON CONFLICT ("其中一列")` 不对应
+				// 任何约束，Postgres 必报 42P10；而调用方那份列表来自 map 遍历，
+				// 取到哪一列还是随机的。上游 expandToUniqueIndex 已把它补全成
+				// 「恰好一个唯一索引的全部列」，这里照原样输出即可。
+				for idx, field := range uniqueFields {
+					if idx > 0 {
+						sql.WriteByte(',')
+					}
+					sql.WriteString(quoter(field))
+				}
 			} else {
 				sql.WriteString(quoter(idField))
 			}
