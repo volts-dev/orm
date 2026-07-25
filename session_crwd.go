@@ -1029,14 +1029,17 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		offset_clause = "OFFSET " + utils.ToString(self.Statement.OffsetClause)
 	}
 
+	// 子句顺序即 SQL 语法顺序：GROUP BY 必须在 ORDER BY **之前**。此前两者写反，
+	// 只要同时出现（模型有默认 _order + 调用方 .GroupBy(...)）就是语法错误的 SQL，
+	// 整条查询直接报错——GroupBy 因此从来只在无排序时能用。
 	res_sql = JoinClause(
 		"SELECT",
 		select_clause,
 		"FROM",
 		from_clause,
 		where_clause,
-		order_clause,
 		groupby_clause,
+		order_clause,
 		limit_clause,
 		offset_clause,
 	)
