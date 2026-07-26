@@ -240,9 +240,22 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		if err != nil {
 			return nil, err
 		}
-		// COALESCE：全 NULL 的组在 SQL 里 SUM 出 NULL，前端 Number(null) 得 0 尚可，
+		// 聚合算子取自字段的 group_operator tag（对齐 Odoo），未指定则 SUM。
+		// tag 解析期已按白名单校验过，这里不会拼进未知函数名。
+		op := field.GroupOperator()
+		if op == "" {
+			op = "SUM"
+		}
+		// COALESCE：全 NULL 的组在 SQL 里聚合出 NULL，前端 Number(null) 得 0 尚可，
 		// 但 JSON 里的 null 会让「无数据」和「合计为 0」变得不可区分。
-		selectCols = append(selectCols, fmt.Sprintf("COALESCE(SUM(%s),0) AS %s", qualified, alias))
+		// MIN/MAX 例外——它们的 NULL 表示「该组没有可比较的值」，用 0 顶替会凭空
+		// 造出一个最小值，比空更误导。
+		switch op {
+		case "MIN", "MAX":
+			selectCols = append(selectCols, fmt.Sprintf("%s(%s) AS %s", op, qualified, alias))
+		default:
+			selectCols = append(selectCols, fmt.Sprintf("COALESCE(%s(%s),0) AS %s", op, qualified, alias))
+		}
 	}
 
 	query, err := self.Statement.where_calc(self.Statement.domain, false, make(map[string]any))

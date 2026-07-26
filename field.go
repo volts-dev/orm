@@ -46,9 +46,9 @@ type (
 	TFieldContext struct {
 		Ids []any // 提供查询所有指定外键绑定的Ids
 		//Id          interface{} // the current id of current record
-		Value       any    // the current value of the field
-		Field       IField // FieldTypeValue reflect.Value
-		Fields      []string
+		Value  any    // the current value of the field
+		Field  IField // FieldTypeValue reflect.Value
+		Fields []string
 		// SubFields 为本关系字段 comodel 上的关系字段提供下一层嵌套读取规格，
 		// 由关系字段的子读取会话透传，支持多层内嵌(如 o2m 行内的 m2o 列)。
 		SubFields   map[string]*ReadRequest
@@ -140,6 +140,9 @@ type (
 		SearchOnSelf() bool
 		// OutputAs returns the type identifier the value is coerced to on read (char/int/bool/...).
 		OutputAs() string
+		// GroupOperator 返回 read_group 聚合本字段用的 SQL 聚合函数；
+		// 空串表示未指定，由调用方按字段类型决定默认值。
+		GroupOperator() string
 		// UpdateDb writes any schema changes implied by the field to the database.
 		UpdateDb(ctx *TTagContext)
 		// Attributes returns a map describing the field's published attributes.
@@ -231,6 +234,7 @@ type (
 		formatFunc       func(string) string // 对格式化后字符串再加工的函数
 		autoJoin         bool                // 查询时是否自动 JOIN 关联表
 		isInherited      bool                // 该字段是否来自 inherits 继承
+		groupOperator    string              // read_group 聚合算子（SUM/AVG/MIN/MAX/COUNT），空=按类型默认
 		isRelated        bool                // 该字段是否指向其他 model 的外键
 		modelName        string              // 当前字段所属 model 的名字
 		relatedModelName string              // 关联到的 model 名
@@ -535,6 +539,8 @@ func (self *TField) TypeName() string { return self.typeName }
 
 // OutputAs returns the type identifier the value is coerced to on read (char/int/bool/...).
 func (self *TField) OutputAs() string { return self.outputAs }
+
+func (self *TField) GroupOperator() string { return self.groupOperator }
 
 // SetOutputAs sets the output coercion type identifier.
 func (self *TField) SetOutputAs(dataType string) { self.outputAs = dataType }

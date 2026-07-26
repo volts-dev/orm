@@ -37,38 +37,41 @@ const (
 	TAG_INHERITED     = "inherited" // #该字段继承来自X表X字段名称 //name = openerp.fields.Char(related='partner_id.name', inherited=True)
 	//******* field tags********
 	// attr
-	TAG_IGNORE        = "-" // 忽略某些继承者成员
-	TAG_READ_ONLY     = "<-"
-	TAG_WRITE_ONLY    = "->"
-	TAG_PK            = "pk"
-	TAG_AUTO          = "autoincr"
-	TAG_TYPE          = "type"
-	TAG_SIZE          = "size"
-	TAG_TITLE         = "title" // #字段显示名称
-	TAG_HELP          = "help"  // #字段描述
-	TAG_CREATED       = "created"
-	TAG_UPDATED       = "updated"
-	TAG_REQUIRED      = "required"
-	TAG_NAMED         = "named"
-	TAG_DEFAULT       = "default"
-	TAG_IDX           = "index"  // #索引字段
-	TAG_UNIQUE        = "unique" // #保持唯一
-	TAG_AS            = "as"
-	TAG_STATES        = "states"
-	TAG_PRIORITY      = "priority"   // TODO
-	TAG_ON_DELETE     = "ondelete"   // TODO
-	TAG_TRANSLATE     = "translate"  // TODO
-	TAG_SELECT        = "select"     // #select=True （在外键字段上创建了一个索引）
-	TAG_CLASSIC_READ  = "read"       // #经典模式
-	TAG_CLASSIC_WRITE = "write"      // #经典模式
-	TAG_STORE         = "store"      //
-	TAG_DOMAIN        = "domain"     //
-	TAG_ATTACHMENT    = "attachment" // #使用集中存储二进制模式 可以是表/目录/云上
-	TAG_SELECTABLE    = "selectable" //
-	TAG_DELETED       = "deleted"    // TODO
-	TAG_VER           = "version"    // TODO
-	TAG_SETTER        = "setter"     // # 函数赋值
-	TAG_GETTER        = "getter"     // # 函数赋值
+	TAG_IGNORE     = "-" // 忽略某些继承者成员
+	TAG_READ_ONLY  = "<-"
+	TAG_WRITE_ONLY = "->"
+	TAG_PK         = "pk"
+	TAG_AUTO       = "autoincr"
+	TAG_TYPE       = "type"
+	TAG_SIZE       = "size"
+	TAG_TITLE      = "title" // #字段显示名称
+	TAG_HELP       = "help"  // #字段描述
+	TAG_CREATED    = "created"
+	TAG_UPDATED    = "updated"
+	TAG_REQUIRED   = "required"
+	TAG_NAMED      = "named"
+	TAG_DEFAULT    = "default"
+	TAG_IDX        = "index"  // #索引字段
+	TAG_UNIQUE     = "unique" // #保持唯一
+	// TAG_GROUP_OPERATOR 指定该字段在 read_group 聚合时用哪个 SQL 聚合函数
+	// （对齐 Odoo 的 group_operator）。不写则数值字段默认 SUM。
+	TAG_GROUP_OPERATOR = "group_operator"
+	TAG_AS             = "as"
+	TAG_STATES         = "states"
+	TAG_PRIORITY       = "priority"   // TODO
+	TAG_ON_DELETE      = "ondelete"   // TODO
+	TAG_TRANSLATE      = "translate"  // TODO
+	TAG_SELECT         = "select"     // #select=True （在外键字段上创建了一个索引）
+	TAG_CLASSIC_READ   = "read"       // #经典模式
+	TAG_CLASSIC_WRITE  = "write"      // #经典模式
+	TAG_STORE          = "store"      //
+	TAG_DOMAIN         = "domain"     //
+	TAG_ATTACHMENT     = "attachment" // #使用集中存储二进制模式 可以是表/目录/云上
+	TAG_SELECTABLE     = "selectable" //
+	TAG_DELETED        = "deleted"    // TODO
+	TAG_VER            = "version"    // TODO
+	TAG_SETTER         = "setter"     // # 函数赋值
+	TAG_GETTER         = "getter"     // # 函数赋值
 
 	// type
 	TAG_ID        = "id"
@@ -108,28 +111,29 @@ func init() {
 
 		// #attr
 		//tag_ctrl[TAG_IGNORE] = "-" // 忽略某些继承者成员
-		"readonly":     tag_read_only,
-		"writeonly":    tag_write_only,
-		TAG_READ_ONLY:  tag_read_only,
-		TAG_WRITE_ONLY: tag_write_only,
-		TAG_NAME:       tag_name,
-		TAG_OLD_NANE:   tag_old_name,
-		TAG_ID:         tag_id,
-		TAG_RECNAME:    tag_recname,
-		TAG_PK:         tag_pk,
-		TAG_AUTO:       tag_auto,
-		TAG_TYPE:       tag_type,
-		TAG_SIZE:       tag_size,
-		TAG_TITLE:      tag_title,
-		TAG_HELP:       tag_help,
-		TAG_CREATED:    tag_created,
-		TAG_UPDATED:    tag_updated,
-		TAG_REQUIRED:   tag_required,
-		TAG_NAMED:      tag_named,
-		TAG_DEFAULT:    tag_default,
-		TAG_IDX:        tag_index,
-		TAG_UNIQUE:     tag_unique,
-		TAG_AS:         tag_as,
+		"readonly":         tag_read_only,
+		"writeonly":        tag_write_only,
+		TAG_READ_ONLY:      tag_read_only,
+		TAG_WRITE_ONLY:     tag_write_only,
+		TAG_NAME:           tag_name,
+		TAG_OLD_NANE:       tag_old_name,
+		TAG_ID:             tag_id,
+		TAG_RECNAME:        tag_recname,
+		TAG_PK:             tag_pk,
+		TAG_AUTO:           tag_auto,
+		TAG_TYPE:           tag_type,
+		TAG_SIZE:           tag_size,
+		TAG_TITLE:          tag_title,
+		TAG_HELP:           tag_help,
+		TAG_CREATED:        tag_created,
+		TAG_UPDATED:        tag_updated,
+		TAG_REQUIRED:       tag_required,
+		TAG_NAMED:          tag_named,
+		TAG_DEFAULT:        tag_default,
+		TAG_IDX:            tag_index,
+		TAG_UNIQUE:         tag_unique,
+		TAG_GROUP_OPERATOR: tag_group_operator,
+		TAG_AS:             tag_as,
 		//TAG_STATES:tag_s
 		//TAG_PRIORITY] = "priority"     // TODO
 		TAG_ON_DELETE: tag_ondelete,
@@ -820,5 +824,25 @@ func ___tag_relate(ctx *TTagContext) error {
 			}
 		}
 	}
+	return nil
+}
+
+// tag_group_operator 解析 `group_operator('avg')` —— read_group 聚合该字段时使用的
+// SQL 聚合函数，对齐 Odoo 的同名字段属性。不写时数值字段默认 SUM。
+//
+// 白名单校验放在这里（注册期）而不是拼 SQL 时：算子最终作为字面量进 SQL，
+// 早失败能在模块加载阶段就暴露拼写错误，而不是等到某张报表打不开。
+func tag_group_operator(ctx *TTagContext) error {
+	if len(ctx.Params) == 0 {
+		return nil
+	}
+	op := strings.ToUpper(strings.Trim(ctx.Params[0], "'\""))
+	switch op {
+	case "SUM", "AVG", "MIN", "MAX", "COUNT":
+	default:
+		return fmt.Errorf("field %q: unsupported group_operator %q (allow SUM/AVG/MIN/MAX/COUNT)",
+			ctx.Field.Base().Name(), op)
+	}
+	ctx.Field.Base().groupOperator = op
 	return nil
 }

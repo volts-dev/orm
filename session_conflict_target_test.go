@@ -110,3 +110,51 @@ func TestExpandToUniqueIndex_Deterministic(t *testing.T) {
 		t.Errorf("应按索引名排序取首个（uq_a），实得 %q", first)
 	}
 }
+
+// group_operator tag 的白名单在**注册期**校验：算子最终作为字面量拼进 SQL，
+// 早失败能在模块加载阶段暴露拼写错误，而不是等某张报表打不开才发现。
+func TestTagGroupOperator(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"'avg'", "AVG", false},
+		{"'SUM'", "SUM", false},
+		{"min", "MIN", false}, // 不带引号也接受
+		{"'MAX'", "MAX", false},
+		{"'count'", "COUNT", false},
+		{"'median'", "", true},            // 不在白名单
+		{"'; DROP TABLE x; --", "", true}, // 注入尝试必须被拒
+	}
+	for _, c := range cases {
+		f := &TField{}
+		f.name = "amount"
+		err := tag_group_operator(&TTagContext{Field: f, Params: []string{c.in}})
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("group_operator(%q) 应被拒绝，却通过了", c.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("group_operator(%q) 意外报错: %v", c.in, err)
+			continue
+		}
+		if got := f.GroupOperator(); got != c.want {
+			t.Errorf("group_operator(%q) = %q，期望 %q", c.in, got, c.want)
+		}
+	}
+}
+
+// 不写 tag 时保持空串，由 ReadGroup 回落成 SUM——不能默认就写死 SUM，
+// 否则「未指定」和「显式指定 SUM」无从区分。
+func TestTagGroupOperator_EmptyParams(t *testing.T) {
+	f := &TField{}
+	if err := tag_group_operator(&TTagContext{Field: f}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.GroupOperator(); got != "" {
+		t.Errorf("未指定时应为空串，实得 %q", got)
+	}
+}
