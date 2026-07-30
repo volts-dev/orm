@@ -47,10 +47,12 @@ type ReadGroupRequest struct {
 	// Domain 过滤域，与 ReadRequest.Domain 同款（[]any 或域字符串）
 	Domain any
 
-	// Fields 要聚合求和的数值字段（measures）
+	// Fields 参与聚合的字段（measures）。算子取各字段的 group_operator tag，
+	// 未指定则 SUM；聚合不了的字段会被跳过而非报错，见 ReadGroup。
 	Fields []string
 
-	// GroupBy 分组字段，至少一个
+	// GroupBy 分组字段，可写 `字段` 或 `字段:粒度`（见 SplitGroupBy）。
+	// 允许为空——对齐 Odoo，此时返回整个 domain 的一行合计。
 	GroupBy []string
 
 	// Offset/Limit 分的是**组**不是记录；0 表示不限制
@@ -112,8 +114,11 @@ func isAggregatableField(model IModel, field IField) bool {
 // where_calc 生成，于是租户 schema 路由、tenant_id 过滤、公司可见性（都由
 // BeforeSession→withSession 挂在 domain/Where 上）原样生效，**不会绕过隔离**。
 //
-// 目前的边界：聚合算子固定为数值字段 SUM 与 COUNT(*)。Odoo 的 group_operator
-// （avg/min/max）与日期分组粒度（`date:month`）尚未实现——前端当前也不发这两种请求。
+// 聚合算子取自各字段的 group_operator tag（未指定则 SUM），另加一列 COUNT(*)；
+// 日期分组粒度（`date:month`）经 SplitGroupBy 支持。
+//
+// 目前的边界：粒度分组用 date_trunc 实现，**仅 Postgres 可用**，其余方言会明确报错
+// 而不是拼出一条跑不通的 SQL。
 func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.TDataSet, error) {
 	model := self.Statement.Model
 	if model == nil || len(model.String()) < 1 {
@@ -188,6 +193,12 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 			if SqlTypes[strings.ToUpper(field.SQLType().Name)] != TIME_TYPE {
 				return nil, fmt.Errorf("ReadGroup: granularity %q requires a date/time field, but %q on model %s is %s",
 					granularity, name, model.String(), field.SQLType().Name)
+			}
+			// date_trunc 是 Postgres 的函数，sqlite/mysql 都没有。不拦的话这里会拼出
+			// 一条必然报「函数不存在」的 SQL——错在方言不支持，报出来的却像是语法问题。
+			if dbType := self.orm.dialect.DBType(); dbType != POSTGRES {
+				return nil, fmt.Errorf("ReadGroup: groupby granularity (%q) is only supported on postgres, current dialect is %s",
+					granularity, dbType)
 			}
 			// 别名保持为字段原名（不带 `:粒度`）：_scanRows 按列名回查字段拿转换器，
 			// 带冒号的别名既查不到字段、也不是合法标识符。
@@ -264,25 +275,9 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 	}
 	fromClause, whereClause, whereParams := query.getSql()
 
-	// 软删除过滤：与 _readFromDatabase 同款。少了它，被软删的行仍会计进分组统计，
-	// 列表视图看不到的记录却出现在报表合计里。
-	if deletedField := model.Obj().DeletedField; deletedField != "" {
-		quoted := quoter.QuoteIdentMust(deletedField)
-		var sdFilter string
-		switch self.softDeleteMode {
-		case softDeleteFilterActive:
-			sdFilter = quoted + " IS NULL"
-		case softDeleteOnlyDeleted:
-			sdFilter = quoted + " IS NOT NULL"
-		}
-		if sdFilter != "" {
-			if whereClause == "" {
-				whereClause = sdFilter
-			} else {
-				whereClause = whereClause + " AND " + sdFilter
-			}
-		}
-	}
+	// 软删除过滤：与 _readFromDatabase 共用 softDeleteClause。少了它，被软删的行仍会
+	// 计进分组统计，列表视图看不到的记录却出现在报表合计里。
+	whereClause = andClause(whereClause, self.softDeleteClause())
 
 	if whereClause != "" {
 		whereClause = "WHERE " + whereClause

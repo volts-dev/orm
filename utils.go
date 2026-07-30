@@ -51,6 +51,18 @@ func JoinClause(clauses ...string) string {
 	return b.String()
 }
 
+// andClause 用 AND 串接两段 WHERE 条件，任一为空时返回另一段（都为空则空串）。
+// 免去调用点每次都写一遍「空则赋值、非空则拼 AND」的三分支。
+func andClause(where, cond string) string {
+	switch {
+	case cond == "":
+		return where
+	case where == "":
+		return cond
+	}
+	return where + " AND " + cond
+}
+
 // contains reports whether the string contains the byte c.
 func contains(s string, c byte) bool {
 	for i := 0; i < len(s); i++ {

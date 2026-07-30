@@ -22,6 +22,27 @@ const (
 	softDeleteOnlyDeleted
 )
 
+// softDeleteClause 返回本次会话应追加到 WHERE 上的软删除过滤条件（标识符已引用），
+// 模型没有 `deleted` 标签字段、或调用方 IncludeDeleted() 时返回空串。
+//
+// 读路径（_readFromDatabase）与聚合路径（ReadGroup）**必须**共用这一份实现：两边
+// 一旦漂移，列表视图里看不见的记录就会出现在报表合计里。
+func (self *TSession) softDeleteClause() string {
+	deletedField := self.Statement.Model.Obj().DeletedField
+	if deletedField == "" {
+		return ""
+	}
+
+	quoted := self.orm.dialect.Quoter().QuoteIdentMust(deletedField)
+	switch self.softDeleteMode {
+	case softDeleteFilterActive:
+		return quoted + " IS NULL"
+	case softDeleteOnlyDeleted:
+		return quoted + " IS NOT NULL"
+	}
+	return "" // softDeleteIncludeAll：不过滤
+}
+
 // IncludeDeleted disables the soft-delete auto-filter for this session.
 // Subsequent Read calls return both active and soft-deleted records.
 func (self *TSession) IncludeDeleted() *TSession {

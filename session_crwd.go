@@ -766,48 +766,42 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	computedFields := make([]string, 0, 8) // 数据库没有的字段
 	hasScalarCompute := false              // 存在「非存储标量计算字段」(走 getter，不读 DB)
 
-	// 字段分类
-	// 验证Select * From
+	// 字段分类。指定 Select 与「Select * From」两条路径只差「字段从哪来」，
+	// 归类规则必须完全一致——此前是两份逐字复制的分支，改一处漏一处就会让
+	// 显式指定字段和读全表得到不同的字段集。
+	classify := func(field IField) {
+		name := field.Name()
+		// 排除被 Omit 标记的字段
+		if self.Statement.IsOmit(name) {
+			return
+		}
+
+		switch {
+		case field.IsRelated():
+			computedFields = append(computedFields, name)
+			relateFields = append(relateFields, name)
+		case !field.Store() && field.HasGetter():
+			// 非存储标量计算字段(如 display_name):走 getter 计算，不读 DB
+			computedFields = append(computedFields, name)
+			hasScalarCompute = true
+		default: //本Model存于数据库的字段
+			storeFields = append(storeFields, name)
+		}
+	}
+
 	if len(self.Statement.Fields) > 0 {
 		for _, name := range self.Statement.Fields {
-			// 排除被 Omit 标记的字段
-			if self.Statement.IsOmit(name) {
-				continue
-			}
-
+			// Omit 的字段这里不早退：交给 classify 统一判断，规则只有一处。
 			field := model.Obj().GetFieldByName(name)
 			if field == nil {
 				log.Warnf(`%s.read() with unknown field '%s'`, model.String(), name)
 				continue
 			}
-			if field.IsRelated() {
-				computedFields = append(computedFields, name)
-				relateFields = append(relateFields, name)
-			} else if !field.Store() && field.HasGetter() {
-				// 非存储标量计算字段(如 display_name):走 getter 计算，不读 DB
-				computedFields = append(computedFields, name)
-				hasScalarCompute = true
-			} else { //本Model存于数据库的字段
-				storeFields = append(storeFields, name)
-			}
+			classify(field)
 		}
 	} else {
 		for _, field := range model.GetFields() {
-			name := field.Name()
-			// 排除被 Omit 标记的字段
-			if self.Statement.IsOmit(name) {
-				continue
-			}
-			if field.IsRelated() {
-				computedFields = append(computedFields, name)
-				relateFields = append(relateFields, name)
-			} else if !field.Store() && field.HasGetter() {
-				// 非存储标量计算字段(如 display_name):走 getter 计算，不读 DB
-				computedFields = append(computedFields, name)
-				hasScalarCompute = true
-			} else { //本Model存于数据库的字段
-				storeFields = append(storeFields, name)
-			}
+			classify(field)
 		}
 	}
 
@@ -856,9 +850,14 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 				Field:   field,
 				//Id:      rec_id,
 				//Value:   val,
-				Dataset:     dataset,
-				UseNameGet:  self.UseNameGet,
-				ClassicRead: self.IsClassic, // FIXME 如果为True会无限循环查询
+				Dataset:    dataset,
+				UseNameGet: self.UseNameGet,
+				// 下钻只有一层，靠的是 ManyToOne/OneToMany 的子读取**不**把 Classic
+				// 传给子会话（model_request.go 的 `sub.Ids(ids...).Read()`）：子会话不满足
+				// 本段的派发条件，comodel 自己的关系字段就不再展开。
+				// 别顺手给那行补 `.Classic()`——模型间的关系环(A.m2o→B、B.m2o→A)会让
+				// 它无限递归爆栈。回归用例 classic_read_cycle_test.go。
+				ClassicRead: self.IsClassic,
 			}
 			if hasSub {
 				ctx.Fields = sub.Fields
@@ -973,24 +972,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	from_clause, where_clause, where_clause_params = query.getSql()
 
 	// Phase 2: soft-delete auto-filter
-	if deletedField := self.Statement.Model.Obj().DeletedField; deletedField != "" {
-		quoter := self.orm.dialect.Quoter()
-		quoted := quoter.QuoteIdentMust(deletedField)
-		var sdFilter string
-		switch self.softDeleteMode {
-		case softDeleteFilterActive:
-			sdFilter = quoted + " IS NULL"
-		case softDeleteOnlyDeleted:
-			sdFilter = quoted + " IS NOT NULL"
-		}
-		if sdFilter != "" {
-			if where_clause == "" {
-				where_clause = sdFilter
-			} else {
-				where_clause = where_clause + " AND " + sdFilter
-			}
-		}
-	}
+	where_clause = andClause(where_clause, self.softDeleteClause())
 
 	if where_clause != "" {
 		where_clause = "WHERE " + where_clause
