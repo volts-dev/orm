@@ -7,7 +7,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/lib/pq v1.12.3
 	github.com/volts-dev/cacher v0.0.0-20260314091036-7e3a317fca8b
-	github.com/volts-dev/dataset v0.0.0-20260617191314-fb0664d334c6
+	github.com/volts-dev/dataset v0.0.0-20260730031250-feb8f75dbd92
 	github.com/volts-dev/lexer v0.0.0-20220306192306-681167f68bb3
 	github.com/volts-dev/utils v0.0.0-20241206111447-ee54d4e2c42c
 	github.com/volts-dev/volts v0.0.0-20260319104115-97e9ce0d1bdd

@@ -221,10 +221,13 @@ func (self *TCacher) getStatus(table string) (open bool, has bool) {
 }
 
 // #缓存Sql查询结果ID集
+//
+// 存入的是 data 的**副本**：调用方(如 _readFromDatabase)存完还会继续用同一个数据集，
+// 对它 First()/Classic()/OnRead 一通改；直接存引用等于把后续所有改动写进缓存。
 func (self *TCacher) PutBySql(table string, sql string, arg any, data *dataset.TDataSet) {
 	if open, has := self.getStatus(table); has && open {
 		key := self.genSqlKey(table, sql, arg, false)
-		self.sql_caches.Set(&cacher.CacheBlock{Key: key, Value: data})
+		self.sql_caches.Set(&cacher.CacheBlock{Key: key, Value: data.Clone()})
 
 		// 记录过期时间
 		expiryTime := time.Now().Unix() + self.ttl.Load()
@@ -239,8 +242,11 @@ func (self *TCacher) PutBySql(table string, sql string, arg any, data *dataset.T
 
 // #通过Sql获取查询结果ID集
 // @Return:  nil or 空[]string
-// WARNING: 返回的 *dataset.TDataSet 是缓存中的直接引用，请勿修改其内容，否则会污染缓存。
-// 如需修改，请先复制一份副本。
+//
+// 返回的是缓存内容的**副本**，调用方可以随意读写（读路径本来就会对结果集做
+// First()/Classic()，关系字段的 OnRead 还会 SetByField 写回记录）。此前返回的是缓存里
+// 的同一个对象，命中一次就被就地改写一次，后续请求拿到的是被污染的数据——那条
+// 「WARNING: 请勿修改」的注释没有任何强制力，调用方也不可能遵守。
 func (self *TCacher) GetBySql(table string, sql string, arg any) *dataset.TDataSet {
 	if open, has := self.getStatus(table); has && open {
 		key := self.genSqlKey(table, sql, arg, false)
@@ -265,18 +271,21 @@ func (self *TCacher) GetBySql(table string, sql string, arg any) *dataset.TDataS
 		}
 		ds := v.(*dataset.TDataSet)
 		log.Tracef("Cache hit for table %s, key %s", table, key)
-		return ds
+		return ds.Clone()
 	}
 
 	return nil
 }
 
 // #缓存记录及ID
+//
+// 与 PutBySql 同理，存副本而非引用：调用方手里的 *TRecordSet 随时可能被继续改写，
+// 而记录一旦并入某个数据集，它的取值还会跟着那个数据集的字段表走。
 func (self *TCacher) PutById(table string, id any, record *dataset.TRecordSet) {
 	if open, has := self.getStatus(table); !has || (has && open) {
 		//ck := self.RecCacher(table)
 		key := self.genIdKey(table, id, false)
-		self.id_caches.Set(&cacher.CacheBlock{Key: key, Value: record})
+		self.id_caches.Set(&cacher.CacheBlock{Key: key, Value: record.Clone()})
 
 		// 记录过期时间
 		expiryTime := time.Now().Unix() + self.ttl.Load()
@@ -322,7 +331,8 @@ func (self *TCacher) GetByIds(table string, ids ...any) (records []*dataset.TRec
 				ids_less = append(ids_less, id)
 				continue
 			}
-			records = append(records, v.(*dataset.TRecordSet))
+			// 同 GetBySql：交出副本，调用方改自己的那份不会污染缓存。
+			records = append(records, v.(*dataset.TRecordSet).Clone())
 		}
 
 		return records, ids_less
