@@ -248,6 +248,20 @@ func withSubFieldNames(fields []string, subFields map[string]*ReadRequest) []str
 	return out
 }
 
+// uniqueFields 去重并丢掉空串，保持原有顺序。
+func uniqueFields(fields []string) []string {
+	seen := make(map[string]bool, len(fields))
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		out = append(out, f)
+	}
+	return out
+}
+
 // ensureFields 在 fields 前补齐缺失的 required 字段(去重、保持 required 在前)。
 // 关系字段的子读取必须带上 id 及反向 FK 等连接键，否则无法按键分组回填到父记录。
 func ensureFields(fields []string, required ...string) []string {
@@ -623,6 +637,26 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			if len(ctx.Fields) > 0 {
 				// 限定 comodel 列范围(如仅 display_name)；id 必须带上以便按主键分组回填。
 				sub.Select(ensureFields(ctx.Fields, relateModel.IdField())...)
+			} else {
+				// 调用方没指定列时**只取 id + 记录名**，而不是整条 comodel 记录。
+				//
+				// 经典 many2one 的语义就是 [id, name]：调用方要的是"显示这条关联记录叫
+				// 什么"。此前不加 Select 等于 `SELECT *`，代价有三：
+				//   1. 泄漏——res.user 整条被内嵌下发，带着 passport 与 password
+				//      (真栈实测:哈希、以及 demo 用户的明文口令)。任何能读 res.partner
+				//      的用户都能顺着 user_id 拿到。
+				//   2. 体积——一页 80 行的列表把同一条 comodel 记录完整重复 80 次。
+				//   3. 查询——comodel 的每一列都要取，含 image/logo 这类大字段。
+				// 需要更多列的调用方用 ReadRequest.SubFields 显式声明(那条路走上面的
+				// 分支)，语义清楚且按需付费。
+				//
+				// display_name 是 store=false 的计算字段(取 rec_name，缺则回退 NameGet)，
+				// 前端 toM2OTuple/parseM2O 优先读它，故一并选上；模型没有该字段时不选。
+				names := []string{relateModel.IdField(), relateModel.GetRecordName()}
+				if relateModel.GetFieldByName(DisplayNameField) != nil {
+					names = append(names, DisplayNameField)
+				}
+				sub.Select(uniqueFields(names)...)
 			}
 			if len(ctx.SubFields) > 0 {
 				// 透传下一层嵌套规格，支持 m2o 目标记录自身的关系列内嵌(多层)。

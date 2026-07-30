@@ -815,6 +815,13 @@ func (self *TSession) _getModel(modelName string, options ...ModelOption) (model
 		s.IsAutoCommit = self.IsAutoCommit
 		s.IsCommitedOrRollbacked = self.IsCommitedOrRollbacked
 		s.tx = self.tx
+		// schema 必须一起继承：Records() 起的是全新会话，Schema 为空即落到 search_path
+		// 的默认 schema(通常 public)。本函数的调用方是「顺带写/读另一张表」的路径——
+		// 委托继承(_inherits)自动建父记录、m2m 关联表回写——在专属 schema 的租户下
+		// (VectorsSystem 用 "system")会把父记录 INSERT 进 public，造出跨 schema 的
+		// 孤儿：子记录在 system.res_company、父记录在 public.res_partner，之后按
+		// schema 限定去 JOIN 永远连不上，继承字段一律读成空。
+		s.Schema = self.Schema
 		model.Tx(s)
 	}
 

@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/volts-dev/orm"
@@ -86,6 +87,81 @@ func TestM2OClassicReadBatchWithBlankFK(t *testing.T) {
 			t.Errorf("%s 没有 partner_id, 不该内嵌到任何子记录: %#v", name, got)
 		}
 	}
+}
+
+// TestM2OClassicEmbedIsNameOnly 锁死「经典 m2o 内嵌只带 id + 记录名」。
+//
+// 此前子读取不加 Select，等于 `SELECT *` 把整条 comodel 记录内嵌下发:真栈里
+// res.partner.user_id 内嵌的 res.user 带着 passport 和 password(哈希，demo 用户还是
+// 明文)——任何能读 res.partner 的用户顺着这个字段就能拿到。除泄漏外还有体积(一页 80
+// 行把同一条 comodel 记录重复 80 次)与查询代价(image/logo 这类大字段照取)。
+//
+// 需要更多列的调用方走 ReadRequest.SubFields 显式声明。
+func TestM2OClassicEmbedIsNameOnly(t *testing.T) {
+	o := newM2OBatchOrm(t)
+
+	partnerModel, _ := o.GetModel("fc_partner")
+	orderModel, _ := o.GetModel("fc_order")
+
+	ss := o.NewSession()
+	defer ss.Close()
+	if err := ss.Begin(); err != nil {
+		t.Fatal(err)
+	}
+	// color 代表 comodel 上「调用方没要、也不该顺带下发」的列。
+	pids, _ := partnerModel.Tx(ss).Create(map[string]any{"name": "ACME", "color": 7})
+	oids, _ := orderModel.Tx(ss).Create(map[string]any{"name": "SO-1", "partner_id": pids[0]})
+	if err := ss.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	rds, err := orderModel.Read(&orm.ReadRequest{
+		Ids:         []any{oids[0]},
+		Fields:      []string{"id", "name", "partner_id"},
+		ClassicRead: true,
+	})
+	if err != nil {
+		t.Fatalf("flat classic Read: %v", err)
+	}
+	sub, ok := rds.Record().AsMap()["partner_id"].(map[string]any)
+	if !ok {
+		t.Fatalf("partner_id 期望内嵌子记录 map, 实际 %#v", rds.Record().AsMap()["partner_id"])
+	}
+	if fmt.Sprint(sub["name"]) != "ACME" {
+		t.Errorf("内嵌记录应带记录名, 实际 %#v", sub)
+	}
+	if _, leaked := sub["color"]; leaked {
+		t.Errorf("内嵌记录不该带调用方没要的列, 实际 keys=%v", mapKeys(sub))
+	}
+
+	// 显式声明子规格时仍然按需给列。
+	rds2, err := orderModel.Read(&orm.ReadRequest{
+		Ids:         []any{oids[0]},
+		Fields:      []string{"id", "partner_id"},
+		ClassicRead: true,
+		SubFields: map[string]*orm.ReadRequest{
+			"partner_id": {Fields: []string{"name", "color"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SubFields Read: %v", err)
+	}
+	sub2, ok := rds2.Record().AsMap()["partner_id"].(map[string]any)
+	if !ok {
+		t.Fatalf("partner_id(SubFields) 期望内嵌 map, 实际 %#v", rds2.Record().AsMap()["partner_id"])
+	}
+	if _, has := sub2["color"]; !has {
+		t.Errorf("SubFields 显式要了 color 就必须给, 实际 keys=%v", mapKeys(sub2))
+	}
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // TestM2OClassicReadDanglingFK 覆盖悬空外键:FK 有值但 comodel 里那条已被删除。

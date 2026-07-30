@@ -24,6 +24,9 @@ import (
 // 报错被 OnRead 吞成一行日志，请求照常 200 —— 表现是「同一条记录里 country_id 内嵌成功、
 // company_id / user_id 只剩裸 id」(没有委托继承的 comodel 不受影响)。public schema 下
 // 一切正常，所以只有系统租户/专属 schema 的租户会中招。
+//
+// 本用例同时锁死写入侧：委托继承自动建父记录那条路(_getModel→Records() 新会话)也必须
+// 继承会话 schema，否则父记录落 public、子记录在专属 schema，JOIN 永远连不上。
 type (
 	DlgPartner struct {
 		orm.TModel `table:"name('dlg_partner')"`
@@ -94,7 +97,10 @@ func TestInheritsJoinInNonDefaultSchemaPG(t *testing.T) {
 	if err := ss.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	cids, err := companyModel.Tx(ss).Create(map[string]any{"name": "SysCo"})
+	// city 是继承字段：写入侧会自动建 dlg_partner 父记录并回填 FK —— 那条路径起的是
+	// 全新会话(_getModel→Records())，schema 必须一起继承，否则父记录 INSERT 落到
+	// public，子记录在 dlg_sys，之后按 schema 限定 JOIN 永远连不上。
+	cids, err := companyModel.Tx(ss).Create(map[string]any{"name": "SysCo", "city": "Scranton"})
 	if err != nil {
 		t.Fatalf("create company: %v", err)
 	}
@@ -105,18 +111,13 @@ func TestInheritsJoinInNonDefaultSchemaPG(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 
-	// 父记录用显式限定的裸 SQL 建，复刻生产布局：真栈 system 租户的
-	// system.res_company.partner_id 指向 system.res_partner 的同 schema 行。
-	//
-	// ⚠️ 不走 Create 的继承字段写入路径是有意的：那条路径给委托父表发的 INSERT
-	// **没有带 schema**（实测 `INSERT INTO dlg_partner …` 对 `dlg_sys.dlg_company`），
-	// 父记录会落到 public。那是写入侧另一个独立的 schema 限定缺口，不在本用例范围内；
-	// 本用例锁的是读取侧的 JOIN 渲染。
-	if _, err := o.Exec(`INSERT INTO ` + dlgSchema + `.dlg_partner (id, name, city) VALUES (9001, 'SysCo', 'Scranton')`); err != nil {
-		t.Fatalf("建父记录: %v", err)
+	// 父记录必须落在同一个 schema 里。
+	pds, err := o.Query(`SELECT count(*) AS n FROM ` + dlgSchema + `.dlg_partner`)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := o.Exec(`UPDATE `+dlgSchema+`.dlg_company SET partner_id=9001 WHERE id=$1`, cids[0]); err != nil {
-		t.Fatalf("回填 partner_id: %v", err)
+	if n := pds.FieldByName("n").AsInteger(); n != 1 {
+		t.Fatalf("委托继承的父记录应建在 %s 里, 实际该 schema 有 %d 条(落到 public 了?)", dlgSchema, n)
 	}
 
 	// ── 1. 直接读带委托继承的模型：不能报 42P01 ──────────────────────────
