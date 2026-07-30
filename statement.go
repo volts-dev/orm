@@ -49,11 +49,15 @@ type (
 
 // Init reset all the statment's fields
 func (self *TStatement) Init() {
+	// 这些容器一律置 nil 而**不**预先 make：Init 在每次 CRUD 后都会跑一遍
+	// (_resetStatement)，预建的空 map/slice 绝大多数会原样被丢掉，纯粹是 GC 负担。
+	// 读取侧全部 nil 安全(nil map 查得到 ok=false、nil slice 可 append/len)，
+	// 写入侧 NullableFields 已在 session_expr.go 里按需懒建。
 	self.domain = domain.NewDomainNode()
-	self.IdParam = make([]any, 0)
+	self.IdParam = nil
 	self.Fields = nil
 	self.OmitFields = nil
-	self.NullableFields = make(map[string]bool) // TODO 优化
+	self.NullableFields = nil
 	self.FromClause = ""
 	self.OrderByClause = ""
 	self.AscFields = nil
@@ -61,8 +65,8 @@ func (self *TStatement) Init() {
 	self.LimitClause = 0
 	self.OffsetClause = 0
 	self.IsCount = false
-	self.Params = make([]any, 0, 16)
-	self.Sets = nil // 不预先创建添加GC负担
+	self.Params = nil
+	self.Sets = nil
 
 	/* 复制session */
 	// 在读锁下对 session.Sets 做快照，避免与 SetMustFieldValue 并发读写 map

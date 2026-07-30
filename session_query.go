@@ -3,7 +3,6 @@ package orm
 import (
 	"database/sql"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/volts-dev/dataset"
@@ -397,84 +396,75 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 			return nil, err
 		}
 
-		length := len(cols)
-		vals := make([]any, length)
+		hasModel := self.Statement.Model != nil // TODO exec,query 的SQL不包含Model
 
-		var value any
-		var field IField
-		hasModel := self.Statement.Model != nil
-		for rows.Next() {
-			// TODO 优化不使用MAP
-			rec := dataset.NewRecordSet()
-			//rec.Fields(cols...)
+		// Scan 容器只建一次：holders 存值，vals 存指向它们的 *any。复用是安全的
+		// ——每行都在本次 Scan 之后、下次 Scan 之前就把值**拷贝**出去
+		// (onConvertToRead 与下面的读取都是解引用取值)，没有任何人留存这些指针。
+		// 此前每行每列都 reflect.New(ITF_TYPE) 造一个新容器，纯属浪费。
+		holders := make([]any, len(cols))
+		vals := make([]any, len(cols))
+		for idx := range holders {
+			vals[idx] = &holders[idx]
+		}
 
-			// 创建数据容器
-			for idx := range cols {
-				vals[idx] = reflect.New(ITF_TYPE).Interface()
+		// 列 → 字段 的解析和格式化器的选定都是**行无关**的，只做一次。此前放在
+		// 行循环内：每行每列一次 GetFieldByName 查找 + 一次 SetFieldFormater 重复
+		// 写入同一个 formatter，开销随行数线性放大。
+		fields := make([]IField, len(cols))
+		// bigNumPending 标记「这一列还没定过 formatter，且可能需要按大数转字符串」。
+		// 只对没有模型字段对应的列(Count 等函数列)成立：它要看实际扫到的值是不是
+		// int64，只能进了行循环才知道，但定一次就够。
+		bigNumPending := make([]bool, len(cols))
+		if hasModel {
+			for idx, name := range cols {
+				field := self.Statement.Model.GetFieldByName(name)
+				fields[idx] = field
+				if field == nil {
+					// #兼容没有使用 as tag 的大数转换为字符串
+					bigNumPending[idx] = self.orm.config.BigNumberToString
+					continue
+				}
+
+				typeName := field.OutputAs() // as tag 指定输出格式
+				if typeName == "" {
+					if self.orm.config.BigNumberToString && isBigNumberField(field) {
+						// 只有关系字段(外键)的 0 才归空串=「没有关联」；普通 int64
+						// 数据列的 0 是合法值，必须原样输出 "0"。详见
+						// converterBigNumberToString。
+						res_dataset.SetFieldFormater(name, converterBigNumberToString(field.IsRelated()))
+					}
+					continue
+				}
+				res_dataset.SetFieldFormater(name, converter(typeName))
 			}
+		}
 
+		for rows.Next() {
 			// 采集数据
-			err = rows.Scan(vals...)
-			if err != nil {
+			if err = rows.Scan(vals...); err != nil {
 				return nil, err
 			}
 
 			// 存储到数据集
+			// TODO 优化不使用MAP
+			rec := dataset.NewRecordSet()
 			for idx, name := range cols {
-				// typeName/field 必须**每列重置**：早先它们声明在列循环之外，没走到
-				// 赋值分支的列(field==nil 的函数列如 Count、以及 !hasModel 分支)会
-				// 沿用上一列的值，把上一列的格式化器套到本列上——例如紧跟在 id 列
-				// 之后的 Count 列会被当成大数列转成字符串。
-				typeName := ""
-				field = nil
-				// bigNumAsString 记录「Varchar 这个输出类型是因 BigNumberToString 才
-				// 选上的」，与「本来就是字符列」区分开：前者的零值语义只对外键成立。
-				bigNumAsString := false
+				var value any
 				// !NOTE! 转换数据类型输出
-				if hasModel { // TODO exec,query 的SQL不包含Model
-					field = self.Statement.Model.GetFieldByName(name)
-					if field != nil {
-						value = field.onConvertToRead(self, cols, vals, idx)
-						typeName = field.OutputAs()
-
-						// as tag 指定输出格式
-						if typeName == "" && self.orm.config.BigNumberToString && isBigNumberField(field) {
-							typeName = Varchar
-							bigNumAsString = true
-						}
-					} else {
-						value = nil // 初始化
-						// 处理函数字段 Count 等
-						for _, funcName := range self.Statement.FuncsClause {
-							if strings.HasPrefix(funcName, name) { // TODO 这里需要更高效的判断
-								value = *vals[idx].(*any)
-							}
-						}
-
-						if value == nil {
-							value = *vals[idx].(*any)
-						}
-
-						// #兼容没有使用 as tag 的大数转换为字符串
-						if _, ok := value.(int64); ok && self.orm.config.BigNumberToString {
-							typeName = Varchar
-							bigNumAsString = true
-						}
-					}
-
-					if typeName != "" {
-						if bigNumAsString {
-							// 只有关系字段(外键)的 0 才归空串=「没有关联」；普通 int64
-							// 数据列的 0 是合法值，必须原样输出 "0"。field==nil 的函数
-							// 列(Count 等)同理不归空。详见 converterBigNumberToString。
-							res_dataset.SetFieldFormater(name, converterBigNumberToString(field != nil && field.IsRelated()))
-						} else {
-							res_dataset.SetFieldFormater(name, converter(typeName))
-						}
-					}
-
+				if field := fields[idx]; field != nil {
+					value = field.onConvertToRead(self, cols, vals, idx)
 				} else {
-					value = *vals[idx].(*any)
+					value = holders[idx]
+					if bigNumPending[idx] {
+						if _, ok := value.(int64); ok {
+							// 函数列(Count 等)的 0 是合法值，不归空串。
+							res_dataset.SetFieldFormater(name, converterBigNumberToString(false))
+						}
+						// 无论这一行是不是 int64 都不再重试：同一列的 SQL 类型固定，
+						// 首行判不出来后面也判不出来。
+						bigNumPending[idx] = false
+					}
 				}
 
 				if !rec.SetByField(name, value, false) {
