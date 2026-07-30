@@ -288,6 +288,43 @@ func (self *TMany2OneField) Init(ctx *TTagContext) {
 	})
 }
 
+// isBlankRelationId 判断一个 many2one 外键值是否表示「没有关联」。
+//
+// 除 NULL 与零值外还必须认**非正数哨兵**:省略 many2one 的 create/导入会把列落成 -1
+// 而不是 NULL(调用方常见写法 `SetDefaultByName("company_id", -1)`),记录规则那边同样
+// 按 `company_id < 1` 判定「无归属」。id 在本 ORM 恒为正,故数值 <1 一律视为未设置。
+// 认不出来的后果是每读一批就为这些行走一遍「找不到 comodel 记录」的分支并打警告。
+//
+// 非数值字符串(m2o 声明在 string 列上时的真实键)不在此列,原样交给匹配逻辑。
+func isBlankRelationId(v any) bool {
+	if utils.IsBlank(v) {
+		return true
+	}
+
+	switch n := v.(type) {
+	case int:
+		return n < 1
+	case int8:
+		return n < 1
+	case int16:
+		return n < 1
+	case int32:
+		return n < 1
+	case int64:
+		return n < 1
+	case float32:
+		return n < 1
+	case float64:
+		return n < 1
+	case string:
+		if id, err := utils.IsNumeric(n); err == nil {
+			return id < 1
+		}
+	}
+
+	return false
+}
+
 // TODO 未完成
 func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 	field := ctx.Field
@@ -305,20 +342,44 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 		if err != nil {
 			return err
 		}
+
+		// 按**字符串**归一后再匹配。GroupBy 的键是 comodel 主键列的原始值,而这里拿来
+		// 匹配的是主表 FK 列的原始值——两列的 Go 类型不保证一致(FK 声明成 string 的
+		// many2one、驱动把 BigInt 给成不同宽度的整型等)。用 any 直接做 map 键时,
+		// int64(7) 与 "7" 是两个不同的键,匹配不上就悄悄退化成裸 id。
 		group := ds.GroupBy(relateModel.IdField())
+		byId := make(map[string]*dataset.TDataSet, len(group))
+		for key, grp := range group {
+			byId[utils.ToString(key)] = grp
+		}
+
+		var missing []string
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			fieldValue := record.GetByField(field.Name())
-			grp := group[fieldValue]
+			// 空 FK 是 many2one 的常态(可空字段、还没选值的新记录),保持原值即可。
+			if isBlankRelationId(fieldValue) {
+				return nil
+			}
 
-			if grp.Count() != 1 {
-				return fmt.Errorf(
-					"model %s's has more than 1 record for %s@%s ManyToOne Id %v",
-					field.RelatedModelName(), field.Name(), field.ModelName(), grp.Keys())
+			grp := byId[utils.ToString(fieldValue)]
+			if grp.Count() == 0 {
+				// 悬空 FK(目标行已删)/该行当前会话不可见(租户、记录规则)。这条记录
+				// 读成裸 id 是可接受的降级,但**绝不能返回 error**:Range 一遇 error 就
+				// 整个中断,同一批里它之后的记录会全部丢掉内嵌子记录,只剩裸 id,而调用
+				// 方(_read)只把错误记进日志、请求照常 200 返回。表现就是"列表里前几行
+				// 的 many2one 显示名称,后面全变成一串数字 id"。
+				missing = append(missing, utils.ToString(fieldValue))
+				return nil
 			}
 
 			record.SetByField(field.Name(), grp.Record().AsMap())
 			return nil
 		})
+
+		if len(missing) > 0 {
+			log.Warnf("%s@%s ManyToOne: %d record(s) reference missing/invisible %s row(s) %v, left as raw id",
+				field.Name(), field.ModelName(), len(missing), field.RelatedModelName(), missing)
+		}
 	}
 	/*
 		model, err := ctx.Session.Orm().osv.GetModel(self.RelatedModelName())
