@@ -59,6 +59,11 @@ func NewQuery(session *TSession, tables []string, where_clause []string, params 
 	//#   which should lead to the following SQL:
 	//#       SELECT ... FROM "table_a" LEFT JOIN "table_b" ON ("table_a"."table_a_col1" = "table_b"."table_b_col")
 	//#                                 LEFT JOIN "table_c" ON ("table_a"."table_a_col2" = "table_c"."table_c_col")
+	// 必须兜底建 map：addJoin 的显式分支要往里写，而调用方(where_calc)一律传 nil。
+	// 此前显式分支是死代码，nil 从未被写过，改用 LEFT JOIN 后立刻会 panic。
+	if joins == nil {
+		joins = make(map[string][]*utils.TStringList)
+	}
 	q.joins = joins
 
 	//# holds extra conditions for table joins that should not be in the where
@@ -84,21 +89,32 @@ func NewQuery(session *TSession, tables []string, where_clause []string, params 
 func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams []any) {
 	self.alias_mapping = self.getAliasMapping()
 
-	var table_alias string
-	var has bool
-	tables_to_process := self.tables
-	from_clause := make([]string, 0)
+	// 显式 JOIN 的右表也被 addJoin 记进了 self.tables。它们由 JOIN 子句带进 FROM，
+	// **不能**再出现在逗号分隔的表列表里——那份列表没有连接条件，同一张表两处并存
+	// 会让整条查询退化成笛卡尔积。先扫一遍 joins 把这些表挑出来。
+	joined := make(map[string]bool, len(self.joins))
+	for _, joins := range self.joins {
+		for _, join := range joins {
+			joined[self.alias_mapping[join.String(0)]] = true
+		}
+	}
+
+	from_clause := make([]string, 0, len(self.tables))
 	from_params := make([]any, 0)
-	for pos, table := range tables_to_process {
-		if pos > 0 {
-			from_clause = append(from_clause, ",")
+	for _, table := range self.tables {
+		if joined[table] {
+			continue
 		}
 
-		from_clause = append(from_clause, table)
-		_, table_alias = get_alias_from_query(table)
-		if _, has = self.joins[table_alias]; has {
-			self.addJoinsForTable(table_alias, tables_to_process, from_clause, from_params)
+		if len(from_clause) > 0 {
+			from_clause = append(from_clause, ",")
 		}
+		from_clause = append(from_clause, table)
+
+		_, table_alias := get_alias_from_query(table)
+		// emitted 防环：joins 理论上是棵树，但 addJoin 的去重只看 alias_statement，
+		// 环一旦出现就是无限递归+爆栈，代价远大于一个 map。
+		self.addJoinsForTable(table_alias, &from_clause, &from_params, make(map[string]bool))
 	}
 
 	fromClause = strings.Join(from_clause, "")             // 上面已经添加","
@@ -184,23 +200,32 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 	}
 }
 
-// :lhs table name
-func (self *TQuery) addJoinsForTable(lhs string, tables_to_process, from_clause []string, from_params []any) {
-	if tablelst, has := self.joins[lhs]; has {
-		for _, table := range tablelst {
-			rhs, lhs_col, rhs_col, join := table.String(0), table.String(1), table.String(2), table.String(3)
-			utils.SliceDelete(tables_to_process, self.alias_mapping[table.String(0)]) //     tables_to_process.remove()
-			from_clause = append(from_clause, fmt.Sprintf(` %s %s ON ("%s"."%s" = "%s"."%s"`,
-				join, self.alias_mapping[rhs], lhs, lhs_col, rhs, rhs_col))
-			extra := self.extras[lhs] //.get((lhs, (table.String(0), lhs_col, rhs_col, join)))
-			if extra != nil {
-				from_clause = append(from_clause, " AND ")
-				from_clause = append(from_clause, extra.String(0))
-				from_params = append(from_params, extra.String(1))
-			}
-			from_clause = append(from_clause, ")")
-			self.addJoinsForTable(rhs, tables_to_process, from_clause, from_params)
+// addJoinsForTable 把挂在 lhs 上的显式 JOIN 子句追加进 from_clause，并递归处理右表
+// 自己的 JOIN。
+//
+// from_clause/from_params 必须传**指针**：此前是按值传切片，函数内 append 只改到局部
+// 的切片头，调用方拿不到任何追加结果——显式 JOIN 因此从来没被渲染进 FROM，而右表又
+// 已被 addJoin 塞进 self.tables 照常输出，等于 `FROM a, b` 不带连接条件的笛卡尔积。
+//
+// :lhs table alias
+func (self *TQuery) addJoinsForTable(lhs string, from_clause *[]string, from_params *[]any, emitted map[string]bool) {
+	if emitted[lhs] {
+		return
+	}
+	emitted[lhs] = true
+
+	for _, table := range self.joins[lhs] {
+		rhs, lhs_col, rhs_col, join := table.String(0), table.String(1), table.String(2), table.String(3)
+		*from_clause = append(*from_clause, fmt.Sprintf(` %s %s ON ("%s"."%s" = "%s"."%s"`,
+			join, self.alias_mapping[rhs], lhs, lhs_col, rhs, rhs_col))
+		extra := self.extras[lhs] //.get((lhs, (table.String(0), lhs_col, rhs_col, join)))
+		if extra != nil {
+			*from_clause = append(*from_clause, " AND ")
+			*from_clause = append(*from_clause, extra.String(0))
+			*from_params = append(*from_params, extra.String(1))
 		}
+		*from_clause = append(*from_clause, ")")
+		self.addJoinsForTable(rhs, from_clause, from_params, emitted)
 	}
 }
 
@@ -276,13 +301,17 @@ func (self *TQuery) inherits_join_calc(fieldName string, model IModel) (result s
 			log.Errf("@inherits_join_calc: cannot resolve parent %q (fk=%q) for inherited field %q: %v",
 				parent_model_name, parent_field, fieldName, err)
 		} else {
+			// LEFT JOIN 而非隐式 INNER JOIN：委托继承的外键**允许为空**（父记录被删、
+			// 外部导入的历史数据、或建记录时没给任何继承字段——写入侧只在继承字段非空
+			// 时才自动建父记录）。用 INNER JOIN 的话这些行会被连接直接过滤掉，记录明明
+			// 在表里、Read 却一条都不返回，而且不报任何错。继承字段读成空值才是对的。
 			parent_alias, _ := self.addJoin(
 				[]string{
 					alias, parent_field,
 					parent_model.Table(), parent_model.IdField(),
 					parent_field},
-				true,
-				false,
+				false, // 显式 JOIN：由 addJoinsForTable 渲染成 JOIN ... ON (...)
+				true,  // outer → LEFT JOIN
 				nil,
 				nil)
 			model, alias = parent_model, parent_alias
