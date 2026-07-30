@@ -218,6 +218,28 @@ orm.Cacher.Active(true)
 
 ---
 
+## 本 ORM 关系字段读取的实际行为（2026-07-30 核实）
+
+上面讲的是**调用方自己写循环**造成的 N+1。ORM **内部**的关系字段读取（Classic /
+NameGet / 嵌套 SubFields 模式下 `_read()` 对 m2o/o2m/m2m 的 OnRead 派发）不存在 N+1：
+
+| 字段类型 | 实现 | 查询数 |
+|---|---|---|
+| many2one | 收集整批 FK 值 → `Ids(ids).Read()` → 内存 `GroupBy` 回填 | 1 |
+| one2many | 收集整批锚点 id → 一次反向键查询 → 内存 `GroupBy` 回填 | 1 |
+| many2many | 中间表 `IN (...)` 一次取全 | 1 |
+
+即读一页 N 条记录、模型上有 K 个关系字段，总查询数是 **1 + K**，与 N 无关。
+
+**下钻深度恰好一层**：`ManyToOne` 的子读取不把 Classic 传给子会话，所以 comodel 自己的
+关系字段不再展开。这是唯一的终止条件——读路径没有深度计数器，也没有环路检测。
+给那行补 `.Classic()` 会让 A→B→A 这类关系环无限递归爆栈，
+回归用例见 `classic_read_cycle_test.go`。
+
+需要更深的内嵌时用 `ReadRequest.SubFields` 显式声明层级（深度由规格树决定，有限）。
+
+---
+
 ## 相关问题修复
 
 本 ORM 最近修复的相关问题：
