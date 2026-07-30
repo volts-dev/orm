@@ -114,7 +114,7 @@ func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams 
 		_, table_alias := get_alias_from_query(table)
 		// emitted 防环：joins 理论上是棵树，但 addJoin 的去重只看 alias_statement，
 		// 环一旦出现就是无限递归+爆栈，代价远大于一个 map。
-		self.addJoinsForTable(table_alias, &from_clause, &from_params, make(map[string]bool))
+		self.addJoinsForTable(unqualifyAlias(table_alias), &from_clause, &from_params, make(map[string]bool))
 	}
 
 	fromClause = strings.Join(from_clause, "")             // 上面已经添加","
@@ -198,6 +198,26 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 		}
 		return alias, alias_statement
 	}
+}
+
+// unqualifyAlias 去掉 schema 前缀，返回该表在 SQL 里**真正暴露的别名**。
+//
+// 非默认 schema 的会话(如 VectorsSystem 租户的 "system")下，self.tables 里的条目是
+// where_calc 限定过的 `system.res_company`，而 joins 是按**裸表名**建的键
+// (inherits_join_calc 的 lhs 用 model.Table())。拿限定名去查 joins 一条都对不上：
+// 委托继承(one2one/_inherits)的父表 JOIN 完全不渲染，而 SELECT 里
+// `"res_company__partner_id"."city"` 这种别名限定列照常输出 —— postgres 直接
+// `missing FROM-clause entry for table "res_company__partner_id" (42P01)`。
+// 该错误在 m2o 内嵌子读取里被 OnRead 吞成一行日志，请求照常 200，表现为「同一条记录
+// 里没有委托继承的 comodel 内嵌成功、res.company/res.user 只剩裸 id」。
+//
+// `FROM system.res_company` 在 SQL 里暴露的别名本来就是裸 `res_company`，所以查 joins
+// 与渲染 ON 条件都必须用裸名。回归：test/inherits_join_schema_pg_test.go。
+func unqualifyAlias(alias string) string {
+	if i := strings.LastIndex(alias, "."); i >= 0 {
+		return alias[i+1:]
+	}
+	return alias
 }
 
 // addJoinsForTable 把挂在 lhs 上的显式 JOIN 子句追加进 from_clause，并递归处理右表
