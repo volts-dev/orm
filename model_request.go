@@ -38,6 +38,22 @@ type (
 		Model      string // *
 		Method     string
 		OnConflict OnConflict
+
+		// NameCreate 声明这是 Odoo name_create 语义的新建：调用方只提供记录名，
+		// 其余字段由模型的默认值补齐（见 ApplyDefaults）。
+		//
+		// 为什么需要这个标志：普通表单新建是前端 onchange/default_get 把默认值填进
+		// 表单再整体提交，服务端拿到的是完整的一行；name_create 没有那一步，只给一个
+		// 名字，required 字段在库里是 NOT NULL，不补默认值这条 insert 直接被数据库
+		// 打回。把"要不要补默认值"做成请求上的一个字段，而不是在控制器里现拼 map，
+		// 是为了让每个 Create 入口（含各模型的 Create 覆写）都能看见这个意图。
+		NameCreate bool
+
+		// defaultsApplied 保证 ApplyDefaults 只生效一次。ApplyDefaults 在两处被调：
+		// 请求派发前（覆盖那些**不委托** TModel.Create 的 Create 覆写）和
+		// TModel.Create 内部（覆盖不覆写 Create 的模型）。重复调用必须是空操作，
+		// 否则 DefaultFunc 会被求值两遍——那些带副作用的默认值(查库/建记录)会翻倍。
+		defaultsApplied bool
 	}
 
 	// ReadRequest 结构体用于定义读取请求的参数，它扩展了 Paginator 结构体的功能并增加了特定的查询和排序选项。
@@ -127,10 +143,65 @@ type (
 	}
 )
 
+// ApplyDefaults 在 NameCreate 为 true 时，用 model 的字段默认值补齐 Data 每一行里
+// **没有出现**的字段。已经出现的键一律不动——调用方显式给的值永远优先于默认值。
+//
+// 逐字段调 DefaultGet 而不是一次 DefaultGet(全部字段名)：DefaultGet 是无条件写
+// data[字段] 的，传全量字段名会把没有默认值的字段一律写成 nil，等于拿 nil 覆盖掉
+// 模型自己的建库默认值。先用 IsDefaultEmpty() 筛掉没声明默认值的，再逐个求值，
+// 附带好处是某个 DefaultFunc 出错只丢它自己那一个字段，不至于整条请求崩掉。
+//
+// NameCreate 为 false、或已经补过一次时，是空操作（见 defaultsApplied 注释）。
+func (self *CreateRequest) ApplyDefaults(model IModel) error {
+	if self == nil || !self.NameCreate || self.defaultsApplied || model == nil {
+		return nil
+	}
+	self.defaultsApplied = true
+
+	fields := model.GetFields()
+	for _, row := range self.Data {
+		vals, ok := row.(map[string]any)
+		if !ok {
+			// 非 map 行(结构体等)不在 name_create 的用法范围内，跳过而不是报错：
+			// 同一个请求里混着两种形状时，不该因为这个让整批新建失败。
+			continue
+		}
+
+		for _, f := range fields {
+			if f == nil || f.IsDefaultEmpty() {
+				continue
+			}
+			name := f.Name()
+			if _, has := vals[name]; has {
+				continue
+			}
+
+			defs, err := model.DefaultGet(name)
+			if err != nil {
+				log.Warnf("name_create %s: 字段 %s 默认值求值失败，跳过: %v", model.String(), name, err)
+				continue
+			}
+			if v, ok := defs[name]; ok && v != nil {
+				vals[name] = v
+			}
+		}
+	}
+
+	return nil
+}
+
 // #被重载接口 创建记录 提供给继承
 func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 	model, err := self.Clone() /* 克隆首要目的获得自定义模型结构和事务*/
 	if err != nil {
+		return nil, err
+	}
+
+	// 覆盖"不覆写 Create"和"覆写了但委托回本方法"的模型。**覆写了 Create 又不委托
+	// 的模型到不了这里**——如 ProTmpl.Create 直接走 recs.Classic().Create(data)，
+	// 全仓这样的覆写有 40 多个，所以调用方(如 name_create 端点)派发前还要自己调一次；
+	// ApplyDefaults 幂等，两处都调不会把 DefaultFunc 求值两遍。
+	if err := req.ApplyDefaults(model); err != nil {
 		return nil, err
 	}
 
