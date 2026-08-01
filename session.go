@@ -171,7 +171,9 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 	}
 
 	// NOTE [SyncModel] 这里获取到的Model是由数据库信息创建而成.并不包含所有字段继承字段.
-	exitsModels, err := self.orm.DBMetas(self) // 获取基本数据库信息
+	// existsColumns 是内省时刻各表的**真实列名**快照，_alterTable 靠它判断该不该
+	// 补列——不能事后问 exitsModels，原因见 dbMetaEntry.columns。
+	exitsModels, existsColumns, err := self.orm.dbMetas(self) // 获取基本数据库信息
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +253,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 
 			model.AfterSetup()
 		} else {
-			if err = self._alterTable(model, exitsModel.(*TModel)); err != nil {
+			if err = self._alterTable(model, exitsModel.(*TModel), existsColumns[model.Table()]); err != nil {
 				return modelNames, err
 			}
 		}
@@ -567,8 +569,9 @@ func (self *TSession) _resetStatement() {
 * @model:提供新Session
 * @newModel:Model映射后的新表结构
 * @oldModel:当前数据库的表结构
+* @dbColumns:内省时刻该表的真实列名集合(可为 nil，表示无快照可用)
  */
-func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
+func (self *TSession) _alterTable(newModel, oldModel *TModel, dbColumns map[string]bool) (err error) {
 	orm := self.orm
 	tableName := newModel.table
 
@@ -578,6 +581,16 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel) (err error) {
 		for _, field := range newModel.GetFields() {
 			fieldName = field.Name()
 			cur_field = oldModel.GetFieldByName(fieldName)
+
+			// oldModel 与结构体模型共用同一个 TModelObject(osv.RegisterModel 会把
+			// 结构体字段合并进去，见 dbMetaEntry.columns)，所以"库里有没有这一列"
+			// 不能问 oldModel——结构体上新增的字段在这里查出来永远非 nil，
+			// ALTER TABLE ADD 一条都不会发，且全程无日志，直到下一条 INSERT 报
+			// `column "xxx" does not exist`。以内省快照为准。
+			// 回归：TestSyncModelAddsColumnToExistingTable。
+			if cur_field != nil && dbColumns != nil && !dbColumns[fieldName] {
+				cur_field = nil
+			}
 
 			if cur_field != nil {
 				/* 忽略关系 */

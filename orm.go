@@ -77,6 +77,15 @@ type (
 	dbMetaEntry struct {
 		epoch  uint64
 		models map[string]IModel
+		// columns 是**内省那一刻**各表的真实列名快照(表名 → 列名集合)。
+		//
+		// 为什么不能事后从 models 里取：osv.RegisterModel 把结构体模型的字段
+		// 合并进**共享的** TModelObject，而这里的反查模型与之共用同一个 obj
+		// (New() 里的 _reverse 启动时就把反查模型注册进 osv 了)。也就是说
+		// models[x].GetFields() 会随后被结构体侧的字段污染，"库里有哪些列"
+		// 这个问题事后已经问不出来了。SyncModel 判断"该不该 ALTER TABLE ADD"
+		// 必须查这份快照，见 _alterTable。
+		columns map[string]map[string]bool
 	}
 )
 
@@ -444,6 +453,14 @@ type IBatchIntrospect interface {
 // DBMetas Retrieve all tables, columns, indexes' informations from database.
 // 从连接的数据库获取数据库及表基本信息
 func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
+	models, _, err := self.dbMetas(session)
+	return models, err
+}
+
+// dbMetas 是 DBMetas 的内部形态，额外返回内省时刻的真实列名快照
+//（表名 → 列名集合），供 SyncModel/_alterTable 判断"该不该补列"。
+// 见 dbMetaEntry.columns 上的说明：这个问题事后问不出来，只能在这里取。
+func (self *TOrm) dbMetas(session *TSession) (map[string]IModel, map[string]map[string]bool, error) {
 	// 缓存键 = 会话的有效 schema 字符串(nil 会话/默认 schema 记作 "")。同一物理
 	// schema 可能出现两个键(如显式 "public" 与默认 "")，但 metaEpoch 是全局的，
 	// 任何 DDL 都会失效所有键,故键别名最多导致多建一次快照,不会读到过期结构。
@@ -456,40 +473,52 @@ func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
 	self.metaMu.Lock()
 	if entry, ok := self.metaCache[key]; ok && entry.epoch == epoch {
 		self.metaMu.Unlock()
-		return entry.models, nil
+		return entry.models, entry.columns, nil
 	}
 	self.metaMu.Unlock()
 
 	models, err := self.dialect.GetModels(self.context, session)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	modelLst := make(map[string]IModel)
+	colLst := make(map[string]map[string]bool, len(models))
+	// snapshot 必须在返回前、任何 RegisterModel 之前取：此刻 m.GetFields() 还
+	// 只含反查出来的真实列。
+	snapshot := func(m IModel) {
+		cols := make(map[string]bool)
+		for _, f := range m.GetFields() {
+			cols[f.Name()] = true
+		}
+		colLst[m.Table()] = cols
+	}
 
 	// 批量内省：dialect 若支持(postgres)，一次拉全 schema 的列与索引，把逐表
 	// 2×N 次往返压成 2 次。装配仍走 _buildModelMeta，与逐表路径完全一致。
 	if bi, ok := self.dialect.(IBatchIntrospect); ok {
 		seqByTable, fieldsByTable, err := bi.GetAllFields(self.context, session)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		idxByTable, err := bi.GetAllIndexes(self.context, session)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, model := range models {
 			table := model.Table()
 			m := self._buildModelMeta(model, seqByTable[table], fieldsByTable[table], idxByTable[table])
 			modelLst[m.String()] = m
+			snapshot(m)
 		}
 	} else {
 		for _, model := range models {
 			model, err = self._modelMetas(session, model)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			modelLst[model.String()] = model
+			snapshot(model)
 		}
 	}
 
@@ -499,10 +528,10 @@ func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
 	if self.metaCache == nil {
 		self.metaCache = make(map[string]dbMetaEntry)
 	}
-	self.metaCache[key] = dbMetaEntry{epoch: epoch, models: modelLst}
+	self.metaCache[key] = dbMetaEntry{epoch: epoch, models: modelLst, columns: colLst}
 	self.metaMu.Unlock()
 
-	return modelLst, nil
+	return modelLst, colLst, nil
 }
 
 func (self *TOrm) Query(sql string, params ...any) (*TDataset, error) {
