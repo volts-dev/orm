@@ -10,8 +10,8 @@ import (
 type addcolProbe struct {
 	TModel `table:"name('addcol_probe')"`
 	Id     int64  `field:"pk autoincr"`
-	Note   string `field:"varchar(32)"`
-	Fresh  int64  `field:"int"` // ← 库里没有这一列，SyncModel 必须 ALTER TABLE ADD 出来
+	Note   string `field:"varchar(32) index"` // ← 库里没有这个索引，SyncModel 必须建出来
+	Fresh  int64  `field:"int"`               // ← 库里没有这一列，SyncModel 必须 ALTER TABLE ADD 出来
 }
 
 // TestSyncModelAddsColumnToExistingTable 锁死「给已存在的表新增字段」这条路。
@@ -27,7 +27,19 @@ type addcolProbe struct {
 // 才会把该表注册进 osv 并让后来的结构体模型合并到同一个 obj 上。单进程内先建表
 // 再同步不会触发。
 func TestSyncModelAddsColumnToExistingTable(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	// 独占一个数据库，不能借 test_orm：本用例要 DROP/CREATE 表，而 go test 会并行
+	// 跑 orm 与 orm/test 两个包，后者同时在 test_orm 上做整库内省——DROP 撞上内省
+	// 的 relation 扫描就是 `pq: could not open relation with OID ... (XX000)`，
+	// 表现为另一个包里毫不相干的用例偶发失败。
+	bootstrap := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	boot, err := New(WithDataSource(bootstrap))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	// 已存在时报错，忽略即可（CREATE DATABASE 不支持 IF NOT EXISTS）。
+	boot.Exec(`CREATE DATABASE test_orm_addcol`)
+
+	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addcol", SSLMode: "disable"}
 
 	o1, err := New(WithDataSource(ds))
 	if err != nil {
@@ -56,5 +68,16 @@ func TestSyncModelAddsColumnToExistingTable(t *testing.T) {
 	}
 	if ds2.Count() == 0 {
 		t.Fatal("SyncModel 没有为已存在的表补出新列 fresh —— 结构体新增字段被共享 TModelObject 污染成「库里已有」")
+	}
+
+	// 索引走的是同一条污染链：oldModel.GetIndexes() 读的也是那个被合并过的
+	// 共享 obj，结构体新声明的索引在里面「已经存在」，于是按内容匹配上自己，
+	// CREATE INDEX 同样一条不发。
+	ds3, err := o2.Query(`SELECT indexname FROM pg_indexes WHERE tablename='addcol_probe' AND indexdef LIKE '%note%'`)
+	if err != nil {
+		t.Fatalf("introspect index: %v", err)
+	}
+	if ds3.Count() == 0 {
+		t.Fatal("SyncModel 没有为已存在的表建出新索引(note) —— 与补列同源的共享 TModelObject 污染")
 	}
 }

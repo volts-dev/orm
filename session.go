@@ -171,9 +171,10 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 	}
 
 	// NOTE [SyncModel] 这里获取到的Model是由数据库信息创建而成.并不包含所有字段继承字段.
-	// existsColumns 是内省时刻各表的**真实列名**快照，_alterTable 靠它判断该不该
-	// 补列——不能事后问 exitsModels，原因见 dbMetaEntry.columns。
-	exitsModels, existsColumns, err := self.orm.dbMetas(self) // 获取基本数据库信息
+	// dbSchema 是内省时刻各表的**真实结构**（列名 / 索引）快照，_alterTable 靠它
+	// 判断该不该补列、该不该建索引——不能事后问 exitsModels，原因见
+	// dbMetaEntry.columns / .indexes。
+	exitsModels, dbSchema, err := self.orm.dbMetas(self) // 获取基本数据库信息
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +254,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 
 			model.AfterSetup()
 		} else {
-			if err = self._alterTable(model, exitsModel.(*TModel), existsColumns[model.Table()]); err != nil {
+			if err = self._alterTable(model, exitsModel.(*TModel), dbSchema); err != nil {
 				return modelNames, err
 			}
 		}
@@ -569,11 +570,12 @@ func (self *TSession) _resetStatement() {
 * @model:提供新Session
 * @newModel:Model映射后的新表结构
 * @oldModel:当前数据库的表结构
-* @dbColumns:内省时刻该表的真实列名集合(可为 nil，表示无快照可用)
+* @dbSchema:内省时刻的库结构快照(可为 nil，表示无快照可用，退回旧行为)
  */
-func (self *TSession) _alterTable(newModel, oldModel *TModel, dbColumns map[string]bool) (err error) {
+func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchemaSnapshot) (err error) {
 	orm := self.orm
 	tableName := newModel.table
+	dbColumns := dbSchema.Columns(tableName)
 
 	{ // 字段修改
 		var cur_field IField
@@ -745,7 +747,17 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbColumns map[stri
 
 		// 检查更新索引 先取消索引载添加需要的
 		// 取消Idex
-		curIndexs := oldModel.GetIndexes() // key 是数据库里的实际索引名(加工名)
+		//
+		// 必须用内省快照，不能用 oldModel.GetIndexes()：与补列同源，
+		// osv.RegisterModel 会把结构体声明的索引也合并进共享的 TModelObject
+		//（`obj.AddIndex(idx)`），于是结构体上**新加**的索引在 curIndexs 里
+		// 「已经存在」——按加工名匹配落空后，下面的内容匹配会拿它跟自己比，
+		// Equal 成立，CREATE INDEX 一条不发，同样全程无日志。
+		// 回归：TestSyncModelAddsColumnToExistingTable 的索引断言。
+		curIndexs := dbSchema.Indexes(tableName) // key 是数据库里的实际索引名(加工名)
+		if curIndexs == nil {
+			curIndexs = oldModel.GetIndexes()
+		}
 		var existIndex *TIndex
 		for name, index := range newModel.GetIndexes() { // key 是 struct tag 原始名
 			// 1. 按加工名(GetName)完全匹配数据库索引——curIndexs 的 key 本就是加工名,

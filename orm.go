@@ -86,6 +86,11 @@ type (
 		// 这个问题事后已经问不出来了。SyncModel 判断"该不该 ALTER TABLE ADD"
 		// 必须查这份快照，见 _alterTable。
 		columns map[string]map[string]bool
+		// indexes 同理：RegisterModel 也会把结构体声明的索引合并进共享 obj
+		//（`obj.AddIndex(idx)`），于是 _alterTable 的索引对账拿 oldModel.GetIndexes()
+		// 会看见「结构体新声明的索引库里已经有了」，CREATE INDEX 同样一条不发。
+		// key 是表名，value 是内省时刻库里的实际索引（key 为数据库真实索引名）。
+		indexes map[string]map[string]*TIndex
 	}
 )
 
@@ -457,10 +462,33 @@ func (self *TOrm) DBMetas(session *TSession) (map[string]IModel, error) {
 	return models, err
 }
 
-// dbMetas 是 DBMetas 的内部形态，额外返回内省时刻的真实列名快照
-//（表名 → 列名集合），供 SyncModel/_alterTable 判断"该不该补列"。
-// 见 dbMetaEntry.columns 上的说明：这个问题事后问不出来，只能在这里取。
-func (self *TOrm) dbMetas(session *TSession) (map[string]IModel, map[string]map[string]bool, error) {
+// dbSchemaSnapshot 是内省那一刻库里的真实结构（列名 / 索引），按表名索引。
+// 见 dbMetaEntry.columns 与 .indexes 上的说明：反查模型与结构体模型共用同一个
+// TModelObject，所以这两个问题事后都问不出来，只能在内省当下取下来。
+type dbSchemaSnapshot struct {
+	columns map[string]map[string]bool
+	indexes map[string]map[string]*TIndex
+}
+
+// Columns 返回该表内省时刻的真实列名集合；无快照时返回 nil（调用方据此退回旧行为）。
+func (self *dbSchemaSnapshot) Columns(table string) map[string]bool {
+	if self == nil {
+		return nil
+	}
+	return self.columns[table]
+}
+
+// Indexes 返回该表内省时刻的真实索引；无快照时返回 nil。
+func (self *dbSchemaSnapshot) Indexes(table string) map[string]*TIndex {
+	if self == nil {
+		return nil
+	}
+	return self.indexes[table]
+}
+
+// dbMetas 是 DBMetas 的内部形态，额外返回内省时刻的库结构快照，
+// 供 SyncModel/_alterTable 判断"该不该补列 / 该不该建索引"。
+func (self *TOrm) dbMetas(session *TSession) (map[string]IModel, *dbSchemaSnapshot, error) {
 	// 缓存键 = 会话的有效 schema 字符串(nil 会话/默认 schema 记作 "")。同一物理
 	// schema 可能出现两个键(如显式 "public" 与默认 "")，但 metaEpoch 是全局的，
 	// 任何 DDL 都会失效所有键,故键别名最多导致多建一次快照,不会读到过期结构。
@@ -473,7 +501,7 @@ func (self *TOrm) dbMetas(session *TSession) (map[string]IModel, map[string]map[
 	self.metaMu.Lock()
 	if entry, ok := self.metaCache[key]; ok && entry.epoch == epoch {
 		self.metaMu.Unlock()
-		return entry.models, entry.columns, nil
+		return entry.models, &dbSchemaSnapshot{columns: entry.columns, indexes: entry.indexes}, nil
 	}
 	self.metaMu.Unlock()
 
@@ -484,14 +512,21 @@ func (self *TOrm) dbMetas(session *TSession) (map[string]IModel, map[string]map[
 
 	modelLst := make(map[string]IModel)
 	colLst := make(map[string]map[string]bool, len(models))
-	// snapshot 必须在返回前、任何 RegisterModel 之前取：此刻 m.GetFields() 还
-	// 只含反查出来的真实列。
+	idxLst := make(map[string]map[string]*TIndex, len(models))
+	// snapshot 必须在返回前、任何 RegisterModel 之前取：此刻 m.GetFields() /
+	// m.GetIndexes() 还只含反查出来的真实结构。
 	snapshot := func(m IModel) {
 		cols := make(map[string]bool)
 		for _, f := range m.GetFields() {
 			cols[f.Name()] = true
 		}
 		colLst[m.Table()] = cols
+
+		idxs := make(map[string]*TIndex)
+		for name, idx := range m.GetIndexes() {
+			idxs[name] = idx
+		}
+		idxLst[m.Table()] = idxs
 	}
 
 	// 批量内省：dialect 若支持(postgres)，一次拉全 schema 的列与索引，把逐表
@@ -528,10 +563,10 @@ func (self *TOrm) dbMetas(session *TSession) (map[string]IModel, map[string]map[
 	if self.metaCache == nil {
 		self.metaCache = make(map[string]dbMetaEntry)
 	}
-	self.metaCache[key] = dbMetaEntry{epoch: epoch, models: modelLst, columns: colLst}
+	self.metaCache[key] = dbMetaEntry{epoch: epoch, models: modelLst, columns: colLst, indexes: idxLst}
 	self.metaMu.Unlock()
 
-	return modelLst, colLst, nil
+	return modelLst, &dbSchemaSnapshot{columns: colLst, indexes: idxLst}, nil
 }
 
 func (self *TOrm) Query(sql string, params ...any) (*TDataset, error) {
