@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/domain"
 	"github.com/volts-dev/utils"
 )
 
@@ -255,6 +256,244 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 	}
 
 	return nil
+}
+
+// OnWrite 把 Odoo 风格的 x2many 命令元组落到 comodel 上。
+//
+// 在此之前 one2many **完全没有写入实现**：TOne2ManyField 只重载了 OnRead，写入落到
+// TField.OnWrite 的默认分支(把值原样放进 ctx.values)，而 o2m 是 store=false 字段，
+// _todoCompute 对非存储字段只调 OnWrite、不收集返回值——于是整份命令被静默丢弃。
+// 表现是"表单里内嵌 list 加了几行、保存提示成功、重新读出来一行都没有"，且日志里
+// 没有任何指向这里的线索(product 的属性行、订单行都撞过)。
+//
+// 为什么走 IModel 而不是像 m2m 那样直接拼 SQL：o2m 的子行是**真实记录**，各模型对
+// Create/Update/Delete 的覆写承载着业务(pro.tmpl.attr.item.Create 要据 value_ids
+// 生成 pro.tmpl.attr.value 并重建变体)。绕过模型层写库，行是进去了，业务后果一个
+// 都不会发生。comodel 经 ctx.Session._getModel 取得，继承调用方的事务与 schema——
+// 父记录此刻往往还没提交，另起会话读不到它(本仓既有的 "NewSession 读不到未提交行")。
+func (self *TOne2ManyField) OnWrite(ctx *TFieldContext) error {
+	// 自定义 setter 优先：字段作者接管了写入语义。
+	if self.hasSetter {
+		return self.TRelational.OnWrite(ctx)
+	}
+
+	if ctx.Value == nil || len(ctx.Ids) == 0 {
+		return nil
+	}
+
+	vSlice, ok := ctx.Value.([]any)
+	if !ok || len(vSlice) == 0 {
+		return nil
+	}
+
+	field := ctx.Field
+	commands, isAllCommands := parseX2MCommands(vSlice)
+	if !isAllCommands {
+		// 裸 id 列表([1,2,3])等旧形态没有明确语义:当"设置为这批"会把不在列表里的子行
+		// 全部解绑/删除,当"追加"又和 Odoo 不一致。历史行为是无操作,保持不变——但不再
+		// 无声无息,否则调用方又要靠猜。
+		log.Warnf("one2many field <%s@%s> write value is not a command list, ignored: %v",
+			field.Name(), field.ModelName(), ctx.Value)
+		return nil
+	}
+
+	comodel, err := ctx.Session._getModel(field.RelatedModelName())
+	if err != nil {
+		return err
+	}
+
+	inverse := field.RelatedKeyName()
+	inverseField := comodel.GetFieldByName(inverse)
+	if inverseField == nil {
+		return fmt.Errorf("one2many field <%s@%s> inverse field <%s> not found on model <%s>",
+			field.Name(), field.ModelName(), inverse, field.RelatedModelName())
+	}
+	// 解绑(命令 3/5/6)的落地方式取决于反向键能否为空:必填时置空这一行就是一条永远
+	// 写不进去的 UPDATE(且真写进去了就是一条谁也认领不了的孤儿),此时按 Odoo 对
+	// ondelete=cascade 的处理直接删除。
+	detachByDelete := inverseField.Required()
+
+	for _, cmd := range commands {
+		switch code := utils.ToInt64(cmd[0]); code {
+		case 0: // Create (0, 0, vals)
+			vals, err := x2mCommandVals(cmd, field)
+			if err != nil {
+				return err
+			}
+			for _, parentId := range ctx.Ids {
+				row := make(map[string]any, len(vals)+1)
+				for k, v := range vals {
+					row[k] = v
+				}
+				row[inverse] = parentId
+				if _, err := comodel.Create(&CreateRequest{Data: []any{row}}); err != nil {
+					return err
+				}
+			}
+
+		case 1: // Update (1, id, vals)
+			vals, err := x2mCommandVals(cmd, field)
+			if err != nil {
+				return err
+			}
+			if _, err := comodel.Update(&UpdateRequest{Ids: []any{cmd[1]}, Data: []any{vals}}); err != nil {
+				return err
+			}
+
+		case 2: // Delete (2, id)
+			if _, err := comodel.Delete(&DeleteRequest{Ids: []any{cmd[1]}}); err != nil {
+				return err
+			}
+
+		case 3: // Unlink (3, id)
+			if err := o2mDetach(comodel, inverse, detachByDelete, []any{cmd[1]}); err != nil {
+				return err
+			}
+
+		case 4: // Link (4, id)
+			for _, parentId := range ctx.Ids {
+				if _, err := comodel.Update(&UpdateRequest{
+					Ids:  []any{cmd[1]},
+					Data: []any{map[string]any{inverse: parentId}},
+				}); err != nil {
+					return err
+				}
+			}
+
+		case 5: // Clear (5)
+			for _, parentId := range ctx.Ids {
+				current, err := o2mChildIds(comodel, inverse, parentId)
+				if err != nil {
+					return err
+				}
+				if err := o2mDetach(comodel, inverse, detachByDelete, current); err != nil {
+					return err
+				}
+			}
+
+		case 6: // Set (6, 0, ids)
+			var wanted []any
+			if len(cmd) > 2 {
+				if v, ok := cmd[2].([]any); ok {
+					wanted = v
+				} else if cmd[2] != nil {
+					wanted = []any{cmd[2]}
+				}
+			}
+			wantedKeys := make(map[string]bool, len(wanted))
+			for _, id := range wanted {
+				wantedKeys[utils.ToString(id)] = true
+			}
+			for _, parentId := range ctx.Ids {
+				current, err := o2mChildIds(comodel, inverse, parentId)
+				if err != nil {
+					return err
+				}
+				currentKeys := make(map[string]bool, len(current))
+				stale := make([]any, 0, len(current))
+				for _, id := range current {
+					key := utils.ToString(id)
+					currentKeys[key] = true
+					if !wantedKeys[key] {
+						stale = append(stale, id)
+					}
+				}
+				if err := o2mDetach(comodel, inverse, detachByDelete, stale); err != nil {
+					return err
+				}
+				for _, id := range wanted {
+					if currentKeys[utils.ToString(id)] {
+						continue
+					}
+					if _, err := comodel.Update(&UpdateRequest{
+						Ids:  []any{id},
+						Data: []any{map[string]any{inverse: parentId}},
+					}); err != nil {
+						return err
+					}
+				}
+			}
+
+		default:
+			log.Warnf("one2many command %d not supported on field <%s@%s>", code, field.Name(), field.ModelName())
+		}
+	}
+
+	return nil
+}
+
+// x2mCommandVals 取出命令元组第三位的写入值。缺失时返回空 map 而不是报错:
+// (1, id) 这种"只有 id 没有值"的短写法在链路上出现过,它等价于"什么都不改"。
+func x2mCommandVals(cmd []any, field IField) (map[string]any, error) {
+	if len(cmd) < 3 || cmd[2] == nil {
+		return map[string]any{}, nil
+	}
+	vals, err := toStringMap(cmd[2])
+	if err != nil {
+		return nil, fmt.Errorf("one2many field <%s@%s> command %v carries an unusable value: %w",
+			field.Name(), field.ModelName(), cmd[0], err)
+	}
+	return vals, nil
+}
+
+// toStringMap 把命令携带的值归一成 map[string]any。JSON 解出来就是 map[string]any,
+// 但内部调用方可能直接塞 map[string]string 或结构体。
+func toStringMap(v any) (map[string]any, error) {
+	switch m := v.(type) {
+	case map[string]any:
+		return m, nil
+	case map[string]string:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[k] = val
+		}
+		return out, nil
+	}
+	rv := reflect.Indirect(reflect.ValueOf(v))
+	if rv.Kind() == reflect.Struct {
+		return utils.Struct2ItfMap(v), nil
+	}
+	return nil, fmt.Errorf("expect a map or struct, got %T", v)
+}
+
+// o2mChildIds 读出当前挂在 parentId 名下的全部子行 id。
+//
+// 走 comodel.Read 而不是 comodel.Records():前者经 TModel.Read→Clone 继承事务,
+// 后者是一条全新连接上的会话——父记录和刚写进去的子行此刻都还没提交,读不到。
+func o2mChildIds(comodel IModel, inverse string, parentId any) ([]any, error) {
+	ds, err := comodel.Read(&ReadRequest{
+		Domain: domain.New(inverse, "=", parentId),
+		Fields: []string{comodel.IdField()},
+		Limit:  -1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if ds == nil || ds.Count() == 0 {
+		return nil, nil
+	}
+	return ds.Keys(), nil
+}
+
+// o2mDetach 把子行从父记录上摘下来:反向键必填时删除,否则置空外键留下记录本身。
+//
+// 置空这一支必须用会话的 Nullable():_separateValues 判定"调用方碰过这个字段"的依据
+// 是值非 nil,所以 {inverse: nil} 走普通 Update 会被整条丢掉——解绑变成静默无操作,
+// 正是本函数所在的这次修复要根除的那类故障。代价是模型层的 Update 覆写不会触发;
+// 单纯摘外键没有业务语义可言,而"看着执行了其实没写"要坏得多。
+func o2mDetach(comodel IModel, inverse string, byDelete bool, ids []any) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if byDelete {
+		_, err := comodel.Delete(&DeleteRequest{Ids: ids})
+		return err
+	}
+	_, err := comodel.Tx().
+		Nullable(inverse).
+		Ids(ids...).
+		Write(map[string]any{inverse: nil})
+	return err
 }
 
 func (self *TMany2OneField) Init(ctx *TTagContext) {
@@ -713,6 +952,27 @@ func parseM2MCommands(vSlice []any) (commands [][]any, isAllCommands bool) {
 		}
 	}
 	return commands, isAllCommands
+}
+
+// parseX2MCommands 与 parseM2MCommands 同义，但额外接受单元素的 (5) —— m2m 侧的
+// 解析器是按"前端只发二/三元组"写死的，o2m 的 Clear 没有 id 也没有值，写成 [5] 是
+// 合法的 Odoo 形态。仍然是"全部元素都是命令才算命令列表"，任一元素不是(如裸 id 列表
+// [1,2,3])就整体返回 false，交由调用方决定。
+func parseX2MCommands(vSlice []any) (commands [][]any, isAllCommands bool) {
+	if len(vSlice) == 0 {
+		return nil, false
+	}
+	for _, v := range vSlice {
+		s, ok := v.([]any)
+		if !ok || len(s) < 1 || len(s) > 3 {
+			return nil, false
+		}
+		if code := utils.ToInt64(s[0]); code < 0 || code > 6 {
+			return nil, false
+		}
+		commands = append(commands, s)
+	}
+	return commands, true
 }
 
 func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {

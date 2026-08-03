@@ -1300,6 +1300,18 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 		if field.IsRelated() {
 			if setted {
 				upd_todo = append(upd_todo, field)
+			} else if isIncludedIds && field.Store() && nullableFields != nil && nullableFields[name] {
+				// 显式 Nullable() 声明过的关系字段允许写 NULL。
+				//
+				// 这里此前无条件 continue,于是**没有任何办法把一个 m2o 外键清空**:
+				// 值传 nil 时 setted 为 false(判定依据就是值非 nil),这一支直接跳过,
+				// 下面那段处理显式空值的 nullableFields 分支永远够不着——写请求发出去、
+				// 不报错、库里纹丝不动。one2many 的解绑(命令 3/5/6)正是靠摘掉子行的
+				// 反向外键实现的,没有这一条它就是个静默无操作。
+				//
+				// 两道闸保证不影响既有行为:必须调用方显式 Nullable(该字段),且字段
+				// 得有真实的列(o2m/m2m 是虚拟关系字段,置空无从谈起)。
+				new_vals[name] = nil
 			}
 
 			continue
