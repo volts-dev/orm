@@ -36,6 +36,47 @@ func Unquote(s string) string {
 	return s
 }
 
+// relScalar 把数据集里取到的**关系值**归一成能进 SQL 的裸标量。
+//
+// 域里引用一个 many2one 列时（`[('attribute_id','=',attribute_id)]`），变量的值
+// 是从当前数据集取的。而经典读之后那一列的值已经不是 id 了，是
+// `{id, name, display_name}` 映射（name_get 路径下则是 `[id, 名称]` 元组）。映射
+// 原样塞进域会一路走到驱动层：
+//
+//	sql: converting argument $1 type: unsupported type map[string]interface {}, a map
+//
+// 而调用方**看不到这个错误**——字段的 OnRead 拿到 error 就提前返回，SetByField 没
+// 执行，于是整个关系字段的键从结果里消失（不是空数组，是键不存在）。真机 2026-08-04：
+// pro.tmpl.attr.item 的 value_ids 就是这么整列空白的，同一轮 OnRead 里 attribute_id
+// 先被展开成映射，value_ids 的域随后引用它。
+//
+// 只归一两种**明确的**关系形状：带 id 键的映射、以及长度为 2 且第二位是字符串的
+// name_get 元组。别动其它切片——`'in'` 的值本来就是切片。
+func relScalar(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		if id, ok := t["id"]; ok {
+			return id
+		}
+	case []any:
+		if len(t) == 2 {
+			if _, ok := t[1].(string); ok {
+				return t[0]
+			}
+		}
+	}
+	return v
+}
+
+// relScalars 对一列值逐个 relScalar。原切片不改（数据集还要用）。
+func relScalars(vals []any) []any {
+	out := make([]any, len(vals))
+	for i, v := range vals {
+		out[i] = relScalar(v)
+	}
+	return out
+}
+
 // String2Domain transfer string domain to a domain object
 func String2Domain(domain string, context *dataset.TDataSet) (*TDomainNode, error) {
 	parser := newDomainParser(domain)
@@ -122,9 +163,9 @@ func parseAny(data any, context *dataset.TDataSet) (*TDomainNode, error) {
 			valus := context.ValueBy(val)
 			if len(valus) > 0 {
 				if len(valus) == 1 {
-					return parseAny(valus[0], context)
+					return parseAny(relScalar(valus[0]), context)
 				}
-				return parseAny(valus, context)
+				return parseAny(relScalars(valus), context)
 			}
 		}
 
@@ -311,10 +352,10 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 						valus := context.ValueBy(item.Val)
 						ln := len(valus)
 						if ln == 1 {
-							list.Push(valus[0])
+							list.Push(relScalar(valus[0]))
 							break
 						} else if ln > 1 {
-							list.Push(valus)
+							list.Push(relScalars(valus))
 							break
 						}
 						list.Push(Unquote(item.Val))
