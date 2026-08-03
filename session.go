@@ -847,6 +847,28 @@ func (self *TSession) _getModel(modelName string, options ...ModelOption) (model
 		// 孤儿：子记录在 system.res_company、父记录在 public.res_partner，之后按
 		// schema 限定去 JOIN 永远连不上，继承字段一律读成空。
 		s.Schema = self.Schema
+
+		// **调用方模型的 Ctx 也必须一起继承**，同一个理由的另一半。
+		//
+		// 上层(vectors)把登录会话挂在模型的 Ctx 上("AuthSession"，见
+		// core/model/model.go 的 SetSession/GetSession)，并据此在创建时盖
+		// tenant_id / create_id / write_id。osv.GetModel 回的是**每次新建**的模型
+		// 包装，Ctx 是空的——于是经这条路建出来的记录一个戳都没有：三列全是 0。
+		//
+		// 这种行**按 id 读得到、按任何带租户条件的读一律读不到**，而写入是成功的、
+		// 全程零报错：用户看到的是"刚加的行保存完就不见了"。真机 2026-08-04：产品
+		// 模板 Prices 页加两条价格规则，落库 tenant_id=create_id=write_id=0，
+		// 列表刷新后空白（o2m 的第一次查询按 product_tmpl_id 能查到它们，随后按 id
+		// 带租户条件的读把它们全滤掉了）。
+		//
+		// 模型包装是每次 GetModel 新建的(_initObject)，所以这里写 Ctx 不会把某个
+		// 请求的会话泄漏给别的请求。
+		if caller := self.Statement.Model; caller != nil {
+			if ctx := caller.Ctx(); ctx != nil {
+				model.Ctx(ctx)
+			}
+		}
+
 		model.Tx(s)
 	}
 
