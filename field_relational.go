@@ -305,8 +305,31 @@ func (self *TOne2ManyField) OnWrite(ctx *TFieldContext) error {
 	inverse := field.RelatedKeyName()
 	inverseField := comodel.GetFieldByName(inverse)
 	if inverseField == nil {
-		return fmt.Errorf("one2many field <%s@%s> inverse field <%s> not found on model <%s>",
+		// 反向字段根本不存在 —— o2m 声明本身是错的。**必须降级成警告,不能报错。**
+		//
+		// 真实例子:`sys.action.view_ids` 声明成 one2many(sys.view, action_id),而
+		// sys.view 上从来没有 action_id 列(Odoo 那边 view_ids 指向的是
+		// ir.actions.act_window.view 这个小模型,不是 ir.ui.view;vectors 移植时接错了
+		// 模型)。registry 模块的 sys_actions_views.xml 等 19 个文件都在给它写
+		// `[(5,0,0),(0,0,{...})]`。
+		//
+		// 这类写入在本方法存在之前一直是**静默无操作**,所以模型声明错了也没人发现。
+		// 一旦在这里返回 error,整条 `<record model="sys.action">` 的创建就失败,registry
+		// 模块装不上 —— 实测:租户 setup 停在 "Installing modules registry..." 再无下文。
+		// 把「模型声明缺陷」升级成「装不上系统」，比原来的无操作坏得多。
+		//
+		// 警告点名了缺陷,数据仍然不写(与历史行为一致)。真正的修法是把 view_ids 指向
+		// 一个每动作一行的视图模型,那是移植层的事,不该由写入路径代劳。
+		log.Warnf("one2many field <%s@%s> declares inverse <%s> which model <%s> does not have — write ignored (fix the field declaration)",
 			field.Name(), field.ModelName(), inverse, field.RelatedModelName())
+		return nil
+	}
+	// 反向键存在但不是指回本表的外键,同样是声明错误,同样只降级不报错。判据与读取侧
+	// (TModel.OneToMany)保持一致:o2o 本质是带唯一约束的 m2o,列是真实存在的,可以接受。
+	if t := inverseField.TypeName(); t != TYPE_M2O && t != TYPE_O2O {
+		log.Warnf("one2many field <%s@%s> inverse <%s@%s> is a %s, not a many2one/one2one back-reference — write ignored",
+			field.Name(), field.ModelName(), inverse, field.RelatedModelName(), t)
+		return nil
 	}
 	// 解绑(命令 3/5/6)的落地方式取决于反向键能否为空:必填时置空这一行就是一条永远
 	// 写不进去的 UPDATE(且真写进去了就是一条谁也认领不了的孤儿),此时按 Odoo 对

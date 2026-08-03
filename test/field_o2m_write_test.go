@@ -319,6 +319,87 @@ func TestOne2ManySetCommandReplaces(t *testing.T) {
 	}
 }
 
+// 反向字段压根不存在的 o2m —— 声明本身就是错的。真实例子:sys.action.view_ids 声明成
+// one2many(sys.view, action_id),而 sys.view 上从来没有 action_id 列。
+type o2mBrokenModel struct {
+	orm.TModel `table:"name('o2m_broken')"`
+	Id         int64  `field:"pk autoincr title('ID') index"`
+	Name       string `field:"varchar()"`
+	// o2m_note 上没有 nonexistent_id 这个字段。
+	GhostIds []int64 `field:"one2many(o2m_note,nonexistent_id) title('Ghosts')"`
+}
+
+// TestOne2ManyBrokenInverseDoesNotFailTheWrite
+//
+// **这是本次实现最贵的一课**:声明错误必须降级成警告,不能让调用方的写入失败。
+//
+// 第一版在反向字段找不到时返回 error。后果不是"这个字段写不进去",而是整条
+// `<record model="sys.action">` 创建失败 → registry 模块装不上 → 租户 setup 停在
+// "Installing modules registry..." 再无下文。全仓 19 个 XML 文件在给 view_ids 写
+// [(5,0,0),(0,0,{...})]，第一个就在 registry 自己的数据文件里。
+//
+// 这类写入在 o2m OnWrite 存在之前一直是静默无操作,所以模型声明错了多年也没人发现。
+// 把「模型声明缺陷」升级成「系统装不上」,比原来的无操作坏得多。
+func TestOne2ManyBrokenInverseDoesNotFailTheWrite(t *testing.T) {
+	ds := &orm.TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "o2m_broken.db")}
+	o, err := orm.New(orm.WithDataSource(ds))
+	if err != nil {
+		t.Fatalf("orm.New: %v", err)
+	}
+	if _, err := o.SyncModel("test", new(o2mOrderModel), new(o2mLineModel), new(o2mNoteModel), new(o2mBrokenModel)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+
+	broken, err := o.GetModel("o2m_broken")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 记录本身必须建得出来 —— 这才是调用方要的东西。
+	ids, err := broken.Records().Create(map[string]any{
+		"name":      "keeps working",
+		"ghost_ids": []any{[]any{0, 0, map[string]any{"body": "never written"}}},
+	})
+	if err != nil {
+		t.Fatalf("反向字段不存在时 create 不该失败(会导致模块装不上): %v", err)
+	}
+	if len(ids) == 0 || ids[0] == nil {
+		t.Fatal("create 未返回 id")
+	}
+
+	got, err := broken.Records().Ids(ids[0]).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Count() != 1 {
+		t.Fatalf("记录应当存在, 实际 %d 条", got.Count())
+	}
+	if name := utils.ToString(got.Record().GetByField("name")); name != "keeps working" {
+		t.Fatalf("name=%q, want %q", name, "keeps working")
+	}
+
+	// 而那条子行**不该**被建出来:声明是坏的,写入照旧不生效(与历史行为一致)。
+	notes, err := o.GetModel("o2m_note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := notes.Records().Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Count() != 0 {
+		t.Fatalf("坏声明不该写出任何子行, 实际 %d 条(sys.view 会被灌进无 arch 的垃圾视图行)", all.Count())
+	}
+
+	// update 侧同理。
+	if _, err := broken.Records().Ids(ids[0]).Write(map[string]any{
+		"name":      "still working",
+		"ghost_ids": []any{[]any{5}},
+	}); err != nil {
+		t.Fatalf("反向字段不存在时 write 不该失败: %v", err)
+	}
+}
+
 // TestOne2ManyNonCommandValueIsIgnored 裸 id 列表没有明确语义(当"设置成这批"会把不在
 // 列表里的子行全删掉,当"追加"又与 Odoo 不一致),历史行为是无操作。这里锁死"不动数据",
 // 免得日后有人顺手给它加上破坏性语义。
