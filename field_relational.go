@@ -483,10 +483,34 @@ func toStringMap(v any) (map[string]any, error) {
 //
 // 走 comodel.Read 而不是 comodel.Records():前者经 TModel.Read→Clone 继承事务,
 // 后者是一条全新连接上的会话——父记录和刚写进去的子行此刻都还没提交,读不到。
+// o2mChildIds 列出挂在 parentId 名下的子行 id。
+//
+// **调用方拿这批 id 去删除/解绑，所以这里多返回一个都是数据损毁。** 因此本函数不
+// 信任"域一定落到了 SQL 上"，而是把反向键一起读回来，在 Go 侧逐行核对归属。
+//
+// 真机 2026-08-04（kylin，产品模板 Prices 页）：删掉列表里的一行，四行全没了。日志：
+//
+//	SELECT "pro_pricelist_item"."id" FROM system.pro_pricelist_item
+//	  WHERE tenant_id = $1 AND (公司可见性规则)        ← 父记录条件不见了
+//	DELETE FROM "system"."pro_pricelist_item" WHERE "id" in ($1,$2,$3,$4)
+//
+// 那次恰好四行都属于同一个产品，所以看着像"这张列表被清空"；换个产品也有价格规则，
+// 一样会被删——是**跨记录的销毁**。父记录条件为什么会丢还没查清（纯 orm 模型、
+// 以及子模型带记录规则两种情形都复现不出来，见 field_o2m_scope_test.go /
+// field_o2m_recordrule_test.go），但无论原因是什么，这一步都不该把整张表交出去。
 func o2mChildIds(comodel IModel, inverse string, parentId any) ([]any, error) {
+	// 父 id 为空时读出来的必然是整张表。宁可报错也不能让调用方拿去删。
+	if parentId == nil || utils.IsBlank(parentId) {
+		return nil, fmt.Errorf(
+			"one2many: refusing to list children of %s with a blank parent id — the caller deletes/detaches what this returns",
+			comodel.String())
+	}
+
+	idField := comodel.IdField()
 	ds, err := comodel.Read(&ReadRequest{
 		Domain: domain.New(inverse, "=", parentId),
-		Fields: []string{comodel.IdField()},
+		// 反向键一起读回来，下面自己核对——只读 id 的话，域丢了也看不出来。
+		Fields: []string{idField, inverse},
 		Limit:  -1,
 	})
 	if err != nil {
@@ -495,7 +519,26 @@ func o2mChildIds(comodel IModel, inverse string, parentId any) ([]any, error) {
 	if ds == nil || ds.Count() == 0 {
 		return nil, nil
 	}
-	return ds.Keys(), nil
+
+	want := utils.ToString(parentId)
+	ids := make([]any, 0, ds.Count())
+	foreign := 0
+	ds.Range(func(_ int, rec *dataset.TRecordSet) error {
+		if utils.ToString(rec.GetByField(inverse)) != want {
+			foreign++
+			return nil
+		}
+		ids = append(ids, rec.GetByField(idField))
+		return nil
+	})
+	if foreign > 0 {
+		// 走到这里说明域没落到 SQL 上。已经挡住了，但必须留声——否则下次只会以
+		// 另一种形式再炸一遍。
+		log.Warnf("one2many: read of %s children ignored the parent filter (%s = %v); "+
+			"dropped %d row(s) belonging to other parents before the caller could delete them",
+			comodel.String(), inverse, parentId, foreign)
+	}
+	return ids, nil
 }
 
 // o2mDetach 把子行从父记录上摘下来:反向键必填时删除,否则置空外键留下记录本身。
