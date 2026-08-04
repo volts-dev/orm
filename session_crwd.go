@@ -119,14 +119,49 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 
 	// get id list — merge explicit args with any ids already set via Ids()
 	// flattenIds 使 Create 返回的 []any 可直接回喂给 Delete()
-	if len(ids) > 0 {
+	//
+	// **调用方点没点名，必须在 flatten 之前记下来。** 点了名却一个都没剩（传进来的
+	// 全是 nil/空），语义是"删这几条"而不是"删所有能看见的"——后者会清空整张表。
+	namedIds := len(ids) > 0
+	if namedIds {
 		self.Statement.IdParam = append(self.Statement.IdParam, flattenIds(ids)...)
 	}
 	ids = self.Statement.IdParam
 
+	// 空值 id 一律剔除。它们一行都删不掉，却足以把"点名删除"伪装成"按域删除"——
+	// 下面那条 len(ids)==0 的回退会把当前域下的全部行选出来删掉。
+	if len(ids) > 0 {
+		kept := make([]any, 0, len(ids))
+		for _, id := range ids {
+			if id != nil && !utils.IsBlank(id) {
+				kept = append(kept, id)
+			}
+		}
+		if len(kept) != len(ids) {
+			namedIds = true
+			ids = kept
+			self.Statement.IdParam = kept
+		}
+	}
+
 	// Phase 2: safety guard — block no-condition deletes unless explicitly opted-in
+	//
+	// ⚠ hasCondition() **挡不住租户场景**：上层(vectors core/model 的 withSession)会在
+	// BeforeSession 里往会话追加 tenant_id/company_id 记录规则，于是"有条件"恒成立，
+	// 这道保险形同虚设。真机 2026-08-04：前端删一行发来的 id 是空的，这里就顺着下面
+	// 那条"没有 id 就按域全选"把该租户可见的**每一行**都删了：
+	//     SELECT id FROM system.pro_pricelist_item WHERE tenant_id=$1 AND (公司规则)
+	//     DELETE FROM system.pro_pricelist_item WHERE id in ($1,$2)
+	// 记录规则是**可见性**，不是调用方给的删除范围，不能当作"有意为之"的证据。
 	if !self.allowUnsafe && !self.hasCondition() {
 		return 0, errors.ErrUnsafe
+	}
+
+	// 点了名却全是空值:拒绝。绝不能退化成"按域删"。
+	if namedIds && len(ids) == 0 {
+		return 0, fmt.Errorf(
+			"%w: delete on %s was called with ids that are all blank — refusing to fall back to deleting everything the current filter matches",
+			errors.ErrUnsafe, self.Statement.Model.String())
 	}
 
 	if len(ids) == 0 {

@@ -337,7 +337,21 @@ func (self *TOne2ManyField) OnWrite(ctx *TFieldContext) error {
 	detachByDelete := inverseField.Required()
 
 	for _, cmd := range commands {
-		switch code := utils.ToInt64(cmd[0]); code {
+		code := utils.ToInt64(cmd[0])
+		// 点名某一行的命令(1 改 / 2 删 / 3 解绑 / 4 链接)必须真的带着 id。
+		//
+		// 前端把一条**没有 id** 的行（列表里那种所有字段都空、只剩一个「—」的幽灵行）
+		// 交给删除时，发来的就是 [2, null]。往下传的后果不是"删不掉"，而是 id 列表变空、
+		// TSession.Delete 退化成"按当前域删"——而当前域只有租户/公司记录规则，于是该租户
+		// 可见的**每一行**都被删掉。真机 2026-08-04 就这么丢过两批价格规则。
+		if code >= 1 && code <= 4 {
+			if len(cmd) < 2 || cmd[1] == nil || utils.IsBlank(cmd[1]) {
+				return fmt.Errorf(
+					"one2many <%s@%s>: command %d carries no record id (%v) — refusing, an id-less delete/unlink wipes every visible row",
+					field.Name(), field.ModelName(), code, cmd)
+			}
+		}
+		switch code {
 		case 0: // Create (0, 0, vals)
 			vals, err := x2mCommandVals(cmd, field)
 			if err != nil {
