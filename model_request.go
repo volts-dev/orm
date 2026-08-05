@@ -596,9 +596,9 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	//group, err := relateModel.NameGet(ids)
 	rs := relateModel.Records()
 	// 同 ManyToOne：Records() 新会话不继承调用方 schema，schema 隔离租户下子读取
-	// 会落错 schema 查空。
-	if ctx.Session != nil {
-		rs.SetSchema(ctx.Session.Schema)
+	// 会落错 schema 查空。调用方没传 Session 时回落到接收者自己的会话，见 relSchema。
+	if schema, ok := self.relSchema(ctx); ok {
+		rs.SetSchema(schema)
 	}
 	rs = rs.Ids(ids)
 	if ctx.ClassicRead {
@@ -613,6 +613,43 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 }
 
 // 获取外键所有Child关联记录
+// relSchema 决定关系字段的**子读取**该落在哪个 schema。
+//
+// 子读取一律走 `relateModel.Records()`，而 Records() 起的是全新会话、不继承任何
+// schema。非默认 schema 的租户（VectorsSystem 用 "system"）下，子读取就会去
+// search_path 的默认 schema（通常 public）里找 comodel 的行——找不到，且**不报错**。
+//
+// 原先四处子读取都写成 `if ctx.Session != nil { SetSchema(ctx.Session.Schema) }`，
+// 只在调用方**显式传了 Session** 时才成立。而 `Session` 是 TFieldContext 的可选字段，
+// 业务代码普遍只填 Model/Ids/Field（product 模块 16 处调用里只有 1 处传了）。于是在
+// system schema 下：ptav 写进 system、`_createVariantIds` 却去 public 找它，读回空集
+// ⇒ 变体组合恒 0、每保存一次多出一个没有组合的裸变体。同一份代码在 public 租户上
+// 毫无症状，因为漏掉的前缀恰好就是默认值。
+//
+// 兜底：调用方没传 Session 时，用**接收者模型自己绑定的会话**（Tx 设进来的那个）。
+// 关系读取的接收者一定是从当前会话 GetModel 出来的克隆，它的 schema 就是调用方的
+// schema。空串不覆盖，保持"跟随 search_path"的原语义。
+// relContext 取子读取该带的 context。ctx.Model 优先（调用方指明的关系宿主），
+// 没填时用接收者自己的——两者通常是同一个模型，但 TFieldContext.Model 是可选字段。
+func (self *TModel) relContext(ctx *TFieldContext) context.Context {
+	if ctx != nil && ctx.Model != nil {
+		if c := ctx.Model.Options().Context; c != nil {
+			return c
+		}
+	}
+	return self.Options().Context
+}
+
+func (self *TModel) relSchema(ctx *TFieldContext) (string, bool) {
+	if ctx != nil && ctx.Session != nil {
+		return ctx.Session.Schema, true
+	}
+	if tx := self.Transaction(); tx != nil && tx.Schema != "" {
+		return tx.Schema, true
+	}
+	return "", false
+}
+
 func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	ds := ctx.Dataset
 	var ids []any
@@ -635,7 +672,11 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	relModelName := field.RelatedModelName()
 	relFieldName := field.RelatedKeyName()
-	relateModel, err := self.orm.GetModel(relModelName)
+	// 带上调用方模型的 context：vectors 的 routeSchema 钩子靠 context 里的会话认租户，
+	// 不传就拿不到 schema —— 与上面 ManyToOne 的取法保持一致。ctx.Model 可能为空
+	// （只填了 Dataset/Field 的调用方），此时回落到接收者自己的 context。
+	relOpts := []ModelOption{WithContext(self.relContext(ctx))}
+	relateModel, err := self.orm.GetModel(relModelName, relOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -649,9 +690,10 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	session := relateModel.Records()
 	// 同 ManyToOne:Records() 新会话不继承调用方 schema,非默认 schema 租户下子读取
-	// 会落错 schema,o2m 列表悄悄返回空。
-	if ctx.Session != nil {
-		session.SetSchema(ctx.Session.Schema)
+	// 会落错 schema,o2m 列表悄悄返回空。调用方没传 Session 时回落到接收者自己的
+	// 会话,见 relSchema。
+	if schema, ok := self.relSchema(ctx); ok {
+		session.SetSchema(schema)
 	}
 	session.UseNameGet = ctx.UseNameGet /* 使用 */
 	if len(ctx.SubFields) > 0 {
@@ -702,8 +744,8 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			// 的租户(如 VectorsSystem 用 "system")下,子读取会落到 search_path 默认
 			// schema(通常 public)查 comodel,找不到匹配行——classic 内嵌悄悄失败,
 			// 字段只剩裸 id(不报错,前端表现为"m2o 读不出详情/写完读不到")。
-			if ctx.Session != nil {
-				sub.SetSchema(ctx.Session.Schema)
+			if schema, ok := self.relSchema(ctx); ok {
+				sub.SetSchema(schema)
 			}
 			if len(ctx.Fields) > 0 {
 				// 限定 comodel 列范围(如仅 display_name)；id 必须带上以便按主键分组回填。
@@ -810,12 +852,15 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		ctx.Session.setsLock.RLock()
 		sess.Sets = ctx.Session.Sets
 		ctx.Session.setsLock.RUnlock()
-		// NewSession 起的新会话不继承调用方 schema。非默认 schema 租户(如
-		// VectorsSystem 用 "system")下,下面手工拼接的 FROM/JOIN 裸表名(不经过
-		// where_calc/qualifiedTable 那套 schema 限定)会落到 search_path 默认
-		// schema(通常 public),m2m 悄悄查空——company_ids/group_ids 之类字段读出
-		// 来是 []而非真实数据(不报错,表现为"关系字段没有返回")。
-		sess.SetSchema(ctx.Session.Schema)
+	}
+	// NewSession 起的新会话不继承调用方 schema。非默认 schema 租户(如
+	// VectorsSystem 用 "system")下,下面手工拼接的 FROM/JOIN 裸表名(不经过
+	// where_calc/qualifiedTable 那套 schema 限定)会落到 search_path 默认
+	// schema(通常 public),m2m 悄悄查空——company_ids/group_ids 之类字段读出
+	// 来是 []而非真实数据(不报错,表现为"关系字段没有返回")。
+	// 调用方没传 Session 时回落到接收者自己的会话,见 relSchema。
+	if schema, ok := self.relSchema(ctx); ok {
+		sess.SetSchema(schema)
 	}
 
 	//table_name := field.comodel_name//sess.Statement.TableName()
