@@ -825,6 +825,9 @@ func (self *TField) Attributes(ctx *TTagContext) map[string]any {
 		"groups":            self.permissionGroups,
 		"domain":            self.domain,
 		"index":             self.isIndexed,
+		// translate 要下发给前端：可译字段在表单里会多一个语言角标（点开逐语言填译文）。
+		// 不下发的话前端无从判断哪些字段该给这个入口 —— 而这个标记本来就只有服务端知道。
+		"translate":         self.Translate(),
 		"isInherited":       self.isInherited,
 		"relationModelName": self.relatedModelName,
 		"relationKeyName":   self.relatedKeyName,
