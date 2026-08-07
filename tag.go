@@ -3,6 +3,7 @@ package orm
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/volts-dev/utils"
@@ -44,6 +45,7 @@ const (
 	TAG_AUTO       = "autoincr"
 	TAG_TYPE       = "type"
 	TAG_SIZE       = "size"
+	TAG_DIGITS     = "digits" // 显示精度：digits(16,3) 或 digits('Product Unit of Measure')
 	TAG_TITLE      = "title" // #字段显示名称
 	TAG_HELP       = "help"  // #字段描述
 	TAG_CREATED    = "created"
@@ -124,6 +126,7 @@ func init() {
 		TAG_AUTO:           tag_auto,
 		TAG_TYPE:           tag_type,
 		TAG_SIZE:           tag_size,
+		TAG_DIGITS:         tag_digits,
 		TAG_TITLE:          tag_title,
 		TAG_HELP:           tag_help,
 		TAG_CREATED:        tag_created,
@@ -532,6 +535,43 @@ func tag_size(ctx *TTagContext) error {
 	if len(params) > 0 {
 		field.size = utils.ToInt(params[0])
 	}
+	return nil
+}
+
+// tag_digits 解析显示精度，对齐 Odoo 的 `digits=` 两种写法：
+//
+//	digits(16,3)                        固定位数
+//	digits('Product Unit of Measure')   指向 decimal.precision 的一条用途，位数由管理员改
+//
+// **不动 SqlType**：这是显示精度，不是列类型。写成 `DOUBLE(16,3)` 在 PG 里是非法 DDL，
+// 而这个值唯一的消费者是界面。
+//
+// 位数写坏了（非数字、只给一个数）当作没声明——一个笔误不该把一列悄悄变成 0 位小数。
+func tag_digits(ctx *TTagContext) error {
+	field := ctx.Field.Base()
+	params := ctx.Params
+	if len(params) == 0 {
+		return nil
+	}
+
+	first := strings.Trim(strings.TrimSpace(params[0]), "'")
+	if len(params) == 1 {
+		// 单参数：数字当 scale（digits(3) = 3 位小数），其余当用途名
+		if n, err := strconv.Atoi(first); err == nil {
+			field.digits = []int{16, n}
+			return nil
+		}
+		field.digitsUsage = first
+		return nil
+	}
+
+	precision, err1 := strconv.Atoi(first)
+	scale, err2 := strconv.Atoi(strings.TrimSpace(params[1]))
+	if err1 != nil || err2 != nil || scale < 0 {
+		log.Warnf("field %s: invalid digits(%s) —— 忽略", field.Name(), strings.Join(params, ","))
+		return nil
+	}
+	field.digits = []int{precision, scale}
 	return nil
 }
 

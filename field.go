@@ -256,6 +256,15 @@ type (
 		description string   // 字段的长描述（help text）
 		label       string   // 字段在 UI 表单中显示的名字
 		size        int      // 长度或精度约束
+		// digits 是**显示精度**（Odoo 的 `digits=(16, 3)`），不是列类型的一部分——
+		// 刻意不写进 SqlType：`DOUBLE(16,3)` 在 PG 里根本不是合法 DDL，而这个值的
+		// 唯一用途是告诉界面「这一列写到小数点后几位」。未声明为 nil，前端据此回落缺省。
+		digits []int // [precision, scale]，未声明为 nil
+		// digitsUsage 是 Odoo 的另一种写法：`digits='Product Unit of Measure'`，
+		// 指向 decimal.precision 表里的一条用途记录，位数由管理员在界面上改。
+		// orm 不认识那张表（它是业务层的模型），所以这里只把名字带出去，
+		// 由上层（vectors 的 FieldsGet）解析成实际位数。
+		digitsUsage string
 		sortable    bool     // 是否可排序
 		searchable  bool     // 是否可搜索
 		typeName    string   // ORM 层字段类型标识（最终存入 dataset）
@@ -542,6 +551,17 @@ func (self *TField) OutputAs() string { return self.outputAs }
 
 func (self *TField) GroupOperator() string { return self.groupOperator }
 
+// Digits 返回字段声明的显示精度 [precision, scale]；未声明返回 nil。
+func (self *TField) Digits() []int { return self.digits }
+
+// SetDigits 设置显示精度。上层解析 decimal.precision 的用途名后回填用。
+func (self *TField) SetDigits(precision, scale int) {
+	self.digits = []int{precision, scale}
+}
+
+// DigitsUsage 返回 `digits('Product Unit of Measure')` 里的用途名；未声明返回空串。
+func (self *TField) DigitsUsage() string { return self.digitsUsage }
+
 // SetOutputAs sets the output coercion type identifier.
 func (self *TField) SetOutputAs(dataType string) { self.outputAs = dataType }
 
@@ -805,6 +825,20 @@ func (self *TField) UpdateDb(ctx *TTagContext) {
 
 // Attributes returns a map describing the field's published attributes.
 func (self *TField) Attributes(ctx *TTagContext) map[string]any {
+	attrs := self.attributes()
+	// digits 只在字段**显式声明过**时才出现在元数据里。缺席与「[0 0]」是两回事：
+	// 前者让前端按类型回落缺省位数，后者会把一列金额压成整数显示。所以这两个键
+	// 不存在时就不要出现——nil 切片放进 map[string]any 依然是个「存在的键」。
+	if len(self.digits) == 2 {
+		attrs["digits"] = self.digits
+	}
+	if self.digitsUsage != "" {
+		attrs["digits_usage"] = self.digitsUsage
+	}
+	return attrs
+}
+
+func (self *TField) attributes() map[string]any {
 	return map[string]any{
 		"name":              self.name,
 		"store":             self.store,
