@@ -265,7 +265,17 @@ type (
 		// orm 不认识那张表（它是业务层的模型），所以这里只把名字带出去，
 		// 由上层（vectors 的 FieldsGet）解析成实际位数。
 		digitsUsage string
-		sortable    bool     // 是否可排序
+		// minDisplayDigits 是 Odoo 19 的 `min_display_digits=`：**最少**显示几位，
+		// 上限由值本身的有效位数决定。语义与 digits 相反——digits 是「至多也至少
+		// 这么多位」（并且写库时按它四舍五入），min_display_digits 是「至少这么多位，
+		// 更精确的值原样显示」：min=2 时 `3.1` → `3.10`，而 `3.1234` → `3.1234`。
+		// Odoo 19 的单价字段（sale/purchase 的 price_unit、product 的 list_price 等）
+		// 全部用它而不是 digits，正是为了不把用户填的第 3、4 位小数四舍五入掉。
+		// 未声明为 nil（0 是合法声明，不能用零值表达「没写」）。
+		minDisplayDigits *int
+		// minDisplayDigitsUsage 同 digitsUsage，指向 decimal.precision 的一条用途。
+		minDisplayDigitsUsage string
+		sortable              bool     // 是否可排序
 		searchable  bool     // 是否可搜索
 		typeName    string   // ORM 层字段类型标识（最终存入 dataset）
 		//defaultValue     any            // 默认值字符串
@@ -562,6 +572,15 @@ func (self *TField) SetDigits(precision, scale int) {
 // DigitsUsage 返回 `digits('Product Unit of Measure')` 里的用途名；未声明返回空串。
 func (self *TField) DigitsUsage() string { return self.digitsUsage }
 
+// MinDisplayDigits 返回字段声明的最少显示位数；未声明返回 nil（0 是合法值）。
+func (self *TField) MinDisplayDigits() *int { return self.minDisplayDigits }
+
+// SetMinDisplayDigits 设置最少显示位数。上层解析 decimal.precision 的用途名后回填用。
+func (self *TField) SetMinDisplayDigits(n int) { self.minDisplayDigits = &n }
+
+// MinDisplayDigitsUsage 返回 `min_display_digits('Product Price')` 里的用途名；未声明返回空串。
+func (self *TField) MinDisplayDigitsUsage() string { return self.minDisplayDigitsUsage }
+
 // SetOutputAs sets the output coercion type identifier.
 func (self *TField) SetOutputAs(dataType string) { self.outputAs = dataType }
 
@@ -834,6 +853,12 @@ func (self *TField) Attributes(ctx *TTagContext) map[string]any {
 	}
 	if self.digitsUsage != "" {
 		attrs["digits_usage"] = self.digitsUsage
+	}
+	if self.minDisplayDigits != nil {
+		attrs["min_display_digits"] = *self.minDisplayDigits
+	}
+	if self.minDisplayDigitsUsage != "" {
+		attrs["min_display_digits_usage"] = self.minDisplayDigitsUsage
 	}
 	return attrs
 }

@@ -46,6 +46,9 @@ const (
 	TAG_TYPE       = "type"
 	TAG_SIZE       = "size"
 	TAG_DIGITS     = "digits" // 显示精度：digits(16,3) 或 digits('Product Unit of Measure')
+	// TAG_MIN_DIGITS 是**最少**显示位数：min_display_digits(2) 或
+	// min_display_digits('Product Price')。与 digits 的区别见 TField.minDisplayDigits。
+	TAG_MIN_DIGITS = "min_display_digits"
 	TAG_TITLE      = "title" // #字段显示名称
 	TAG_HELP       = "help"  // #字段描述
 	TAG_CREATED    = "created"
@@ -127,6 +130,7 @@ func init() {
 		TAG_TYPE:           tag_type,
 		TAG_SIZE:           tag_size,
 		TAG_DIGITS:         tag_digits,
+		TAG_MIN_DIGITS:     tag_min_display_digits,
 		TAG_TITLE:          tag_title,
 		TAG_HELP:           tag_help,
 		TAG_CREATED:        tag_created,
@@ -558,6 +562,10 @@ func tag_digits(ctx *TTagContext) error {
 	if len(params) == 1 {
 		// 单参数：数字当 scale（digits(3) = 3 位小数），其余当用途名
 		if n, err := strconv.Atoi(first); err == nil {
+			if n < 0 {
+				log.Warnf("field %s: invalid digits(%s) —— 忽略", field.Name(), first)
+				return nil
+			}
 			field.digits = []int{16, n}
 			return nil
 		}
@@ -572,6 +580,36 @@ func tag_digits(ctx *TTagContext) error {
 		return nil
 	}
 	field.digits = []int{precision, scale}
+	return nil
+}
+
+// tag_min_display_digits 解析 `min_display_digits(2)` / `min_display_digits('Product Price')`。
+//
+// 与 tag_digits 同形，只接受**一个**参数：这是位数下限，没有 (precision, scale) 那种
+// 二元组写法。写坏了一律当没声明——一个笔误若被当成某个位数，整列价格会静默换个样子，
+// 没有报错，只有不对的显示。
+func tag_min_display_digits(ctx *TTagContext) error {
+	field := ctx.Field.Base()
+	params := ctx.Params
+	if len(params) == 0 {
+		return nil
+	}
+	if len(params) > 1 {
+		log.Warnf("field %s: min_display_digits 只接受一个参数，实得 (%s) —— 忽略",
+			field.Name(), strings.Join(params, ","))
+		return nil
+	}
+
+	first := strings.Trim(strings.TrimSpace(params[0]), "'")
+	if n, err := strconv.Atoi(first); err == nil {
+		if n < 0 {
+			log.Warnf("field %s: invalid min_display_digits(%s) —— 忽略", field.Name(), first)
+			return nil
+		}
+		field.minDisplayDigits = &n
+		return nil
+	}
+	field.minDisplayDigitsUsage = first
 	return nil
 }
 
