@@ -68,6 +68,7 @@ const (
 	TAG_DOMAIN         = "domain"     //
 	TAG_ATTACHMENT     = "attachment" // #使用集中存储二进制模式 可以是表/目录/云上
 	TAG_SELECTABLE     = "selectable" //
+	TAG_GROUPS         = "groups"     // #groups('base.group_user') 只有这些组的用户才能读写该字段，逗号分隔的组 xmlid
 	TAG_DELETED        = "deleted"    // TODO
 	TAG_VER            = "version"    // TODO
 	TAG_SETTER         = "setter"     // # 函数赋值
@@ -145,7 +146,7 @@ func init() {
 		TAG_DOMAIN:     tag_domain,
 		TAG_ATTACHMENT: tag_attachment,
 		//TAG_SELECTABLE] =
-		//TAG_GROUPS] = "groups"         // #groups='base.group_user' CSV list of ext IDs of groups
+		TAG_GROUPS:  tag_groups,
 		TAG_DELETED: tag_deleted,
 		TAG_VER:     tag_ver,
 
@@ -565,6 +566,38 @@ func tag_store(ctx *TTagContext) error {
 	} else {
 		field.store = true
 	}
+	return nil
+}
+
+// tag_groups 解析 `groups(...)`：限制哪些权限组能读写该字段。
+//
+// 这个 tag 此前只在处理器表里躺着一行注释，从未被解析——permissionGroups 恒为空串，
+// Groups() 恒返回 ""，于是任何写了 `groups(...)` 的字段实际上对所有人可见。
+// 消费方在上层（vectors 的字段级权限）；这里只负责把声明变成元数据。
+//
+// 三种写法都要认，存量声明两种写法各有一处：
+//
+//	groups(registry.group_user)          → "registry.group_user"
+//	groups('registry.group_user')        → "registry.group_user"
+//	groups('a.g1', 'b.g2') / groups(a,b) → "a.g1,b.g2"
+//
+// 多个组之间是 **OR**（属于其中任一组即可访问），与 Odoo 一致。
+func tag_groups(ctx *TTagContext) error {
+	field := ctx.Field.Base()
+
+	parts := make([]string, 0, len(ctx.Params))
+	for _, p := range ctx.Params {
+		// 参数可能自带引号，也可能一个参数里就写了逗号分隔的多个组。
+		for _, one := range strings.Split(p, ",") {
+			one = strings.TrimSpace(one)
+			one = strings.Trim(one, "'\"")
+			one = strings.TrimSpace(one)
+			if one != "" {
+				parts = append(parts, one)
+			}
+		}
+	}
+	field.permissionGroups = strings.Join(parts, ",")
 	return nil
 }
 
