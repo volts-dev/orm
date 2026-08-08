@@ -170,6 +170,15 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 		if err != nil {
 			return 0, err
 		}
+	} else {
+		// 点名删除同样要过条件：下面的 DELETE 只带 `WHERE id in (...)`，
+		// 会话上累积的 tenant_id / 行级权限条件一条都不进 SQL。
+		// 按域删走 _search 天然带条件，按 id 删必须在这里补。见 scopeIdsByDomain。
+		scoped, err := self.scopeIdsByDomain(ids)
+		if err != nil {
+			return 0, err
+		}
+		ids = scoped
 	}
 	expectRowCount := int64(len(ids))
 
@@ -564,6 +573,21 @@ func (self *TSession) _write(src any) (int64, error) {
 	if includePkey {
 		from_clause = self.Statement.qualifiedTable(model.Table())
 
+		// 点名 id 不等于绕过条件：下面拼的 SQL 只有 `WHERE id IN (...)`，
+		// Where()/Domain() 累积的限制一条都不进去。多租户的 tenant_id 过滤与
+		// 行级权限都是"往会话追加条件"实现的，不在这里收窄 ids 就等于按 id
+		// 写可以改到本会话根本看不见的行。详见 scopeIdsByDomain。
+		scoped, err := self.scopeIdsByDomain(ids)
+		if err != nil {
+			return 0, err
+		}
+		if len(scoped) == 0 {
+			// 目标行全部在可见范围之外：什么也不改。
+			return 0, nil
+		}
+		ids = scoped
+		self.Statement.IdParam = scoped
+
 	} else if self.Statement.domain.Count() > 0 {
 		query, err := self.Statement.where_calc(self.Statement.domain, false, nil)
 		if err != nil {
@@ -936,10 +960,18 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		order_clause, limit_clause, offset_clause, groupby_clause string
 		where_clause_params []any
 	)
-	// 生成查询条件
-	// 当指定了主键其他查询条件将失效
+	// 生成查询条件：点名的 id 与既有条件**AND 叠加**，不是取代。
+	//
+	// 这里原本先 domain.Clear() 再放 id 条件（注释写着"当指定了主键其他查询条件将失效"）。
+	// 那等于：只要调用方给了 id，会话上累积的一切限制统统作废——多租户的
+	// `tenant_id = ?`、公司可见性、行级权限的规则条件，全部不进 SQL。
+	// 后果是**按 id 就能读到任何一行**：读列表被正确过滤，按 id 精确读却全都读得到。
+	// 真栈 2026-08-08：商家 A 按 Domain 读只看见自己的 stock.quant（正确），
+	// 同一会话按 Ids 读商家 B 的行照样返回（越权）。写/删侧的同类问题见 scopeIdsByDomain。
+	//
+	// IN 本身就是 AND 追加（domain.TDomainNode.IN → OP(AND_OPERATOR, ...)），
+	// 所以去掉 Clear 即可，语义变成"这些 id 里我看得见的那些"。
 	if len(self.Statement.IdParam) != 0 {
-		self.Statement.domain.Clear() // 清楚其他查询条件
 		self.Statement.domain.IN(self.Statement.Model.IdField(), self.Statement.IdParam...)
 	}
 
