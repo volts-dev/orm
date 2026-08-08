@@ -150,6 +150,20 @@ func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 			fieldValue := record.GetByField(field.RelatedKeyName())
 			grp := group[fieldValue]
 
+			// 关联行没读回来：**跳过这一条，不能崩**。
+			//
+			// 下面直接 grp.Count()/grp.Record() 会对 nil 解引用，整个请求变成 panic。
+			// 而"读不回来"在真实数据里很常见，且都不是本记录的错：
+			//   - 悬空外键（对方被删/数据导入残留）
+			//   - 空/哨兵值（本仓空 many2one 落库是 -1，不是 NULL）
+			//   - 子读取被上层的行级权限或租户过滤挡掉
+			// 真机 2026-08-08：res.company 的 classic 读（partner_id 是 one2one）
+			// 必崩，表现为"公司菜单打不开"，日志里只有一行 recover 加一段栈。
+			// 一条读不出来的关联行应当让那个字段留空，而不是让整页数据消失。
+			if grp == nil || grp.Count() == 0 {
+				return nil
+			}
+
 			if grp.Count() > 1 {
 				return fmt.Errorf(
 					"model %s's has more than 1 record for %s@%s OneToOne Id %v",

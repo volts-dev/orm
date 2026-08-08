@@ -154,6 +154,29 @@ func (self *TQuery) getSql() (fromClause, whereClause string, whereClauseParams 
 
     :param extra_params: a list of parameters for the `extra` condition.
 """*/
+// hasAlias 判断 FROM 列表里是否已经有这个表别名。
+//
+// **必须按别名比，不能比整条 from 语句**。同一个别名会被两条路径加进来：
+// statement.go 的 where_calc 用 qualifiedTable 拼（`system."res_partner" as "x"`），
+// 这里用 generate_table_alias 拼（`"system"."res_partner" as "x"`）——两串不相等
+// 但别名相同，按整串去重就漏掉，FROM 里于是出现两个同名别名，PostgreSQL 直接报
+//
+//	pq: table name "res_company__partner_id" specified more than once (42712)
+//
+// 只在**非默认 schema** 的租户上炸：schema 为空时两串恰好相等，去重才碰巧生效。
+// 真机 2026-08-08 由超级租户（schema=system）的公司菜单撞出。
+func (self *TQuery) hasAlias(alias string) bool {
+	// 两侧都去掉 schema 前缀再比：没有 " as " 的条目，别名就是表名本身，
+	// 而它可能带着 `system.` 前缀（qualifiedTable 的产物）。
+	want := unqualifyAlias(alias)
+	for _, t := range self.tables {
+		if _, a := get_alias_from_query(t); unqualifyAlias(a) == want {
+			return true
+		}
+	}
+	return false
+}
+
 // 添加目标表到当前表
 func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extra, extra_params map[string]any) (string, string) {
 	// (lhs.lhs_col = table.col)
@@ -166,7 +189,7 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 	alias, alias_statement := generate_table_alias(lhs, [][]string{{table, link}}, self.session.Schema)
 
 	if implicit {
-		if utils.IndexOf(alias_statement, self.tables...) == -1 {
+		if !self.hasAlias(alias) {
 			self.tables = append(self.tables, alias_statement)
 			condition := fmt.Sprintf(`("%s"."%s" = "%s"."%s")`, lhs, lhs_col, alias, col)
 			self.where_clause = append(self.where_clause, condition)
@@ -177,7 +200,7 @@ func (self *TQuery) addJoin(connection []string, implicit bool, outer bool, extr
 	} else {
 		//aliases := self._get_table_aliases()
 		// assert lhs in aliases, "Left-hand-side table %s must already be part of the query tables %s!" % (lhs, str(self.tables))
-		if utils.IndexOf(alias_statement, self.tables...) != -1 {
+		if self.hasAlias(alias) {
 			// already joined, must ignore (promotion to outer and multiple joins not supported yet)
 		} else {
 			// add JOIN
