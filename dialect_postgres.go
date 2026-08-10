@@ -919,6 +919,11 @@ func (db *postgres) GetSqlType(field IField) string {
 		res = Varchar
 	case Binary, VarBinary, TinyBlob, Blob, MediumBlob, LongBlob:
 		return Bytea
+	case Json, Jsonb:
+		// 直接 return：往下走会把 c.size 拼成 `JSONB(255)`，Postgres 语法错。
+		// json 与 jsonb 都落 jsonb——json 只保留原文（含空白与重复键），不能建 GIN，
+		// 对本仓唯一的用途（properties）没有价值。
+		return Jsonb
 	case Double:
 		return "DOUBLE PRECISION"
 	default:
@@ -1270,8 +1275,12 @@ func (db *postgres) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 		unique = " UNIQUE"
 	}
 	idxName := index.GetName(tableName)
-	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v (%v)", unique,
-		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName),
+	var using string
+	if index.Type == GinType {
+		using = " USING GIN"
+	}
+	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v%s (%v)", unique,
+		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName), using,
 		quoter.Join(index.Cols, ","))
 }
 
@@ -1656,9 +1665,14 @@ func parsePgIndex(tableName, indexName, indexdef string) (index *TIndex, skip bo
 	}
 
 	var indexType int
-	if strings.HasPrefix(indexdef, "CREATE UNIQUE INDEX") {
+	switch {
+	case strings.HasPrefix(indexdef, "CREATE UNIQUE INDEX"):
 		indexType = UniqueType
-	} else {
+	case strings.Contains(indexdef, " USING gin "):
+		// 认不出 GIN 的话，反查回来是 IndexType、模型上声明的是 GinType，两者
+		// Equal 判否 —— 每次启动都 DROP 再 CREATE 一遍整个 GIN 索引（大表上是分钟级）。
+		indexType = GinType
+	default:
 		indexType = IndexType
 	}
 

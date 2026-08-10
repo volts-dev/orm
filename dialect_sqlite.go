@@ -95,6 +95,11 @@ func (db *sqlite) GetSqlType(field IField) string {
 	if c.IsAutoIncrement() {
 		return "INTEGER"
 	}
+	if t == Json || t == Jsonb {
+		// SQLite 按列类型名的**子串**判定亲和性："JSONB" 一个规则都不命中，
+		// 落到 NUMERIC 亲和——存 JSON 文本时它会先试着转数字。显式给 TEXT。
+		return Text
+	}
 	return t
 }
 

@@ -357,7 +357,9 @@ func (db *mysql) GetSqlType(field IField) string {
 	case Uuid:
 		res = Varchar
 		c.size = 40
-	case Json:
+	case Json, Jsonb:
+		// MySQL 没有 jsonb，JSON 列本身已是解析后的二进制存储；
+		// 但它没有 GIN 这类通用倒排索引，`@>` 的下推能力在这里不存在。
 		res = Json
 	case UnsignedInt:
 		res = Int

@@ -404,6 +404,11 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 			fieldType = "datetime"
 		case TinyBlob, Blob, LongBlob, Bytea, Binary, MediumBlob, VarBinary:
 			fieldType = "binary"
+		case Json, Jsonb:
+			// 缺这一条，从数据库反查回来的 jsonb 列会以 fieldType="" 落到下面的
+			// "could not create this new field"——表建得出来，下次启动 DBMetas
+			// 反查时整个模型加载失败。
+			fieldType = TYPE_JSONB
 		}
 
 		creator, ok := field_creators[fieldType]

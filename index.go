@@ -9,6 +9,13 @@ import (
 const (
 	IndexType = iota + 1
 	UniqueType
+	// GinType 倒排索引（Postgres GIN），jsonb 列专用。
+	//
+	// 不是"更快一点"的问题：jsonb 列上建**普通 btree** 索引，一是 `@>` 用不上它
+	// （btree 只认整值比较），二是稍大的文档会直接把 INSERT 打挂——btree 索引行有
+	// 2704 字节上限，超了报 `index row size ... exceeds btree version 4 maximum`，
+	// 而这个错要到某条记录的规格填得够多时才出现。
+	GinType
 )
 
 type (

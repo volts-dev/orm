@@ -178,6 +178,13 @@ var (
 	TYPE_M2O       = "many2one"  // ORM
 	TYPE_M2M       = "many2many" // ORM
 	TYPE_SELECTION = "selection"
+	// TYPE_JSONB 是 json/jsonb 两个 tag 归一后的 ORM 类型名（见 field_json.go）。
+	// 前端按这个名字挑控件，别改成大写的 Jsonb——那是 SQL 列类型名。
+	TYPE_JSONB = "jsonb"
+	// TYPE_PROPERTIES / TYPE_PROPERTIES_DEFINITION 是"自定义规格"这一对字段
+	// （见 field_properties.go）：定义挂在别的记录上，值内联在本记录的 jsonb 列里。
+	TYPE_PROPERTIES            = "properties"
+	TYPE_PROPERTIES_DEFINITION = "properties_definition"
 
 	SqlTypes = map[string]int{
 		Bool:      BOOL_TYPE,

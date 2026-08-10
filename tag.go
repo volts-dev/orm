@@ -478,17 +478,24 @@ func tag_index(ctx *TTagContext) error {
 	field_name := field.Name()
 
 	tableName := model.Table()
+	// jsonb 列上的索引只能是 GIN。btree 既用不上 `@>`，又有 2704 字节的索引行上限——
+	// 规格填得多一点的那条记录 INSERT 直接失败。见 index.go 的 GinType。
+	idxType := IndexType
+	if ctx.Field.SQLType().IsJson() {
+		idxType = GinType
+	}
+
 	indexName := ""
 	if len(ctx.Params) > 0 {
 		indexName = strings.Trim(ctx.Params[0], "'")
 	} else {
-		indexName = generate_index_name(IndexType, tableName, []string{field_name})
+		indexName = generate_index_name(idxType, tableName, []string{field_name})
 	}
 
 	if index, ok := model.Obj().indexes[indexName]; ok {
 		index.AddColumn(field_name)
 	} else {
-		index := newIndex(indexName, tableName, IndexType)
+		index := newIndex(indexName, tableName, idxType)
 		index.AddColumn(field_name)
 		model.Obj().AddIndex(index)
 	}

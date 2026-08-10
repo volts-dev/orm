@@ -893,7 +893,11 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 		return "0 = 1", res_params, res_arg
 	}
 
-	if !left.ValueIn(domain.TRUE_LEAF, domain.FALSE_LEAF) && model.GetFieldByName(left.String()) == nil && !left.ValueIn(MAGIC_COLUMNS) { //
+	// `properties.<项名>` 这种带点的左值不是字段名，会被下面那道闸判成非法字段。
+	// 先在这里认出来：认得出就在取完值之后走 jsonb 分支，认不出就照旧当非法处理。
+	propField, propName := resolvePropertyPath(model, left.String())
+
+	if !left.ValueIn(domain.TRUE_LEAF, domain.FALSE_LEAF) && model.GetFieldByName(left.String()) == nil && !left.ValueIn(MAGIC_COLUMNS) && propField == nil { //
 		log.Errf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 		return "0 = 1", res_params, res_arg
 	}
@@ -956,7 +960,15 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 				}
 	*/
 
-	if leaf.String() == domain.TRUE_LEAF {
+	if propField != nil {
+		q, p, err := propertyLeafToSql(self.orm.dialect, aliasTable, propField.Name(), propName, operator.String(), vals)
+		if err != nil {
+			log.Errf("%s in domain term %s", err.Error(), leaf.String())
+			return "0 = 1", res_params, res_arg
+		}
+		return q, p, res_arg
+
+	} else if leaf.String() == domain.TRUE_LEAF {
 		res_query = "TRUE"
 		res_params = nil
 

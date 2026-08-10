@@ -816,7 +816,10 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 			if index.Type == UniqueType {
 				err = self._addUnique(tableName, name)
 
-			} else if index.Type == IndexType {
+			} else if index.Type == IndexType || index.Type == GinType {
+				// GIN 与普通索引走同一条建索引路径，差别只在 CreateIndexUniqueSql
+				// 里那句 USING GIN。漏掉这里的话索引声明了却一条 DDL 都不发，
+				// 且没有任何报错——筛选照常工作，只是全表扫。
 				err = self._addIndex(tableName, name)
 			}
 

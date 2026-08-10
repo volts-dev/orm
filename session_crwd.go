@@ -823,6 +823,7 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	storeFields := make([]string, 0, 16) // 可存于数据的字段
 	relateFields := make([]string, 0, 8)
 	computedFields := make([]string, 0, 8) // 数据库没有的字段
+	postReadFields := make([]string, 0, 2) // 既要读库、读完还要再加工的字段(properties)
 	hasScalarCompute := false              // 存在「非存储标量计算字段」(走 getter，不读 DB)
 
 	// 字段分类。指定 Select 与「Select * From」两条路径只差「字段从哪来」，
@@ -843,6 +844,12 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 			// 非存储标量计算字段(如 display_name):走 getter 计算，不读 DB
 			computedFields = append(computedFields, name)
 			hasScalarCompute = true
+		case isPostReadField(field):
+			// 两头都占的字段(properties):列要真读，读完还要跟别处的数据合并。
+			// 只进 storeFields 会让前端拿到库里那个瘦字典，只进 computedFields
+			// 则整列压根不查。
+			storeFields = append(storeFields, name)
+			postReadFields = append(postReadFields, name)
 		default: //本Model存于数据库的字段
 			storeFields = append(storeFields, name)
 		}
@@ -873,7 +880,9 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 
 	// TODO 优化循环代码
 	// 处理经典字段数据
-	if (self.UseNameGet || self.IsClassic || len(self.subReads) > 0 || hasScalarCompute) && dataset.Count() > 0 {
+	// postReadFields 不在这个门槛的可选项里而是**并列的触发条件**：properties 的合并
+	// 与 Classic/NameGet 无关，普通一次 read 也必须做，否则前端拿到的是无从渲染的瘦字典。
+	if (self.UseNameGet || self.IsClassic || len(self.subReads) > 0 || hasScalarCompute || len(postReadFields) > 0) && dataset.Count() > 0 {
 		// 处理那些数据库不存在的字段：company_ids...
 		//# retrieve results from records; this takes values from the cache and
 		// # computes remaining fields
@@ -887,6 +896,12 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 			}
 		*/
 		for _, name := range computedFields {
+			fld := model.Obj().GetFieldByName(name)
+			if fld != nil {
+				nameFields = append(nameFields, fld)
+			}
+		}
+		for _, name := range postReadFields {
 			fld := model.Obj().GetFieldByName(name)
 			if fld != nil {
 				nameFields = append(nameFields, fld)
@@ -1385,7 +1400,12 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 		}
 
 		// 字段有值处理函数无论如何都要调用
-		if field.HasSetter() {
+		//
+		// properties 一对字段也走这里：值要按容器上的定义裁剪、定义改动要写回容器，
+		// 两件事都需要整条记录的上下文（容器外键的值、记录 id），而 onConvertToWrite
+		// 只拿得到孤零零一个值、且签名里没有 error 位（校验失败只能吞掉）。
+		// 借用同一段的时机语义也正好对：新建时总跑（补默认值），更新时仅当显式给了值。
+		if field.HasSetter() || isPropertiesWriteField(field) {
 			// 创建时（无 ids）总是运行 Setter（无值时补算、有值时转换）；
 			// 更新时（有 ids）仅当显式提供了值时才运行。仅 (update && 无值) 不运行。
 			if !isIncludedIds || setted {
@@ -1404,6 +1424,13 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 				if ctx.values != nil {
 					fieldValue = ctx.values
 					isBlank = false
+				} else if isPropertiesWriteField(field) {
+					// properties 的"算出来是空"是**有意义的空**：用户把规格值全清了，
+					// 列该落 NULL。不接管的话 fieldValue 还是前端发来的那份**完整
+					// 定义列表**，会被原样写进明细列——每条产品各存一份定义，正是
+					// 这套设计要避免的事，而且下次读出来还能正常显示，不易察觉。
+					fieldValue = nil
+					isBlank = true
 				}
 			}
 		}
