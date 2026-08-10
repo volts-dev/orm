@@ -378,7 +378,11 @@ func (self *TStatement) generate_index() ([]string, error) {
 	tableName := fmtTableName(self.Model.String())
 
 	for _, index := range indexes {
-		if index.Type == IndexType {
+		// GinType 与 IndexType 在这里同路：差别只在 CreateIndexUniqueSql 里那句
+		// USING GIN。漏掉 GinType 的后果**只在建表那一次出现**——新表建好时 GIN 索引
+		// 没建，下一次启动走 _alterTable 的索引对账才补上，于是"第一次装完没索引、
+		// 重启一次就有了"，谁去查都查不出所以然。回归见 test/properties_pg_test.go。
+		if index.Type == IndexType || index.Type == GinType {
 			// 幂等检查必须用 index.GetName(tableName)——与 CreateIndexUniqueSql 实际
 			// CREATE 的名字同源。原来用 map key(原始自定义名，如 tag index('xxx') 的
 			// xxx)，而实际建出的是加工名(IDX_表缩写_xxx)，两者不一致导致自定义命名
