@@ -133,12 +133,16 @@ func TestPropertiesPg_RoundTripAndFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 规格项名按本次运行生成。写死 "mat"/"pwr" 的话，第二次跑就会把上一次留下的
+	// 记录一起查出来 —— 一条只在头一次跑得过的测试比没有测试更糟。
 	suffix := uniqueSuffix()
+	matName := fmt.Sprintf("mat%d", suffix)
+	pwrName := fmt.Sprintf("pwr%d", suffix)
 	catIds, err := container.Records().Create(map[string]any{
 		"name": fmt.Sprintf("cat-%d", suffix),
 		"props_definition": []any{
-			map[string]any{"name": "mat", "string": "材质", "type": "char", "default": "棉"},
-			map[string]any{"name": "pwr", "string": "功率", "type": "integer"},
+			map[string]any{"name": matName, "string": "材质", "type": "char", "default": "棉"},
+			map[string]any{"name": pwrName, "string": "功率", "type": "integer"},
 		},
 	})
 	if err != nil {
@@ -151,8 +155,8 @@ func TestPropertiesPg_RoundTripAndFilter(t *testing.T) {
 		"name":     fmt.Sprintf("silk-%d", suffix),
 		"categ_id": catId,
 		"props": []any{
-			map[string]any{"name": "mat", "type": "char", "value": "丝"},
-			map[string]any{"name": "pwr", "type": "integer", "value": 0},
+			map[string]any{"name": matName, "type": "char", "value": "丝"},
+			map[string]any{"name": pwrName, "type": "integer", "value": 0},
 		},
 	})
 	if err != nil {
@@ -184,48 +188,48 @@ func TestPropertiesPg_RoundTripAndFilter(t *testing.T) {
 	for _, it := range items {
 		byName[fmt.Sprint(it["name"])] = it
 	}
-	if got := byName["mat"]["string"]; got != "材质" {
+	if got := byName[matName]["string"]; got != "材质" {
 		t.Errorf("定义没合并进来（string=%v）", got)
 	}
-	if got := fmt.Sprint(byName["mat"]["value"]); got != "丝" {
-		t.Errorf("值没读回来: %v", byName["mat"])
+	if got := fmt.Sprint(byName[matName]["value"]); got != "丝" {
+		t.Errorf("值没读回来: %v", byName[matName])
 	}
-	if _, has := byName["pwr"]["value"]; !has {
-		t.Errorf("数值 0 被当成空丢了: %v", byName["pwr"])
+	if _, has := byName[pwrName]["value"]; !has {
+		t.Errorf("数值 0 被当成空丢了: %v", byName[pwrName])
 	}
 
 	// ── 筛选：等值必须走 @>，且真库上要能查出行 ──
-	hit, err := child.Records().Domain(domain.New("props.mat", "=", "丝")).Read()
+	hit, err := child.Records().Domain(domain.New("props."+matName, "=", "丝")).Read()
 	if err != nil {
 		t.Fatalf("按规格筛选（@> 语法错就在这一步）: %v", err)
 	}
 	if hit.Count() != 1 {
-		t.Fatalf("('props.mat','=','丝') 命中 %d 条, want 1", hit.Count())
+		t.Fatalf("('props.%s','=','丝') 命中 %d 条, want 1", matName, hit.Count())
 	}
 
 	// 数值 0 是合法值，不能被当成"没填"。
-	hit, err = child.Records().Domain(domain.New("props.pwr", "=", 0)).Read()
+	hit, err = child.Records().Domain(domain.New("props."+pwrName, "=", 0)).Read()
 	if err != nil {
 		t.Fatalf("按数值规格筛选: %v", err)
 	}
 	if hit.Count() != 1 {
-		t.Errorf("('props.pwr','=',0) 命中 %d 条, want 1 —— 0 被当成空值了", hit.Count())
+		t.Errorf("('props.%s','=',0) 命中 %d 条, want 1 —— 0 被当成空值了", pwrName, hit.Count())
 	}
 
 	// != 必须把「从没填过规格」的那条也算进去：NULL 列上 NOT (col @> ...) 求值是 NULL。
-	miss, err := child.Records().Domain(domain.New("props.mat", "!=", "丝")).Read()
+	miss, err := child.Records().Domain(domain.New("props."+matName, "!=", "丝")).Read()
 	if err != nil {
 		t.Fatalf("反向筛选: %v", err)
 	}
 	if miss.Count() < 1 {
-		t.Errorf("('props.mat','!=','丝') 一条都没命中 —— 没填过规格的记录被 NULL 语义整批漏掉了")
+		t.Errorf("('props.%s','!=','丝') 一条都没命中 —— 没填过规格的记录被 NULL 语义整批漏掉了", matName)
 	}
 
 	// ── 改定义：明细上带 definition_changed 的写入要落到**容器**上 ──
 	if _, err = child.Records().Ids(silkIds[0]).Write(map[string]any{
 		"props": []any{
-			map[string]any{"name": "mat", "string": "面料", "type": "char", "value": "丝", "definition_changed": true},
-			map[string]any{"name": "pwr", "string": "功率", "type": "integer", "value": 0},
+			map[string]any{"name": matName, "string": "面料", "type": "char", "value": "丝", "definition_changed": true},
+			map[string]any{"name": pwrName, "string": "功率", "type": "integer", "value": 0},
 		},
 	}); err != nil {
 		t.Fatalf("改定义: %v", err)
@@ -238,7 +242,7 @@ func TestPropertiesPg_RoundTripAndFilter(t *testing.T) {
 	var renamed bool
 	for _, it := range defItems {
 		m, _ := it.(map[string]any)
-		if m["name"] == "mat" && m["string"] == "面料" {
+		if m["name"] == matName && m["string"] == "面料" {
 			renamed = true
 		}
 		if _, hasValue := m["value"]; hasValue {
@@ -247,6 +251,107 @@ func TestPropertiesPg_RoundTripAndFilter(t *testing.T) {
 	}
 	if !renamed {
 		t.Errorf("改名没写回容器: %v", defItems)
+	}
+}
+
+// 新建记录时要按容器的定义把默认值算出来存下（Odoo 的 Properties 是 compute 字段，
+// `_depends=(容器,)` + `precompute=True`）。
+//
+// 少了这一步的表现极难归因：同一个类别下，"改过一次规格"的产品有默认值、
+// 刚建出来的产品是空的，两条记录看起来完全一样却显示不同，且没有任何报错。
+func TestPropertiesPg_DefaultsFilledOnCreate(t *testing.T) {
+	o := newPropOrm(t)
+
+	container, err := o.GetModel("prop_container_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := o.GetModel("prop_child_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := uniqueSuffix()
+	matName := fmt.Sprintf("mat%d", suffix)
+	pwrName := fmt.Sprintf("pwr%d", suffix)
+	catIds, err := container.Records().Create(map[string]any{
+		"name": fmt.Sprintf("defcat-%d", suffix),
+		"props_definition": []any{
+			map[string]any{"name": matName, "string": "材质", "type": "char", "default": "棉"},
+			map[string]any{"name": pwrName, "string": "功率", "type": "integer"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("建容器: %v", err)
+	}
+
+	// 只给类别，一个规格值都不填 —— 走的正是"新建产品"那条路。
+	ids, err := child.Records().Create(map[string]any{
+		"name":     fmt.Sprintf("plain-%d", suffix),
+		"categ_id": catIds[0],
+	})
+	if err != nil {
+		t.Fatalf("建明细: %v", err)
+	}
+
+	ds, err := child.Records().Ids(ids[0]).Read()
+	if err != nil {
+		t.Fatalf("读明细: %v", err)
+	}
+	items, _ := ds.FieldByName("props").AsInterface().([]map[string]any)
+	byName := map[string]map[string]any{}
+	for _, it := range items {
+		byName[fmt.Sprint(it["name"])] = it
+	}
+	if got := fmt.Sprint(byName[matName]["value"]); got != "棉" {
+		t.Errorf("新建记录没落上默认值: %v", byName[matName])
+	}
+	if _, has := byName[pwrName]["value"]; has {
+		t.Errorf("没有默认值的项不该凭空多出一个 value: %v", byName[pwrName])
+	}
+
+	// 存下来了才算数：只在读出口补默认值的话，按默认值筛选查不到这条记录。
+	hit, err := child.Records().Domain(domain.New("props."+matName, "=", "棉")).Read()
+	if err != nil {
+		t.Fatalf("按默认值筛选: %v", err)
+	}
+	if hit.Count() != 1 {
+		t.Errorf("按默认值筛选一条都没命中 —— 默认值只是读出来好看，并没有真的落库")
+	}
+}
+
+// 容器没有定义时不该凭空写点什么进去（那会让"这条记录填过规格"与"没填过"无从区分）。
+func TestPropertiesPg_NoDefinitionKeepsColumnNull(t *testing.T) {
+	o := newPropOrm(t)
+
+	container, err := o.GetModel("prop_container_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := o.GetModel("prop_child_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := uniqueSuffix()
+	catIds, err := container.Records().Create(map[string]any{"name": fmt.Sprintf("emptycat-%d", suffix)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := child.Records().Create(map[string]any{
+		"name":     fmt.Sprintf("nodef-%d", suffix),
+		"categ_id": catIds[0],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := o.Query(`SELECT coalesce(props::text, '<null>') AS v FROM prop_child_model WHERE id = ?`, ids[0])
+	if err != nil {
+		t.Fatalf("查列: %v", err)
+	}
+	if got := ds.FieldByName("v").AsString(); got != "<null>" {
+		t.Errorf("容器没有定义，列却被写了 %q", got)
 	}
 }
 

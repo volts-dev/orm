@@ -360,8 +360,28 @@ func (self *TPropertiesField) OnWrite(ctx *TFieldContext) error {
 		return fmt.Errorf("%s@%s: %s", ctx.Field.Name(), ctx.Field.ModelName(), err.Error())
 	}
 	if list == nil {
-		ctx.values = nil
-		return nil
+		// 调用方**没提供**这个字段。更新时那就是"别动"；新建时不是。
+		//
+		// Odoo 的 Properties 是个 compute 字段（`_depends = (definition_record,)`、
+		// `precompute = True`、`store = True`），新建时会按容器的定义把默认值算出来存下
+		// （fields_properties.py 的 `_compute` → `_add_default_values`）。少了这一步，
+		// "在类别上给材质设了默认值棉"的新产品打开是**空的**，而同类别里改过一次规格
+		// 的产品有值——同一个类别下两条产品显示不一样，且没有任何报错。
+		if len(ctx.Ids) > 0 {
+			ctx.values = nil
+			return nil
+		}
+		defaults, err := self.defaultsFromContainer(ctx)
+		if err != nil {
+			return err
+		}
+		if len(defaults) == 0 {
+			ctx.values = nil
+			return nil
+		}
+		// 往下走统一的"补默认值 → 落瘦字典"。这份列表里没有 definition_changed，
+		// 所以不会反过来重写容器的定义。
+		list = defaults
 	}
 
 	addMissingPropertyNames(list)
@@ -456,6 +476,62 @@ func (self *TPropertiesField) writeDefinition(ctx *TFieldContext, list []map[str
 	log.Infof("properties: definition of %s#%v changed via %s@%s (%d items)",
 		containerModel.String(), containerId, ctx.Field.Name(), model.String(), len(clean))
 	return nil
+}
+
+// defaultsFromContainer 按容器上的定义造一份"只有默认值"的列表，用于新建记录时补值。
+//
+// 返回的每一项都是副本：定义那份 map 来自容器的读取结果，下游会往里塞 value，
+// 就地改写的话同一次请求里建的多条记录会互相串味。
+func (self *TPropertiesField) defaultsFromContainer(ctx *TFieldContext) ([]map[string]any, error) {
+	containerId, err := self.resolveContainerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if utils.IsBlank(containerId) {
+		return nil, nil
+	}
+
+	model := ctx.Model
+	containerField := model.GetFieldByName(self.definitionRecord)
+	if containerField == nil {
+		return nil, fmt.Errorf("%s@%s points at an unknown definition record field %q",
+			ctx.Field.Name(), model.String(), self.definitionRecord)
+	}
+	containerModel, err := model.Orm().GetModel(containerField.RelatedModelName(), WithContext(model.Options().Context))
+	if err != nil {
+		return nil, err
+	}
+
+	sub := containerModel.Records()
+	if ctx.Session != nil && ctx.Session.Schema != "" {
+		// 子读取起的是全新会话，不继承调用方的 schema——非默认 schema 的租户下
+		// 会去 public 里查，查不到就悄悄退化成"没有默认值"。
+		sub.SetSchema(ctx.Session.Schema)
+	}
+	ds, err := sub.Select(containerModel.IdField(), self.definitionRecordField).Ids(containerId).Read()
+	if err != nil {
+		return nil, err
+	}
+	if ds.Count() == 0 {
+		return nil, nil
+	}
+
+	definition, err := toPropertyList(decodeJsonValue(ds.Record().GetByField(self.definitionRecordField)))
+	if err != nil {
+		log.Warnf("%s@%s holds a malformed properties definition: %s",
+			self.definitionRecordField, containerModel.String(), err.Error())
+		return nil, nil
+	}
+
+	out := make([]map[string]any, 0, len(definition))
+	for _, item := range definition {
+		cp := make(map[string]any, len(item)+1)
+		for k, v := range item {
+			cp[k] = v
+		}
+		out = append(out, cp)
+	}
+	return out, nil
 }
 
 // resolveContainerId 找出本次写入涉及的容器 id：优先取本次载荷里的值（新建、或同时改了
