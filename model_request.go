@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/volts-dev/dataset"
@@ -304,19 +305,24 @@ func (self *TModel) Read(req *ReadRequest) (*dataset.TDataSet, error) {
 
 // withSubFieldNames 返回 fields 与 subFields 的键的并集(保持原有顺序、去重)，
 // 确保每个带嵌套子规格的关系字段都在 Select 列表里，从而进入关系字段派发被内嵌。
+//
+// 补进来的键要排序：Go 的 map 遍历顺序是随机的，直接 range 会让**同一个请求**每次
+// 生成的字段序不同，进而 SELECT 的列序、res_sql 的文本都不同——按 SQL 文本做键的
+// 查询缓存(Cacher.GetBySql)因此必然落空，每次都真查库。
 func withSubFieldNames(fields []string, subFields map[string]*ReadRequest) []string {
 	seen := make(map[string]bool, len(fields))
 	for _, f := range fields {
 		seen[f] = true
 	}
-	out := fields
+	extra := make([]string, 0, len(subFields))
 	for name := range subFields {
 		if !seen[name] {
 			seen[name] = true
-			out = append(out, name)
+			extra = append(extra, name)
 		}
 	}
-	return out
+	sort.Strings(extra)
+	return append(fields, extra...)
 }
 
 // uniqueFields 去重并丢掉空串，保持原有顺序。

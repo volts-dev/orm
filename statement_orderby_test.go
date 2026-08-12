@@ -99,11 +99,13 @@ func TestOrderBy_Direction(t *testing.T) {
 }
 
 // 空段/空串不能让解析崩掉，也不该产生半截子句。
+// 注意「空输入」的期望不是「没有 ORDER BY」而是「只剩主键兜底」——见
+// TestOrderBy_DefaultsToIdWhenUnspecified。
 func TestOrderBy_EmptyAndBlankSegments(t *testing.T) {
 	cases := []struct {
-		name      string
-		apply     func(*TStatement)
-		wantEmpty bool
+		name     string
+		apply    func(*TStatement)
+		wantOnly bool // 只该剩主键兜底，不含其它字段
 	}{
 		{"空串", func(s *TStatement) { s.OrderBy("") }, true},
 		{"纯空白", func(s *TStatement) { s.OrderBy("   ") }, true},
@@ -117,13 +119,67 @@ func TestOrderBy_EmptyAndBlankSegments(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			o := setupIntegrationOrm(t)
 			got := orderBySql(t, o, c.apply)
-			if c.wantEmpty && strings.TrimSpace(got) != "" {
-				t.Errorf("空输入不该产生子句，得到 %q", got)
+			if !strings.Contains(got, "ORDER BY") {
+				t.Fatalf("有效字段被整段丢弃: %q", got)
 			}
-			if !c.wantEmpty && !strings.Contains(got, "ORDER BY") {
-				t.Errorf("有效字段被整段丢弃: %q", got)
+			if c.wantOnly {
+				if fieldPos(got, "id") < 0 {
+					t.Errorf("空输入应回落到主键兜底: %q", got)
+				}
+				if fieldPos(got, "name") >= 0 || fieldPos(got, "age") >= 0 {
+					t.Errorf("空输入不该带出别的字段: %q", got)
+				}
 			}
 		})
+	}
+}
+
+// 没有任何排序声明时必须生成 ORDER BY 主键。
+//
+// 历史 bug：generate_order_by 在没有 OrderBy/Asc/Desc 时直接返回空串，SELECT 就完全
+// 不带 ORDER BY。PG 里那样的行序是**未定义**的：顺序扫的起点、UPDATE 把行重写到表尾、
+// 并行扫、规划器换了索引，任一变化都会改变返回顺序。前端表现为"产品列表每刷新一次
+// 顺序就不一样、刚改过的记录莫名跳到别处"，而且 LIMIT/OFFSET 翻页会重复或漏记录。
+func TestOrderBy_DefaultsToIdWhenUnspecified(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	got := orderBySql(t, o, func(s *TStatement) {})
+	if !strings.Contains(got, "ORDER BY") || fieldPos(got, "id") < 0 {
+		t.Fatalf("未指定排序时应按主键兜底排序，得到 %q", got)
+	}
+}
+
+// 显式排序后面同样要补主键：按非唯一列(如 name)排序时，等值行之间的次序在 PG 里
+// 依然是未定义的，翻页会重复/漏记录。
+func TestOrderBy_AppendsIdTiebreakerAfterExplicitOrder(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	got := orderBySql(t, o, func(s *TStatement) { s.OrderBy("name desc") })
+
+	iName := fieldPos(got, "name")
+	iId := fieldPos(got, "id")
+	if iName < 0 || iId < 0 {
+		t.Fatalf("name 或 id 兜底缺失: %q", got)
+	}
+	if iName > iId {
+		t.Errorf("主键兜底必须排在显式排序之后: %q", got)
+	}
+}
+
+// 已经按主键排过就不再重复补一次。
+func TestOrderBy_NoDuplicateIdTiebreaker(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	got := orderBySql(t, o, func(s *TStatement) { s.OrderBy("id desc") })
+	if n := strings.Count(got, `"id"`) + strings.Count(got, "`id`"); n != 1 {
+		t.Errorf("主键出现了 %d 次，应只有 1 次: %q", n, got)
+	}
+}
+
+// GROUP BY 在场时不能补主键兜底：ORDER BY 的列必须出现在 GROUP BY 中，
+// 否则 PG 直接报错，整条聚合查询失败。
+func TestOrderBy_NoIdTiebreakerWhenGrouped(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	got := orderBySql(t, o, func(s *TStatement) { s.GroupBy("name") })
+	if strings.TrimSpace(got) != "" {
+		t.Errorf("聚合查询不该被补上排序: %q", got)
 	}
 }
 

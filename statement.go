@@ -936,20 +936,84 @@ func (self *TStatement) ___generate_order_by_inner(alias, order_spec string, que
 *        :raise ValueError in case order_spec is malformed
  */
 func (self *TStatement) generate_order_by(query *TQuery, context map[string]any) string {
-	order_by_clause := ""
-
-	if self.OrderByClause != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0 {
-		order_by_elements := self.generate_order_by_inner(self.Model.Table(), self.OrderByClause, query, false, nil)
-		if len(order_by_elements) > 0 {
-			order_by_clause = strings.Join(order_by_elements, ",")
-		}
+	if self.Model == nil {
+		return ""
 	}
 
-	if order_by_clause != "" {
-		return fmt.Sprintf(` ORDER BY %s `, order_by_clause)
+	alias := self.Model.Table()
+	order_spec := self.OrderByClause
+	explicit := order_spec != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0
+
+	// 聚合查询里 ORDER BY 的每一列都必须出现在 GROUP BY 中，补默认排序会让
+	// PG 直接报错("column must appear in the GROUP BY clause")，故一律不补。
+	aggregated := len(self.GroupByClause) > 0 || self.IsCount || len(self.FuncsClause) > 0
+
+	// 调用方没指定排序时用模型自己声明的默认排序(`table_order` 标签)。
+	// 此前这份声明只被解析进 options.Order 就没人读过，等于标签是装饰。
+	if !explicit && !aggregated {
+		order_spec = strings.Join(self.modelDefaultOrder(), ",")
+	}
+
+	order_by_elements := make([]string, 0, 2)
+	if order_spec != "" || len(self.AscFields) > 0 || len(self.DescFields) > 0 {
+		order_by_elements = self.generate_order_by_inner(alias, order_spec, query, false, nil)
+	}
+
+	// 主键兜底：无排序的 SELECT 在 PG 里行序是**未定义**的——同一条查询两次返回的
+	// 顺序可以不同(顺序扫的起点、堆页被 UPDATE 重写后行搬到表尾、并行扫、走了不同
+	// 索引都会改变它)，表现就是"列表每刷新一次顺序就变一次、改过的记录莫名跳位"。
+	// 按非唯一列排序同样不稳定(等值行之间的次序未定义)，且 LIMIT/OFFSET 分页会因此
+	// 重复或漏掉记录。所以无论有没有显式排序，都把主键补成最后一级排序键。
+	if !aggregated && self.appendIdTiebreaker(order_spec) {
+		order_by_elements = append(order_by_elements, fmt.Sprintf(`"%s"."%s" `, alias, self.IdKey))
+	}
+
+	if len(order_by_elements) > 0 {
+		return fmt.Sprintf(` ORDER BY %s `, strings.Join(order_by_elements, ","))
 	}
 
 	return ""
+}
+
+// modelDefaultOrder 返回模型用 `table_order` 标签声明的默认排序字段。
+func (self *TStatement) modelDefaultOrder() []string {
+	if self.Model == nil {
+		return nil
+	}
+	if base := self.Model.GetBase(); base != nil && base.options != nil {
+		return base.options.Order
+	}
+	return nil
+}
+
+// appendIdTiebreaker 判断是否该把主键补成最后一级排序键：主键得存在(中间表没有
+// 主键，IdKey 为空)、得是模型上真实存在的列，且排序里还没按它排过——已经按主键排过
+// 再补一次虽然无害，但会让 SQL 文本连带缓存键无谓变长。
+func (self *TStatement) appendIdTiebreaker(order_spec string) bool {
+	if self.IdKey == "" || self.Model == nil {
+		return false
+	}
+	if self.Model.Obj() == nil || self.Model.Obj().GetFieldByName(self.IdKey) == nil {
+		return false
+	}
+
+	for _, part := range strings.Split(order_spec, ",") {
+		if fields := strings.Fields(part); len(fields) > 0 && fields[0] == self.IdKey {
+			return false
+		}
+	}
+	for _, name := range self.AscFields {
+		if name == self.IdKey {
+			return false
+		}
+	}
+	for _, name := range self.DescFields {
+		if name == self.IdKey {
+			return false
+		}
+	}
+
+	return true
 }
 
 // QuoteTable returns the fully qualified table name including active schema namespace
