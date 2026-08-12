@@ -262,14 +262,35 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 		modelNames = append(modelNames, modelName)
 	}
 
-	// 确保获得其他没被注册的模型（按表名跳过上面已处理过的，不能再按模型名比较，见上）
-	for _, m := range exitsModels {
-		if handledTables[m.Table()] {
-			continue
-		}
-		if !self.orm.osv.HasModel(m.String()) {
-			if err = self.orm.osv.RegisterModel(region, m.(*TModel)); err != nil {
-				return nil, err
+	// 确保获得其他没被注册的模型（按表名跳过上面已处理过的，不能再按模型名比较，见上）。
+	//
+	// ★ **冻结之后不做这件事。** 这一段是**启动期**的补登记：从库里反查出来的表，
+	// 若没有对应的 Go 模型，就按反查结果注册一个，让它的 CRUD/路由元数据可用。
+	// Freeze 之后模型集合按定义已经定死（见 TOsv.Freeze / RegisterModel 的说明：
+	// 冻结仅锁定"模型集合"不再变化，运行期把**既有**模型物化到另一个 schema 是
+	// 预期用法），继续补登记既不必要，而且会**让整次 SyncModel 直接失败**。
+	//
+	// 失败是必然的，不是偶发：微服务拓扑下本进程的 schema 里必然躺着别的进程所属
+	// 模块的表 —— 真机实测 kylin 的 `system` schema 共 347 张表，其中 70 张属于
+	// kylin 根本没装的模块（sale / delivery / website_sale …）。它们的模型不在本
+	// 进程的 osv 里，也**不该**在：跨进程访问走属主服务，模型归属由服务发现决定。
+	// 于是这个循环撞上第一张这样的表就 ErrOsvFrozen 返回，症状是
+	// **schema 隔离租户（VectorsSystem）升级任何模块都失败**：
+	//   Upgrade "rating" failed: materialize schema system: orm: osv is frozen,
+	//   cannot register new models
+	// 而 SyncModel 本身要做的加列 DDL 在上面的主循环里早已完成。
+	//
+	// 同样的道理也适用于"表名→模型名"反推有损的那些表（见上方 existsByTable 的
+	// 长注释）：反推错的名字 HasModel 必然为假，冻结后同样只会撞出这个错误。
+	if !self.orm.osv.IsFrozen() {
+		for _, m := range exitsModels {
+			if handledTables[m.Table()] {
+				continue
+			}
+			if !self.orm.osv.HasModel(m.String()) {
+				if err = self.orm.osv.RegisterModel(region, m.(*TModel)); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}

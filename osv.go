@@ -297,6 +297,16 @@ func (self *TOsv) newObject(name string) *TModelObject {
 	return obj
 }
 
+// IsFrozen reports whether the model registration phase has ended (see Freeze).
+//
+// Callers use it to tell "startup, still discovering models" from "running,
+// model set is final". The distinction matters for anything that would
+// otherwise register models found by database introspection: after Freeze that
+// is both unnecessary and fatal (RegisterModel returns ErrOsvFrozen), while the
+// tables it finds legitimately belong to other services in a multi-process
+// deployment. See the tail of TSession.SyncModel.
+func (self *TOsv) IsFrozen() bool { return self.frozen.Load() }
+
 // register new model to the object service
 func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	if self.frozen.Load() {
