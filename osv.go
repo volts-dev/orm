@@ -67,6 +67,11 @@ type (
 		// models/middleModel 作 DDL 守卫。
 		middleModelDDL sync.Map
 
+		// m2mRefIndex 缓存「模型名 → 指向它的 m2m 关联表列」，供删除时清理关系行。
+		// 模型集合一变（RegisterModel / RemoveModel）就置空，下次读取时重建。
+		// 见 session_m2m_cleanup.go。
+		m2mRefIndex atomic.Pointer[map[string][]m2mRelationRef]
+
 		// === remote model resolution (phased registration) ===
 		resolver       IRemoteResolver
 		strictMode     bool
@@ -463,6 +468,8 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	}
 
 	self.models.Store(model.name, obj)
+	// 模型/字段集合变了，m2m 关系清理索引作废（下次删除时重建）。
+	self.invalidateM2MRefIndex()
 
 	/* 初始化原型 */
 	{
@@ -552,6 +559,7 @@ func (self *TOsv) GetModel(name string, opts ...ModelOption) (IModel, error) {
 
 func (self *TOsv) RemoveModel(name string) {
 	self.models.Delete(name)
+	self.invalidateM2MRefIndex()
 }
 
 func (self *TOsv) GetModels() []string {

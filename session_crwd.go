@@ -190,6 +190,8 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	// get the model id field name
 	id_field := self.Statement.Model.IdField()
 	quoter := self.orm.dialect.Quoter()
+	// 模型名要在主删除**之前**取：_exec 里 defer 了 _resetStatement。
+	model_name := self.Statement.Model.String()
 
 	//#1 删除目标Model记录（表名按会话 schema 限定）
 	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `,
@@ -210,6 +212,12 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 		}
 		return 0, err
 	}
+
+	// 主记录已经删掉了，把它在各 m2m 关联表里的行一并清掉——两个方向都清。
+	// 关联表没有外键约束(update_db_foreign_keys 是空实现)，不显式清就会永远留着：
+	// "菜单还在、组没了"的孤儿行会让那个菜单对所有人永久隐身。
+	// 放在行数校验之前：部分行本就不存在时，它们的关系行更是该清的孤儿。
+	self.cleanupM2MRelations(model_name, ids)
 
 	/* check the row count */
 	if cnt != expectRowCount {
