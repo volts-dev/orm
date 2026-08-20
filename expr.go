@@ -742,6 +742,46 @@ func (self *TExpression) parse(context map[string]any) error {
 			ex_leaf.leaf = newLeaf
 			self.push_result(ex_leaf)
 
+		} else if !field.Store() && field.Searcher() != nil {
+			// 非存储字段自带 search 钩子：让它把自己翻译成由存储列构成的 domain。
+			// 见 field_searcher.go。
+			node, err := field.Searcher()(&TFieldSearchContext{
+				Model:    model,
+				Field:    field,
+				Session:  self.session,
+				Operator: operator.String(),
+				Value:    right.Value,
+				Leaf:     ex_leaf.leaf,
+			})
+			if err != nil {
+				return err
+			}
+			// ★ nil 表示"一条都不匹配"，落成恒假。绝不能落成恒真或干脆不 push——
+			//   那就退回本次修复之前的"筛了等于没筛"。
+			//
+			// 恒假写成 `(id in [0,0])` 而不是 domain.FALSE_LEAF：那个常量是
+			// `"(0, '=', 1)"`（带空格、单引号），而重新入栈后 is_false_leaf 拿
+			// Domain2String 的输出 `(0,"=",1)` 去比，永远对不上，于是 "0" 被当成
+			// 一个字段名报 `Invalid field <0>`。主键是雪花 id，0 永远不存在。
+			if node == nil || node.Count() == 0 {
+				falseLeaf := domain.NewDomainNode()
+				falseLeaf.Push(model.idField)
+				falseLeaf.Push("in")
+				falseLeaf.Push(idListNode(nil))
+				node = falseLeaf
+			}
+			// 钩子可以只还一个叶子，也可以还一整棵带 |/! 的树；normalize_domain
+			// 负责补上隐式的 `&`。少了它，两个叶子会在 toSql 的栈上各留一个，
+			// 生成结构性错误的 SQL（只会打一句 warn，查询照跑）。
+			node, err = normalize_domain(node)
+			if err != nil {
+				return err
+			}
+			node = node.Reversed()
+			for _, elem := range node.Nodes() {
+				self.push(create_substitution_leaf(ex_leaf, elem, model, true))
+			}
+
 		} else if !field.Store() {
 			//# Non-stored field should provide an implementation of search.
 			var node *domain.TDomainNode

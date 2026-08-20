@@ -233,8 +233,8 @@ func assertSearchable(comodel IModel, fieldName string) error {
 		return nil
 	}
 	return fmt.Errorf("cannot search %s@%s: it is a non-stored field with no search "+
-		"implementation, so the lookup would match every record instead of filtering",
-		fieldName, comodel.String())
+		"implementation (see fieldStatment.Searcher), so the lookup would match every "+
+		"record instead of filtering", fieldName, comodel.String())
 }
 
 // searchComodel 在对端模型上跑一次查询并取回 id。

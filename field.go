@@ -138,6 +138,10 @@ type (
 		Translate() bool
 		// SearchOnSelf reports whether searches on the related field may be performed on self.
 		SearchOnSelf() bool
+		// Searcher returns the non-stored field's search hook (nil if none).
+		// See field_searcher.go.
+		Searcher() FieldSearchFunc
+		SetSearcher(fn FieldSearchFunc)
 		// OutputAs returns the type identifier the value is coerced to on read (char/int/bool/...).
 		OutputAs() string
 		// GroupOperator 返回 read_group 聚合本字段用的 SQL 聚合函数；
@@ -243,8 +247,11 @@ type (
 		joinSourceKey    string              // 在 M2M 连接表中指向源 model 主键的字段名
 		isIndexed        bool                // 数据库是否对此字段建索引
 		searchOnSelf     bool                // 关联字段是否允许在 self 上直接搜索
-		translatable     bool                // 字段值是否可翻译
-		outputAs         string              // 读取时将值伪装为哪种类型（char/int/bool 等）
+		// searchFunc 是非存储字段的 search 钩子，见 field_searcher.go。
+		// 挂了它，SearchOnSelf() 即为真——这是本仓唯一让 searchOnSelf 变成 true 的途径。
+		searchFunc   FieldSearchFunc
+		translatable bool   // 字段值是否可翻译
+		outputAs     string // 读取时将值伪装为哪种类型（char/int/bool 等）
 
 		name        string   // 字段在数据库中的列名
 		store       bool     // 是否将字段值持久化到数据库
@@ -275,9 +282,9 @@ type (
 		minDisplayDigits *int
 		// minDisplayDigitsUsage 同 digitsUsage，指向 decimal.precision 的一条用途。
 		minDisplayDigitsUsage string
-		sortable              bool     // 是否可排序
-		searchable  bool     // 是否可搜索
-		typeName    string   // ORM 层字段类型标识（最终存入 dataset）
+		sortable              bool   // 是否可排序
+		searchable            bool   // 是否可搜索
+		typeName              string // ORM 层字段类型标识（最终存入 dataset）
 		//defaultValue     any            // 默认值字符串
 		relatedPath      string         // 关联路径表达式（用途未确认，保留兼容）
 		relationModel    string         // 关联到的 model 名（与 relatedModelName 用途略有差异）
@@ -682,7 +689,9 @@ func (self *TField) States(val ...map[string]any) map[string]any {
 
 // SearchOnSelf reports whether searches on the related field may be performed on self.
 func (self *TField) SearchOnSelf() bool {
-	return self.searchOnSelf
+	// 挂了 search 钩子就是可搜的——searchOnSelf 这个布尔量本身在全仓从未被赋过值，
+	// 钩子是它唯一的真值来源。
+	return self.searchOnSelf || self.searchFunc != nil
 }
 
 // IsIndexed reports whether the database has an index on this field.
@@ -870,25 +879,25 @@ func (self *TField) Attributes(ctx *TTagContext) map[string]any {
 
 func (self *TField) attributes() map[string]any {
 	return map[string]any{
-		"name":              self.name,
-		"store":             self.store,
-		"manual":            self.manual,
-		"depends":           self.depends,
-		"readonly":          self.readonly,
-		"required":          self.required,
-		"help":              self.description,
-		"string":            self.label,
-		"size":              self.size,
-		"sortable":          self.sortable,
-		"searchable":        self.searchable,
-		"type":              self.typeName,
-		"default":           self.Default(),
-		"related":           self.relatedPath,
-		"states":            self.uiStates,
-		"selection":         self.selection,
-		"groups":            self.permissionGroups,
-		"domain":            self.domain,
-		"index":             self.isIndexed,
+		"name":       self.name,
+		"store":      self.store,
+		"manual":     self.manual,
+		"depends":    self.depends,
+		"readonly":   self.readonly,
+		"required":   self.required,
+		"help":       self.description,
+		"string":     self.label,
+		"size":       self.size,
+		"sortable":   self.sortable,
+		"searchable": self.searchable,
+		"type":       self.typeName,
+		"default":    self.Default(),
+		"related":    self.relatedPath,
+		"states":     self.uiStates,
+		"selection":  self.selection,
+		"groups":     self.permissionGroups,
+		"domain":     self.domain,
+		"index":      self.isIndexed,
 		// translate 要下发给前端：可译字段在表单里会多一个语言角标（点开逐语言填译文）。
 		// 不下发的话前端无从判断哪些字段该给这个入口 —— 而这个标记本来就只有服务端知道。
 		"translate":         self.Translate(),

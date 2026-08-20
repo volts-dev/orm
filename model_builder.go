@@ -294,6 +294,15 @@ func (self *fieldStatment) Getter(fn func(ctx *TFieldContext) error) *fieldStatm
 	return self
 }
 
+// Searcher 给非存储字段挂上 search 钩子：把落在本字段上的 domain 叶子翻译成一条
+// 由**存储列**构成的 domain。见 field_searcher.go 的完整约定。
+//
+// 不挂它，非存储字段进 domain 的后果不是报错而是**条件被静默丢掉、返回整表**。
+func (self *fieldStatment) Searcher(fn FieldSearchFunc) *fieldStatment {
+	self.field.Base().searchFunc = fn
+	return self
+}
+
 // 写入值需要计算的字段
 // 最终结果由Ctx。SetValue 返回
 // 返回值包含 any,[]any,map[string]any
