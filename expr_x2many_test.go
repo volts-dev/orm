@@ -110,6 +110,9 @@ func setupX2m(t *testing.T) *x2mFixture {
 	}
 	for _, l := range []struct{ name, post string }{
 		{"line1", "post1"}, {"line2", "post1"}, {"line3", "post3"},
+		// ★ 一条**没有父记录**的孤儿行（post_id=0）。它专门用来盯住外键列上的
+		//   哨兵：`post_id in (X, 0)` 会把它一起捞回来，而外键列上 0 是合法值。
+		{"orphan", ""},
 	} {
 		id, err := o.Model("x2m.line").Create(map[string]any{"name": l.name, "post_id": fx.posts[l.post]})
 		if err != nil {
@@ -457,5 +460,190 @@ func TestDottedM2OPath(t *testing.T) {
 	}
 	if ds != nil && ds.Count() != 0 {
 		t.Fatalf("对端无匹配时本表应为空，实得 %v 条", ds.Count())
+	}
+}
+
+// TestM2O_NameOperand 覆盖 many2one 配"名字"右值。
+//
+// 修之前生成的是 `post_id::text ilike '%post1%'` —— 拿主键的文本形式去比名字，恒回 0。
+// 这一类的错法是"少给"而不是"全给"，用户只会觉得"搜不到"，所以更难被发现。
+func TestM2O_NameOperand(t *testing.T) {
+	fx := setupX2m(t)
+
+	count := func(node *domain.TDomainNode) int {
+		t.Helper()
+		ds, err := fx.orm.Model("x2m.line").Domain(node).Limit(-1).Read()
+		if err != nil {
+			t.Fatalf("read %s: %v", node.String(), err)
+		}
+		if ds == nil {
+			return 0
+		}
+		return ds.Count()
+	}
+
+	// post1 有两条明细、post3 有一条。
+	if got := count(domain.New("post_id", "=", "post1")); got != 2 {
+		t.Fatalf(`post_id = "post1" 应命中 2 条，实得 %d`, got)
+	}
+	if got := count(domain.New("post_id", "in", "post1", "post3")); got != 3 {
+		t.Fatalf(`post_id in ["post1","post3"] 应命中 3 条，实得 %d`, got)
+	}
+	// 否定：名字不是 post1 的贴子 = post2/post3 → 只有 line3
+	if got := count(domain.New("post_id", "!=", "post1")); got != 1 {
+		t.Fatalf(`post_id != "post1" 应命中 1 条，实得 %d`, got)
+	}
+	// 名字不存在 → 一条都没有，不能变成全表
+	if got := count(domain.New("post_id", "=", "nope")); got != 0 {
+		t.Fatalf(`post_id = "nope" 应命中 0 条，实得 %d`, got)
+	}
+
+	// ★ 外键列上的哨兵坑：补位 id 用重复第一个而不是 0，"一条都不匹配"改挂主键。
+	//   否则 `post_id in (post1, 0)` 会把 post_id=0 的孤儿行一起捞回来 —— 真栈上
+	//   `parent_id ilike 'Azure'` 因此回 4 条（真值 3），`ilike 'zzqx'` 回 1 条（真值 0）。
+	//   夹具里那条 orphan 就是为这一条准备的。
+	orphan, err := fx.orm.Model("x2m.line").Domain(domain.New("post_id", "=", 0)).Limit(-1).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orphan == nil || orphan.Count() != 1 {
+		t.Fatalf("夹具不对：应有 1 条 post_id=0 的孤儿明细，实得 %v", orphan.Count())
+	}
+
+	// 按 id 的老路必须原样不变。
+	if got := count(domain.New("post_id", "=", fx.posts["post1"])); got != 2 {
+		t.Fatalf("post_id = <真实 id> 应命中 2 条，实得 %d", got)
+	}
+	if got := count(domain.New("post_id", "in", int64(999999))); got != 0 {
+		t.Fatalf("post_id = <不存在的 id> 应命中 0 条，实得 %d", got)
+	}
+}
+
+// TestIsNameOperand 单测判定表本身：文本操作符永远按名字（哪怕值全是数字，
+// 标签就叫 "12345" 也是名字），其余操作符只在值不像 id 时按名字。
+func TestIsNameOperand(t *testing.T) {
+	node := func(v any) *domain.TDomainNode {
+		n := domain.NewDomainNode()
+		n.Push(v)
+		return n
+	}
+	list := func(vs ...any) *domain.TDomainNode {
+		n := domain.NewDomainNode()
+		for _, v := range vs {
+			n.Push(v)
+		}
+		return n
+	}
+	cases := []struct {
+		op    string
+		right *domain.TDomainNode
+		want  bool
+	}{
+		{"ilike", node("Azure"), true},
+		{"ilike", node("12345"), true}, // 文本操作符：数字串也是名字
+		{"not ilike", node("Azure"), true},
+		{"=", node("Azure"), true},
+		{"=", node(int64(123)), false},
+		{"=", node("2079533084918681600"), false}, // 雪花 id 到这里常是字符串
+		{"in", list("A", "B"), true},
+		{"in", list(int64(1), int64(2)), false},
+		{"=", node(false), false},   // False 交给 NULL 判断
+		{"=", node("False"), false}, // 过了 parser 之后 False 是字符串
+	}
+	for _, c := range cases {
+		if got := isNameOperand(c.op, c.right); got != c.want {
+			t.Fatalf("isNameOperand(%q, %s) = %v, want %v", c.op, c.right.String(), got, c.want)
+		}
+	}
+}
+
+// TestPlaceholderRightOperand 钉住 `Where("x=?", v)` 这种写法。
+//
+// 占位符的真值留在 Statement.Params 里，直到 leaf_to_sql 生成 SQL 时才按顺序消费；
+// domain 树上只有一个 "?" 字面量。所有"要先跑一次子查询"的路径都拿不到它：
+//
+//   - m2o 按名字：退回按 id 文本比较（旧行为），那条路会正确消费 params —— 必须能跑通
+//   - 关系路径 / x2many 下钻：没有安全的退路，报错点名，不静默给错数据
+//
+// 回归来源：TestOne2ManyClearWithRecordRuleStaysScoped 曾因此整条挂掉
+// （`("name","=","?")` 被当成名字拿去查对端，报 "has no matching param"）。
+func TestPlaceholderRightOperand(t *testing.T) {
+	fx := setupX2m(t)
+
+	// m2o + 占位符：走旧路，能正常查出来。
+	ds, err := fx.orm.Model("x2m.line").Where("post_id=?", fx.posts["post1"]).Read()
+	if err != nil {
+		t.Fatalf("Where(post_id=?): %v", err)
+	}
+	if ds == nil || ds.Count() != 2 {
+		t.Fatalf("Where(post_id=?) 应命中 2 条，实得 %v", ds.Count())
+	}
+
+	// x2many + 占位符：报错，且点名说清楚为什么。
+	_, err = fx.orm.Model("x2m.post").Where("tag_ids=?", fx.tags["tag_red"]).Read()
+	if err == nil {
+		t.Fatal("x2many 叶子带占位符应当报错，而不是悄悄给一份错数据")
+	}
+	if !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("错误信息该说清是占位符的问题，实得: %v", err)
+	}
+}
+
+// TestHasPlaceholder 单测识别本身。
+func TestHasPlaceholder(t *testing.T) {
+	mk := func(vs ...any) *domain.TDomainNode {
+		n := domain.NewDomainNode()
+		for _, v := range vs {
+			n.Push(v)
+		}
+		return n
+	}
+	cases := []struct {
+		node *domain.TDomainNode
+		want bool
+	}{
+		{mk("?"), true},
+		{mk("%s"), true},
+		{mk("Azure"), false},
+		{mk(int64(1)), false},
+		{mk("a", "?"), true},
+		{mk("a", "b"), false},
+		{nil, false},
+	}
+	for _, c := range cases {
+		if got := hasPlaceholder(c.node); got != c.want {
+			t.Fatalf("hasPlaceholder(%v) = %v, want %v", c.node, got, c.want)
+		}
+	}
+}
+
+// TestM2O_NameOperand_ComodelWithoutNameColumn：对端没有名字列时不能把 id 拿去 ilike。
+//
+// GetRecordName() 在模型既无 recName 声明又无 name 列时**回落到主键**。拿它去做
+// `id ilike 'x'` 在 postgres 上直接是
+// `pq: operator does not exist: bigint ~~* unknown`（主键那一列不会被加 ::text）。
+// 这种对端要退回旧行为（按 id 文本比较，回 0 条），而不是报错、更不是整表返回。
+func TestM2O_NameOperand_ComodelWithoutNameColumn(t *testing.T) {
+	fx := setupX2m(t)
+	post, err := fx.orm.GetModel("x2m.post")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 把 x2m.post 的记录名顶成主键，模拟"没有名字列"的模型。
+	post.SetRecordName(post.IdField())
+	if post.GetRecordName() != post.IdField() {
+		t.Skip("夹具没生效，跳过")
+	}
+
+	ds, err := fx.orm.Model("x2m.line").Domain(domain.New("post_id", "ilike", "post1")).Limit(-1).Read()
+
+	// 退路生成的是 `post_id::text ilike '%post1%'`。`::text` 是 postgres 语法，
+	// sqlite 认不得（报 unrecognized token ":"）——那正说明走的是退路而不是子查询。
+	// 两种结局都算通过；唯一不能接受的是**查出了行**（那意味着子查询把对端整表捞了回来）。
+	if err != nil && !strings.Contains(err.Error(), `":"`) {
+		t.Fatalf("不该是这个错（说明没走退路）: %v", err)
+	}
+	if err == nil && ds != nil && ds.Count() != 0 {
+		t.Fatalf("退路应回 0 条，实得 %d", ds.Count())
 	}
 }

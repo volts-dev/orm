@@ -114,6 +114,10 @@ func (self *TExpression) resolveX2manyLeaf(model *TModel, field IField,
 		return nil, err
 	}
 
+	if hasPlaceholder(right) {
+		return nil, errPlaceholderInSubQuery(field, right)
+	}
+
 	targetIds, matchEmpty, err := self.x2manyTargetIds(comodel, path, op, right)
 	if err != nil {
 		return nil, err
@@ -149,15 +153,49 @@ func (self *TExpression) resolveX2manyLeaf(model *TModel, field IField,
 }
 
 // idListNode 把 id 切片包成 leaf 的第三个孩子，并保证它是 LIST_NODE。见文件头第三点。
+//
+// ★ 非空时补位用**重复第一个 id**，不用哨兵 0。
+//
+//	`col in (X, X)` 与 `col in (X)` 等价，且对任何列都安全；而 0 只对**主键**安全——
+//	外键列上 0 是合法值（空 m2o 落库就是 0 / -1），补个 0 进去等于顺带把"没有上级的
+//	记录"也捞回来。真栈 2026-08-21 实测：`parent_id ilike 'Azure'` 回 4 条，其中 3 条
+//	是真的子联系人、第 4 条是 parent_id=0 的那条；而 `parent_id ilike 'zzqx'` 回 1 条
+//	——本该是 0。
+//
+// ★ 空列表仍然落成 [0,0]，所以**空列表只能用在主键列上**。外键列上要表达"一条都不
+//
+//	匹配"，请把整条叶子改挂到主键上（见 idInLeaf）。
 func idListNode(ids []any) *domain.TDomainNode {
 	node := domain.NewDomainNode()
 	for _, id := range ids {
 		node.Push(id)
 	}
+	if len(ids) > 0 {
+		for node.Count() < 2 {
+			node.Push(ids[0])
+		}
+		return node
+	}
 	for node.Count() < 2 {
 		node.Push(x2manyIdSentinel)
 	}
 	return node
+}
+
+// idInLeaf 生成 `(column in [ids])`；ids 为空时改挂到主键上生成一条恒假条件。
+//
+// column 通常是外键列，而外键列上 0 是合法值，所以"一条都不匹配"不能写成
+// `column in (0,0)`——那会把空外键的记录全捞回来。主键是雪花 id，0 永远不存在。
+func idInLeaf(idField, column string, ids []any) *domain.TDomainNode {
+	leaf := domain.NewDomainNode()
+	if len(ids) == 0 {
+		leaf.Push(idField)
+	} else {
+		leaf.Push(column)
+	}
+	leaf.Push("in")
+	leaf.Push(idListNode(ids))
+	return leaf
 }
 
 // x2manyTargetIds 解析右值，返回对端（comodel）的 id 集合。
@@ -391,4 +429,71 @@ func numericIds(node *domain.TDomainNode) ([]any, bool) {
 		return []any{v}, true
 	}
 	return nil, false
+}
+
+// textOperators 是"按文本匹配"的一族。落在 many2one 上时右值一定是名字，
+// 哪怕它长得像个数字（标签叫 "12345" 也是名字）。
+var textOperators = []string{
+	"like", "not like", "ilike", "not ilike", "=like", "=ilike",
+	"LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "=LIKE", "=ILIKE",
+}
+
+// isNameOperand 判断一条 many2one 叶子的右值该按**名字**解析还是按 id。
+//
+//	文本操作符          → 永远按名字
+//	其余（= / in / …）  → 值不是 id 才按名字
+//	False / 空          → 都不是，交给原来的 NULL 判断
+func isNameOperand(op string, right *domain.TDomainNode) bool {
+	if right == nil || isDomainFalse(right) {
+		return false
+	}
+	// 占位符留到 leaf_to_sql 才有值，这里查不了名字——退回按 id 文本比较（旧行为），
+	// 那条路会正确消费 params。
+	if hasPlaceholder(right) {
+		return false
+	}
+	if utils.IndexOf(op, textOperators...) != -1 {
+		return true
+	}
+	if right.IsListNode() {
+		if right.Count() == 0 {
+			return false
+		}
+		for _, child := range right.Nodes() {
+			if _, ok := idValueOf(child); !ok {
+				return true
+			}
+		}
+		return false
+	}
+	_, ok := idValueOf(right)
+	return !ok
+}
+
+// hasPlaceholder 判断右值里是否含 SQL 占位符（`?` / `%s`）。
+//
+// `Where("order_id=?", id)` 这种写法把值留在 Statement.Params 里，直到 leaf_to_sql
+// 生成 SQL 时才按顺序消费；domain 树上留下的只是一个 "?" 字面量。所以凡是要**提前
+// 跑一次子查询**的路径（关系路径、按名字查 m2o、x2many 下钻）都拿不到真值，必须先认出它。
+func hasPlaceholder(node *domain.TDomainNode) bool {
+	if node == nil {
+		return false
+	}
+	if node.IsListNode() {
+		for _, child := range node.Nodes() {
+			if hasPlaceholder(child) {
+				return true
+			}
+		}
+		return false
+	}
+	return utils.IndexOf(node.String(), "?", "%s") != -1
+}
+
+// errPlaceholderInSubQuery 是那几条"必须先跑子查询"的路径遇到占位符时的统一说法。
+func errPlaceholderInSubQuery(field IField, leaf *domain.TDomainNode) error {
+	return fmt.Errorf("domain term %s on %s@%s needs a sub-query to resolve, so it cannot "+
+		"take a `?` placeholder (the value only exists at SQL-generation time). "+
+		"Pass the value inline via Domain(...) instead of Where(...,args)",
+		leaf.String(), field.Name(), field.ModelName())
 }

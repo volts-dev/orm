@@ -718,6 +718,9 @@ func (self *TExpression) parse(context map[string]any) error {
 			// ★ 叶子必须是 3 个孩子且第三个是 LIST_NODE。原来是
 			//   Push(path[0], "in") 再 Push(ids...)——ids 有两个以上时那是个 N 孩子的
 			//   畸形节点，IsLeafNode() 直接为 false。
+			if hasPlaceholder(right) {
+				return errPlaceholderInSubQuery(field, ex_leaf.leaf)
+			}
 			target, terr := self.orm.GetModel(field.RelatedModelName())
 			if terr != nil {
 				return terr
@@ -737,11 +740,7 @@ func (self *TExpression) parse(context map[string]any) error {
 			if lDs != nil {
 				right_ids = lDs.Keys()
 			}
-			leaf := domain.NewDomainNode()
-			leaf.Push(path[0])
-			leaf.Push("in")
-			leaf.Push(idListNode(right_ids))
-			ex_leaf.leaf = leaf
+			ex_leaf.leaf = idInLeaf(model.idField, path[0], right_ids)
 			self.push(ex_leaf)
 
 		} else if len(path) > 1 && field.Store() && utils.IndexOf(field.TypeName(), TYPE_M2M, TYPE_O2M) != -1 {
@@ -881,6 +880,58 @@ func (self *TExpression) parse(context map[string]any) error {
 				                       for dom_leaf in dom:
 				                           push(dom_leaf, model, alias)
 				*/
+			} else if isNameOperand(operator.String(), right) {
+				// 右值是**名字**而不是 id：先在对端按 rec_name 查出 id，再把叶子换成
+				// (本字段 in [...])。对标 Odoo expression.py 的 m2o 分支。
+				//
+				// 不这么做的话，`('journal_id','ilike','杂项')` 生成的是
+				// `journal_id::text ilike '%杂项%'` —— 拿**主键的文本形式**去比名字，
+				// 恒回 0 条。真栈 2026-08-21 实测：parent_id ilike 'Azure' 回 0
+				// （真值是 3），journal_id ilike '销项' 回 0（真值是 8）。
+				// 这一类的错法是"少给"，不像丢条件那样"全给"，所以更难被发现——
+				// 用户只会觉得"搜不到"。
+				//
+				// 操作符原样交给对端（含 not like 一族）：对 m2o 这个标量而言，
+				// "名字不含 X 的凭证" == "journal_id 落在（名字不含 X 的日记账）里"，
+				// 不需要再翻一次符号（x2many 那边要翻，因为那是"存在一条关联"的语义）。
+				target, terr := self.orm.GetModel(field.RelatedModelName())
+				if terr != nil {
+					return terr
+				}
+				recName := target.GetRecordName()
+				// GetRecordName() 在模型既无 recName 声明又无 name 列时**回落到主键**。
+				// 那种模型压根没有名字可搜，拿 id 去 ilike 会直接撞
+				// `pq: operator does not exist: bigint ~~* unknown`（主键这一列不会被
+				// 加 ::text 转换）。走下面的退路即可。
+				noName := recName == "" || recName == target.IdField()
+				if serr := assertSearchable(target, recName); noName || serr != nil {
+					if noName {
+						serr = fmt.Errorf("%s 没有名字列（rec_name 回落到主键）", target.String())
+					}
+					// 对端 rec_name 不可搜时**保持旧行为**并点名，不报错：
+					// 旧行为的错法是回 0 条（可见、安全），而下钻到不可搜的对端会让它
+					// 整表返回，于是 (field in [对端全部 id]) —— 那是"筛了等于没筛",
+					// 正是本轮在消灭的东西。两害相权。
+					log.Warnf("m2o %s@%s 按名字过滤退回按 id 文本比较（几乎必然回 0 条）：%s",
+						field.Name(), field.ModelName(), serr.Error())
+					self.push_result(ex_leaf)
+				} else {
+					subNode := domain.NewDomainNode()
+					subNode.Push(recName)
+					subNode.Push(operator.String())
+					subNode.Push(right.Clone())
+					lDs, rerr := self.subSession().Model(target.String()).Domain(subNode).Limit(-1).Read()
+					if rerr != nil {
+						return rerr
+					}
+					var right_ids []any
+					if lDs != nil {
+						right_ids = lDs.Keys()
+					}
+					ex_leaf.leaf = idInLeaf(model.idField, path[0], right_ids)
+					self.push_result(ex_leaf)
+				}
+
 			} else {
 				// 对多值修改为In操作
 				if _, ok := right.Value.([]any); ok {
