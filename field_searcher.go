@@ -2,6 +2,7 @@ package orm
 
 import (
 	"github.com/volts-dev/orm/domain"
+	"github.com/volts-dev/utils"
 )
 
 /*
@@ -41,9 +42,15 @@ type (
 		Session *TSession
 		// Operator 已经过 normalize_leaf 归一（小写、`<>`→`!=`）。
 		Operator string
-		// Value 是右值的原始形态。注意它可能是 encoding/json.Number 之类的具名
-		// 字符串类型，别直接 `.(string)` 断言，用 utils.ToString。
+		// Value 是右值的原始形态。两个坑：
+		//   - 它可能是 encoding/json.Number 之类的**具名字符串类型**，别直接
+		//     `.(string)` 断言，用 utils.ToString。
+		//   - 右值是**列表**时（`x in [a,b]`）它是 nil ——列表挂在节点的孩子上。
+		//     要照顾多值就用 Right。
 		Value any
+		// Right 是右值节点本身，多值场景（in / not in）必须用它。
+		// 转发给别的字段时直接 Right.Clone() 作为新叶子的第三个孩子。
+		Right *domain.TDomainNode
 		// Leaf 是原始叶子，需要比 Operator/Value 更精细的信息时用（如右值是列表）。
 		Leaf *domain.TDomainNode
 	}
@@ -57,3 +64,46 @@ func (self *TField) Searcher() FieldSearchFunc { return self.searchFunc }
 
 // SetSearcher 挂上 search 钩子。挂了之后该字段即视为可搜（SearchOnSelf 为真）。
 func (self *TField) SetSearcher(fn FieldSearchFunc) { self.searchFunc = fn }
+
+// IsNegative 报告操作符是否是否定型（`!=` / `not like` / `not ilike` / `not in`）。
+func (self *TFieldSearchContext) IsNegative() bool {
+	return utils.IndexOf(self.Operator, domain.NEGATIVE_TERM_OPERATORS...) != -1
+}
+
+// Forward 把本字段的叶子原样转发到另一条路径上，操作符与右值都不变。
+//
+// 用它而不是手写 domain.New(path, ctx.Operator, ctx.Value)：右值是列表时
+// （`x in [a,b]`）ctx.Value 是 nil，手写那句拼出来的条件恒不匹配——"多选几个"
+// 反而一条都筛不出来。
+func (self *TFieldSearchContext) Forward(path string) *domain.TDomainNode {
+	node := domain.NewDomainNode()
+	node.Push(path)
+	node.Push(self.Operator)
+	if self.Right != nil {
+		node.Push(self.Right.Clone())
+	} else {
+		node.Push(self.Value)
+	}
+	return node
+}
+
+// Any 把本字段转发到多条路径并合并——计算列由几段拼成时（"[编码] 模板名 (属性值)"）
+// 就是这个形状。
+//
+// ★ 否定型操作符用 **AND** 合并，不是 OR。"名字里不含 X" 意思是**每一条**来源都不含
+// X；写成 OR 的话，只要有一条来源不含就算命中，几乎等于不筛——而这正是本类 bug 最爱
+// 的伪装：条件写了、结果几乎全回来了、没有任何报错。（德摩根：!(a|b) == !a & !b）
+func (self *TFieldSearchContext) Any(paths ...string) *domain.TDomainNode {
+	if len(paths) == 0 {
+		return nil
+	}
+	node := self.Forward(paths[0])
+	for _, p := range paths[1:] {
+		if self.IsNegative() {
+			node.AND(self.Forward(p))
+		} else {
+			node.OR(self.Forward(p))
+		}
+	}
+	return node
+}

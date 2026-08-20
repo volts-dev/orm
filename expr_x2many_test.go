@@ -423,3 +423,39 @@ func TestX2many_UnsearchableComodelNameIsLoud(t *testing.T) {
 	// 按 id 筛不受影响：那条路根本不碰名称字段。
 	fx.assertSearch(t, domain.New("tag_ids", "in", fx.tags["tag_red"]), "post1", "post2")
 }
+
+// TestDottedM2OPath 覆盖穿过 many2one 的路径（`post_id.name`）。
+//
+// 修之前这条路上有三处：拿"字段所属模型"当对端、子查询用 NewSession（丢 schema）、
+// 不给 Limit(-1)（对端第 501 条起不算数），另外拼出来的叶子在 id 超过一个时是个
+// N 孩子的畸形节点，IsLeafNode() 直接为 false。
+func TestDottedM2OPath(t *testing.T) {
+	fx := setupX2m(t)
+
+	// 一条明细：line3 属于 post3
+	ds, err := fx.orm.Model("x2m.line").Domain(domain.New("post_id.name", "=", "post3")).Limit(-1).Read()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ds == nil || ds.Count() != 1 {
+		t.Fatalf("post_id.name=post3 应命中 line3 一条，实得 %v", ds.Count())
+	}
+
+	// 两条明细：line1/line2 都属于 post1 —— 命中多个对端 id，压的是叶子形态那条。
+	ds, err = fx.orm.Model("x2m.line").Domain(domain.New("post_id.name", "in", "post1", "post3")).Limit(-1).Read()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ds == nil || ds.Count() != 3 {
+		t.Fatalf("post_id.name in [post1,post3] 应命中 3 条明细，实得 %v", ds.Count())
+	}
+
+	// 对端一条都不匹配 → 本表也应一条都没有，而不是全表。
+	ds, err = fx.orm.Model("x2m.line").Domain(domain.New("post_id.name", "=", "nope")).Limit(-1).Read()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ds != nil && ds.Count() != 0 {
+		t.Fatalf("对端无匹配时本表应为空，实得 %v 条", ds.Count())
+	}
+}

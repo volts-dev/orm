@@ -704,12 +704,44 @@ func (self *TExpression) parse(context map[string]any) error {
 			return fmt.Errorf("_auto_join attribute not supported on many2many column %s", left.String())
 
 		} else if len(path) > 1 && field.Store() && field.TypeName() == TYPE_M2O {
-			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
-			lDs, _ := comodel.Records().Domain(domain_str).Read() //search(cr, uid, [(path[1], operator, right)], context=dict(context, active_test=False))
-			right_ids := lDs.Keys()
-			ex_leaf.leaf = domain.NewDomainNode()
-			ex_leaf.leaf.Push(path[0], "in")
-			ex_leaf.leaf.Push(right_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
+			// `partner_id.name` 这类穿过 m2o 的路径：先在对端查出 id，再把叶子换成
+			// (partner_id in [...])。
+			//
+			// ★ 这里的 comodel 变量其实是**字段所属**模型（parse() 里那句
+			//   GetModel(field.ModelName()) 的注释写着 "the model of the field owner"，
+			//   名字起反了），必须自己解析真正的对端。
+			// ★ 子查询走 subSession：Records() 是 NewSession，用的是 orm.Schema 而不是
+			//   当前会话的 schema——schema 隔离租户（VectorsSystem 的 system）下会去查
+			//   public 的同名表，查空即"这条关系过滤器筛不出任何东西"。
+			// ★ 必须 Limit(-1)：不给就是 DefaultLimit=500，对端第 501 条之后的记录
+			//   悄悄不算数。
+			// ★ 叶子必须是 3 个孩子且第三个是 LIST_NODE。原来是
+			//   Push(path[0], "in") 再 Push(ids...)——ids 有两个以上时那是个 N 孩子的
+			//   畸形节点，IsLeafNode() 直接为 false。
+			target, terr := self.orm.GetModel(field.RelatedModelName())
+			if terr != nil {
+				return terr
+			}
+			// ★ 右值必须整个节点传下去，不能用 right.Value：右值是列表时
+			//   （`post_id.name in [a,b]`）Value 是 nil，拼出来的子条件恒不匹配，
+			//   于是"多选几个"反而一条都筛不出来。
+			subNode := domain.NewDomainNode()
+			subNode.Push(path[1])
+			subNode.Push(operator.String())
+			subNode.Push(right.Clone())
+			lDs, rerr := self.subSession().Model(target.String()).Domain(subNode).Limit(-1).Read()
+			if rerr != nil {
+				return rerr
+			}
+			var right_ids []any
+			if lDs != nil {
+				right_ids = lDs.Keys()
+			}
+			leaf := domain.NewDomainNode()
+			leaf.Push(path[0])
+			leaf.Push("in")
+			leaf.Push(idListNode(right_ids))
+			ex_leaf.leaf = leaf
 			self.push(ex_leaf)
 
 		} else if len(path) > 1 && field.Store() && utils.IndexOf(field.TypeName(), TYPE_M2M, TYPE_O2M) != -1 {
@@ -751,6 +783,7 @@ func (self *TExpression) parse(context map[string]any) error {
 				Session:  self.session,
 				Operator: operator.String(),
 				Value:    right.Value,
+				Right:    right,
 				Leaf:     ex_leaf.leaf,
 			})
 			if err != nil {

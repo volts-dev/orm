@@ -189,3 +189,28 @@ func TestSearcher_ErrorIsNotSwallowed(t *testing.T) {
 		t.Fatal("挂了钩子的字段 SearchOnSelf 必须为 true")
 	}
 }
+
+// TestSearchContext_AnyNegationUsesAnd 锁住德摩根那一步。
+//
+// 正向：`combo = alpha` 命中 code=alpha ∪ title=alpha。
+// 否定：`combo != alpha` 必须是 code!=alpha **且** title!=alpha —— 写成 OR 的话
+// AAA(code=AAA,title=alpha) 因为 code!=alpha 就被算命中，三条全回来，等于没筛。
+func TestSearchContext_AnyNegationUsesAnd(t *testing.T) {
+	fx := setupSearcher(t)
+	model, err := fx.orm.GetModel("srch.doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := model.GetFieldByName("combo")
+	orig := field.Searcher()
+	defer field.SetSearcher(orig)
+	field.SetSearcher(func(ctx *TFieldSearchContext) (*domain.TDomainNode, error) {
+		return ctx.Any("code", "title"), nil
+	})
+
+	fx.assertCodes(t, domain.New("combo", "=", "alpha"), "AAA", "BBB")
+	fx.assertCodes(t, domain.New("combo", "!=", "alpha"), "CCC")
+	fx.assertCodes(t, domain.New("combo", "=", "CCC"), "CCC")
+	// 多值：Value 是 nil、列表挂在孩子上，Forward 必须把整个节点带下去。
+	fx.assertCodes(t, domain.New("combo", "in", "AAA", "CCC"), "AAA", "CCC")
+}
