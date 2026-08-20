@@ -27,8 +27,12 @@ type (
 	    For more info: http://christophe-simonis-at-tiny.blogspot.com/2008/08/new-new-domain-notation.html
 	"""*/
 	TExpression struct {
-		Table      string
-		orm        *TOrm
+		Table string
+		orm   *TOrm
+		// session 是发起本次解析的会话。x2many 叶子改写要在**同一个 schema 和事务**
+		// 里查中间表/对端表——NewSession 用的是 orm.Schema，schema 隔离租户下会落到
+		// public 查空。见 expr_x2many.go 文件头。
+		session    *TSession
 		root_model *TModel // 本次解析的主要
 		Expression *domain.TDomainNode
 		stack      []*TExtendedLeaf
@@ -49,11 +53,14 @@ var (
 		"parent_of": parent_of_domain}
 )
 
-func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context map[string]any) (*TExpression, error) {
+func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context map[string]any, session ...*TSession) (*TExpression, error) {
 	exp := &TExpression{
 		orm:        orm,
 		root_model: model,
 		joins:      make([]string, 0),
+	}
+	if len(session) > 0 {
+		exp.session = session[0]
 	}
 
 	node, err := normalize_domain(dom)
@@ -718,6 +725,22 @@ func (self *TExpression) parse(context map[string]any) error {
 			ex_leaf.leaf.Push(model.idField, "in")
 			ex_leaf.leaf.Push(table_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
 			self.push(ex_leaf)
+
+		} else if isX2many(field) {
+			// 直接（或点号路径的）x2many 叶子：翻译成主键条件。
+			//
+			// ★ 这条分支必须排在 `!field.Store()` **之前**：o2m/m2m 的 store 都是
+			//   false，落到那条分支就是"生成空节点、条件消失、整表返回"。参见
+			//   expr_x2many.go 文件头（含真栈实测的 54→54 / 56→56 / 9→9）。
+			//
+			// ★ 出错一律往上抛，不吞。这里吞掉错误的后果不是少一条日志，而是回到
+			//   丢条件的老路——用户看到的是一份"看着正常"的错数据。
+			newLeaf, err := self.resolveX2manyLeaf(model, field, path, operator, right)
+			if err != nil {
+				return err
+			}
+			ex_leaf.leaf = newLeaf
+			self.push_result(ex_leaf)
 
 		} else if !field.Store() {
 			//# Non-stored field should provide an implementation of search.

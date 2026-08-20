@@ -674,7 +674,7 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 	var where_clause []string
 	var where_params []any
 	if node != nil && node.Count() > 0 {
-		exp, err := NewExpression(self.session.orm, self.Model.GetBase(), node, context)
+		exp, err := NewExpression(self.session.orm, self.Model.GetBase(), node, context, self.session)
 		if err != nil {
 			return nil, err
 		}
