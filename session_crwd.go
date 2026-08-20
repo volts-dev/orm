@@ -193,6 +193,13 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	// 模型名要在主删除**之前**取：_exec 里 defer 了 _resetStatement。
 	model_name := self.Statement.Model.String()
 
+	// ondelete 策略要在主删除**之前**跑：restrict 得来得及拦住这一次删除，cascade 得
+	// 趁父行还在时按外键找到子行。失败一律返回错误（主记录还没删，回滚是干净的）——
+	// 与下面 m2m 清理的"只告警"相反，那时记录已经删掉了。见 session_ondelete.go。
+	if err := self.applyOnDelete(model_name, ids); err != nil {
+		return 0, err
+	}
+
 	//#1 删除目标Model记录（表名按会话 schema 限定）
 	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s in (%s); `,
 		quoter.QuoteTable(self.Schema, self.Statement.Model.Table()),

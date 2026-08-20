@@ -72,6 +72,11 @@ type (
 		// 见 session_m2m_cleanup.go。
 		m2mRefIndex atomic.Pointer[map[string][]m2mRelationRef]
 
+		// m2oRefIndex 缓存「模型名 → 声明了 ondelete 且指向它的 many2one 列」，
+		// 供删除时执行 cascade / restrict / set null。作废时机同上。
+		// 见 session_ondelete.go。
+		m2oRefIndex atomic.Pointer[map[string][]m2oRef]
+
 		// === remote model resolution (phased registration) ===
 		resolver       IRemoteResolver
 		strictMode     bool
@@ -470,6 +475,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 	self.models.Store(model.name, obj)
 	// 模型/字段集合变了，m2m 关系清理索引作废（下次删除时重建）。
 	self.invalidateM2MRefIndex()
+	self.invalidateM2ORefIndex()
 
 	/* 初始化原型 */
 	{
@@ -560,6 +566,7 @@ func (self *TOsv) GetModel(name string, opts ...ModelOption) (IModel, error) {
 func (self *TOsv) RemoveModel(name string) {
 	self.models.Delete(name)
 	self.invalidateM2MRefIndex()
+	self.invalidateM2ORefIndex()
 }
 
 func (self *TOsv) GetModels() []string {
