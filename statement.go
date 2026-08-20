@@ -548,7 +548,8 @@ func (self *TStatement) ___generate_query(vals map[string]any, includeVersion bo
 						var err error
 						bytes, err = json.Marshal(val)
 						if err != nil {
-							log.Errf("asdf", err)
+							log.Errf("statement: marshal %s.%s to json failed, "+
+								"the column is SKIPPED: %s", self.Model.String(), col.Name(), err)
 							continue
 						}
 						val = bytes
@@ -567,7 +568,8 @@ func (self *TStatement) ___generate_query(vals map[string]any, includeVersion bo
 			if col.SQLType().IsText() {
 				bytes, err := json.Marshal(lFieldVal.Interface())
 				if err != nil {
-					log.Errf("generate_query:", err)
+					log.Errf("generate_query: marshal %s to json failed, "+
+						"the column is SKIPPED: %s", col.Name(), err)
 					continue
 				}
 				val = string(bytes)

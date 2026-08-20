@@ -211,14 +211,16 @@ func StructToMap(src any, model IModel, omitFields []string) (res_map map[string
 						if b, err := json.Marshal(fv.Interface()); err == nil {
 							lValue = string(b)
 						} else {
-							log.Errf("IsJson/Text", err)
+							log.Errf("values: marshal field to json/text failed, "+
+								"the column is SKIPPED: %s", err)
 							continue
 						}
 					} else if col.SQLType().IsBlob() {
 						if b, err := json.Marshal(fv.Interface()); err == nil {
 							lValue = b
 						} else {
-							log.Errf("IsJson/Blob", err)
+							log.Errf("values: marshal field to json/blob failed, "+
+								"the column is SKIPPED: %s", err)
 							continue
 						}
 					} else {

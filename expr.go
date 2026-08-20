@@ -724,7 +724,12 @@ func (self *TExpression) parse(context map[string]any) error {
 			var node *domain.TDomainNode
 			if !field.SearchOnSelf() {
 				//# field does not support search!
-				log.Errf("Non-stored field %s cannot be searched.", field.Name)
+				// ★ field.Name 是方法，必须**调用**。少这对括号打出来的是
+				//   `Non-stored field %!s(func() string=0x...)`——而这条日志是
+				//   "非存储字段进了 domain"（后果是筛选条件被静默丢掉、返回全表）
+				//   的唯一线索，不点名等于没有。
+				log.Errf("Non-stored field %s@%s cannot be searched, the leaf is DROPPED "+
+					"(the filter silently matches everything).", field.Name(), field.ModelName())
 				// if _log.isEnabledFor(logging.DEBUG):
 				//     _log.debug(''.join(traceback.format_stack()))
 				//# Ignore it: generate a dummy leaf.

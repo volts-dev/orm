@@ -6,7 +6,9 @@ func (self *TSession) Model(model string, options ...ModelOption) *TSession {
 		var err error
 		self.Statement.Model, err = self.orm.GetModel(model, options...)
 		if err != nil {
-			log.Panicf(err.Error())
+			// 错误文本是数据不是格式串：带 % 的错误（如 SQL 里的 LIKE '%x%'）
+			// 会被当成格式符，打出 %!x(MISSING) 之类的乱码。
+			log.Panicf("%s", err.Error())
 			self.IsDeprecated = true
 		}
 	}
