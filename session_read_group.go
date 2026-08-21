@@ -233,8 +233,25 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		}
 		field := model.GetFieldByName(name)
 		if field == nil {
-			// 字段名写错是调用方的 bug，明确报出来；下面「聚合不了」的几类则不是。
-			return nil, fmt.Errorf("ReadGroup: measure field %q not found on model %s", name, model.String())
+			// ★ 模型上**根本没有**这个字段时也跳过，与下面「聚合不了」的几类同一条规则。
+			//
+			// 原来这里是直接报错（"字段名写错是调用方的 bug"）。但 kanban 按设计就是
+			// 把**整张卡片的字段列表**原样当 measures 传过来，而 arch 是照 Odoo 抄的
+			// ——只要里面有一个本仓没实现的字段（pro.tmpl 卡片上的 activity_state 就是，
+			// Odoo 那边它来自 mail.activity.mixin），整页分组当场只剩一行错误文本：
+			//
+			//     ReadGroup: measure field "activity_state" not found on model pro.tmpl
+			//
+			// 而那行字看不出跟哪个字段、哪张 arch 有关。全仓 kanban 里 kanban_activity
+			// 一族有 4 处是这个形状，也就是说这些看板的分组功能全是死的。
+			//
+			// 代价是调用方把字段名写错时不再报错。所以**必须打一条点名的日志**：
+			// 静默跳过等于把一个"合计列凭空消失"的问题变成没有任何线索的问题。
+			// （同 session_crwd.go 里 GroupBy 那处 "not found on model %s, ignored"。）
+			log.Warnf("ReadGroup: measure field %q not found on model %s, ignored "+
+				"(kanban passes the whole card field list as measures; a typo looks the same)",
+				name, model.String())
+			continue
 		}
 		// 聚合不了的字段**跳过而不是报错**，对齐 Odoo「没有 group_operator 的字段
 		// 不参与聚合」：kanban 视图按设计会把整张卡片的字段列表（字符/日期/关系
