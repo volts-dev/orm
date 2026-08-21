@@ -708,7 +708,36 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	}
 	// 子读取必须带上 id 与反向 FK(relFieldName)，否则 OnRead 无法按反向键分组回填。
 	selFields := ensureFields(ctx.Fields, relateModel.IdField(), relFieldName)
-	groups, err := session.Select(selFields...).In(relFieldName, ids...).Read()
+	session.Select(selFields...).In(relFieldName, ids...)
+
+	// 字段上声明的 domain 必须生效。此前 one2many **完全不看它**（m2m 那边一直是看的），
+	// 于是 `one2many(x, fk) domain([('active','=',True)])` 这种写法是纯装饰：归档的子
+	// 记录照样出现在内嵌列表里，不报错。同一张表按不同条件切成两个 o2m 字段
+	// （如日记账的收款/付款方式两栏）时后果更直白——两栏内容一模一样。
+	// In() 与 Domain() 都写进 Statement.domain 并以 AND 合并，所以这里只需追加。
+	var relDomain *domain.TDomainNode
+	if ctx.Domain != "" {
+		relDomain, err = domain.String2Domain(ctx.Domain, ds)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if expr := field.Domain(); expr != "" {
+		node, err := domain.String2Domain(expr, ds)
+		if err != nil {
+			return nil, err
+		}
+		if relDomain == nil {
+			relDomain = node
+		} else {
+			relDomain.AND(node)
+		}
+	}
+	if relDomain != nil && relDomain.Count() > 0 {
+		session.Domain(relDomain)
+	}
+
+	groups, err := session.Read()
 	if err != nil {
 		log.Errf("OneToMany field %s search relate model %s failed", field.Name(), relateModel.String())
 		return nil, err
