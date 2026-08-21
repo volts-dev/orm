@@ -367,6 +367,16 @@ func isDomainFalse(node *domain.TDomainNode) bool {
 	return false
 }
 
+// isNullLiteral 判断右值是不是字面量 NULL（不分大小写）。列表节点不算——
+// `('x','in',['NULL'])` 是"这些值里有个叫 NULL 的"，另一回事。
+func isNullLiteral(node *domain.TDomainNode) bool {
+	if node == nil || node.IsListNode() {
+		return false
+	}
+	s, ok := node.Value.(string)
+	return ok && strings.EqualFold(s, "null")
+}
+
 // idsAllowed 判断这个操作符下"纯数字串"该不该被当成 id。
 func idsAllowed(op string) bool {
 	return utils.IndexOf(op, "in", "not in", "=", "!=", "IN", "NOT IN") != -1
@@ -442,9 +452,25 @@ var textOperators = []string{
 //
 //	文本操作符          → 永远按名字
 //	其余（= / in / …）  → 值不是 id 才按名字
-//	False / 空          → 都不是，交给原来的 NULL 判断
+//	False / 空 / NULL   → 都不是，交给原来的 NULL 判断
 func isNameOperand(op string, right *domain.TDomainNode) bool {
 	if right == nil || isDomainFalse(right) {
+		return false
+	}
+	// 字面量 NULL 配等值操作符是**空值判断**，不是对端的名字。
+	//
+	// 本仓 domain 里 "NULL" 一直就是"空"的写法：TStatement.Where 收的是 SQL 串，
+	// 交给 String2Domain 解析后 `site_id IS NULL` 出来的正是 ('site_id','=','NULL')
+	// （`IS` / `IS NOT` 在 domain/parser.go 里映射成 `=` / `!=`），而 leaf_to_sql
+	// 对 ('x','=','NULL') / ('x','!=','NULL') 直接落 IS NULL / IS NOT NULL。
+	//
+	// 不在这里拦下来，many2one 会拿 "NULL" 去对端 rec_name 里搜名字，搜不到 →
+	// idInLeaf → `(id in (0,0))` 恒假，于是 `Where("site_id=? OR site_id IS NULL")`
+	// 的第二支静默失效：外键为空的行一条都回不来，查询照常成功、照常返回一批
+	// "看着正常"的行。错法是**少给**，不报错、不留日志。
+	// 2026-08-22 真栈：website.menu 里 website_id 为 NULL 的 Shop / Contact us /
+	// Courses 就是这么从前台导航整批消失的，只剩数据里写了 website_id 的 Home。
+	if isNullLiteral(right) && utils.IndexOf(op, "=", "!=", "<>") != -1 {
 		return false
 	}
 	// 占位符留到 leaf_to_sql 才有值，这里查不了名字——退回按 id 文本比较（旧行为），
