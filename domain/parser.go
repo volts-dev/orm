@@ -212,7 +212,25 @@ func parseDomain(node *TDomainNode) string {
 				fmt.Println("_update leaf", lStr)
 				IsList = true
 				str_lst = append(str_lst, item.Text)
-			} else*/if item.IsListNode() {
+			} else*/if len(item.children) > 0 {
+				// ★ 判据是「有没有子节点」，**不能判 IsListNode()**。
+				//
+				// IsLeafNode() 是个**带副作用的谓词**：认出一个三元 LIST_NODE 是叶子
+				// 之后，它会把 nodeType 就地改写成 LEAF_NODE 作记忆化。而本函数每渲染
+				// 完一个子节点，末尾那句 `if node.IsLeafNode()` 正好把它改掉。于是
+				// **同一棵树第二次 String() 时**，这里的 IsListNode() 变成 false，
+				// 整条叶子掉进下面的 else，被 Quote() 当成一个字符串值加上引号：
+				//
+				//	1st = ["&",("a","=",7),("b","=","x")]
+				//	2nd = ["&","(\"a\",\"=\",7)","(\"b\",\"=\",\"x\")"]
+				//
+				// 第二份再喂回 String2Domain 就不再是叶子，ORM 认不出就**整条 domain
+				// 丢掉、返回全表**——外部特征是"筛得越多出来的越多"，而且全程不报错。
+				// 此前一直被当成"String() 是有损往返"，其实往返本身无损，坏的是
+				// **调用第二次**（日志打一遍、再交给 ORM 一遍，就够了）。
+				//
+				// 有子节点的一律递归渲染：值节点没有子节点，走不到这条。
+				// 回归：domain/parser_idempotent_test.go。
 				str := parseDomain(item)
 				str_lst = append(str_lst, str)
 			} else {
