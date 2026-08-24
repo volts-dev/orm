@@ -162,7 +162,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 			if model == nil {
 				continue
 			}
-			if err = self.orm.osv.RegisterModel(region, model); err != nil {
+			if err = self.orm.osv.RegisterModel(region, model, self); err != nil {
 				return nil, err
 			}
 			self.Model(model.String(), WithModuleName(region))
@@ -212,7 +212,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 		}
 
 		// 注册到对象服务
-		if err = self.orm.osv.RegisterModel(region, model); err != nil {
+		if err = self.orm.osv.RegisterModel(region, model, self); err != nil {
 			return nil, err
 		}
 
@@ -289,7 +289,7 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 				continue
 			}
 			if !self.orm.osv.HasModel(m.String()) {
-				if err = self.orm.osv.RegisterModel(region, m.(*TModel)); err != nil {
+				if err = self.orm.osv.RegisterModel(region, m.(*TModel), self); err != nil {
 					return nil, err
 				}
 			}

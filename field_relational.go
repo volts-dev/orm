@@ -1005,8 +1005,29 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 			stmts = append(stmts, fmt.Sprintf(`COMMENT ON TABLE %s IS '%s'`,
 				qualifiedMiddle, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model)))
 		}
+		// DDL 必须走**调用方那条会话**，不能另开连接。
+		//
+		// TOrm.SyncModel 把整批模型的建表放在一个事务里（orm.go: session.Begin /
+		// Commit），而 orm.Exec 是另一条连接、自动提交。只要关联表同时也是一张
+		// **模型表**——Odoo 那种 mailing.list.contact_ids ↔ mailing.subscription 的
+		// 形状，m2m 的中间表本身就是个有主键有字段的真模型——同步事务刚在这张表上
+		// 建过索引、持着锁不放，这里的 CREATE INDEX 就会永远等下去：
+		// 没有超时、没有报错，日志停在上一条 SQL，进程活着但端口永不监听。
+		// （2026-08-25 mass_mailing 首次真栈安装踩到，pg_blocking_pids 实锤。）
+		//
+		// 走同一条会话就没有跨连接的锁等待，关联表也随同步事务一起提交/回滚；
+		// 顺带还让 schema 与模型建表一致（此前 RegisterModel 路径无会话，
+		// 关联表一律落在默认 schema）。会话为 nil 时（非同步期调用）回落 orm.Exec。
+		exec := func(q string) error {
+			if ctx.Session != nil {
+				_, err := ctx.Session.Exec(q)
+				return err
+			}
+			_, err := orm.Exec(q)
+			return err
+		}
 		for _, q := range stmts {
-			if _, err := orm.Exec(q); err != nil {
+			if err := exec(q); err != nil {
 				log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelatedModelName(), q, err.Error())
 			}
 		}
@@ -1027,8 +1048,8 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	if err != nil {
 		log.Err(err)
 	}
-	// 注册model
-	if err = orm.osv.RegisterModel("", model.GetBase()); err != nil {
+	// 注册model —— 带上本会话，让它自己的衍生 DDL 也留在同一个事务里（见上）。
+	if err = orm.osv.RegisterModel("", model.GetBase(), ctx.Session); err != nil {
 		log.Err(err)
 	}
 }

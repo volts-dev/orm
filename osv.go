@@ -318,7 +318,12 @@ func (self *TOsv) newObject(name string) *TModelObject {
 func (self *TOsv) IsFrozen() bool { return self.frozen.Load() }
 
 // register new model to the object service
-func (self *TOsv) RegisterModel(region string, model *TModel) error {
+//
+// session 可选，传的是**调用方那个正在进行的同步会话**。给它是为了让下面
+// 字段级的衍生 DDL（m2m 关联表）跟模型自己的建表落在同一条连接、同一个事务里。
+// 不给会怎样见 TMany2ManyField.UpdateDb 里那段"关联表也是一张模型表"的说明：
+// 另一条连接上的 CREATE INDEX 会永远等本事务的锁，进程静默卡死在启动中。
+func (self *TOsv) RegisterModel(region string, model *TModel, session ...*TSession) error {
 	if self.frozen.Load() {
 		// 冻结仅锁定“模型集合”不再变化：重复注册启动时已注册的同名模型
 		// （如运行期 SyncModel 把既有模型的表物化到另一个 schema）是幂等
@@ -487,11 +492,16 @@ func (self *TOsv) RegisterModel(region string, model *TModel) error {
 		}
 
 		/* 更新字段/创建关联中间表 */
+		var sess *TSession
+		if len(session) > 0 {
+			sess = session[0]
+		}
 		for _, field := range m.GetFields() {
 			field.UpdateDb(&TTagContext{
-				Orm:   self.orm,
-				Field: field,
-				Model: m,
+				Orm:     self.orm,
+				Field:   field,
+				Model:   m,
+				Session: sess,
 			})
 		}
 	}

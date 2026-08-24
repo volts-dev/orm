@@ -67,16 +67,29 @@ func newM2MCleanupOrm(t *testing.T) *orm.TOrm {
 		t.Fatalf("SyncModel: %v", err)
 	}
 
-	// 关联表这里自己建：sqlite 下 SyncModel 建关联表会撞 SQLITE_BUSY（同一次同步里
-	// 另一条连接还占着写锁），是既有限制，与本用例要锁的删除清理无关。
+	// 关联表现在由 SyncModel 自己建得出来（m2m 的 DDL 已改走同步会话那条连接，
+	// 见 TMany2ManyField.UpdateDb）。此前这里必须手工补建，理由写的是
+	// 「sqlite 下会撞 SQLITE_BUSY——同一次同步里另一条连接还占着写锁」，
+	// 那正是同一个 bug 在 sqlite 上的样子：postgres 上它表现为**永远等下去**。
+	// 下面这几条留作幂等的安全网，撞上已建好的表就是 no-op。
 	for _, q := range []string{
 		`CREATE TABLE IF NOT EXISTS m2mc_post_tag_rel (tag_id INTEGER NOT NULL, post_id INTEGER NOT NULL, UNIQUE(tag_id, post_id))`,
 		`CREATE TABLE IF NOT EXISTS m2mc_menu_tag_rel (tag_id INTEGER NOT NULL, menu_id INTEGER NOT NULL, UNIQUE(tag_id, menu_id))`,
-		// 故意与声明对不上：声明说指向 tag 的列叫 tag_id，库里叫 tag_ref。
-		`CREATE TABLE IF NOT EXISTS m2mc_odd_rel (tag_ref INTEGER NOT NULL, odd_id INTEGER NOT NULL, UNIQUE(tag_ref, odd_id))`,
 	} {
 		if _, err := o.Exec(q); err != nil {
 			t.Fatalf("建关联表 %q: %v", q, err)
+		}
+	}
+
+	// 故意与声明对不上：声明说指向 tag 的列叫 tag_id，库里叫 tag_ref。
+	// **必须先删掉 SyncModel 建的那张**——否则 CREATE ... IF NOT EXISTS 是 no-op，
+	// 列名对不上这个前提就没造出来，用例会退化成"什么都没验"。
+	for _, q := range []string{
+		`DROP TABLE IF EXISTS m2mc_odd_rel`,
+		`CREATE TABLE m2mc_odd_rel (tag_ref INTEGER NOT NULL, odd_id INTEGER NOT NULL, UNIQUE(tag_ref, odd_id))`,
+	} {
+		if _, err := o.Exec(q); err != nil {
+			t.Fatalf("造列名对不上的关联表 %q: %v", q, err)
 		}
 	}
 	return o
