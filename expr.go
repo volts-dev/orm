@@ -583,6 +583,10 @@ func (self *TExpression) parse(context map[string]any) error {
 			if err != nil {
 				return err
 			}
+
+			// 相对日期字面量 '-365d' / 'today -365d' → 绝对日期。必须在这里(生成
+			// SQL 之前)换掉：再往下值就直接进 params 发给数据库了。见 expr_relative_date.go
+			resolveRelativeDate(field, right)
 		}
 
 		// ########################################
