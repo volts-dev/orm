@@ -865,10 +865,26 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	postReadFields := make([]string, 0, 2) // 既要读库、读完还要再加工的字段(properties)
 	hasScalarCompute := false              // 存在「非存储标量计算字段」(走 getter，不读 DB)
 
+	// namedRelated 是**调用方逐个点名**的关系字段。
+	//
+	// 点名与不点名在这里必须分开:
+	//
+	//   - 点了名 → 这个键必须出现在结果里,而且必须是真值。plain 读此前对 o2m/m2m
+	//     一律跳过 OnRead(它们无物理列,也就不进 SELECT),结果是 `Select("id",
+	//     "line_ids").Read()` 回来的记录里**根本没有 line_ids 这个键**——不是空
+	//     数组,是键都不存在。调用方看到的是"关系字段没返回",而请求成功、无日志。
+	//   - 没点名(读全表字段) → 保持跳过。一次 `Read()` 会遍历模型上全部字段,给每个
+	//     x2many 都补一次子查询等于把每次读放大成 N+1 次 SQL,而绝大多数调用方并不
+	//     需要它们。想要就点名——这是**调用方**决定的,不随数据变。
+	//
+	// 注意不能改成"总是给空数组":那是拿一个看着正常的假值(`[]` = 没有关联行)去顶替
+	// "没读"。与静默截断同一类错——错数据比缺字段难查得多。
+	namedRelated := make(map[string]bool)
+
 	// 字段分类。指定 Select 与「Select * From」两条路径只差「字段从哪来」，
 	// 归类规则必须完全一致——此前是两份逐字复制的分支，改一处漏一处就会让
 	// 显式指定字段和读全表得到不同的字段集。
-	classify := func(field IField) {
+	classify := func(field IField, named bool) {
 		name := field.Name()
 		// 排除被 Omit 标记的字段
 		if self.Statement.IsOmit(name) {
@@ -879,6 +895,9 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 		case field.IsRelated():
 			computedFields = append(computedFields, name)
 			relateFields = append(relateFields, name)
+			if named {
+				namedRelated[name] = true
+			}
 		case !field.Store() && field.HasGetter():
 			// 非存储标量计算字段(如 display_name):走 getter 计算，不读 DB
 			computedFields = append(computedFields, name)
@@ -902,11 +921,11 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 				log.Warnf(`%s.read() with unknown field '%s'`, model.String(), name)
 				continue
 			}
-			classify(field)
+			classify(field, true)
 		}
 	} else {
 		for _, field := range model.GetFields() {
-			classify(field)
+			classify(field, false)
 		}
 	}
 
@@ -921,7 +940,7 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 	// 处理经典字段数据
 	// postReadFields 不在这个门槛的可选项里而是**并列的触发条件**：properties 的合并
 	// 与 Classic/NameGet 无关，普通一次 read 也必须做，否则前端拿到的是无从渲染的瘦字典。
-	if (self.UseNameGet || self.IsClassic || len(self.subReads) > 0 || hasScalarCompute || len(postReadFields) > 0) && dataset.Count() > 0 {
+	if (self.UseNameGet || self.IsClassic || len(self.subReads) > 0 || hasScalarCompute || len(postReadFields) > 0 || len(namedRelated) > 0) && dataset.Count() > 0 {
 		// 处理那些数据库不存在的字段：company_ids...
 		//# retrieve results from records; this takes values from the cache and
 		// # computes remaining fields
@@ -953,7 +972,12 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 			// 纯嵌套规格模式(非全局 Classic/NameGet)下只内嵌带子规格的关系字段，
 			// 避免对未声明的 o2m/m2m 计算字段做多余查询；非存储标量计算字段
 			// (如 display_name)是纯内存计算，不在此跳过。
-			if !self.IsClassic && !self.UseNameGet && !hasSub && field.IsRelated() {
+			//
+			// namedRelated 是例外:调用方 Select() 点了名的关系字段一定要出值,
+			// 否则那个键压根不出现在结果里。见上面 namedRelated 的说明。
+			// (m2o / o2o 在 plain 模式下各自的 OnRead 会自行早退,点名它们不会
+			// 多发 SQL,也不会改掉裸外键这个存储形态。)
+			if !self.IsClassic && !self.UseNameGet && !hasSub && field.IsRelated() && !namedRelated[field.Name()] {
 				continue
 			}
 
@@ -1700,6 +1724,26 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 				// Nullable() 声明过才走这条,否则 nil 被当"没提供"整列跳过、
 				// 零时刻则被原样写成 0001-01-01——一个既非 NULL 又不报错的假日期。
 				if (isExplicitlyNullable || explicitNil) && isBlank {
+					// required = 建表时那句 NOT NULL(见 dialect.go 的建列)。往它写
+					// NULL 就是让数据库拒掉整条 UPDATE。
+					//
+					// **不放宽**:不悄悄改写成零值,也不悄悄跳过这一列。列声明了不
+					// 可空,调用方要清空它,这两件事必须有一件是错的,由调用方裁决
+					// ——把 NULL 改写成 0/"" 只会在库里留下一个"看着像清空了"的假
+					// 值(与 isNullishWrite 拒绝零时刻是同一条理由)。
+					//
+					// 也**不提前拒绝**:required 是模型上的声明,物理列不一定跟得上
+					// (SQLite 改不了列的 NOT NULL,见 dialect_sqlite.go),按模型标志
+					// 抢先报错会拒掉一批今天跑得好好的写入。所以照发,让真正的约束
+					// 说话——只是先留下一行日志,把驱动那句只认物理列名的报错(
+					// "NOT NULL constraint failed: t.col")对上模型字段。
+					//
+					// 新建路径不到这里:那边的 required 检查早就给出了
+					// "Field %s is required",两条路径的诊断因此对齐。
+					if field.Required() {
+						log.Warnf("%s@%s: writing NULL to a required (NOT NULL) column; the database will reject it unless the physical column is nullable. Clear it only if the column really allows NULL, otherwise write a real value.",
+							name, field.ModelName())
+					}
 					new_vals[name] = nil // write SQL NULL for explicitly nullable blank field
 				} else {
 					fieldValue = field.onConvertToWrite(self, fieldValue)

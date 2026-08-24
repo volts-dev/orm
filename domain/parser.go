@@ -52,6 +52,9 @@ func Unquote(s string) string {
 //
 // 只归一两种**明确的**关系形状：带 id 键的映射、以及长度为 2 且第二位是字符串的
 // name_get 元组。别动其它切片——`'in'` 的值本来就是切片。
+//
+// 空关系（经典读回的 false）原样透传：leaf_to_sql 对 false 落的是 IS NULL/空值，
+// 正是"这一列没有关联"该有的语义（见 expr_falsy_types_test.go）。
 func relScalar(v any) any {
 	switch t := v.(type) {
 	case map[string]any:

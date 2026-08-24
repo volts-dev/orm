@@ -77,7 +77,9 @@ func TestSession_M2MWriteOnAutoCloseSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tags, _ := ds2.Record().GetByField("tag_ids").([]map[string]any)
+	// x2many 默认回 id 列表（要对端记录得给子规格，见 TMany2ManyField.OnRead）。
+	// 本用例只关心"写有没有落进关系表"，id 列表足够。
+	tags, _ := ds2.Record().GetByField("tag_ids").([]any)
 	if len(tags) != 2 {
 		t.Fatalf("两个 tag 都该关联上，实得 %d 条", len(tags))
 	}

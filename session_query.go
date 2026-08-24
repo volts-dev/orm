@@ -466,6 +466,26 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 		// 行循环内：每行每列一次 GetFieldByName 查找 + 一次 SetFieldFormater 重复
 		// 写入同一个 formatter，开销随行数线性放大。
 		fields := make([]IField, len(cols))
+		// formats 是**按列**定好的输出格式化器，读到值就地套用。
+		//
+		// 从前这些格式化器是挂在数据集上的(SetFieldFormater)，只有 TRecordSet.AsMap()
+		// 会去查它——GetByField / GetByIndex / AsJson 之外的一切取值路径、以及
+		// TDataSet.GroupBy 的分组键，拿到的都是**未格式化**的原值。于是同一列同一行
+		// 有两个值：AsMap 给字符串 "2082891348767150080"，GetByField 给 int64；空外键
+		// AsMap 给 ""，GetByField 给 0。BigNumberToString 因此只是"看起来打开了"。
+		//
+		// 代价不是理论上的：o2m / m2m 的 OnRead 都得自己再 utils.ToString 一遍子记录
+		// 的 id(否则内嵌 id 列表是裸 int64，前端 JSON 一过 >2^53 就改位)，那两处
+		// idAsStr 就是这个洞的补丁。补丁只能补到看得见的地方。
+		//
+		// 故把格式化**前移到取数当场**：值进 recordset 之前就已经是最终形态，此后
+		// 所有读法必然一致。关系字段 OnRead 之后塞进来的复合值(map / []any)天然不
+		// 经过这里，也就不再需要 AsMap 那个"只对标量套格式化器"的保护。
+		//
+		// 那两处 idAsStr 保留：对**远端** comodel(TRemoteModelObject.Read 直接由 RPC
+		// 行拼数据集，不走这里)它们仍是唯一的转换点；本地读则退化成对字符串再
+		// ToString 一次的空操作。
+		formats := make([]func(any) any, len(cols))
 		// bigNumPending 标记「这一列还没定过 formatter，且可能需要按大数转字符串」。
 		// 只对没有模型字段对应的列(Count 等函数列)成立：它要看实际扫到的值是不是
 		// int64，只能进了行循环才知道，但定一次就够。
@@ -486,11 +506,11 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 						// 只有关系字段(外键)的 0 才归空串=「没有关联」；普通 int64
 						// 数据列的 0 是合法值，必须原样输出 "0"。详见
 						// converterBigNumberToString。
-						res_dataset.SetFieldFormater(name, converterBigNumberToString(field.IsRelated()))
+						formats[idx] = converterBigNumberToString(field.IsRelated())
 					}
 					continue
 				}
-				res_dataset.SetFieldFormater(name, converter(typeName))
+				formats[idx] = converter(typeName)
 			}
 		}
 
@@ -513,12 +533,18 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 					if bigNumPending[idx] {
 						if _, ok := value.(int64); ok {
 							// 函数列(Count 等)的 0 是合法值，不归空串。
-							res_dataset.SetFieldFormater(name, converterBigNumberToString(false))
+							formats[idx] = converterBigNumberToString(false)
 						}
 						// 无论这一行是不是 int64 都不再重试：同一列的 SQL 类型固定，
 						// 首行判不出来后面也判不出来。
 						bigNumPending[idx] = false
 					}
+				}
+
+				// 就地套用。首行也在内——formats[idx] 若是上面这一行刚定下的，
+				// 当前这个值同样要过一遍，否则第一行会与其余行形态不同。
+				if f := formats[idx]; f != nil && value != nil {
+					value = f(value)
 				}
 
 				if !rec.SetByField(name, value, false) {

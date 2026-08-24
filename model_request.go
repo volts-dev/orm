@@ -763,8 +763,15 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	// 关系字段整个空掉，谁空取决于数据库返回顺序。无错误、无告警，而且调用方**没有任何
 	// API 能把 limit 传进这层子读取**。
 	//
-	// 想给 o2m 限流得按"每个父记录几行"来，那是另一回事（Odoo 也没有）；一个整批共享的
-	// 上限只会产出看着正常的错数据。
+	// 想给 o2m 限流得按"每个父记录几行"来，那是另一回事（Odoo 也没有）。
+	//
+	// 结论是**不加**。理由不是难做，是它会退回同一类错误：一个 per-parent 上限同样
+	// 只能静默截断——"这张单有 500 行明细"和"这张单有 3000 行、给你看了 500"在结果
+	// 里长得一模一样，而调用方依然没有任何 API 能把上限传进这层子读取。宁可一次读
+	// 得慢，也不要一份看着正常的残缺明细（同 session_read_limit.go 的取舍）。
+	//
+	// 真要限，得先有能表达它的入口（子规格上的 limit/offset/order），那时它是分页，
+	// 不是截断。在那之前，o2m 的边界由上面那句 In(反向键, ids...) 唯一决定。
 	groups, err := session.Limit(-1).Read()
 	if err != nil {
 		log.Errf("OneToMany field %s search relate model %s failed", field.Name(), relateModel.String())

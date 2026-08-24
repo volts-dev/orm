@@ -747,6 +747,9 @@ func validatePropertiesDefinition(list []map[string]any) error {
 }
 
 // m2oRawId 把 many2one 的各种形态（裸 id / [id,name] 经典元组 / {id:...} 记录）归一成裸 id。
+//
+// 空关系（经典读回的 false）不在这里处理：所有调用点都先过 utils.IsBlank，
+// 而 IsBlank(false) 为真，所以 false 到不了这里。
 func m2oRawId(value any) any {
 	switch v := value.(type) {
 	case []any:

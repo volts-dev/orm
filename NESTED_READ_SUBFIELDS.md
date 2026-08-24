@@ -34,29 +34,50 @@ SubFields map[string]*ReadRequest
 
 ### 派发逻辑（[session_crwd.go](session_crwd.go) `_read`）
 
-- 派发门控从 `UseNameGet || IsClassic` 扩展为 `|| len(subReads) > 0`。
-- **纯嵌套规格模式**（未全局 Classic/NameGet）下，只内嵌带子规格的字段，避免对未声明的
-  o2m/m2m 计算字段做多余查询。
+- 派发门控：`UseNameGet || IsClassic || len(subReads) > 0 || 有非存储标量计算字段 ||
+  有 post-read 字段 || len(namedRelated) > 0`。
+- **纯嵌套规格模式**（未全局 Classic/NameGet）下只处理两种关系字段：带子规格的，以及
+  调用方 `Select()` 点了名的。其余一律跳过——一次 `Read()` 会遍历模型上全部字段，给每个
+  x2many 都补一次子查询等于把每次读放大成 N+1。
 - 带子规格的字段：`ctx.Fields = sub.Fields`、`ctx.SubFields = sub.SubFields`、
-  `ctx.Domain = sub.Domain(string)`，并置 `ctx.ClassicRead = true`（按经典内嵌，返回
-  子记录而非 `[id,name]`/ids；列范围由 `ctx.Fields` 限定；递归深度由 `ctx.SubFields` 决定）。
+  `ctx.Domain = sub.Domain(string)`，并置 `ctx.ClassicRead = true`（列范围由 `ctx.Fields`
+  限定；递归深度由 `ctx.SubFields` 决定）。
 
-### 内嵌形态（关键）
+### 读出口形态契约（关键）
 
-| 字段类型 | `record[field]` 内嵌后的值 | 代码 |
+同一个字段、同一条读取路径，形态**不随数据变**。
+
+| 字段类型 | 没给子规格 | 给了子规格 |
 | --- | --- | --- |
-| many2one | `map[string]any`（子记录，仅含请求列 + id） | [model_request.go `ManyToOne`](model_request.go) |
-| one2many | `[]map[string]any`（子记录列表，仅含请求列 + id + 反向 FK） | [field_relational.go `TOne2ManyField.OnRead`](field_relational.go) |
-| many2many | `[]map[string]any`（子记录列表） | [field_relational.go `TMany2ManyField.OnRead`](field_relational.go) |
+| many2one | 经典读/NameGet：有值 `map{id,name,…}`、没值 `false`、悬空 `map{id}`；<br>plain 读：裸外键（存储值） | `map[string]any`，仅含请求列 + id |
+| one2many | `[]any`（对端 id 列表，空关联是空切片） | `[]map[string]any`，仅含请求列 + id + 反向 FK |
+| many2many | `[]any`（对端 id 列表，空关联是空切片） | `[]map[string]any`，仅含请求列 + id |
+
+代码：[model_request.go `ManyToOne`](model_request.go)、
+[field_relational.go](field_relational.go) 的 `TMany2OneField/TOne2ManyField/TMany2ManyField.OnRead`。
+契约用例：[test/read_shape_contract_test.go](test/read_shape_contract_test.go)、
+[m2m_read_shape_test.go](m2m_read_shape_test.go)。
 
 要点：
 
-- **列范围受 `Fields` 限定**：未请求的列不会出现（测试里 partner 的 `extra`、line 的
-  `secret` 均被正确排除）。
+- **x2many 是不是内嵌记录，由子规格决定，不由 `ClassicRead` 决定**。`ClassicRead` 只说明
+  "这是给界面看的"，说明不了要 id 还是要整条记录，而两者的 payload 差几个数量级——一次经典
+  列表读会把每行每个 x2many 的对端整条塞进结果。Odoo 的 `read()` 对 x2many 一律回 ids，
+  正是这个理由。（m2m 从前看的是 `ClassicRead`，于是同一次经典读里 o2m 回 id 列表、m2m 回
+  整条记录，同一类字段两种形状。）
+- **空 many2one 是 `false`，不是 `0`/`""`/`-1`**。`nil` 与"这个字段没被读"在 JSON 里
+  不可区分；`false` 是 Odoo 的既有约定，domain 侧也已按它对齐（`('x','=',False)` 落
+  IS NULL，见 [expr_falsy_types_test.go](expr_falsy_types_test.go)）。
+- **点了名的 x2many 一定出键，且是真值**。plain 读里 `Select("id","lines")` 回来的记录
+  必然带 `lines`，空就是真空。不给空数组顶替"没读"——`[]` 是"没有关联行"这个具体断言，
+  拿它冒充"没读"就是造一份看着正常的错数据。没点名则维持不出键。
+- **列范围受 `Fields` 限定**：未请求的列不会出现。
 - **连接键自动补齐**：子读取始终带上 comodel 的 `id`、o2m 的反向 FK（`ensureFields`），
-  否则无法按键分组回填到父记录。
-- **o2m 行为变化**：仅当带子规格（`ctx.Fields` 非空）时内嵌完整子记录；否则保持旧行为（只回填
-  id 列表），不影响既有调用方。
+  否则无法按键分组回填到父记录。m2m 的对端没有这样一列，所以它的内嵌记录只多一个 `id`。
+- **`BigNumberToString` 对所有取值路径一致**：格式化在取数当场就地套用
+  （[session_query.go](session_query.go)），不是挂在数据集上等 `AsMap()` 才生效。
+  `GetByField` / `GetByIndex` / `AsMap` / `AsJson` / `AsStruct` / `GroupBy` 的分组键
+  给出同一个值。
 - **递归**：`ManyToOne`/`OneToMany` 在构造子读取会话时设置 `session.subReads = ctx.SubFields`，
   从而 o2m 行内的 m2o 列也能再内嵌（多层）。
 

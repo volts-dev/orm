@@ -143,12 +143,13 @@ func (self *TOne2OneField) OnRead(ctx *TFieldContext) error {
 		}
 
 		//group := ds.GroupBy(field.RelatedKeyName())
-		group := ds.GroupBy(relateModel.IdField())
+		// 键按字符串归一,理由同 OneToMany:分组键取自对端主键列、查找键取自本表 FK 列,
+		// 两列的 Go 类型不保证一致,对不上就整批读成空——不报错的错数据。
+		group := groupByString(ds, relateModel.IdField())
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			// 获取关联表主键
 			//fieldValue := record.GetByField(field.Name())
-			fieldValue := record.GetByField(field.RelatedKeyName())
-			grp := group[fieldValue]
+			grp := group[utils.ToString(record.GetByField(field.RelatedKeyName()))]
 
 			// 关联行没读回来：**跳过这一条，不能崩**。
 			//
@@ -227,9 +228,23 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 
 		// group 在 ds 为空(nil 或 0 行)时也是 nil——GroupBy/Range/Count 对 nil
 		// *TDataSet 均安全,故无需额外判空。
-		group := ds.GroupBy(field.RelatedKeyName())
-		// 嵌套规格模式(ctx.Fields 非空)内嵌完整子记录(含内嵌 list 可见列)；
-		// 否则保持旧行为只回填 id 列表，避免影响既有调用方。
+		//
+		// 键按**字符串**归一后再匹配,理由同 ManyToOne:分组键取自子表反向 FK 列、
+		// 查找键取自本表锚定列,两列的 Go 类型不保证一致(声明宽度不同、
+		// BigNumberToString 只覆盖其中一列……)。用 any 直接做 map 键时 int64(7) 与
+		// "7" 是两个键,对不上就整批 o2m 悄悄读成空数组——一个不报错的空列表。
+		group := groupByString(ds, field.RelatedKeyName())
+		// x2many 读出口的统一规则（m2m 的 OnRead 逐字相同，那里有完整说明）：
+		//
+		//	没给子规格 → 对端 id 列表
+		//	给了子规格 → 对端记录列表，列范围由 ctx.Fields 限定
+		//
+		// 判据是 ctx.Fields 而不是 ClassicRead——经典读只说明"这是给界面看的"，
+		// 说明不了要 id 还是要整条记录，而后者的 payload 差几个数量级。
+		//
+		// 与 m2m 的唯一差别：这里的子记录还会多带一列反向 FK(relFieldName)。它是
+		// 分组回填的必需列(ensureFields 强行塞进 SELECT)，而 m2m 的对端根本没有这
+		// 样一列。多一个指回父记录的键不碍事，也就不再多写一段裁剪。
 		embedRecords := len(ctx.Fields) > 0
 		idField := relateModel.IdField()
 		// BigNumberToString 打开时,雪花 id 必须以字符串形态回填。裸 int64 经
@@ -239,8 +254,7 @@ func (self *TOne2ManyField) OnRead(ctx *TFieldContext) error {
 		idAsStr := ctx.Model.Orm().config.BigNumberToString && isBigNumberField(relateModel.GetFieldByName(idField))
 		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 			// 继承字段用委托 FK(partner_id)的值匹配子表的反向键，否则用本模型主键。
-			fieldValue := record.GetByField(relAnchorKey(ctx))
-			grp := group[fieldValue]
+			grp := group[utils.ToString(record.GetByField(relAnchorKey(ctx)))]
 			// 无论有无关联行都调用 SetByField:此前只在 grp.Count()>0 时才设置字段值,
 			// 一条关联行都没有时(如刚创建、还没有任何子行的订单/用户)整个字段 key 会从
 			// 输出里彻底消失(不是空数组,是键都不存在)——前端/调用方误判为"关系字段
@@ -621,6 +635,20 @@ func (self *TMany2OneField) Init(ctx *TTagContext) {
 	})
 }
 
+// groupByString 按 field 列分组,并把分组键归一成字符串。
+//
+// dataset.GroupBy 的键是列的**原始值**,类型随驱动、随列声明、随输出格式化器而变。
+// 关系读取每一处都是"拿 A 表某列的值去 B 表某列的分组里查",两列的 Go 类型只要不
+// 一致就永远查不中,而查不中的表现是空关系——不报错的错数据。
+func groupByString(ds *dataset.TDataSet, field string) map[string]*dataset.TDataSet {
+	group := ds.GroupBy(field)
+	out := make(map[string]*dataset.TDataSet, len(group))
+	for key, grp := range group {
+		out[utils.ToString(key)] = grp
+	}
+	return out
+}
+
 // isBlankRelationId 判断一个 many2one 外键值是否表示「没有关联」。
 //
 // 除 NULL 与零值外还必须认**非正数哨兵**:省略 many2one 的 create/导入会把列落成 -1
@@ -658,11 +686,36 @@ func isBlankRelationId(v any) bool {
 	return false
 }
 
-// TODO 未完成
+// OnRead 把 many2one 读成**经典形态**。
+//
+// # 输出契约(仅经典读/NameGet;plain 读回的是存储值,见下)
+//
+//	有关联       → map{id, name, …}   对端记录
+//	没有关联     → false               对齐 Odoo 的空关系
+//	悬空/不可见  → map{id}             有 id、取不到名字
+//
+// 关键是**只有两种形态**:false 或 map。此前是三种,且第三种随数据出现:空 FK 原值
+// 不动,于是同一个字段同一条读取路径,有值时给 map、没值时给裸 int64(0)(或 -1,或
+// BigNumberToString 打开时的 "")。调用方每一处都得先认标量再认 map 才能不崩,
+// 认漏一处就是表单上一个字面量的 "0"、列表里一个点不开的链接。
+//
+// 为什么是 false 而不是 nil:nil 与「这个字段没被读」不可区分——JSON 里都是缺键/
+// null。false 是 Odoo 的既有约定,domain 侧本仓也已经按它对齐(`('x','=',False)`
+// 落 IS NULL,见 expr_m2o_false_test.go),前端 toM2OTuple 早就认它。
+//
+// 悬空 FK 给 map{id} 而不是裸 id:形态守恒。渲染结果与从前一致(前端对裸 id 与
+// 只有 id 的 map 都退化成用 id 当标签),但调用方不用再为它多写一个标量分支。
 func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 	field := ctx.Field
 	if !field.IsRelated() {
 		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.TypeName())
+	}
+
+	// 形态归一**只在经典读里做**。plain 读回的是存储值:裸外键。写回要用它、内部
+	// 按 id 匹配也要用它,把它换成 false/map 会让"读出来再写回去"这条最常见的用法
+	// 直接坏掉。ManyToOne() 本身也只在这两种模式下才真去查对端。
+	if !ctx.ClassicRead && !ctx.UseNameGet {
+		return nil
 	}
 
 	ds, err := ctx.Model.ManyToOne(ctx)
@@ -670,49 +723,55 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 		return err
 	}
 
-	if ds.Count() > 0 {
-		relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
-		if err != nil {
-			return err
-		}
+	relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
+	if err != nil {
+		return err
+	}
+	idField := relateModel.IdField()
 
-		// 按**字符串**归一后再匹配。GroupBy 的键是 comodel 主键列的原始值,而这里拿来
-		// 匹配的是主表 FK 列的原始值——两列的 Go 类型不保证一致(FK 声明成 string 的
-		// many2one、驱动把 BigInt 给成不同宽度的整型等)。用 any 直接做 map 键时,
-		// int64(7) 与 "7" 是两个不同的键,匹配不上就悄悄退化成裸 id。
-		group := ds.GroupBy(relateModel.IdField())
-		byId := make(map[string]*dataset.TDataSet, len(group))
-		for key, grp := range group {
-			byId[utils.ToString(key)] = grp
-		}
+	// 按**字符串**归一后再匹配。GroupBy 的键是 comodel 主键列的原始值,而这里拿来
+	// 匹配的是主表 FK 列的原始值——两列的 Go 类型不保证一致(FK 声明成 string 的
+	// many2one、驱动把 BigInt 给成不同宽度的整型等)。用 any 直接做 map 键时,
+	// int64(7) 与 "7" 是两个不同的键,匹配不上就悄悄退化成裸 id。
+	//
+	// ds 为空(一批记录的 FK 全为空,或对端一条都不可见)时 GroupBy 回 nil,range
+	// nil map 安全——**不能**因此跳过下面的 Range:空 FK 的归一正是在那里做的,
+	// 提前返回就等于"整批都没值时反而退回旧形态"。
+	group := ds.GroupBy(idField)
+	byId := make(map[string]*dataset.TDataSet, len(group))
+	for key, grp := range group {
+		byId[utils.ToString(key)] = grp
+	}
 
-		var missing []string
-		ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
-			fieldValue := record.GetByField(field.Name())
-			// 空 FK 是 many2one 的常态(可空字段、还没选值的新记录),保持原值即可。
-			if isBlankRelationId(fieldValue) {
-				return nil
-			}
-
-			grp := byId[utils.ToString(fieldValue)]
-			if grp.Count() == 0 {
-				// 悬空 FK(目标行已删)/该行当前会话不可见(租户、记录规则)。这条记录
-				// 读成裸 id 是可接受的降级,但**绝不能返回 error**:Range 一遇 error 就
-				// 整个中断,同一批里它之后的记录会全部丢掉内嵌子记录,只剩裸 id,而调用
-				// 方(_read)只把错误记进日志、请求照常 200 返回。表现就是"列表里前几行
-				// 的 many2one 显示名称,后面全变成一串数字 id"。
-				missing = append(missing, utils.ToString(fieldValue))
-				return nil
-			}
-
-			record.SetByField(field.Name(), grp.Record().AsMap())
+	var missing []string
+	ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
+		fieldValue := record.GetByField(field.Name())
+		// 空 FK 是 many2one 的常态(可空字段、还没选值的新记录)。
+		// isBlankRelationId 认得 false 本身,重复读取幂等。
+		if isBlankRelationId(fieldValue) {
+			record.SetByField(field.Name(), false)
 			return nil
-		})
-
-		if len(missing) > 0 {
-			log.Warnf("%s@%s ManyToOne: %d record(s) reference missing/invisible %s row(s) %v, left as raw id",
-				field.Name(), field.ModelName(), len(missing), field.RelatedModelName(), missing)
 		}
+
+		grp := byId[utils.ToString(fieldValue)]
+		if grp.Count() == 0 {
+			// 悬空 FK(目标行已删)/该行当前会话不可见(租户、记录规则)。这条记录
+			// 只回 id 是可接受的降级,但**绝不能返回 error**:Range 一遇 error 就
+			// 整个中断,同一批里它之后的记录会全部丢掉内嵌子记录,只剩裸 id,而调用
+			// 方(_read)只把错误记进日志、请求照常 200 返回。表现就是"列表里前几行
+			// 的 many2one 显示名称,后面全变成一串数字 id"。
+			missing = append(missing, utils.ToString(fieldValue))
+			record.SetByField(field.Name(), map[string]any{idField: fieldValue})
+			return nil
+		}
+
+		record.SetByField(field.Name(), grp.Record().AsMap())
+		return nil
+	})
+
+	if len(missing) > 0 {
+		log.Warnf("%s@%s ManyToOne: %d record(s) reference missing/invisible %s row(s) %v, left as id-only",
+			field.Name(), field.ModelName(), len(missing), field.RelatedModelName(), missing)
 	}
 	/*
 		model, err := ctx.Session.Orm().osv.GetModel(self.RelatedModelName())
@@ -994,13 +1053,27 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	//   非 ClassicRead → `SELECT mid.tag_id, mid.main_id`，**完全没有对端数据**，
 	//                  调用方拿到的是 [{main_id:1, tag_id:2}]，连名字都没有。
 	//
-	// 三种关系字段里只有 m2m 是这个形状：o2m 回的是对端 id 列表、m2o 回的是
-	// {id,name}。vectors 因此在 portal / mail_followers / languages 三处绕开这个
-	// 字段自己去查关系表。这里把输出对齐到 o2m：非经典读回 id 列表，经典读回
-	// **对端记录**(摘掉关系表的列)。
+	// 两种都不是能交给调用方的形状，这里重新构造。
 	//
-	// 只改输出构造、不动 SQL：ManyToMany 还有一个直接消费其数据集的调用方
-	// (model_request.go 的 many2many 读端点)，改列名会连带改掉那个端点的契约。
+	// # 输出契约（与 OneToMany 逐字相同）
+	//
+	//	没给子规格 → 对端 **id 列表**（[]any，空关联是空切片不是 nil）
+	//	给了子规格 → 对端**记录**列表（[]map），列范围由 ctx.Fields 限定
+	//
+	// 判据是 ctx.Fields 而**不是** ctx.ClassicRead。此前 m2m 用的是 ClassicRead：
+	// 经典读一律内嵌整条对端记录，而同一次经典读里 o2m 回的却是 id 列表——同一类
+	// 字段、同一次请求，两种形状。ReadRequest.SubFields 的文档写的一直是这条
+	// （"many2many标签 -> 子记录列表，仅含 Fields 指定列"），实现没跟上。
+	//
+	// 为什么默认是 id 而不是记录：一次经典列表读会把每行每个 m2m 的对端整条塞进
+	// 结果，行数一多就是几个数量级的 payload（Odoo 的 read() 对 x2many 一律回 ids，
+	// 正是这个理由）。要名字就给子规格，一句话的事，而且那时列范围也由调用方定。
+	//
+	// 只改输出构造、不动 SQL：ManyToMany 还有若干直接消费其数据集的调用方
+	// （vectors 的 recordrule / user_groups / config_settings_group 都按
+	// srcKey/relKey 读 junction 行），改列名会连带改掉那个契约。代价是经典读、
+	// 无子规格时仍会 JOIN 出一批用不上的对端列——那次 JOIN 同时也是字段 domain
+	// 唯一生效的地方（见 ManyToMany 的两个分支），不能顺手砍掉。
 	relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
 	if err != nil {
 		return err
@@ -1010,6 +1083,19 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	// 对端**自己**若真有同名列，就不能摘——那是它的数据。
 	dropSrc := relateModel.GetFieldByName(srcKey) == nil
 	dropRel := relateModel.GetFieldByName(relKey) == nil
+
+	// 子规格给了就内嵌记录，没给就回 id 列表。同 OneToMany 的 embedRecords。
+	embedRecords := len(ctx.Fields) > 0
+	// 子规格点名的列（外加对端主键——没有它调用方拿到的记录无从回指）。
+	// SQL 那边取的是 rel.*，这里按名字裁到子规格的范围，契约与 o2m 一致。
+	var wanted map[string]bool
+	if embedRecords {
+		wanted = make(map[string]bool, len(ctx.Fields)+1)
+		for _, name := range ctx.Fields {
+			wanted[name] = true
+		}
+		wanted[relateModel.IdField()] = true
+	}
 	// BigNumberToString 打开时雪花 id 必须以字符串回填，理由同 OneToMany：
 	// 裸 int64 经 JSON 传给前端会丢精度(> 2^53)，之后按舍入后的错 id 查恒空。
 	idAsStr := ctx.Model.Orm().config.BigNumberToString &&
@@ -1019,18 +1105,17 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	// RelatedKeyName 是 comodel 侧的键(如 res_company_id)，用它分组会与下方
 	// 本表 id 的查找键不在同一键空间，导致永远查空。
 	// group 在 ds 为空(nil 或 0 行)时也是 nil——GroupBy/Range/Count 对 nil *TDataSet
-	// 均安全,故下面无需额外判空。
-	group := ds.GroupBy(srcKey)
+	// 均安全,故下面无需额外判空。键按字符串归一,理由见 OneToMany。
+	group := groupByString(ds, srcKey)
 	ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
 		// 继承字段用委托 FK(partner_id)的值匹配 junction 的 source 键，否则用本模型主键。
-		fieldValue := record.GetByField(relAnchorKey(ctx))
-		fieldRecord := group[fieldValue]
+		fieldRecord := group[utils.ToString(record.GetByField(relAnchorKey(ctx)))]
 
 		// 无论有无关联行都调用 SetByField:此前只在 fieldRecord.Count()>0 时才设置字段值,
 		// 一条关联行都没有时(如用户未分配任何 company/group)整个字段 key 会从输出里
 		// 彻底消失(不是空数组,是键都不存在)——前端/调用方误判为"关系字段没有返回"。
 		// 空切片而非 nil,确保 AsMap/JSON 序列化为 [] 而不是 null。
-		if ctx.ClassicRead {
+		if embedRecords {
 			records := make([]map[string]any, 0, fieldRecord.Count())
 			fieldRecord.Range(func(_ int, row *dataset.TRecordSet) error {
 				m := row.AsMap()
@@ -1039,6 +1124,11 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 				}
 				if dropRel {
 					delete(m, relKey)
+				}
+				for name := range m {
+					if !wanted[name] {
+						delete(m, name)
+					}
 				}
 				records = append(records, m)
 				return nil

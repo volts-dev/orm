@@ -164,7 +164,7 @@ func TestSchemaIsolationPG(t *testing.T) {
 		}
 		return out
 	}
-	pub := seed("", "pub", 2)     // public：2 个组
+	pub := seed("", "pub", 2)        // public：2 个组
 	iso := seed(isoSchema, "iso", 1) // iso_sys：1 个组
 
 	// m2m 写：public 用户挂 2 个组；iso 用户挂 1 个组（写路径走 link/unlink Exec）。
@@ -205,9 +205,19 @@ func TestSchemaIsolationPG(t *testing.T) {
 		rs := o.NewSession()
 		defer rs.Close()
 		rs.SetSchema(sch)
-		ds, err := userModel.Tx(rs).
-			Select("id", "name", "group_id", "group_ids", "note_ids").
-			Ids(id).Classic().Read()
+		// group_ids 带子规格：x2many 默认回 id 列表，只有给了子规格才内嵌对端记录
+		// （见 TMany2ManyField.OnRead）。而这里必须拿到**名字**——两 schema 的组 id
+		// 各自从 1 起、同值，只有名字能证明子读取没跨 schema。
+		userModel.Tx(rs)
+		ds, err := userModel.Read(&orm.ReadRequest{
+			Ids:         []any{id},
+			Fields:      []string{"id", "name", "group_id", "group_ids", "note_ids"},
+			ClassicRead: true,
+			Limit:       -1,
+			SubFields: map[string]*orm.ReadRequest{
+				"group_ids": {Fields: []string{"id", "name"}},
+			},
+		})
 		if err != nil {
 			t.Fatalf("[%s] classic read: %v", sch, err)
 		}
