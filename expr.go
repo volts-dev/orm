@@ -48,10 +48,16 @@ var (
 		domain.OR_OPERATOR:  2,
 	}
 
-	HIERARCHY_FUNCS = map[string]func(*domain.TDomainNode, *domain.TDomainNode, *TModel, string, string, map[string]any) *domain.TDomainNode{
-		"child_of":  child_of_domain,
-		"parent_of": parent_of_domain}
+	// HIERARCHY_FUNCS 层级操作符 → 展开函数。实现见 expr_hierarchy.go。
+	// 必须在 init() 里填而不是字面量初始化：展开函数会回头调 session.Read()，
+	// 而那条链最终又指回本表，字面量形式构成初始化环、编译不过。
+	HIERARCHY_FUNCS = map[string]hierarchyFunc{}
 )
+
+func init() {
+	HIERARCHY_FUNCS["child_of"] = child_of_domain
+	HIERARCHY_FUNCS["parent_of"] = parent_of_domain
+}
 
 func NewExpression(orm *TOrm, model *TModel, dom *domain.TDomainNode, context map[string]any, session ...*TSession) (*TExpression, error) {
 	exp := &TExpression{
@@ -196,61 +202,6 @@ func create_substitution_leaf(leaf *TExtendedLeaf, new_elements *domain.TDomainN
 	return NewExtendedLeaf(new_elements, new_model, new_join_context, internal)
 }
 
-func child_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]any) *domain.TDomainNode {
-	//""" Return a domain implementing the child_of operator for [(left,child_of,ids)],
-	//    either as a range using the parent_path tree lookup field
-	//    (when available), or as an expanded [(left,in,child_ids)] """
-
-	/* if not ids:
-	       return [FALSE_LEAF]
-	   if left_model._parent_store:
-	       doms = OR([
-	           [('parent_path', '=like', rec.parent_path + '%')]
-	           for rec in left_model.browse(ids)
-	       ])
-	       if prefix:
-	           return [(left, 'in', left_model.search(doms).ids)]
-	       return doms
-	   else:
-	       parent_name = parent or left_model._parent_name
-	       child_ids = set(ids)
-	       while ids:
-	           ids = left_model.search([(parent_name, 'in', ids)]).ids
-	           child_ids.update(ids)
-	       return [(left, 'in', list(child_ids))]
-
-	*/
-	return nil
-}
-
-func parent_of_domain(left *domain.TDomainNode, ids *domain.TDomainNode, left_model *TModel, parent string, prefix string, context map[string]any) *domain.TDomainNode {
-	/*
-	   // Return a domain implementing the parent_of operator for [(left,parent_of,ids)],
-	   // either as a range using the parent_path tree lookup field
-	   // (when available), or as an expanded [(left,in,parent_ids)]
-
-	              if left_model._parent_store:
-	                  parent_ids = [
-	                      int(label)
-	                      for rec in left_model.browse(ids)
-	                      for label in rec.parent_path.split('/')[:-1]
-	                  ]
-	                  if prefix:
-	                      return [(left, 'in', parent_ids)]
-	                  return [('id', 'in', parent_ids)]
-	              else:
-	                  parent_name = parent or left_model._parent_name
-	                  parent_ids = set()
-	                  for record in left_model.browse(ids):
-	                      while record:
-	                          parent_ids.add(record.id)
-	                          record = record[parent_name]
-	                  return [(left, 'in', list(parent_ids))]
-	*/
-	return nil
-
-}
-
 /*
 " Distribute any '!' domain operators found inside a normalized domain.
 
@@ -287,22 +238,24 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 		}
 
 		if n.IsValueNode() {
-			if op := n.String(); op != "" {
-				if op == domain.NOT_OPERATOR {
-					stack.Push(utils.ToString(!is_negate))
-				} else if _, has := domain.DOMAIN_OPERATORS_NEGATION[op]; has {
-					if is_negate {
-						result.Push(domain.DOMAIN_OPERATORS_NEGATION[op])
-					} else {
-						result.Push(op)
-					}
-
-					stack.Push(utils.ToString(is_negate))
-					stack.Push(utils.ToString(is_negate))
-
+			op := n.String()
+			if op == domain.NOT_OPERATOR {
+				stack.Push(utils.ToString(!is_negate))
+			} else if _, has := domain.DOMAIN_OPERATORS_NEGATION[op]; has {
+				if is_negate {
+					result.Push(domain.DOMAIN_OPERATORS_NEGATION[op])
 				} else {
 					result.Push(op)
 				}
+
+				stack.Push(utils.ToString(is_negate))
+				stack.Push(utils.ToString(is_negate))
+
+			} else {
+				// 非操作符的裸值(包括空项)原样传下去，由 parse() 的叶子闸门点名报错。
+				// 原来这里外面套着 `if op != ""`，空项被**直接吞掉**：'&' 于是少了一个
+				// 操作数，到 toSql 时静默退化成只剩一边的条件——又是一次不报错的放宽。
+				result.Push(n)
 			}
 		} else {
 
@@ -311,8 +264,21 @@ func distribute_not(node *domain.TDomainNode) *domain.TDomainNode {
 
 			if n.IsLeafNode() && is_negate {
 				left, operator, right := n.String(0), n.String(1), n.Item(2)
-				if _, has := domain.TERM_OPERATORS_NEGATION[operator]; has {
-					result.Push(left, domain.TERM_OPERATORS_NEGATION[operator], right)
+				if negOp, has := domain.TERM_OPERATORS_NEGATION[operator]; has {
+					// ★ 取反后的三元组必须落成**一个叶子节点**再 Push。
+					//
+					// Push 是变参追加，不是"用这三样造一个叶子"：
+					// `result.Push(left, negOp, right)` 会把 left/negOp/right 拍成
+					// 三个平级孩子，于是
+					//   ['!','&',(user_id,=,4),(partner_id,in,[1,2])]
+					// 产出 ["|","user_id","!=",4,"partner_id","not in",[1,2]]
+					// —— 7 个平级孩子。回到 parse() 时第二个孩子 "user_id" 是
+					// Count()==0 的值节点，撞上畸形叶子的闸门，**整条 WHERE 静默
+					// 消失**（真栈实测：3 行数据全回，应回 2；同一个 domain 走
+					// Delete() 会把整表删光，因为 hasCondition() 只看 domain 结构
+					// 非空就放行了 AllowUnsafe 守卫）。
+					// 回归：expr_not_test.go。
+					result.Push(domain.New(left, negOp, right))
 				} else {
 					result.Push(domain.NOT_OPERATOR)
 					result.Push(n)
@@ -449,54 +415,58 @@ func (self *TExpression) reverse(lst []*TExtendedLeaf) {
 //	     return the list of related ids
 //
 // 获得Ids
-func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, context map[string]any, limit int64) *domain.TDomainNode {
+func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, context map[string]any, limit int64) (*domain.TDomainNode, error) {
+	if value == nil {
+		return nil, fmt.Errorf("to_ids: the right operand is missing")
+	}
+
+	/* 分类：数字就是 id，直接用；字符才需要按名字查回 id */
+	// ★ 数字判断必须排在前面。原来第一条是 `!value.IsListNode() && value.String() != ""`，
+	//   标量 id(如 ('id','child_of',5))的 String() 是 "5" 非空，于是被当成**名字**
+	//   丢去 NameSearch —— 走到下面那次查询，而 IsIntLeaf 那条分支永远轮不到。
+	if value.IsNumeric() {
+		return value, nil
+	}
+	if value.IsListNode() && value.IsIntLeaf() {
+		//# given this nonsensical domain, it is generally cheaper to
+		// # interpret False as [], so that "X child_of False" will
+		//# match nothing
+		return value, nil
+	}
+
 	var names []string
-
-	/* 分类 id 直接返回 Name 则需要查询获得其Id */
-	if value != nil {
-		// 如果是字符
-		if !value.IsListNode() && value.String() != "" {
-			names = append(names, value.String())
-
-		} else if value.IsListNode() && value.IsStringList() {
-			// 如果传入的是字符则可能是名称
-			names = append(names, value.Strings()...)
-
-		} else if value.IsIntLeaf() { // 如果是数字
-			//# given this nonsensical domain, it is generally cheaper to
-			// # interpret False as [], so that "X child_of False" will
-			//# match nothing
-			//log.Warmf("Unexpected domain [%s], interpreted as False", leaf)
-			return value //strings.Join(value.Strings(), ",")
-
+	if !value.IsListNode() {
+		if s := value.String(); s != "" {
+			names = append(names, s)
 		}
-	} else {
-		log.Errf("Unexpected domain [%s], interpreted as False", domain.Domain2String(value))
+	} else if value.IsStringList() {
+		// 如果传入的是字符则可能是名称
+		names = append(names, value.Strings()...)
+	}
 
+	if len(names) == 0 {
+		return value, nil
 	}
 
 	/* 将分类出来名称查询并传回ID */
-	if names != nil {
-		var name_get_list []string // 存放IDs
-		//  name_get_list = [name_get[0] for name in names for name_get in comodel.name_search(cr, uid, name, [], 'ilike', context=context, limit=limit)]
-		//for _, name := range names.Items() {
-		// 这里使用精准名称“in”查询
-		_domain := domain.New(comodel.recName, "in", value.Flatten()...)
-		lRecords, _ := comodel.NameSearch("", _domain, "ilike", limit, "", context)
-		for _, rec := range lRecords.Data {
-			name_get_list = append(name_get_list, rec.FieldByName(comodel.idField).AsString()) //ODO: id 可能是Rec_id
-		}
-		//}
-
-		result := domain.NewDomainNode()
-		for _, name := range name_get_list {
-			result.Push(name)
-
-		}
-		return result //strings.Join(name_get_list, ",") // 合并为  1,2,3
+	// ★ NameSearch 的 error 必须接住：原来是 `lRecords, _ :=` 然后直接
+	//   `lRecords.Data`，对端查询一旦失败(或本就没有 rec_name)就是**空指针崩溃**。
+	//   真栈实测 `[('id','child_of',1)]` 直接 SIGSEGV —— 也就是外部传进来的
+	//   domain 能把进程打崩。
+	_domain := domain.New(comodel.recName, "in", value.Flatten()...)
+	lRecords, err := comodel.NameSearch("", _domain, "ilike", limit, "", context)
+	if err != nil {
+		return nil, err
 	}
 
-	return value
+	result := domain.NewDomainNode()
+	if lRecords == nil {
+		return result, nil
+	}
+	for _, rec := range lRecords.Data {
+		result.Push(rec.FieldByName(comodel.idField).AsString()) //ODO: id 可能是Rec_id
+	}
+	return result, nil
 }
 
 /*"" Transform the leaves of the expression
@@ -555,11 +525,16 @@ func (self *TExpression) parse(context map[string]any) error {
 			operator = ex_leaf.leaf.Item(1) // =
 			right = ex_leaf.leaf.Item(2)    // 1
 		} else {
-			// 校验叶子完整性，避免对 1~2 元素的畸形叶子越界访问 Item(1)/Item(2) 触发 panic
+			// 校验叶子完整性，避免对 1~2 元素的畸形叶子越界访问 Item(1)/Item(2) 触发 panic。
+			//
+			// ★ 任何元素个数不对的项一律**报错**，绝不静默跳过。
+			//   这里原来对 cnt==0 写的是 `return nil`——注释说"空项静默跳过"，实际是
+			//   从整个 parse() 返回：栈里**尚未处理的所有条件**跟着一起蒸发，而且返回
+			//   的是 nil(成功)。distribute_not 产出平铺节点时正是从这里漏出去的，外部
+			//   特征是"一加 ! 就整表返回"且全程不报错。
+			//   即便只 continue 也不行：从 AND 列表里摘掉一项 = 放宽筛选，而 toSql 的
+			//   栈上还少一个操作数，结果同样是静默放宽。宁可报错。
 			if cnt := ex_leaf.leaf.Count(); cnt != 3 {
-				if cnt == 0 {
-					return nil // 空项静默跳过（保持原行为）
-				}
 				return fmt.Errorf("invalid domain leaf: expected 3 elements, got %d: %s", cnt, ex_leaf.leaf.String())
 			}
 			left = ex_leaf.leaf.Item(0)
@@ -650,13 +625,23 @@ func (self *TExpression) parse(context map[string]any) error {
 		} else if fn, has := HIERARCHY_FUNCS[operator.String()]; has && left.String() == self.root_model.idField {
 			// 父子关系
 			// TODO check id 必须改为动态
-			ids2 := self.to_ids(right, model, context, 0)
-			dom := fn(left, ids2, model, "", "", nil)
-			dom = dom.Reversed()
-			for _, dom_leaf := range dom.Nodes() {
-				new_leaf := create_substitution_leaf(ex_leaf, dom_leaf, model, false)
-				self.push(new_leaf)
+			ids2, ierr := self.to_ids(right, model, context, 0)
+			if ierr != nil {
+				return ierr
 			}
+			// 展开成一条普通的 (id in [...])，见 expr_hierarchy.go。
+			//
+			// 此前这两个函数是空实现(只剩注释掉的 Python 和 `return nil`)，而这里直接
+			// `dom.Reversed()` 再遍历：Reversed() 对 nil 回空节点、循环一次不走，于是
+			// 整条叶子**凭空消失**——child_of 筛选等于没筛、整表返回，且不报错。
+			// 展开结果是**一条**叶子，直接入 result；不能再走 Nodes() 遍历，那会把
+			// 叶子的三个孩子当成三条平级叶子拆开(本仓踩过多次的形状)。
+			dom, derr := fn(self, left.String(), ids2, model, "")
+			if derr != nil {
+				return derr
+			}
+			ex_leaf.leaf = dom
+			self.push_result(ex_leaf)
 
 		} else if utils.IndexOf(path[0], MAGIC_COLUMNS...) != -1 {
 			self.push_result(ex_leaf)
@@ -749,16 +734,43 @@ func (self *TExpression) parse(context map[string]any) error {
 
 		} else if len(path) > 1 && field.Store() && utils.IndexOf(field.TypeName(), TYPE_M2M, TYPE_O2M) != -1 {
 			// Making search easier when there is a left operand as column.o2m or column.m2m
-			domain_str := fmt.Sprintf(`[('%s', '%s', '%s')]`, path[1], operator.String(), right.String())
-			lDs, _ := comodel.Records().Domain(domain_str).Read()
-			right_ids := lDs.Keys()
+			//
+			// ★ 目前被上面的 isX2many() 抢先接管（o2m/m2m 的 Store() 恒 false），是死
+			//   代码；但原来的三处写法都是"坏了不报"的形状，一并修掉免得分支顺序一动
+			//   就复活：
+			//   1) 用 fmt.Sprintf 把右值拼进 domain **字符串**——右值带引号就能改写域
+			//      结构，且右值是列表时 `right.String()` 拼出来的根本不是合法域；
+			//   2) `lDs, _ :=` 丢掉错误后直接 lDs.Keys()，对端查询一失败就空指针；
+			//   3) `Push(idField,"in")` 再 `Push(ids...)` 造出 2+N 个孩子的畸形叶子，
+			//      ids 多于一个时 IsLeafNode() 直接为 false。
+			//   一律改成传节点 + propagate error + idInLeaf（与 m2o 路径一致）。
+			subNode := domain.NewDomainNode()
+			subNode.Push(path[1])
+			subNode.Push(operator.String())
+			subNode.Push(right.Clone())
+			target, terr := self.orm.GetModel(field.RelatedModelName())
+			if terr != nil {
+				return terr
+			}
+			lDs, rerr := self.subSession().Model(target.String()).Domain(subNode).Limit(-1).Read()
+			if rerr != nil {
+				return rerr
+			}
+			var right_ids []any
+			if lDs != nil {
+				right_ids = lDs.Keys()
+			}
 
-			domain_str = fmt.Sprintf(`[('%s', 'in', [%s])]`, path[0], idsToSqlHolder(right_ids))
-			lDs, _ = model.Records().Domain(domain_str, right_ids...).Read()
-			table_ids := lDs.Keys()
-			ex_leaf.leaf = domain.NewDomainNode()
-			ex_leaf.leaf.Push(model.idField, "in")
-			ex_leaf.leaf.Push(table_ids...) //    leaf.leaf = (path[0], 'in', right_ids)
+			lDs, rerr = self.subSession().Model(model.String()).
+				Domain(idInLeaf(model.idField, path[0], right_ids)).Limit(-1).Read()
+			if rerr != nil {
+				return rerr
+			}
+			var table_ids []any
+			if lDs != nil {
+				table_ids = lDs.Keys()
+			}
+			ex_leaf.leaf = idInLeaf(model.idField, model.idField, table_ids)
 			self.push(ex_leaf)
 
 		} else if isX2many(field) {
@@ -866,24 +878,53 @@ func (self *TExpression) parse(context map[string]any) error {
 			// -------------------------------------------------
 			// RELATIONAL FIELDS
 			// -------------------------------------------------
+			// ★ 本条及下面两条 x2many 分支目前都被上面的 isX2many() 抢先接管(o2m/m2m 的
+			//   Store() 恒 false，isX2many 排在更前面)，属于死代码。但它们原来的写法
+			//   —— 空函数体、或只 log.Errf 不 return —— 全是"条件被静默丢掉、整表
+			//   返回"的形状。一律改成往上抛，免得哪天分支顺序一动就复活。
+			return fmt.Errorf("domain operator %q on one2many %s@%s is not implemented yet (leaf %s)",
+				operator.String(), field.Name(), field.ModelName(), domain.Domain2String(ex_leaf.leaf))
 
 		} else if field.TypeName() == TYPE_O2M {
 			// TODO one2many
-			log.Errf("the one2many %s@%s is no implemented!", field.Name(), field.ModelName())
+			return log.Errf("the one2many %s@%s is no implemented!", field.Name(), field.ModelName())
 		} else if field.TypeName() == TYPE_M2M {
 			// TODO many2many
-			log.Errf("the many2many %s@%s is no implemented!", field.Name(), field.ModelName())
+			return log.Errf("the many2many %s@%s is no implemented!", field.Name(), field.ModelName())
 		} else if field.TypeName() == TYPE_M2O {
-			if _, has := HIERARCHY_FUNCS[operator.String()]; has {
-				/*
-				   ids2 = to_ids(right, comodel, leaf)
-				                       if field.comodel_name != model._name:
-				                           dom = HIERARCHY_FUNCS[operator](left, ids2, comodel, prefix=field.comodel_name)
-				                       else:
-				                           dom = HIERARCHY_FUNCS[operator]('id', ids2, model, parent=left)
-				                       for dom_leaf in dom:
-				                           push(dom_leaf, model, alias)
-				*/
+			if fn, has := HIERARCHY_FUNCS[operator.String()]; has {
+				// m2o 上的层级查询分两种，对标 Odoo expression.py：
+				//
+				//   对端是别的模型 —— ('partner_id','child_of',[7])：
+				//     在**对端**里展开 7 的后代，落成 (partner_id in [后代...])。
+				//   对端就是本模型 —— ('parent_id','child_of',[7])：
+				//     这个字段本身就是父链接，在**本模型**里沿它展开，落成 (id in [...])。
+				//
+				// 分不清这两种会得到一棵错的树：前者用本模型的 parent_id 去走对端的层级，
+				// 后者把父链接当成普通外键匹配，都是"筛出来了、但筛错了"。
+				comodel, cerr := self.orm.GetModel(field.RelatedModelName())
+				if cerr != nil {
+					return cerr
+				}
+				comodelBase := comodel.GetBase()
+				ids2, ierr := self.to_ids(right, comodelBase, context, 0)
+				if ierr != nil {
+					return ierr
+				}
+
+				var dom *domain.TDomainNode
+				var derr error
+				if comodelBase.String() != model.String() {
+					dom, derr = fn(self, left.String(), ids2, comodelBase, "")
+				} else {
+					dom, derr = fn(self, model.idField, ids2, model, left.String())
+				}
+				if derr != nil {
+					return derr
+				}
+				ex_leaf.leaf = dom
+				self.push_result(ex_leaf)
+
 			} else if isNameOperand(operator.String(), right) {
 				// 右值是**名字**而不是 id：先在对端按 rec_name 查出 id，再把叶子换成
 				// (本字段 in [...])。对标 Odoo expression.py 的 m2o 分支。
@@ -1021,6 +1062,125 @@ func (self *TExpression) parse(context map[string]any) error {
 // res_query：查询语法
 // res_params：新占位符？参数值
 // res_arg：params 分配给占用符后剩下的值
+// isEmptyRelation 返回"这个 many2one 没有指向任何记录"的 SQL 片段。
+//
+// Odoo 里 `('x','=',False)` 是表达"关系为空"的标准写法，移植过来的 XML（视图
+// domain、动作 domain、**记录规则的 domain_force**）到处都是。本仓一个关键差异是：
+// 未设置的 m2o 在库里有**三种**形态，同一张表里就能同时见到 ——
+//
+//	res_partner.company_id   NULL=0   0=0   -1=41   真值=13
+//	res_partner.user_id      NULL=51  0=0   -1=0    真值=3
+//	res_partner.parent_id    NULL=27  0=1   -1=0    真值=26
+//
+// 三种来源各不相同：create 时省略该字段落 NULL；界面表单把空 m2o 发成 false 或 0，
+// 落 0；`SetDefaultByName("company_id", -1)` 落 -1（记录规则那边也是按
+// `company_id < 1` 判"无归属"的）。所以只写 `IS NULL` 会漏掉后两种。
+//
+// 主键是雪花 id，恒为正，`<= 0` 不会误伤真实记录。
+func isEmptyRelation(aliasTable, column string) string {
+	return fmt.Sprintf(`(%s."%s" IS NULL OR %s."%s" <= 0)`, aliasTable, column, aliasTable, column)
+}
+
+func isNotEmptyRelation(aliasTable, column string) string {
+	return fmt.Sprintf(`(%s."%s" IS NOT NULL AND %s."%s" > 0)`, aliasTable, column, aliasTable, column)
+}
+
+// isFalsyValue / isTruthyValue 把 `('x','=',False)` / `('x','!=',False)` 翻成 SQL。
+//
+// # 为什么不只是 many2one
+//
+// isEmptyRelation 那一版只认 many2one/one2one，别的类型一路把 false 当普通右值绑进
+// `x = ?`，后果按列类型分成**两种**，其中一种不报错：
+//
+//	timestamp  → pq: invalid input syntax for type timestamp: "false" (22007)   ← 500
+//	bigint     → pq: invalid input syntax for type bigint: "false"    (22P02)   ← 500
+//	varchar    → PG 把参数当文本，跑成 `x = 'false'` —— **不报错，静默筛错**
+//
+// 第三种最坏。2026-08-23 真栈实测：calendar_event 里 privacy 为空串的有 2 行，
+// `('privacy','=',False)` 应当返回这 2 行，实际返回 **0 行**，日志里只有一条
+// 正常的 INFO SQL。界面上表现为"这个筛选器点了没反应"，没有任何东西指向这里。
+//
+// # 各类型的"空"是什么
+//
+// 照 Odoo 的 falsy 语义，不是一律 IS NULL：
+//
+//	字符/选择   NULL 或 ''    ——  '' 是界面清空文本框的落库形态，只写 IS NULL 会漏
+//	数值        NULL 或 0     ——  Odoo 里 0 是 falsy
+//	时间/二进制 NULL          ——  没有"零值"落库形态；空字符串塞进 timestamp 会报错
+//	json/jsonb  NULL          ——  `jsonb = ''` 本身就是 22P02，不能套字符那条
+//	关系        见 isEmptyRelation（NULL/0/-1 三态）
+//
+// bool 刻意**不**在这里处理：下方原有的 Bool 分支已经是对的，让它继续负责，
+// 免得同一语义有两个出口。
+//
+// 返回的第二个值是"认不认得这个类型"。认不得就返回 false，调用方回落到原来的
+// 通用路径 —— 宁可维持现状，也不要对着未知类型瞎猜一条谓词。
+func isFalsyValue(typeName, aliasTable, column string) (string, bool) {
+	q := fmt.Sprintf(`%s."%s"`, aliasTable, column)
+	switch typeName {
+	case TYPE_M2O, TYPE_O2O:
+		return isEmptyRelation(aliasTable, column), true
+	case TYPE_SELECTION:
+		return fmt.Sprintf(`(%s IS NULL OR %s = '')`, q, q), true
+	case TYPE_JSONB, TYPE_PROPERTIES, TYPE_PROPERTIES_DEFINITION:
+		return fmt.Sprintf(`(%s IS NULL)`, q), true
+	case Bool, Boolean:
+		return "", false // 交给下方原有的 Bool 分支
+	}
+	switch strings.ToUpper(typeName) {
+	case Json, Jsonb:
+		return fmt.Sprintf(`(%s IS NULL)`, q), true
+	}
+	switch SqlTypes[strings.ToUpper(typeName)] {
+	case TEXT_TYPE:
+		return fmt.Sprintf(`(%s IS NULL OR %s = '')`, q, q), true
+	case NUMERIC_TYPE:
+		return fmt.Sprintf(`(%s IS NULL OR %s = 0)`, q, q), true
+	case TIME_TYPE, BLOB_TYPE:
+		return fmt.Sprintf(`(%s IS NULL)`, q), true
+	}
+	return "", false
+}
+
+// falsyOk 只回答"isFalsyValue/isTruthyValue 认不认得这个类型"，
+// 供上面的 else-if 链在进入分支前判断 —— Go 的 else-if 没法先算出值再决定进不进。
+func falsyOk(typeName, op string) bool {
+	var ok bool
+	if op == "=" {
+		_, ok = isFalsyValue(typeName, "t", "c")
+	} else {
+		_, ok = isTruthyValue(typeName, "t", "c")
+	}
+	return ok
+}
+
+func isTruthyValue(typeName, aliasTable, column string) (string, bool) {
+	q := fmt.Sprintf(`%s."%s"`, aliasTable, column)
+	switch typeName {
+	case TYPE_M2O, TYPE_O2O:
+		return isNotEmptyRelation(aliasTable, column), true
+	case TYPE_SELECTION:
+		return fmt.Sprintf(`(%s IS NOT NULL AND %s <> '')`, q, q), true
+	case TYPE_JSONB, TYPE_PROPERTIES, TYPE_PROPERTIES_DEFINITION:
+		return fmt.Sprintf(`(%s IS NOT NULL)`, q), true
+	case Bool, Boolean:
+		return "", false
+	}
+	switch strings.ToUpper(typeName) {
+	case Json, Jsonb:
+		return fmt.Sprintf(`(%s IS NOT NULL)`, q), true
+	}
+	switch SqlTypes[strings.ToUpper(typeName)] {
+	case TEXT_TYPE:
+		return fmt.Sprintf(`(%s IS NOT NULL AND %s <> '')`, q, q), true
+	case NUMERIC_TYPE:
+		return fmt.Sprintf(`(%s IS NOT NULL AND %s <> 0)`, q, q), true
+	case TIME_TYPE, BLOB_TYPE:
+		return fmt.Sprintf(`(%s IS NOT NULL)`, q), true
+	}
+	return "", false
+}
+
 func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_query string, res_params []any, res_arg []any) {
 	var (
 	//first_right_value interface{}   // 提供最终值以供条件判断
@@ -1053,7 +1213,15 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 	// 先在这里认出来：认得出就在取完值之后走 jsonb 分支，认不出就照旧当非法处理。
 	propField, propName := resolvePropertyPath(model, left.String())
 
-	if !left.ValueIn(domain.TRUE_LEAF, domain.FALSE_LEAF) && model.GetFieldByName(left.String()) == nil && !left.ValueIn(MAGIC_COLUMNS) && propField == nil { //
+	// ★ 两处判据原来都是失效的：
+	//   - `left.ValueIn(TRUE_LEAF, FALSE_LEAF)` 拿**左值**("1"/"0")去和整条叶子的
+	//     字符串常量比，恒 false；
+	//   - `left.ValueIn(MAGIC_COLUMNS)` 把 []string 当一个 any 传进 `...any`，
+	//     ValueIn 的 switch 只认 string / *TDomainNode，也恒 false。
+	//   合法字段能命中 GetFieldByName 所以没炸，但这道闸门实际只剩一个条件。
+	if !leaf.IsTrueLeaf() && !leaf.IsFalseLeaf() &&
+		model.GetFieldByName(left.String()) == nil &&
+		utils.IndexOf(left.String(), MAGIC_COLUMNS...) == -1 && propField == nil { //
 		log.Errf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 		return "0 = 1", res_params, res_arg
 	}
@@ -1082,7 +1250,13 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 		return v, true
 	}
 
-	if right.IsListNode() {
+	// ★ 判"是不是一组值"用 Count() 而不是 IsListNode()。
+	//   IsLeafNode() 是个**带副作用的谓词**：认出三元 LIST_NODE 是叶子后会就地把
+	//   nodeType 改写成 LEAF_NODE 作记忆化。于是一个恰好三元、且中间那个值恰好是
+	//   term 操作符的**值列表**（`('op','in',['=','<','>'])`），只要这棵树被渲染过
+	//   一次（打一遍日志就够），IsListNode() 就变成 false，整组值被当成标量、
+	//   Value 又是 nil —— 条件恒不匹配。Count() 不受记忆化影响。
+	if right.Count() > 0 {
 		for _, node := range right.Nodes() {
 			if v, isHolder := consumeHolder(node.String()); isHolder {
 				vals = append(vals, v)
@@ -1124,11 +1298,11 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 		}
 		return q, p, res_arg
 
-	} else if leaf.String() == domain.TRUE_LEAF {
+	} else if leaf.IsTrueLeaf() {
 		res_query = "TRUE"
 		res_params = nil
 
-	} else if leaf.String() == domain.FALSE_LEAF {
+	} else if leaf.IsFalseLeaf() {
 		res_query = "FALSE"
 		res_params = nil
 
@@ -1143,31 +1317,29 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 		res_params = append(res_params, vals...)
 
 	} else if operator.ValueIn("in", "not in") { //# 数组值
-		if right.IsListNode() {
-			res_params = append(res_params, vals...)
-
+		if right.Count() > 0 { // 一组值（同上，不能用 IsListNode）
+			// ★ 布尔 false 要从绑定值里**剔除**并转成 IS NULL 语义
+			//   （Odoo 惯例：('x','in',[1,2,False]) == x in (1,2) OR x IS NULL）。
+			//
+			//   原来写的是 `res_params = utils.SliceDelete(res_params, any(idx))`：
+			//   SliceDelete 是**按值**删除，删的是"等于 idx 这个数"的元素，而不是第
+			//   idx 个元素（何况 idx 是 int、参数多是 int64，类型都对不上，基本恒不
+			//   命中）。后果一是 false 原样留在绑定参数里——PG 上整型列会直接
+			//   `operator does not exist: bigint = boolean`；后果二是万一命中就删掉
+			//   一个真 id，并让占位符个数与参数个数对不上。
+			//   占位符个数一律以 res_params 为准，不能再用 len(vals)。
 			check_nulls := false
-			for idx, item := range res_params {
+			for _, item := range vals {
 				if utils.IsBoolItf(item) && !utils.ToBool(item) {
 					check_nulls = true
-					res_params = utils.SliceDelete(res_params, any(idx))
+					continue
 				}
+				res_params = append(res_params, item)
 			}
 
 			// In 值操作
-			if len(vals) > 0 {
-				holders := ""
-				if left.String() == self.root_model.idField {
-					//instr = strings.Join(utils.Repeat("%s", len(res_params)), ",") // 数字不需要冒号[1,2,3]
-					holders = strings.Repeat("?,", len(vals)-1) + "?"
-				} else {
-					// 获得字段Fortmat格式符 %s,%d 等
-					//ss := model.FieldByName(left.String()).SymbolChar()
-					//ss := "?"
-					// 等同于参数量重复打印格式符
-					holders = strings.Repeat("?,", len(vals)-1) + "?" // 字符串需要冒号 ['1','2','3']
-					// res_params = map(ss[1], res_params) // map(function, iterable, ...)
-				}
+			if len(res_params) > 0 {
+				holders := strings.Repeat("?,", len(res_params)-1) + "?"
 				res_query = fmt.Sprintf(`(%s."%s" %s (%s))`, aliasTable, left.String(), operator.String(), holders)
 			} else {
 				// The case for (left, 'in', []) or (left, 'not in', []).
@@ -1179,15 +1351,37 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 				}
 			}
 
+			// 关系字段的"空"不止 NULL（见 isEmptyRelation），`('x','in',[1,False])`
+			// 若只补 IS NULL，会漏掉落成 0 / -1 的那些行。非关系字段维持 IS NULL。
+			isRel := is_field && (field.TypeName() == TYPE_M2O || field.TypeName() == TYPE_O2O)
+			nullSql := fmt.Sprintf(`%s."%s" IS NULL`, aliasTable, left.String())
+			notNullSql := fmt.Sprintf(`%s."%s" IS NOT NULL`, aliasTable, left.String())
+			if isRel {
+				nullSql = isEmptyRelation(aliasTable, left.String())
+				notNullSql = isNotEmptyRelation(aliasTable, left.String())
+			}
+
 			if check_nulls && operator.String() == "in" {
-				res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, aliasTable, left.String())
+				res_query = fmt.Sprintf(`(%s OR %s)`, res_query, nullSql)
 
 			} else if !check_nulls && operator.String() == "not in" {
-				res_query = fmt.Sprintf(`(%s OR %s."%s" IS NULL)`, res_query, aliasTable, left.String())
+				res_query = fmt.Sprintf(`(%s OR %s)`, res_query, nullSql)
 
 			} else if check_nulls && operator.String() == "not in" {
-				res_query = fmt.Sprintf(`(%s AND %s."%s" IS NOT NULL)`, res_query, aliasTable, left.String()) // needed only for TRUE.
+				res_query = fmt.Sprintf(`(%s AND %s)`, res_query, notNullSql) // needed only for TRUE.
 			}
+
+		} else if right.Value == nil { // 空集合
+			// (left,'in',[]) / (left,'not in',[])：解析器把空列表拆成了 Value 为 nil
+			// 的标量节点(见 parser.go 的单元素拆包)，走不到上面的列表分支。
+			// 原来落到最后那条 "单值" 分支，生成 `x = NULL`——'in' 恰好回 0 条(蒙对)，
+			// 'not in' 也回 0 条(**应回全部**)。
+			if operator.String() == "in" {
+				res_query = "FALSE"
+			} else {
+				res_query = "TRUE"
+			}
+			res_params = nil
 
 		} else if utils.IsBoolItf(vals[0]) { // Must not happen
 			r := ""
@@ -1210,11 +1404,44 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 
 			//  raise ValueError("Invalid domain term %r" % (leaf,))
 		} else {
-			// single value use "=" term
-			res_query = fmt.Sprintf(`(%s."%s" = ?)`, aliasTable, left.String()) //TODO quote
+			// 单值 in/not in：必须**按操作符**生成，不能一律写 '='。
+			//
+			// 解析器会把单元素列表拆包成标量(parser.go 的 `if list.Count()==1
+			// { return list.Item(0) }`)，所以 `('name','not in',['x'])` 和
+			// `.NotIn("name","x")` 到这里 right 都不是 LIST_NODE。原来这里硬写
+			// `= ?`，于是 **not in 变成了 in**——实测 `.NotIn("name","probe_a")`
+			// 生成 `WHERE name = 'probe_a'`，恰好只回被排除的那一条。两个及以上
+			// 值走上面的列表分支才是对的，所以单参数用法长期没被测出来。
+			//
+			// not in 补 `OR IS NULL`：与上面列表分支的 not in 语义保持一致
+			// （SQL 里 NULL 不满足 `!=`，但"不在集合里"应当包含 NULL 行）。
+			if operator.String() == "in" {
+				res_query = fmt.Sprintf(`(%s."%s" = ?)`, aliasTable, left.String()) //TODO quote
+			} else {
+				res_query = fmt.Sprintf(`((%s."%s" != ?) OR %s."%s" IS NULL)`,
+					aliasTable, left.String(), aliasTable, left.String())
+			}
 			res_params = append(res_params, vals[0])
 
 		}
+	} else if is_field && len(vals) > 0 && utils.IsBoolItf(vals[0]) && !utils.ToBool(vals[0]) &&
+		(operator.String() == "=" || operator.String() == "!=") && falsyOk(field.TypeName(), operator.String()) {
+		// 任意字段上的 `= False` / `!= False`：Odoo 语义是"这个字段为空 / 非空"。
+		//
+		// 原来这里没有分支，false 一路当成普通右值绑进 `x = ?`：many2one 上是
+		// `pq: invalid input syntax for type bigint: "false" (22P02)`，datetime 上是
+		// 22007，varchar 上**不报错但筛的是 `x = 'false'`**。三种后果、一个病灶。
+		// 本仓移植过来的 XML 里这条写法有 220 处（2026-08-23 全仓分拣），其中挂在
+		// 记录规则 domain_force 上的一崩就是整模型读不出来。
+		//
+		// 各类型"空"的准确形态见 isFalsyValue 的注释。
+		if operator.String() == "=" {
+			res_query, _ = isFalsyValue(field.TypeName(), aliasTable, left.String())
+		} else {
+			res_query, _ = isTruthyValue(field.TypeName(), aliasTable, left.String())
+		}
+		res_params = nil
+
 	} else if is_field && (field.TypeName() == Bool) &&
 		((operator.String() == "=" && !utils.ToBool(vals[0])) || (operator.String() == "!=" && utils.ToBool(vals[0]))) {
 		// 字段是否Bool类型
@@ -1268,30 +1495,25 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 
 		}
 
-		cast := ""
-		if strings.HasSuffix(sql_operator, "like") { // # cast = '::text' if  sql_operator.endswith('like') else ''
-			cast = "::text"
-		}
+		// like 家族的 SQL 由方言生成：`::text` 转型和 ILIKE 都是 postgres 专有的，
+		// 这里原来对所有方言硬拼 `cast = "::text"`，sqlite/mysql 上任何 like/ilike
+		// 的 domain 查询都直接 `unrecognized token: ":"` —— 也就是整个模糊搜索在
+		// 非 postgres 后端上根本不能用。见 IDialect.LikeClause。
+		isLike := strings.HasSuffix(sql_operator, "like")
 
 		// #组合Sql
-		if is_field {
-			//format = need_wildcard and '%s' or model._columns[left]._symbol_set[0]
-			format := ""
-			// 范查询
-			if need_wildcard {
-				//format = "'%s'" // %XX%号在参数里添加
-				format = "?" // fmt.Sprintf(field._symbol_c, "?") //field.SymbolFunc("?") //
-			} else {
-				//format = field.SymbolChar()
-				format = "?" // fmt.Sprintf(field._symbol_c, "?") //field.SymbolFunc("?") //
-			}
-
+		if is_field || utils.IndexOf(left.String(), MAGIC_COLUMNS...) != -1 {
+			// ★ 这里原来第二条走的是 `left.ValueIn(MAGIC_COLUMNS)`——ValueIn 的形参是
+			//   `...any`，把 []string 整个当**一个** any 传进去，它的 switch 只认
+			//   string 和 *TDomainNode，两个 case 都不匹配，恒 false（同 1052 行那道
+			//   字段合法性闸门）。改用与 parse() 一致的 IndexOf(..., MAGIC_COLUMNS...)。
 			//unaccent = self._unaccent if sql_operator.endswith('like') else lambda x: x
 			column := fmt.Sprintf("%s.%s", aliasTable, quoter.Quote(left.String()))
-			res_query = fmt.Sprintf("(%s %s %s)", column+cast, sql_operator, format)
-
-		} else if left.ValueIn(MAGIC_COLUMNS) {
-			res_query = fmt.Sprintf("(%s.\"%s\"%s %s ?)", aliasTable, left.String(), cast, sql_operator)
+			if isLike {
+				res_query = self.orm.dialect.LikeClause(column, sql_operator)
+			} else {
+				res_query = fmt.Sprintf("(%s %s ?)", column, sql_operator)
+			}
 
 		} else {
 			//# Must not happen
@@ -1347,7 +1569,20 @@ func (self *TExpression) toSql(params ...any) ([]string, []any) {
 			stack.Push(query)
 
 		} else if eleaf.leaf.String() == domain.NOT_OPERATOR {
-			stack.Push("(NOT (%s))", stack.Pop().String())
+			// ★ 两处曾经的错：
+			//   1) `stack.Push("(NOT (%s))", stack.Pop().String())` —— Push 是**变参
+			//      追加**不是 Printf，字面量 "(NOT (%s))" 会原样拼进 SQL，而被 Pop
+			//      出来的子句被当成另一个平级元素压回去。
+			//   2) 栈里只剩一个元素时它是 VALUE_NODE，旧版 Pop() 只认 LIST_NODE 返回
+			//      nil，`.String()` 当场空指针崩溃(Pop 已在 domain.go 里对称化)。
+			// 走到这条分支的前提是该 '!' 没被 distribute_not 下推——即操作符不在
+			// TERM_OPERATORS_NEGATION 里(=like/=ilike/=?/child_of)。
+			sub := stack.Pop()
+			if sub == nil {
+				log.Errf("domain to sql: '!' has no operand, the leaf is DROPPED: %v", self.result)
+				continue
+			}
+			stack.Push(fmt.Sprintf("(NOT (%s))", sub.String()))
 
 		} else {
 			// domain 操作符
@@ -1356,6 +1591,17 @@ func (self *TExpression) toSql(params ...any) ([]string, []any) {
 			if q1 != nil && q2 != nil {
 				lStr := fmt.Sprintf("(%s %s %s)", q1.String(), domain.DOMAIN_OPERATORS_KEYWORDS[eleaf.leaf.String()], q2.String())
 				stack.Push(lStr)
+			} else {
+				// 操作数不够 = domain 结构本身坏了。压回已取出的那个，避免把
+				// 一整条子句静默丢掉(丢条件就是放宽筛选)。
+				log.Errf("domain to sql: operator %q lacks operands, the domain is malformed: %v",
+					eleaf.leaf.String(), self.result)
+				if q1 != nil {
+					stack.Push(q1.String())
+				}
+				if q2 != nil {
+					stack.Push(q2.String())
+				}
 			}
 		}
 	}

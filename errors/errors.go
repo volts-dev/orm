@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// 11 个 sentinel errors —— 调用方用 errors.Is(err, ErrXxx) 判断
+// sentinel errors —— 调用方用 errors.Is(err, ErrXxx) 判断
 var (
 	// ErrNotFound 查询无结果
 	ErrNotFound = errors.New("orm: record not found")
@@ -31,6 +31,16 @@ var (
 	ErrNoSoftDelete = errors.New("orm: model has no 'deleted' tag field")
 	// ErrSoftDeleteMisconfigured 软删除相关：模型有多个 deleted tag 字段
 	ErrSoftDeleteMisconfigured = errors.New("orm: model has multiple 'deleted' tag fields")
+	// ErrLockNotSupported 当前方言没有行级锁（sqlite）。
+	// session 收到它时降级为一条警告并继续执行，不当作失败——SQLite 的写事务
+	// 本身即全库互斥，行锁无从谈起。
+	ErrLockNotSupported = errors.New("orm: dialect does not support row-level locking")
+	// ErrLockOutsideTransaction 不在事务中请求行锁。
+	// 单语句事务会在语句结束的瞬间释放锁，等于没加锁，却让调用方以为拿到了互斥；
+	// 因此这里直接拒绝而不是发一条没用的 SQL。先 Begin() 再取锁。
+	ErrLockOutsideTransaction = errors.New("orm: row lock requires an explicit transaction; call Begin() first")
+	// ErrLockNotApplicable 该查询形态不能加行锁（GROUP BY / Count 等聚合）。
+	ErrLockNotApplicable = errors.New("orm: row lock cannot be applied to this query")
 )
 
 // ORMError 携带上下文的 ORM 错误，支持 errors.Is/As

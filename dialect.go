@@ -33,6 +33,11 @@ type (
 		AndStr() string
 		OrStr() string
 		EqStr() string
+		// LikeClause 生成一条 like 家族(like/ilike/not like/not ilike)的谓词，
+		// column 已带表别名与引号，值以单个 '?' 占位。
+		// 各方言的差异必须收在这里：postgres 需要 `::text` 转型且原生支持 ILIKE，
+		// mysql/sqlite 两者都没有(`::text` 直接是语法错误)。
+		LikeClause(column, operator string) string
 		RollBackStr() string
 		AutoIncrStr() string
 
@@ -57,7 +62,26 @@ type (
 		DropColumnNotNullSql(schema, tableName string, col IField) string
 		DropColumnDefaultSql(schema, tableName string, col IField) string
 		ModifyColumnSql(schema, tableName string, col IField) string
-		ForUpdateSql(query string) string
+		// LockClause 生成行级锁子句(FOR UPDATE / FOR SHARE ...)，追加在
+		// LIMIT/OFFSET **之后**。lock 为 nil 或 LockNone 时返回空串。
+		// tableAlias 是本次查询主模型在 FROM 里的别名：postgres 用它生成
+		// `FOR UPDATE OF <alias>`，把锁限定在主表上——否则一旦查询里有
+		// LEFT JOIN(继承字段的父表连接就是)，PG 会以
+		// "FOR UPDATE cannot be applied to the nullable side of an outer join"
+		// 拒绝整条查询。传空串表示不限定。
+		// 方言不支持行锁时返回 errors.ErrLockNotSupported，调用方据此降级为警告。
+		LockClause(lock *TLock, tableAlias string) (string, error)
+		// SetSearchPathSql 生成一条把当前**事务**的默认 schema 指向 schema 的语句；
+		// 方言没有这个概念时返回空串。
+		//
+		// 用途：让**裸 SQL**（Exec/Query 里的字符串）也落在会话指定的 schema 上。
+		// Statement 的 qualifiedTable 只管 ORM 自己拼的 SQL，表名已经写在字符串里的
+		// 那些它够不着——于是同一张表 ORM 写 system、裸 SQL 读 public，查 0 行、不报错。
+		//
+		// 必须是**事务级**（postgres 的 SET LOCAL）：会话级 SET 会留在连接上，而连接
+		// 是池化的，下一个借到它的请求会继承这个 schema —— 那是跨租户串数据，
+		// 比原来的 bug 严重得多。
+		SetSearchPathSql(schema string) string
 		GenInsertSql(model string, fields, uniqueFields []string, idField string, onConflict *OnConflict) (sql string)
 		GenAddColumnSQL(schema, tableName string, field IField) string
 		IsColumnExist(ctx context.Context, schema, tableName string, colName string) (bool, error)
@@ -172,6 +196,19 @@ func (db *TDialect) EqStr() string {
 
 func (db *TDialect) RollBackStr() string {
 	return "ROLL BACK"
+}
+
+// LikeClause 的通用实现（mysql / sqlite）：
+//   - 不加 `::text`——那是 postgres 专有语法，别的库上直接
+//     `unrecognized token: ":"` / `syntax error`。曾经 expr.go 对**所有**方言硬拼
+//     `::text`，于是非 postgres 上任何 like/ilike 的 domain 查询都是直接报错。
+//   - ILIKE 落成 LIKE：mysql/sqlite 都没有 ILIKE 关键字。两者默认排序规则下
+//     LIKE 对 ASCII 本来就是大小写不敏感的（sqlite 内建、mysql 的 *_ci 排序规则），
+//     非 ASCII 的大小写折叠不保证——这是方言能力所限，不是本层能补的。
+func (db *TDialect) LikeClause(column, operator string) string {
+	op := strings.ToUpper(strings.TrimSpace(operator))
+	op = strings.ReplaceAll(op, "ILIKE", "LIKE")
+	return fmt.Sprintf("(%s %s ?)", column, op)
 }
 
 func (db *TDialect) SupportDropIfExists() bool {
@@ -337,8 +374,44 @@ func (db *TDialect) CreateTableSql(session *TSession, model IModel, storeEngine,
 	return b.String()
 }
 
-func (db *TDialect) ForUpdateSql(query string) string {
-	return query + " FOR UPDATE"
+// SetSearchPathSql 默认无操作：只有 postgres 有 search_path。
+// mysql 的 schema 等同于 database（连接时就定了），sqlite 没有 schema 概念。
+func (db *TDialect) SetSearchPathSql(schema string) string {
+	return ""
+}
+
+// LockClause 通用实现，覆盖 SQL 标准 / PostgreSQL 语法。
+// mysql 与 sqlite 各自覆写，见 dialect_mysql.go / dialect_sqlite.go。
+func (db *TDialect) LockClause(lock *TLock, tableAlias string) (string, error) {
+	if !lock.IsLocking() {
+		return "", nil
+	}
+
+	var b strings.Builder
+	switch lock.Mode {
+	case LockUpdate:
+		b.WriteString("FOR UPDATE")
+	case LockShare:
+		b.WriteString("FOR SHARE")
+	default:
+		return "", fmt.Errorf("orm: unknown lock mode %d", lock.Mode)
+	}
+
+	// 只锁主表：查询里的 LEFT JOIN(继承字段的父表连接)不可锁，
+	// 而 .ForUpdate() 的语义本来就是"锁住我正在读的这个模型的行"。
+	if tableAlias != "" {
+		b.WriteString(" OF ")
+		b.WriteString(tableAlias)
+	}
+
+	switch lock.Wait {
+	case LockWaitNoWait:
+		b.WriteString(" NOWAIT")
+	case LockWaitSkip:
+		b.WriteString(" SKIP LOCKED")
+	}
+
+	return b.String(), nil
 }
 
 // 生成插入SQL句子

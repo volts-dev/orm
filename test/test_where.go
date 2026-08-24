@@ -15,7 +15,7 @@ func (self *Testchain) Where() *Testchain {
 	}
 
 	// get first record to use its id
-	allIds, _, err := model.Records().Search()
+	allIds, _, err := model.Records().Limit(-1).Search()
 	if err != nil || len(allIds) == 0 {
 		self.Fatal("Where: no records available")
 	}

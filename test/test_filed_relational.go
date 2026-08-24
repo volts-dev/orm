@@ -46,7 +46,7 @@ func TestFieldMany2Many(o *orm.TOrm, t *testing.T) {
 		}
 
 		// 测试Select 默认所有
-		lDs, err := lUserMdl.Records().Read()
+		lDs, err := lUserMdl.Records().Limit(-1).Read()
 		if err != nil {
 			panic(err)
 		}

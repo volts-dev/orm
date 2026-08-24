@@ -987,27 +987,75 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 		return err
 	}
 
+	// ManyToMany 回的是**关系表**的查询结果，不是对端记录：
+	//
+	//   ClassicRead  → `SELECT mid.*, rel.*`，一行里混着关系表的列(main_id/tag_id)
+	//                  与对端的列(id/name)，两张表的字段拼在同一个 map 里；
+	//   非 ClassicRead → `SELECT mid.tag_id, mid.main_id`，**完全没有对端数据**，
+	//                  调用方拿到的是 [{main_id:1, tag_id:2}]，连名字都没有。
+	//
+	// 三种关系字段里只有 m2m 是这个形状：o2m 回的是对端 id 列表、m2o 回的是
+	// {id,name}。vectors 因此在 portal / mail_followers / languages 三处绕开这个
+	// 字段自己去查关系表。这里把输出对齐到 o2m：非经典读回 id 列表，经典读回
+	// **对端记录**(摘掉关系表的列)。
+	//
+	// 只改输出构造、不动 SQL：ManyToMany 还有一个直接消费其数据集的调用方
+	// (model_request.go 的 many2many 读端点)，改列名会连带改掉那个端点的契约。
+	relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
+	if err != nil {
+		return err
+	}
+	srcKey := field.JoinSourceKey()  // 关系表里指向本表的列，如 main_id
+	relKey := field.RelatedKeyName() // 关系表里指向对端的列，如 tag_id
+	// 对端**自己**若真有同名列，就不能摘——那是它的数据。
+	dropSrc := relateModel.GetFieldByName(srcKey) == nil
+	dropRel := relateModel.GetFieldByName(relKey) == nil
+	// BigNumberToString 打开时雪花 id 必须以字符串回填，理由同 OneToMany：
+	// 裸 int64 经 JSON 传给前端会丢精度(> 2^53)，之后按舍入后的错 id 查恒空。
+	idAsStr := ctx.Model.Orm().config.BigNumberToString &&
+		isBigNumberField(relateModel.GetFieldByName(relateModel.IdField()))
+
 	// 按 source 侧(本表)的 join key 分组，才能用本记录 id 命中。
 	// RelatedKeyName 是 comodel 侧的键(如 res_company_id)，用它分组会与下方
 	// 本表 id 的查找键不在同一键空间，导致永远查空。
 	// group 在 ds 为空(nil 或 0 行)时也是 nil——GroupBy/Range/Count 对 nil *TDataSet
 	// 均安全,故下面无需额外判空。
-	group := ds.GroupBy(field.JoinSourceKey())
+	group := ds.GroupBy(srcKey)
 	ctx.Dataset.Range(func(pos int, record *dataset.TRecordSet) error {
-		//fieldValue := record.GetByField(field.Name()) // 货得many2many字段值
 		// 继承字段用委托 FK(partner_id)的值匹配 junction 的 source 键，否则用本模型主键。
-		fieldValue := record.GetByField(relAnchorKey(ctx)) // 货得many2many字段值
+		fieldValue := record.GetByField(relAnchorKey(ctx))
 		fieldRecord := group[fieldValue]
+
 		// 无论有无关联行都调用 SetByField:此前只在 fieldRecord.Count()>0 时才设置字段值,
 		// 一条关联行都没有时(如用户未分配任何 company/group)整个字段 key 会从输出里
 		// 彻底消失(不是空数组,是键都不存在)——前端/调用方误判为"关系字段没有返回"。
 		// 空切片而非 nil,确保 AsMap/JSON 序列化为 [] 而不是 null。
-		records := make([]map[string]any, 0, fieldRecord.Count())
-		fieldRecord.Range(func(pos int, record *dataset.TRecordSet) error {
-			records = append(records, record.AsMap())
-			return nil
-		})
-		record.SetByField(field.Name(), records)
+		if ctx.ClassicRead {
+			records := make([]map[string]any, 0, fieldRecord.Count())
+			fieldRecord.Range(func(_ int, row *dataset.TRecordSet) error {
+				m := row.AsMap()
+				if dropSrc {
+					delete(m, srcKey)
+				}
+				if dropRel {
+					delete(m, relKey)
+				}
+				records = append(records, m)
+				return nil
+			})
+			record.SetByField(field.Name(), records)
+		} else {
+			records := make([]any, 0, fieldRecord.Count())
+			fieldRecord.Range(func(_ int, row *dataset.TRecordSet) error {
+				idv := row.GetByField(relKey)
+				if idAsStr {
+					idv = utils.ToString(idv)
+				}
+				records = append(records, idv)
+				return nil
+			})
+			record.SetByField(field.Name(), records)
+		}
 
 		return nil
 	})
@@ -1178,7 +1226,12 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []any) error {
 			   	)
 			*/
 
-			_, err := ctx.Session.Exec(query, rec_id, relate_id)
+			// 必须用内部的 _exec，不能用公开的 Exec：Exec 在 IsAutoClose 的会话上
+			// `defer self.Close()`，而 Close 会把 db/tx 置 nil。这里是循环，第一次
+			// 调用就把会话关了，第二次直接空指针崩溃——`orm.Model(x).Create(带 m2m 值)`
+			// 因此必然 panic（OnWrite 先 unlink_all 再 link，两次就够）。
+			// vectors 侧一直用 model.Records()/Tx()(IsAutoClose=false)，才没撞上。
+			_, err := ctx.Session._exec(query, rec_id, relate_id)
 			if err != nil {
 				return err
 			}
@@ -1212,7 +1265,9 @@ func (self *TMany2ManyField) unlink_all(ctx *TFieldContext, ids []any) error {
 
 	// 提交修改
 	session := ctx.Session // orm.NewSession()
-	_, err := session.Exec(b.String(), args...)
+	// 同 link：走内部 _exec，公开的 Exec 会在 IsAutoClose 会话上把会话关掉，
+	// 后续任何一次使用都是空指针。
+	_, err := session._exec(b.String(), args...)
 	if err != nil {
 		return err
 	}

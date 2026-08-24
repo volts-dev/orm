@@ -795,6 +795,12 @@ func (db *postgres) Init(queryer core.Queryer, uri *TDataSource) error {
 	return db.TDialect.Init(queryer, db, uri)
 }
 
+// LikeClause postgres 保留 `::text` 转型（非文本列直接 like 会报
+// `operator does not exist: bigint ~~ unknown`），并原生支持 ILIKE。
+func (db *postgres) LikeClause(column, operator string) string {
+	return fmt.Sprintf("(%s::text %s ?)", column, strings.ToLower(strings.TrimSpace(operator)))
+}
+
 func (db *postgres) SupportReturning() bool {
 	return true
 }
@@ -1755,6 +1761,22 @@ func (db *postgres) schemaOr(schema string) string {
 	return db.getSchema(nil)
 }
 
+// SetSearchPathSql 把当前事务的 search_path 指向 schema，public 兜底。
+//
+// 用 SET **LOCAL**：作用域是当前事务，COMMIT/ROLLBACK 自动还原。裸 SET 会留在
+// 连接上，而 database/sql 的连接是池化的——下一个借到这条连接的请求会继承这个
+// schema，那是跨租户串数据。
+//
+// 保留 public 兜底：只有一部分表物化在专属 schema（如 vectors 的系统租户），
+// 其余共享表仍在 public。两处都有同名表时 schema 优先，正是要的语义。
+func (db *postgres) SetSearchPathSql(schema string) string {
+	if schema == "" {
+		return ""
+	}
+	// schema 由 SetSchema 传入(应用侧可控)，仍按标识符引用，不做字符串拼接的裸信任。
+	return fmt.Sprintf("SET LOCAL search_path TO %s, public", db.dialect.Quoter().Quote(schema))
+}
+
 // MapError 把 PostgreSQL driver 错误翻译为 ormerr sentinel
 func (db *postgres) MapError(err error) error {
 	if err == nil {
@@ -1768,7 +1790,9 @@ func (db *postgres) MapError(err error) error {
 			return ormerr.New(ormerr.ErrDuplicate, err)
 		case "23503", "23502": // foreign_key_violation / not_null_violation
 			return ormerr.New(ormerr.ErrValidation, err)
-		case "40001", "40P01": // serialization_failure / deadlock_detected
+		case "40001", "40P01", "55P03": // serialization_failure / deadlock_detected / lock_not_available
+			// 55P03：SELECT ... FOR UPDATE NOWAIT 抢锁失败。与死锁同属
+			// "并发没抢到"，归 ErrConflict 让调用方走同一条重试分支。
 			return ormerr.New(ormerr.ErrConflict, err)
 		case "08006", "08003", "08001": // connection_failure / connection_does_not_exist / sqlclient_unable_to_establish_sqlconnection
 			return ormerr.New(ormerr.ErrConnection, err)

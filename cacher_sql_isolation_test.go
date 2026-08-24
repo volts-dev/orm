@@ -43,7 +43,7 @@ func TestSqlCacheNotPollutedByReader(t *testing.T) {
 	o := newCacheOrm(t)
 
 	// 第一次读：填充缓存。
-	first, err := o.Model("cache.model").Read()
+	first, err := o.Model("cache.model").Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("first read: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestSqlCacheNotPollutedByReader(t *testing.T) {
 	first.Record().SetByField("injected", "x") // 顺带改字段表
 
 	// 第二次读：应命中缓存，且必须拿到未被污染的原始数据。
-	second, err := o.Model("cache.model").Read()
+	second, err := o.Model("cache.model").Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("second read: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestSqlCacheNotPollutedByReader(t *testing.T) {
 func TestSqlCacheNotPollutedByProducer(t *testing.T) {
 	o := newCacheOrm(t)
 
-	first, err := o.Model("cache.model").Read()
+	first, err := o.Model("cache.model").Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("first read: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestSqlCacheNotPollutedByProducer(t *testing.T) {
 	first.First()
 	first.Record().SetByField("age", 999)
 
-	second, err := o.Model("cache.model").Read()
+	second, err := o.Model("cache.model").Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("second read: %v", err)
 	}

@@ -23,6 +23,13 @@ func (self *TSession) Search() ([]any, int64, error) {
 		}
 	}()
 
+	// Search 此前**完全没有上限**（_search 里是 `if LimitClause > 0`），
+	// 枚举整张表的 id 一直是放行的——DefaultLimit 那道"防扫全表"从来没覆盖到这条路。
+	// 这里补上与 Read 同一道守卫。
+	if err := self.guardUnscopedRead(); err != nil {
+		return nil, 0, err
+	}
+
 	return self._search("", nil)
 }
 
@@ -89,6 +96,12 @@ func (self *TSession) Sum(fieldName string) (float64, error) {
 
 	if self.IsAutoClose {
 		defer self.Close()
+	}
+
+	// SUM 是聚合，没有可锁的行。这里主动校验，让 .ForUpdate().Sum() 明确报错，
+	// 而不是把锁悄悄丢掉——后者正是 ForUpdate() 从前的行为。
+	if _, err := self.lockClause(true); err != nil {
+		return 0, err
 	}
 
 	// 校验字段并引用，防止注入
@@ -167,6 +180,14 @@ func (self *TSession) _search(access_rights_uid string, context map[string]any) 
 	}
 
 	table_name := self.Statement.Model.Table()
+
+	// 行锁：Count 是聚合，没有可锁的行，lockClause 会明确报错而不是悄悄不锁。
+	lock_clause, err := self.lockClause(self.Statement.IsCount || len(self.Statement.GroupByClause) > 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	locking := self.Statement.Lock.IsLocking()
+
 	if self.Statement.IsCount {
 		// 添加支持Count函数
 		// TODO 优化成自动
@@ -206,16 +227,25 @@ func (self *TSession) _search(access_rights_uid string, context map[string]any) 
 	//}
 	quoter := self.orm.dialect.Quoter()
 	query_str = fmt.Sprintf(`SELECT %s.%s FROM `, quoter.Quote(self.Statement.Model.Table()), quoter.Quote(self.Statement.IdKey)) + from_clause + where_clause + order_by + limit_str + offset_str
+	if lock_clause != "" {
+		query_str += " " + lock_clause
+	}
 
-	// #调用缓存
-	res_ds := self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
+	// 加锁查询绕开结果缓存：命中缓存就等于这条 SELECT 没发出去，锁也就没加上。
+	var res_ds *dataset.TDataSet
+	if !locking {
+		// #调用缓存
+		res_ds = self.orm.Cacher.GetBySql(table_name, query_str, where_clause_params)
+	}
 	if res_ds == nil {
 		res, err := self._query(query_str, where_clause_params...)
 		if err != nil {
 			return nil, 0, err
 		}
 		res_ids = res.Keys(self.Statement.IdKey)
-		self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res)
+		if !locking {
+			self.orm.Cacher.PutBySql(table_name, query_str, where_clause_params, res)
+		}
 	} else {
 		res_ids = res_ds.Keys(self.Statement.IdKey)
 	}
@@ -224,10 +254,18 @@ func (self *TSession) _search(access_rights_uid string, context map[string]any) 
 }
 
 func (self *TSession) _query(sql string, paramStr ...any) (*dataset.TDataSet, error) {
+	if err := self.ensureOpen(); err != nil {
+		return nil, err
+	}
 	defer self._resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
 		sql = filter.Do(sql, self.orm.dialect, self.Statement.Model)
 	}
+
+	// LastSQL() 的取值来源。此前 lastSQL/lastSQLArgs **全仓没有一处赋值**，
+	// LastSQL() 恒返回空串——又一个"看着能用其实是空壳"的 API（同 ForUpdate()）。
+	// 记录的是 Fmter 处理后、真正发给驱动的那条语句。
+	self.lastSQL, self.lastSQLArgs = sql, paramStr
 
 	return self.orm._logQuerySql(sql, paramStr, func() (*dataset.TDataSet, error) {
 		if self.IsAutoCommit {
@@ -240,6 +278,12 @@ func (self *TSession) _query(sql string, paramStr ...any) (*dataset.TDataSet, er
 func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TDataSet, error) {
 	var rows *core.Rows
 	var err error
+
+	// 会话带 schema：SET LOCAL 与语句必须落在同一条连接上，所以包一个隐式事务。
+	// 这里**绕开 Prepared**——预编译语句同样在池上，绑不住那条连接；正确性优先。
+	if stmt := self.searchPathSql(); stmt != "" {
+		return self.queryInSchemaScope(stmt, sql_str, args...)
+	}
 
 	if self.Prepared {
 		stmt, err := self._doPrepare(sql_str)
@@ -273,10 +317,15 @@ func (self *TSession) _queryWithTx(query string, params ...any) (*dataset.TDataS
 
 // Exec raw sql
 func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
+	if err := self.ensureOpen(); err != nil {
+		return nil, err
+	}
 	defer self._resetStatement()
 	for _, filter := range self.orm.dialect.Fmter() {
 		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.Model)
 	}
+
+	self.lastSQL, self.lastSQLArgs = sql_str, args
 
 	// 任何改动库结构的语句都要让 DBMetas 反查缓存失效(见 TOrm.metaCache)。
 	// 在执行前就判定关键字,执行成功后再递增 epoch;失败/回滚也递增属过度失效,
@@ -346,6 +395,11 @@ func isDDL(sql_str string) bool {
 
 // Execute sql
 func (self *TSession) _execWithOrg(query string, args ...any) (sql.Result, error) {
+	// 同 _queryWithOrg：带 schema 的自动提交会话包一个隐式事务，让 SET LOCAL 生效。
+	if stmt := self.searchPathSql(); stmt != "" {
+		return self.execInSchemaScope(stmt, query, args...)
+	}
+
 	if self.Prepared {
 		stmt, err := self._doPrepare(query)
 		if err != nil {

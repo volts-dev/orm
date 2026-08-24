@@ -39,11 +39,13 @@ type (
 		LimitClause   int64
 		OffsetClause  int64
 		IsCount       bool
-		IsForUpdate   bool
-		UseCascade    bool
-		OnConflict    *OnConflict
-		Charset       string //???
-		StoreEngine   string //???
+		// Lock 本次查询要施加的行级锁；nil 表示不加锁。见 lock.go。
+		// 旧字段 IsForUpdate 已删除：它只被写、从没被读过，是一个纯装饰的开关。
+		Lock        *TLock
+		UseCascade  bool
+		OnConflict  *OnConflict
+		Charset     string //???
+		StoreEngine string //???
 	}
 )
 
@@ -65,6 +67,7 @@ func (self *TStatement) Init() {
 	self.LimitClause = 0
 	self.OffsetClause = 0
 	self.IsCount = false
+	self.Lock = nil
 	self.Params = nil
 	self.Sets = nil
 
@@ -658,7 +661,16 @@ func (self *TStatement) where_calc(node *domain.TDomainNode, active_test bool, c
 					if err != nil {
 						return nil, err
 					}
-					node.Insert(0, activeNode)
+					// ★ 必须用 AND 合并，不能 Insert。
+					//   String2Domain 对**单条件** domain 返回的是裸叶子本身（不是含
+					//   一个叶子的列表），`node.Insert(0, activeNode)` 会把 active 条件
+					//   插进那个叶子内部，变成 4 个孩子的畸形节点，随后被 FlattenNode
+					//   拆散、arity 记账错乱，最终整条筛选报废。
+					//   同时先 Clone 再合并：node 是调用方的 Statement.domain，就地改
+					//   会让同一个语句第二次执行时重复叠加 active 条件。
+					merged := node.Clone()
+					merged.AND(activeNode)
+					node = merged
 				}
 			} else {
 				var err error

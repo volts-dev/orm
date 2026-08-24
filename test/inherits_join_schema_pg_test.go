@@ -137,7 +137,7 @@ func TestInheritsJoinInNonDefaultSchemaPG(t *testing.T) {
 	// ── 2. classic 内嵌该模型：必须是子记录 map 而不是裸 id ──────────────
 	cs := contactModel.Records()
 	cs.SetSchema(dlgSchema)
-	ds, err := cs.Classic().Select("id", "name", "company_id").Read()
+	ds, err := cs.Classic().Select("id", "name", "company_id").Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("classic read contact: %v", err)
 	}

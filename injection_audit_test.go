@@ -17,7 +17,7 @@ func TestWhere_NonFieldColumnRejected(t *testing.T) {
 	}
 
 	// 表应仍存在、可读（没有任何注入被执行）
-	if _, err := o.Model("bench.model").Read(); err != nil {
+	if _, err := o.Model("bench.model").Limit(-1).Read(); err != nil {
 		t.Fatalf("table should still exist: %v", err)
 	}
 }
@@ -33,7 +33,7 @@ func TestOrderBy_InjectionDirectionIgnored(t *testing.T) {
 	}
 
 	// 空格分隔出方向 token，注入非法方向
-	_, err := o.Model("bench.model").OrderBy("name EVIL)--").Read()
+	_, err := o.Model("bench.model").Limit(-1).OrderBy("name EVIL)--").Read()
 	if err != nil {
 		t.Fatalf("malicious OrderBy direction should be ignored, got: %v", err)
 	}
@@ -47,13 +47,13 @@ func TestGroupBy_InjectionFieldIgnored(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	_, err := o.Model("bench.model").GroupBy("name", "x); DROP TABLE bench_model;--").Read()
+	_, err := o.Model("bench.model").Limit(-1).GroupBy("name", "x); DROP TABLE bench_model;--").Read()
 	if err != nil {
 		t.Fatalf("malicious GroupBy field should be ignored, got: %v", err)
 	}
 
 	// 表应仍然存在、可读
-	if _, err := o.Model("bench.model").Read(); err != nil {
+	if _, err := o.Model("bench.model").Limit(-1).Read(); err != nil {
 		t.Fatalf("table should still exist after malicious GroupBy: %v", err)
 	}
 }

@@ -21,7 +21,7 @@ type (
 	TSession struct {
 		orm                    *TOrm
 		db                     *core.DB
-		tx                     *core.Tx // 由Begin 传递而来
+		tx                     *core.Tx  // 由Begin 传递而来
 		Op                     SessionOp // 当前操作类型，见 OpCreate 等
 		Statement              TStatement
 		context                context.Context
@@ -44,10 +44,11 @@ type (
 		subReads map[string]*ReadRequest
 		// setsLock 保护 Sets 的并发读写。注意：TSession 其余字段（Statement、lastSQL 等）
 		// 仍非并发安全，每个 goroutine 应使用独立 session。
-		setsLock    sync.RWMutex
-		lastSQL      string                 //
-		lastSQLArgs  []any                  // 储存有序值
+		setsLock           sync.RWMutex
+		lastSQL            string         //
+		lastSQLArgs        []any          // 储存有序值
 		allowUnsafe        bool           // Phase 2: bypasses no-WHERE Delete/Write guard; set via AllowUnsafe()
+		allowUnknownFields bool           // 写入时容忍模型上不存在的键（默认拒绝）；经 AllowUnknownFields() 设置
 		softDeleteMode     softDeleteMode // Phase 2: controls Read-path soft-delete filtering (default: filterActive)
 		exposeScopedFields bool           // 当 true 时，model.BeforeSession 钩子跳过字段级脱敏（如多租户 tenant_id 的 Omit）；默认 false=脱敏（fail closed）。经 IncludeScopedFields() 设置
 	}
@@ -56,11 +57,11 @@ type (
 const (
 	OpNone   SessionOp = iota // 未指定（DDL/Exec 等非 CRUD 入口）
 	OpCreate                  // 插入
-	OpRead                   // 读取
-	OpWrite                  // 更新
-	OpDelete                 // 删除
-	OpCount                  // 计数
-	OpSum                    // 求和
+	OpRead                    // 读取
+	OpWrite                   // 更新
+	OpDelete                  // 删除
+	OpCount                   // 计数
+	OpSum                     // 求和
 )
 
 func NewSession(orm *TOrm) *TSession {
@@ -639,6 +640,16 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 						}
 						//}
 						//其他
+					} else if isNumericNarrowing(curType, expectedType) {
+						// 库里这一列比模型声明的窄：读写会静默丢精度（REAL 列配 float64
+						// 的模型，写 12345.67 读回 12345.7，全程无错）。不自动改——
+						// ALTER COLUMN ... TYPE 要重写整张表并取 ACCESS EXCLUSIVE 锁，
+						// 在启动路径上对大表这么干比 bug 本身更糟。把语句给出来，
+						// 由运维择时执行。详见 ddl_column_width.go。
+						log.Warnf("Table <%s> column <%s>: 库里是 %s，模型声明的是 %s —— 库里这一列更窄，"+
+							"读写会静默丢精度。ORM 不自动重写表，请择时手工执行：\n\t%s;",
+							tableName, fieldName, curType, expectedType,
+							orm.dialect.ModifyColumnSql(self.Schema, tableName, field))
 					} else {
 						if !strings.HasPrefix(curType, expectedType) || curType[len(expectedType)] != '(' {
 							log.Warnf("Table <%s> column <%s> db type is <%s>, struct type is %s", tableName, fieldName, curType, expectedType)
@@ -871,6 +882,12 @@ func (self *TSession) _getModel(modelName string, options ...ModelOption) (model
 		// 孤儿：子记录在 system.res_company、父记录在 public.res_partner，之后按
 		// schema 限定去 JOIN 永远连不上，继承字段一律读成空。
 		s.Schema = self.Schema
+
+		// 未知键的宽严也必须继承：它描述的是"这一整棵写入树来自哪种输入源"，
+		// 不是某一次 SQL 的属性。父记录来自不可信边界(已 AllowUnknownFields)，
+		// 它带的 x2many 明细行同样来自那里——不继承的话父层放行、子层报错，
+		// 一次表单保存会在明细行上莫名其妙地失败。
+		s.allowUnknownFields = self.allowUnknownFields
 
 		// **调用方模型的 Ctx 也必须一起继承**，同一个理由的另一半。
 		//

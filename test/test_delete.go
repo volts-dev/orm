@@ -15,7 +15,7 @@ func (self *Testchain) Delete() *Testchain {
 	}
 
 	// get all IDs
-	ids, _, err := model.Records().Search()
+	ids, _, err := model.Records().Limit(-1).Search()
 	if err != nil {
 		self.Fatal(err)
 	}

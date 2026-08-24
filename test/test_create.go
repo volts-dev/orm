@@ -166,7 +166,10 @@ func (self *Testchain) CreateNone(classic ...bool) *Testchain {
 		self.Fatal(err)
 	}
 
-	companyId, err := classicWrap(model.Tx(ss), isClassic).Create(map[string]any{
+	// wrong_field 在 company.model 上不存在。ORM 默认拒绝未知键（此前是静默丢弃，
+	// 见 orm/session_write_semantics.go）；这条用例测的是"这一列不存在时不炸掉整个
+	// 流程"，所以按不可信输入边界的做法显式放宽，保持原语义。
+	companyId, err := classicWrap(model.Tx(ss), isClassic).AllowUnknownFields().Create(map[string]any{
 		"name":        "TestNoneCompany",
 		"wrong_field": "test",
 	})
@@ -198,7 +201,7 @@ func (self *Testchain) CreateM2m() *Testchain {
 
 	isClassic := true
 	model, _ := self.Orm.GetModel("user_model")
-	dataset, err := model.Records().Read()
+	dataset, err := model.Records().Limit(-1).Read()
 	if err != nil {
 		self.Fatalf("manyTomany read fail %v", err)
 	}

@@ -56,7 +56,7 @@ func TestCancelCtx_ReadDeadline(t *testing.T) {
 	defer cancel()
 	time.Sleep(2 * time.Nanosecond)
 
-	_, err = o.Model("bench.model").WithContext(ctx).Read()
+	_, err = o.Model("bench.model").WithContext(ctx).Limit(-1).Read()
 	if err == nil {
 		t.Skip("Read returned nil（可能 SQLite memory 太快，ctx 检查未触发；跳过）")
 	}

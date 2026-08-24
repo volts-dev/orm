@@ -13,7 +13,7 @@ func (self *Testchain) NotIn() *Testchain {
 	}
 
 	// collect all IDs
-	allIds, _, err := model.Records().Search()
+	allIds, _, err := model.Records().Limit(-1).Search()
 	if err != nil {
 		self.Fatal(err)
 	}

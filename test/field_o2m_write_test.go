@@ -383,7 +383,7 @@ func TestOne2ManyBrokenInverseDoesNotFailTheWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := notes.Records().Read()
+	all, err := notes.Records().Limit(-1).Read()
 	if err != nil {
 		t.Fatal(err)
 	}

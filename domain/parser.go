@@ -359,6 +359,18 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 
 				list = NewDomainNode() // 新建一个列表继续采集
 				break
+			} else if item.Type == lexer.IDENT && (value == "true" || value == "false") {
+				// Python 风格的布尔字面量 True/False（以及小写 true/false）。
+				//
+				// 只认**不带引号**的 IDENT：`'True'` 在词法上是 QUOTES+STRING+QUOTES，
+				// 那仍然是字符串，不能动。
+				//
+				// 不认的后果不是报错，是 `('active','=',True)` 落成
+				// `active = 'True'` —— 库里存的是 1/0 或 t/f，于是**恒回 0 条**。
+				// 项目自己的 one2many 字段声明就是这个写法
+				// (`domain([('active','=',True)])`)，域里筛不出东西还不报错。
+				list.Push(value == "true")
+				break
 			} else {
 				// 匹配变量值
 				// TODO

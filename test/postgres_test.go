@@ -1,8 +1,10 @@
 package test
 
 import (
+	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/volts-dev/orm"
 	"github.com/volts-dev/orm/domain"
+	ormerr "github.com/volts-dev/orm/errors"
 )
 
 // defaultPostgresSource returns the hardcoded default Postgres connection.
@@ -201,13 +204,36 @@ func pgDeepCreate(t *testing.T, chain *Testchain) {
 		t.Logf("duplicate_unique correctly rejected: %v", err)
 	})
 
+	// 模型上没有的键：默认必须报错。
+	//
+	// 这条用例原本断言的是"应当成功"——把静默丢弃当成了规格。真栈代价：开户向导里
+	// 把 contact_address 拼成 contact_ddress，用户填的地址从此消失，无错误无日志，
+	// 设置面板恒为空。_separateValues 是按模型字段遍历的，没被任何字段认领的键
+	// 根本不会被访问到，所以这类拼写错误在运行期完全无迹可寻。
 	t.Run("edge/invalid_field", func(t *testing.T) {
-		id, err := companyModel.Records().Create(map[string]any{
+		_, err := companyModel.Records().Create(map[string]any{
 			"name":        fmt.Sprintf("PgDeepInvalidField_%d", uniqueSuffix()),
 			"wrong_field": "should_be_ignored",
 		})
+		if err == nil {
+			t.Fatal("模型上不存在的键必须报错，而不是静默丢弃")
+		}
+		if !errors.Is(err, ormerr.ErrValidation) {
+			t.Fatalf("未知键应归为 ErrValidation，得 %v", err)
+		}
+		if !strings.Contains(err.Error(), "wrong_field") {
+			t.Fatalf("错误信息里必须点名是哪个键，得 %v", err)
+		}
+	})
+
+	// 不可信输入的边界可以显式放宽：外部请求带的键不受本进程控制。
+	t.Run("edge/invalid_field_allowed", func(t *testing.T) {
+		id, err := companyModel.Records().AllowUnknownFields().Create(map[string]any{
+			"name":        fmt.Sprintf("PgDeepInvalidFieldOK_%d", uniqueSuffix()),
+			"wrong_field": "should_be_ignored",
+		})
 		if err != nil {
-			t.Fatalf("Create with invalid field should succeed, got: %v", err)
+			t.Fatalf("AllowUnknownFields() 之后应当照旧成功，得 %v", err)
 		}
 		if id == nil {
 			t.Fatal("Create with invalid field returned nil ID")
@@ -274,7 +300,7 @@ func pgDeepQuery(t *testing.T, chain *Testchain) {
 	}
 
 	t.Run("read/all", func(t *testing.T) {
-		ds, err := model.Records().Read()
+		ds, err := model.Records().Limit(-1).Read()
 		if err != nil {
 			t.Fatalf("Read() error: %v", err)
 		}
@@ -285,7 +311,7 @@ func pgDeepQuery(t *testing.T, chain *Testchain) {
 	})
 
 	t.Run("read/select_fields", func(t *testing.T) {
-		ds, err := model.Records().Select("id", "name").Read()
+		ds, err := model.Records().Select("id", "name").Limit(-1).Read()
 		if err != nil {
 			t.Fatalf("Read().Select() error: %v", err)
 		}
@@ -295,7 +321,7 @@ func pgDeepQuery(t *testing.T, chain *Testchain) {
 	})
 
 	t.Run("read/as_struct", func(t *testing.T) {
-		ds, err := model.Records().Select("id", "name").Read()
+		ds, err := model.Records().Select("id", "name").Limit(-1).Read()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -307,7 +333,7 @@ func pgDeepQuery(t *testing.T, chain *Testchain) {
 	})
 
 	t.Run("search/all", func(t *testing.T) {
-		ids, total, err := model.Records().Search()
+		ids, total, err := model.Records().Limit(-1).Search()
 		if err != nil {
 			t.Fatalf("Search() error: %v", err)
 		}
@@ -320,7 +346,7 @@ func pgDeepQuery(t *testing.T, chain *Testchain) {
 	})
 
 	t.Run("search/where", func(t *testing.T) {
-		allIds, _, err := model.Records().Search()
+		allIds, _, err := model.Records().Limit(-1).Search()
 		if err != nil || len(allIds) == 0 {
 			t.Fatal("need records for search/where")
 		}
@@ -401,7 +427,7 @@ func pgDeepConditions(t *testing.T, chain *Testchain) {
 		t.Fatal(err)
 	}
 
-	allIds, _, err := model.Records().Search()
+	allIds, _, err := model.Records().Limit(-1).Search()
 	if err != nil || len(allIds) == 0 {
 		t.Fatal("Conditions: need existing records")
 	}

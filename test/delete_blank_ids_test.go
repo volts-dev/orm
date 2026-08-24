@@ -41,7 +41,7 @@ func TestDeleteWithBlankIdsRefusesInsteadOfWipingByDomain(t *testing.T) {
 	}
 
 	countAll := func() int {
-		ds, err := line.Records().Read()
+		ds, err := line.Records().Limit(-1).Read()
 		if err != nil {
 			t.Fatalf("read: %v", err)
 		}
@@ -89,7 +89,7 @@ func TestOne2ManyCommandWithoutIdIsRefused(t *testing.T) {
 	}
 
 	countAll := func() int {
-		ds, err := line.Records().Read()
+		ds, err := line.Records().Limit(-1).Read()
 		if err != nil {
 			t.Fatalf("read: %v", err)
 		}

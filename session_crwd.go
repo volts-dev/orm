@@ -60,6 +60,12 @@ func (self *TSession) Read() (*TDataset, error) {
 		return nil, ErrInvalidSession
 	}
 
+	// 守卫放在 BeforeSession **之后**：多租户/行级权限是靠那个钩子往会话上追加条件
+	// 实现的，放在前面会把它们追加的条件当成不存在，把正常读取一律拦下。
+	if err := self.guardUnscopedRead(); err != nil {
+		return nil, err
+	}
+
 	return self._read()
 }
 
@@ -313,7 +319,11 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 		}
 
 		/* 拆分数据 */
-		newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil, hasExplicitKeys(one) || srcWasSets)
+		explicitKeys := explicitKeysOf(one)
+		if !srcWasSets {
+			explicitKeys = mergeExplicitKeys(explicitKeys, self.Statement.Sets)
+		}
+		newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil, explicitKeys)
 		if err != nil {
 			return ids, err
 		}
@@ -616,6 +626,15 @@ func (self *TSession) _write(src any) (int64, error) {
 			return 0, fmt.Errorf("must have ids or qury clause")
 		}
 
+		// 条件更新是"先 SELECT 出 id，再逐条 UPDATE"两步走，两步之间存在窗口：
+		// 别的事务可以在这中间把行改成不再满足条件的样子，UPDATE 照样落库。
+		// 调用方加 .ForUpdate() 即在这里锁住选中的行，让整段变成真正的原子 CAS
+		// （必须在事务里，否则 lockClause 直接报错）。
+		lockClause, err := self.lockClause(false)
+		if err != nil {
+			return 0, err
+		}
+
 		sql := JoinClause(
 			"SELECT",
 			self.Statement.IdKey,
@@ -623,6 +642,7 @@ func (self *TSession) _write(src any) (int64, error) {
 			from_clause,
 			"WHERE",
 			where_clause,
+			lockClause,
 		)
 		// 获得Id占位符索引
 		ds, err := self._query(sql, where_clause_params...) // use internal _query to avoid premature AutoClose
@@ -644,7 +664,11 @@ func (self *TSession) _write(src any) (int64, error) {
 		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}
 
-	newVals, refVals, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, false, ids, hasExplicitKeys(src) || srcWasSets)
+	explicitKeys := explicitKeysOf(src)
+	if !srcWasSets {
+		explicitKeys = mergeExplicitKeys(explicitKeys, self.Statement.Sets)
+	}
+	newVals, refVals, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, false, ids, explicitKeys)
 	if err != nil {
 		return 0, err
 	}
@@ -1101,10 +1125,13 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 
 	// limit clause
 	limit := self.Statement.LimitClause
+	// implicitLimit 记住"这个上限不是调用方要的，是我们替他加的"。
+	// 只有隐式上限截断才算数据丢失——调用方自己写 Limit(20) 拿到 20 条是他要的结果。
+	implicitLimit := false
 	if limit != -1 {
 		if limit == 0 {
 			limit = DefaultLimit
-
+			implicitLimit = true
 		}
 		limit_clause = "LIMIT " + utils.ToString(limit)
 	}
@@ -1112,6 +1139,12 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	// offset clause
 	if self.Statement.OffsetClause > 0 {
 		offset_clause = "OFFSET " + utils.ToString(self.Statement.OffsetClause)
+	}
+
+	// 行锁子句（FOR UPDATE / FOR SHARE ...），语法上必须排在 LIMIT/OFFSET 之后。
+	lock_clause, err := self.lockClause(groupby_clause != "")
+	if err != nil {
+		return nil, "", err
 	}
 
 	// 子句顺序即 SQL 语法顺序：GROUP BY 必须在 ORDER BY **之前**。此前两者写反，
@@ -1127,13 +1160,21 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		order_clause,
 		limit_clause,
 		offset_clause,
+		lock_clause,
 	)
 
-	// 从缓存里获得数据
-	res_ds = self.orm.Cacher.GetBySql(self.Statement.Model.Table(), res_sql, where_clause_params)
-	if res_ds != nil {
-		res_ds.First()
-		return res_ds, res_sql, nil
+	// 加锁读一律绕开 SQL 结果缓存：命中缓存就等于这条 SELECT 根本没发给数据库，
+	// 锁自然也没加上——那就又回到了"以为锁住了其实没有"。同理不回填缓存：
+	// 加锁读之后紧接着就是修改，缓存这一份马上会过期。
+	locking := self.Statement.Lock.IsLocking()
+
+	if !locking {
+		// 从缓存里获得数据
+		res_ds = self.orm.Cacher.GetBySql(self.Statement.Model.Table(), res_sql, where_clause_params)
+		if res_ds != nil {
+			res_ds.First()
+			return res_ds, res_sql, nil
+		}
 	}
 
 	// 获得Id占位符索引
@@ -1142,8 +1183,12 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 		return nil, "", err
 	}
 
-	//# 添加进入缓存
-	self.orm.Cacher.PutBySql(self.Statement.Model.Table(), res_sql, where_clause_params, res_ds)
+	self.warnIfTruncated(res_ds, limit, implicitLimit)
+
+	if !locking {
+		//# 添加进入缓存
+		self.orm.Cacher.PutBySql(self.Statement.Model.Table(), res_sql, where_clause_params, res_ds)
+	}
 
 	//# 必须是合法位置上
 	res_ds.First()
@@ -1155,19 +1200,51 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 // It does NOT apply Statement.Sets — callers handle Sets inline after this call.
 // Supported inputs: *dataset.TDataSet (returned as-is), map[string]any,
 // map[string]string, or a struct pointer/value.
-// hasExplicitKeys 判断"数据集里的键是否就是调用方明确给的那些"。
+// explicitKeysOf 取出调用方**逐个写下**的键；非 map 源返回 nil。
 //
 // map 源(Write(map[string]any{...})/Sets)只含调用方写下的键——键在即"碰过",
-// 这时零值 false/0/"" 是**合法值**不是"没提供"。
+// 这时零值 false/0/"" 是**合法值**不是"没提供"，nil 则是"清空"。
 // struct 源不行:StructToMap 无条件导出结构体上每个模型字段,未赋值的字段也在
 // 里面且是零值,与"显式设成零值"无法区分——那里必须保持旧语义(零值=没提供,
 // 该填默认值就填、该跳过就跳过),否则建记录时字段默认值会被结构体零值顶掉。
-func hasExplicitKeys(src any) bool {
-	switch src.(type) {
-	case map[string]any, map[string]string:
-		return true
+// struct 源要精确表达"就写这几列"，用 Select()（见 writeScopeSet）。
+//
+// ★ 为什么返回键集合而不是一个 bool：键在不在**不能**回头问 dataset。
+//
+//	dataset.AppendRecord 会把"所有值都是 nil"的记录整条丢掉(isBlankRec)，
+//	于是 Write(map{"expire": nil}) 这种单键清空请求进到 _separateValues 时
+//	数据集里空空如也，无从分辨"没给这一列"和"给了 nil"——影响行数恒 0、
+//	不报错，正是"清空一个日期字段做不到"的真正来源。键集合在入口就截下来，
+//	不经过那个容器。
+func explicitKeysOf(src any) map[string]bool {
+	var keys map[string]bool
+	switch v := src.(type) {
+	case map[string]any:
+		keys = make(map[string]bool, len(v))
+		for k := range v {
+			keys[k] = true
+		}
+	case map[string]string:
+		keys = make(map[string]bool, len(v))
+		for k := range v {
+			keys[k] = true
+		}
 	}
-	return false
+	return keys
+}
+
+// mergeExplicitKeys 把 Sets 的键并进显式键集合——Sets 的值同样是调用方明写的。
+func mergeExplicitKeys(keys map[string]bool, sets map[string]any) map[string]bool {
+	if len(sets) == 0 {
+		return keys
+	}
+	if keys == nil {
+		return keys // struct/dataset 源：Sets 不改变它的整体语义
+	}
+	for k := range sets {
+		keys[k] = true
+	}
+	return keys
 }
 
 func (self *TSession) _validateValues(values any) (*dataset.TDataSet, error) {
@@ -1291,7 +1368,7 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 //	columnMap map[string]bool, update, unscoped bool
 //
 // needID is the values inclduing key
-func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []string, nullableFields map[string]bool, includeNil bool, ids []any, explicitKeys bool) (map[string]any, map[string]map[string]any, []IField, error) {
+func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []string, nullableFields map[string]bool, includeNil bool, ids []any, explicitKeys map[string]bool) (map[string]any, map[string]map[string]any, []IField, error) {
 	/* 用于更新本Model的实际数据 */
 	new_vals := make(map[string]any)
 	rel_vals := make(map[string]map[string]any)
@@ -1300,6 +1377,21 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 
 	/* 初始化保存关联表用于更新创建关联表数据 */
 	record := data.Record()
+
+	// 未知键必须在遍历字段**之前**报出来：下面这个循环是按模型字段走的，
+	// 输入里没被任何字段认领的键根本不会被访问到——那正是它此前静默消失的原因。
+	if err := self.checkUnknownFields(explicitKeys); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// 写入范围：Select()/Fields() 点名过就只写那几列，且它们按"明确给了值"处理。
+	// 只在**更新**时生效——新建的语义本来就是"给什么写什么 + 默认值补齐"，
+	// 点名反而会把该补的默认值挡掉，建出一堆半残的行。见 writeScopeSet。
+	var writeScope map[string]bool
+	if len(ids) != 0 {
+		writeScope = self.writeScopeSet()
+	}
+
 	self.Statement.Model.Obj().GetRelations().Range(func(key, value any) bool {
 		tbl := utils.ToString(key)
 		field_name := utils.ToString(value)
@@ -1324,6 +1416,10 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 	var field IField
 	var fieldValue any
 	var isBlank, setted bool
+	// present：键**在不在**输入里。setted 判的是"值不是 nil"，两者此前被压成一个，
+	// 于是「没给这一列」与「给了 nil」不可区分——后者因此永远写不进 NULL。
+	// explicit：调用方是否明确表达了这一列的值（map 里写了键，或 Select() 点了名）。
+	var present, explicit, explicitNil bool
 	isIncludedIds := len(ids) != 0
 	for _, field = range self.Statement.Model.GetFields() {
 		// ignore AutoIncrement field
@@ -1354,9 +1450,21 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 			continue
 		}
 
+		// Select()/Fields() 点名之后，范围外的列一概不碰。
+		if writeScope != nil && !writeScope[name] {
+			continue
+		}
+
 		fieldValue = record.GetByField(name)
+		// present 来自入口截下的键集合，不问 dataset——见 explicitKeysOf 的说明。
+		present = explicitKeys[name]
 		setted = fieldValue != nil
 		isBlank = !setted || utils.IsBlank(fieldValue)
+
+		// 调用方明确表达了这一列：map 里写了这个键，或 Select() 点了名。
+		explicit = present || (writeScope != nil && writeScope[name])
+		// 显式的"清空"。只在更新时成立——新建时"没值"等同于 NULL，该走默认值。
+		explicitNil = isIncludedIds && explicit && isNullishWrite(field, fieldValue)
 
 		// int64 有时候传进来的数字是string类型 需要转换成数字类型
 		if field.SQLType().IsNumeric() {
@@ -1397,8 +1505,11 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 		if field.IsRelated() {
 			if setted {
 				upd_todo = append(upd_todo, field)
-			} else if isIncludedIds && field.Store() && nullableFields != nil && nullableFields[name] {
-				// 显式 Nullable() 声明过的关系字段允许写 NULL。
+			} else if isIncludedIds && field.Store() && (explicitNil || (nullableFields != nil && nullableFields[name])) {
+				// 显式写了 nil（explicitNil），或事先 Nullable() 声明过的关系字段，
+				// 允许写 NULL。前者是后加的：map 里明写 {"partner_id": nil} 的意思
+				// 只可能是"解绑"，再要求调用方多写一次 Nullable() 纯属仪式，而且
+				// 这个 API 基本没人知道（vectors 全仓无一处使用）。
 				//
 				// 这里此前无条件 continue,于是**没有任何办法把一个 m2o 外键清空**:
 				// 值传 nil 时 setted 为 false(判定依据就是值非 nil),这一支直接跳过,
@@ -1461,7 +1572,10 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 			   <template active="False"> 生成 active=false,却被 active 的默认值
 			   true 覆盖,库里全是 active=true(12 个 footer 模板变体因此同时生效)。
 			   显式零值走到下面 includeNil 分支照常落库。 */
-			if !(explicitKeys && setted) && !field.IsDefaultEmpty() {
+			// 判据用 setted 而非 present：新建时显式写 nil 仍应由默认值来填
+			// （"没值"与 NULL 在新建语义上是一回事），只有显式的**零值**才越过默认值。
+			// Select() 点名的字段一律不填默认——点名即"就写我给的这个值"。
+			if !(present && setted) && !(writeScope != nil && writeScope[name]) && !field.IsDefaultEmpty() {
 				if field.DefaultFunc() != nil {
 					ctx := &TFieldContext{
 						Session: self,
@@ -1578,11 +1692,14 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 
 		if field.Store() && field.SQLType().Name != "" {
 			isExplicitlyNullable := nullableFields != nil && nullableFields[name]
-			// explicitKeys && setted:调用方在 map 里明写了这个键,零值也要落库。
+			// explicit:调用方在 map 里明写了这个键(或 Select() 点了名),零值也要落库。
 			// 没有这一条,Write(map[...]{"active": false}) 返回成功却什么都没改
 			// (isBlank 把合法零值当"没提供"),是本仓最容易误判成业务 bug 的坑。
-			if includeNil || !isBlank || isExplicitlyNullable || (explicitKeys && setted) {
-				if isExplicitlyNullable && isBlank {
+			if includeNil || !isBlank || isExplicitlyNullable || explicit {
+				// explicitNil:更新时显式给的空值落成 SQL NULL。此前只有事先
+				// Nullable() 声明过才走这条,否则 nil 被当"没提供"整列跳过、
+				// 零时刻则被原样写成 0001-01-01——一个既非 NULL 又不报错的假日期。
+				if (isExplicitlyNullable || explicitNil) && isBlank {
 					new_vals[name] = nil // write SQL NULL for explicitly nullable blank field
 				} else {
 					fieldValue = field.onConvertToWrite(self, fieldValue)

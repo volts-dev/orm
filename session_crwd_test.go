@@ -187,7 +187,7 @@ func TestSeparateValues_StoreField(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "hello"})
 
-	newVals, relVals, updTodo, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, relVals, updTodo, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestSeparateValues_SkipAutoIncrement(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"id": 1, "name": "hello"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestSeparateValues_SkipIdKey(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"id": 99, "title": "test"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestSeparateValues_UpdatedField(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestSeparateValues_CreatedFieldBlankNoIds(t *testing.T) {
 	data := makeDataSet(map[string]any{"name": "val"})
 	// create_date not in data, blank
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestSeparateValues_CreatedFieldWithIds(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestSeparateValues_InheritedField(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val", "street": "123 Main St"})
 
-	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestSeparateValues_InheritedFieldWithSetterWritesRelVals(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val", "street": "123 Main St"})
 
-	_, relVals, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	_, relVals, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestSeparateValues_NumericConversion(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"age": "0"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestSeparateValues_NumericStringParse(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"quantity": "42"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestSeparateValues_SetterFieldToNewVals(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val", "computed": "calc"})
 
-	newVals, _, updTodo, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, updTodo, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestSeparateValues_RequiredFieldError(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{}) // name is blank
 
-	_, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	_, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err == nil {
 		t.Error("expected error for required blank field")
 	}
@@ -480,7 +480,7 @@ func TestSeparateValues_RequiredFieldWithIdsNoError(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{})
 
-	_, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, false)
+	_, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, nil)
 	if err != nil {
 		t.Fatalf("should not error for required field when ids present: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestSeparateValues_IncludeNilWithIds(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"description": ""})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, true, []any{1}, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, true, []any{1}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestSeparateValues_CommonFieldDistribution(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "shared_name"})
 
-	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -555,7 +555,7 @@ func TestSeparateValues_MultipleStoreFields(t *testing.T) {
 		"phone": "1234567890",
 	})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestSeparateValues_NonStoreRelatedField(t *testing.T) {
 		"tag_ids": []any{1, 2, 3},
 	})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -601,7 +601,7 @@ func TestSeparateValues_DefaultValueFill(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{}) // status is blank
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -626,7 +626,7 @@ func TestSeparateValues_MustFieldRequired(t *testing.T) {
 
 	mustFields := []string{"code"}
 
-	_, _, _, err := session._separateValues(data, mustFields, nil, false, nil, false)
+	_, _, _, err := session._separateValues(data, mustFields, nil, false, nil, nil)
 	if err == nil {
 		t.Error("expected error when must field 'code' is blank")
 	}
@@ -643,7 +643,7 @@ func TestSeparateValues_OmitFieldExcluded(t *testing.T) {
 	session.Statement.OmitFields = []string{"secret"}
 	data := makeDataSet(map[string]any{"name": "alice", "secret": "shh"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -670,7 +670,7 @@ func TestSeparateValues_NullableFieldNoError(t *testing.T) {
 	// So we leave it empty to keep it optional.
 	nullableFields := map[string]bool{}
 
-	_, _, _, err := session._separateValues(data, nil, nullableFields, false, nil, false)
+	_, _, _, err := session._separateValues(data, nil, nullableFields, false, nil, nil)
 	if err != nil {
 		t.Fatalf("nullable field should not cause error: %v", err)
 	}
@@ -687,7 +687,7 @@ func TestSeparateValues_RelationInit(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val"})
 
-	_, relVals, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	_, relVals, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -706,7 +706,7 @@ func TestSeparateValues_EmptyDataNoRequired(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestSeparateValues_MultipleInheritedTables(t *testing.T) {
 		"vat":    "DE123456",
 	})
 
-	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, relVals, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -767,7 +767,7 @@ func TestSeparateValues_SetterFieldNoRequiredError(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{})
 
-	_, _, _, err := session._separateValues(data, nil, nil, false, nil, false)
+	_, _, _, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("setter field should not produce required error: %v", err)
 	}
@@ -795,7 +795,7 @@ func TestSeparateValues_OneToOne(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "val"})
 
-	newVals, relVals, newTodo, err := session._separateValues(data, nil, nil, false, nil, false)
+	newVals, relVals, newTodo, err := session._separateValues(data, nil, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -849,7 +849,7 @@ func BenchmarkSeparateValues(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		data := makeDataSet(vals)
-		session._separateValues(data, nil, nil, false, nil, false)
+		session._separateValues(data, nil, nil, false, nil, nil)
 	}
 }
 
@@ -1094,7 +1094,7 @@ func TestSeparateValues_ExplicitZeroBeatsDefault(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"active": false})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, true, nil, true)
+	newVals, _, _, err := session._separateValues(data, nil, nil, true, nil, map[string]bool{"active": true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1115,7 +1115,7 @@ func TestSeparateValues_ExplicitKeysStillFillsAbsentDefault(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "x"}) // 没给 active
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, true, nil, true)
+	newVals, _, _, err := session._separateValues(data, nil, nil, true, nil, map[string]bool{"name": true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1137,7 +1137,7 @@ func TestSeparateValues_StructSourceZeroStillTakesDefault(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"active": false})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, true, nil, false)
+	newVals, _, _, err := session._separateValues(data, nil, nil, true, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1157,7 +1157,7 @@ func TestSeparateValues_ExplicitZeroWrittenOnUpdate(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"active": false, "count": 0, "note": ""})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, true)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, map[string]bool{"active": true, "count": true, "note": true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1180,7 +1180,7 @@ func TestSeparateValues_AbsentFieldNotWrittenOnUpdate(t *testing.T) {
 	session := testSession("test.model", "id", obj)
 	data := makeDataSet(map[string]any{"name": "x"})
 
-	newVals, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, true)
+	newVals, _, _, err := session._separateValues(data, nil, nil, false, []any{1}, map[string]bool{"name": true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1189,17 +1189,33 @@ func TestSeparateValues_AbsentFieldNotWrittenOnUpdate(t *testing.T) {
 	}
 }
 
-func TestHasExplicitKeys(t *testing.T) {
-	if !hasExplicitKeys(map[string]any{"a": 1}) {
-		t.Error("map[string]any should be explicit")
+func TestExplicitKeysOf(t *testing.T) {
+	// map 源：返回调用方逐个写下的键。键集合必须在**入口**截下，不能回头问
+	// dataset——dataset 会把全 nil 的记录整条丢掉，那时键就没了。
+	if k := explicitKeysOf(map[string]any{"a": 1, "b": nil}); !k["a"] || !k["b"] || len(k) != 2 {
+		t.Errorf("map[string]any 的键集合不对：%v", k)
 	}
-	if !hasExplicitKeys(map[string]string{"a": "1"}) {
-		t.Error("map[string]string should be explicit")
+	if k := explicitKeysOf(map[string]string{"a": "1"}); !k["a"] || len(k) != 1 {
+		t.Errorf("map[string]string 的键集合不对：%v", k)
 	}
-	if hasExplicitKeys(struct{ A int }{}) {
-		t.Error("struct must NOT be explicit (StructToMap exports every field)")
+	// struct 源必须返回 nil：StructToMap 无条件导出每个模型字段，
+	// "没赋值"与"显式设成零值"分不开，只能保持旧语义。
+	if k := explicitKeysOf(struct{ A int }{}); k != nil {
+		t.Errorf("struct 不该产出显式键集合：%v", k)
 	}
-	if hasExplicitKeys(nil) {
-		t.Error("nil should not be explicit")
+	if k := explicitKeysOf(nil); k != nil {
+		t.Errorf("nil 不该产出显式键集合：%v", k)
+	}
+}
+
+func TestMergeExplicitKeys(t *testing.T) {
+	// Sets 的值同样是调用方明写的，要并进来。
+	k := mergeExplicitKeys(map[string]bool{"a": true}, map[string]any{"b": 1})
+	if !k["a"] || !k["b"] {
+		t.Errorf("Sets 的键没并进来：%v", k)
+	}
+	// struct 源(nil)不因为有 Sets 就整体变成 map 语义。
+	if k := mergeExplicitKeys(nil, map[string]any{"b": 1}); k != nil {
+		t.Errorf("struct 源不该被 Sets 改变语义：%v", k)
 	}
 }

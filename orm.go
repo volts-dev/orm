@@ -648,6 +648,27 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 
 		// filter out the unexport field
 		if !token.IsExported(member_name) {
+			// 带 ORM 标签的未导出字段是**写错了**，不是私有状态。
+			//
+			// 反射取不到未导出字段：这一列从来不会被建出来，读写它也永远是空操作，
+			// 全程无错、无日志。视图里一直引用它，表现是"这张表单打不开"或某个条件
+			// 恒为假，排查时完全看不出根因。
+			//
+			// 这里选择**报错而不是告警**：vectors 为找这一类缺陷专门写了一个静态
+			// 分析器(tools/viewlint)，那本身就证明启动日志里多一行 warn 不会被看见
+			// ——那 40 余处是靠一次人工排查发现的。缺陷是静态、确定的，注册期直接
+			// 拒绝是最便宜的拦截点。
+			//
+			// `field:"-"` 是"这个字段不归 ORM 管"的显式标记，不在此列。
+			if tag := lookup(string(model_type.Field(i).Tag), self.config.FieldIdentifier); tag != "" && tag != "-" {
+				return nil, fmt.Errorf(
+					"model %s: field %s (column %q) carries an orm tag %q but is unexported — reflection cannot see it, "+
+						"so the column is never created and every read/write of it is silently a no-op "+
+						"(views referencing %q will fail or evaluate to false). "+
+						"Export it (%s), or mark it `%s:\"-\"` if it is not an orm field",
+					model_name, member_name, fmtFieldName(exportedName(member_name)), tag,
+					fmtFieldName(exportedName(member_name)), exportedName(member_name), self.config.FieldIdentifier)
+			}
 			continue
 		}
 

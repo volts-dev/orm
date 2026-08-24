@@ -201,9 +201,9 @@ func TestX2many_M2M_Filters(t *testing.T) {
 	t.Run("not in 排除", func(t *testing.T) {
 		fx.assertSearch(t, domain.New("tag_ids", "not in", red), "post3")
 	})
-	// 右值是字符串时按对端记录名解析。这里用 = 而不是 ilike：ilike 走的是
-	// `col::text ilike ?` 的 postgres 语法，sqlite 直接报 unrecognized token ":"，
-	// 与本次改动无关。走的是同一条"字符串 → 查对端 → 拿 id"的路径。
+	// 右值是字符串时按对端记录名解析，走的是"字符串 → 查对端 → 拿 id"这条路径。
+	// （曾经这里只能用 = 不能用 ilike：ilike 硬拼 postgres 的 `col::text ilike ?`，
+	// sqlite 上直接报 unrecognized token ":"。现在 like 家族按方言生成，两者都行。）
 	t.Run("按标签名匹配", func(t *testing.T) {
 		fx.assertSearch(t, domain.New("tag_ids", "=", "tag_blue"), "post1")
 	})
@@ -617,33 +617,71 @@ func TestHasPlaceholder(t *testing.T) {
 	}
 }
 
+// 一对**真的没有名字列**的模型：NoName 只有主键和 code，GetRecordName() 会回落到主键。
+type (
+	X2mNoName struct {
+		TModel `table:"name('x2m_noname')"`
+		Id     int64  `field:"pk autoincr title('ID')"`
+		Code   string `field:"varchar() size(32)"`
+	}
+
+	X2mRef struct {
+		TModel   `table:"name('x2m_ref')"`
+		Id       int64  `field:"pk autoincr title('ID')"`
+		Name     string `field:"varchar() size(32)"`
+		TargetId int64  `field:"many2one(x2m_noname)"`
+	}
+)
+
 // TestM2O_NameOperand_ComodelWithoutNameColumn：对端没有名字列时不能把 id 拿去 ilike。
 //
 // GetRecordName() 在模型既无 recName 声明又无 name 列时**回落到主键**。拿它去做
 // `id ilike 'x'` 在 postgres 上直接是
 // `pq: operator does not exist: bigint ~~* unknown`（主键那一列不会被加 ::text）。
 // 这种对端要退回旧行为（按 id 文本比较，回 0 条），而不是报错、更不是整表返回。
+//
+// ★ 夹具必须是**真的没有 name 列的模型**。原来的写法是对 x2m.post 调
+// SetRecordName(IdField())，但 GetModel 每次返回的是新实例，这个改动根本传不到
+// 表达式里取到的那个 target 上——检查用的又是被改过的同一个实例，所以 t.Skip 的
+// 护栏也拦不住。当时之所以"通过"，靠的是 `::text` 在 sqlite 上报语法错、恰好落进
+// 本用例接受错误的那条分支；`::text` 改成按方言生成之后，这个假通过就露馅了。
 func TestM2O_NameOperand_ComodelWithoutNameColumn(t *testing.T) {
-	fx := setupX2m(t)
-	post, err := fx.orm.GetModel("x2m.post")
+	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "noname.db")}
+	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 把 x2m.post 的记录名顶成主键，模拟"没有名字列"的模型。
-	post.SetRecordName(post.IdField())
-	if post.GetRecordName() != post.IdField() {
-		t.Skip("夹具没生效，跳过")
+	if _, err := o.SyncModel("", new(X2mNoName), new(X2mRef)); err != nil {
+		t.Fatal(err)
 	}
 
-	ds, err := fx.orm.Model("x2m.line").Domain(domain.New("post_id", "ilike", "post1")).Limit(-1).Read()
-
-	// 退路生成的是 `post_id::text ilike '%post1%'`。`::text` 是 postgres 语法，
-	// sqlite 认不得（报 unrecognized token ":"）——那正说明走的是退路而不是子查询。
-	// 两种结局都算通过；唯一不能接受的是**查出了行**（那意味着子查询把对端整表捞了回来）。
-	if err != nil && !strings.Contains(err.Error(), `":"`) {
-		t.Fatalf("不该是这个错（说明没走退路）: %v", err)
+	target, err := o.GetModel("x2m.noname")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err == nil && ds != nil && ds.Count() != 0 {
-		t.Fatalf("退路应回 0 条，实得 %d", ds.Count())
+	if target.GetRecordName() != target.IdField() {
+		t.Fatalf("夹具没生效：对端的 rec_name 是 %q，期望回落到主键 %q",
+			target.GetRecordName(), target.IdField())
+	}
+
+	tid, err := o.Model("x2m.noname").Create(map[string]any{"code": "abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Model("x2m.ref").Create(map[string]any{
+		"name": "r1", "target_id": firstId(t, tid),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rs, err := o.Model("x2m.ref").Domain(domain.New("target_id", "ilike", "abc")).Limit(-1).Read()
+	if err != nil {
+		t.Fatalf("退路不该报错: %v", err)
+	}
+	// 退路生成的是 `target_id ilike '%abc%'`（postgres 上带 ::text）——拿主键的文本
+	// 形式去比名字，回 0 条。唯一不能接受的是**查出了行**：那意味着下钻到了不可搜的
+	// 对端、把整表 id 捞了回来，也就是"筛了等于没筛"。
+	if rs != nil && rs.Count() != 0 {
+		t.Fatalf("退路应回 0 条，实得 %d", rs.Count())
 	}
 }

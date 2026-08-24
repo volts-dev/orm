@@ -45,9 +45,13 @@ var (
 	# Internals (i.e. not available to the user) 'inselect' and 'not inselect'
 	# operators are also used. In this case its right operand has the form (subselect, params).
 	*/
+	// parent_of 与 child_of 一样在 expr.go 的 HIERARCHY_FUNCS 里注册着，却一直没登记
+	// 到这里。后果不是"不支持"这么干净：IsLeafNode() 认不出这个操作符 → 三元组不被
+	// 当成叶子 → normalize_domain 的 FlattenNode 把它**拆成三个平级项**，最后以
+	// `invalid domain leaf` / `Invalid field <id>` 之类文不对题的错误收场。
 	TERM_OPERATORS = []string{"=", "!=", "<=", "<", ">", ">=", "=?",
-		"=like", "=ilike", "like", "not like", "ilike", "not ilike", "in", "not in", "child_of", "inselect", "not inselect",
-		"=LIKE", "=ILIKE", "LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "IN", "NOT IN", "CHILD_OF"}
+		"=like", "=ilike", "like", "not like", "ilike", "not ilike", "in", "not in", "child_of", "parent_of", "inselect", "not inselect",
+		"=LIKE", "=ILIKE", "LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "IN", "NOT IN", "CHILD_OF", "PARENT_OF"}
 
 	TERM_OPERATORS_NEGATION = map[string]string{
 		"<":         ">=",
@@ -301,24 +305,44 @@ func (self *TDomainNode) Clear() {
 }
 
 // 返回所有Items字符
+//
+// ★ 原来一律用 `self.Value.(string)` 硬断言：值是数字/布尔就直接 panic，而调用点
+// 恰恰包括 leaf_to_sql 里 "Invalid operator/field" 的**错误日志**——报错本身把进程
+// 打崩。下标也没有任何范围检查。一律改为安全取值。
 func (self *TDomainNode) Strings(idx ...int) (result []string) {
-	cnt := len(idx)
+	toStr := func(n *TDomainNode) string {
+		if n == nil {
+			return ""
+		}
+		return utils.ToString(n.Value)
+	}
 
-	if cnt == 0 { // 返回所有
+	cnt := len(idx)
+	switch {
+	case cnt == 0: // 返回所有
 		if len(self.children) == 0 {
-			result = append(result, self.Value.(string))
+			result = append(result, utils.ToString(self.Value))
 		} else {
 			for _, node := range self.children {
-				result = append(result, node.Value.(string))
+				result = append(result, toStr(node))
 			}
 		}
 
-	} else if cnt == 1 {
-		result = append(result, self.children[idx[0]].Value.(string))
+	case cnt == 1:
+		if idx[0] >= 0 && idx[0] < len(self.children) {
+			result = append(result, toStr(self.children[idx[0]]))
+		}
 
-	} else if cnt > 1 {
-		for _, node := range self.children[idx[0]:idx[1]] {
-			result = append(result, node.Value.(string))
+	default:
+		lo, hi := idx[0], idx[1]
+		if lo < 0 {
+			lo = 0
+		}
+		if hi > len(self.children) {
+			hi = len(self.children)
+		}
+		for i := lo; i < hi; i++ {
+			result = append(result, toStr(self.children[i]))
 		}
 	}
 
@@ -345,6 +369,20 @@ func (self *TDomainNode) Shift() *TDomainNode {
 // """ Pop a leaf to process. """
 // 栈方法Pop :取栈方式出栈<最后一个>元素 即最后一个添加进列的元素
 func (self *TDomainNode) Pop() *TDomainNode {
+	// ★ 单元素的栈是 VALUE_NODE 而不是 LIST_NODE(Push 到空节点只写 Value，
+	//   第二次 Push 才转成列表)。这里原来只认 LIST_NODE，于是"栈里正好剩一个"
+	//   时 Pop() 返回 nil —— 调用方 `stack.Pop().String()` 直接空指针崩溃
+	//   (expr.go toSql 的 '!' 分支，真栈实测 SIGSEGV)。
+	//   Push/Pop 必须对称：值节点也要能出栈。
+	if self.nodeType == VALUE_NODE {
+		if self.Value == nil {
+			return nil
+		}
+		one := NewDomainNode(self.Value)
+		self.Value = nil
+		return one
+	}
+
 	if self.nodeType == LIST_NODE {
 		cnt := len(self.children)
 		if cnt == 0 {
@@ -448,7 +486,9 @@ func (self *TDomainNode) Nodes(idx ...int) []*TDomainNode {
 // -----------list
 func (self *TDomainNode) Item(idx int) *TDomainNode {
 	if !self.IsValueNode() {
-		if idx < len(self.children) {
+		// idx >= 0：原来只判了上界，负下标一路走到 children[-1] 直接 panic，
+		// 而 Panicf 那条带上下文的报错反而走不到。
+		if idx >= 0 && idx < len(self.children) {
 			return self.children[idx]
 		}
 	}
@@ -460,7 +500,8 @@ func (self *TDomainNode) Item(idx int) *TDomainNode {
 
 // TODO: 为避免错乱,移除后复制一个新的返回结果
 func (self *TDomainNode) Remove(idx int) *TDomainNode {
-	if self.nodeType != VALUE_NODE {
+	// 越界直接返回，不 panic（原来无任何下标检查）。
+	if self.nodeType != VALUE_NODE && idx >= 0 && idx < len(self.children) {
 		self.children = append(self.children[:idx], self.children[idx+1:]...)
 	}
 
@@ -486,12 +527,30 @@ func (self *TDomainNode) Count() int {
 	return len(self.children)
 }
 
-// clone a new pointer of node
+// Clone 深拷贝一棵子树。
+//
+// ★ 原来是**浅拷贝**：`node.children = self.children` 直接共享同一个切片。
+// 之后在克隆体上做 Remove/Insert 会就地移动元素，把原树一起改坏——
+//
+//	a := ["x","y","z"]; b := a.Clone(); b.Remove(0)
+//	=> a 变成 ["y","z","z"]
+//
+// OP()/field_searcher/expr 里到处在 Clone 之后继续加工，这是个定时炸弹。
+// 注意 Value 里若装着可变对象(如 []any)仍是按引用复制——domain 的值语义只到标量。
 func (self *TDomainNode) Clone() *TDomainNode {
-	node := NewDomainNode()
-	node.Value = self.Value
-	node.children = self.children
-	node.nodeType = self.nodeType
+	if self == nil {
+		return nil
+	}
+	node := &TDomainNode{
+		nodeType: self.nodeType,
+		Value:    self.Value,
+	}
+	if len(self.children) > 0 {
+		node.children = make([]*TDomainNode, len(self.children))
+		for i, child := range self.children {
+			node.children[i] = child.Clone()
+		}
+	}
 	return node
 }
 
@@ -530,10 +589,39 @@ func (self *TDomainNode) IsListNode() bool {
 	return self.nodeType == LIST_NODE
 }
 
+// IsTrueLeaf/IsFalseLeaf 判断一个叶子是不是恒真/恒假常量。
+//
+// ★ 必须**按结构**判，不能拿 Domain2String() 的输出去和 TRUE_LEAF/FALSE_LEAF
+// 常量比字符串：常量写的是 `(1, '=', 1)`（带空格、单引号），而 Domain2String 出的是
+// `(1,"=",1)`，两者**永远不相等**。于是 expr_leaf.go 的 is_true_leaf/is_false_leaf
+// 和 leaf_to_sql 里的两处比较全是恒 false —— 把 TRUE_LEAF 压回栈的那条路径
+// (expr.go 非存储字段分支) 最终以 `Invalid field <1>` 报错收场，恒真/恒假这套
+// 机制整个不能用。
+func (self *TDomainNode) IsTrueLeaf() bool {
+	return self.isConstLeaf("1")
+}
+
+func (self *TDomainNode) IsFalseLeaf() bool {
+	return self.isConstLeaf("0")
+}
+
+// isConstLeaf 匹配 (left, '=', 1) 形状，left 为 "1"(恒真) 或 "0"(恒假)。
+// 值可能是 int 也可能是 string（取决于是解析出来的还是手工搭的），一律按文本比。
+func (self *TDomainNode) isConstLeaf(left string) bool {
+	if self == nil || !self.IsLeafNode() || len(self.children) != 3 {
+		return false
+	}
+	return self.children[0].String() == left &&
+		self.children[1].String() == "=" &&
+		self.children[2].String() == "1"
+}
+
 // empty is have not value and children
+//
+// ★ 原来写的是 `n == 0 || (n == 0 && self.Value == nil)`——后半永远被前半短路，
+// 等价于只判 `n == 0`，于是"有值但没孩子"的值节点被判成空。
 func (self *TDomainNode) IsEmpty() bool {
-	n := len(self.children)
-	return n == 0 || (n == 0 && self.Value == nil)
+	return len(self.children) == 0 && self.Value == nil
 }
 
 func (self *TDomainNode) IsString() bool {
@@ -542,7 +630,13 @@ func (self *TDomainNode) IsString() bool {
 }
 
 // 废弃 所有Item 都是String
+//
+// 空集合返回 false：这两个谓词都是"整列都是某类型"的判断，调用方(expr.to_ids)拿它
+// 分流，空集合上返回**真空真**会把空列表同时判成"全是字符串"和"全是数字"。
 func (self *TDomainNode) IsStringList() bool {
+	if len(self.children) == 0 {
+		return false
+	}
 	for _, node := range self.children {
 		if !node.IsString() {
 			return false
@@ -554,6 +648,9 @@ func (self *TDomainNode) IsStringList() bool {
 
 // 是否是最简单 3项列表 {xx,xx,xx}
 func (self *TDomainNode) IsIntLeaf() bool {
+	if len(self.children) == 0 {
+		return false
+	}
 	for _, node := range self.children {
 		if node.IsListNode() || !node.IsNumeric() {
 			return false
@@ -674,6 +771,15 @@ func (self *TDomainNode) Insert(idx int, value any) *TDomainNode {
 	} else {
 		node = NewDomainNode(value)
 		self.children = append(self.children, node)
+	}
+
+	// 下标夹到 [0, len-1]。原来无任何检查，idx 超界时下面那句 copy 直接
+	// `slice bounds out of range` panic。
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > len(self.children)-1 {
+		idx = len(self.children) - 1
 	}
 
 	// 位移

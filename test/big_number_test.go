@@ -45,7 +45,7 @@ func TestBigNumberAs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dsResult, err := model.Records().Read()
+	dsResult, err := model.Records().Limit(-1).Read()
 	if err != nil {
 		t.Fatal(err)
 	}

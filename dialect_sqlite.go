@@ -124,6 +124,17 @@ func (db *sqlite) TableCheckSql(_, tableName string) (string, []any) {
 func (db *sqlite) DropColumnNotNullSql(_, tableName string, col IField) string { return "" }
 func (db *sqlite) DropColumnDefaultSql(_, tableName string, col IField) string { return "" }
 
+// LockClause SQLite 没有行级锁，也没有 FOR UPDATE 语法(拼进去是语法错误)。
+// 返回 ErrLockNotSupported 让 session 打一条警告后照常执行，而不是静默吞掉——
+// 静默正是 ForUpdate() 从前的毛病。实际互斥由 SQLite 的写事务提供：一个写事务
+// 独占整库，粒度更粗但不会丢更新。
+func (db *sqlite) LockClause(lock *TLock, tableAlias string) (string, error) {
+	if !lock.IsLocking() {
+		return "", nil
+	}
+	return "", ormerr.ErrLockNotSupported
+}
+
 func (db *sqlite) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	// SQLite doesn't have a direct information_schema.columns-like interface for all details easily,
 	// but we can use PRAGMA table_info

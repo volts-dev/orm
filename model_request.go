@@ -50,6 +50,13 @@ type (
 		// 是为了让每个 Create 入口（含各模型的 Create 覆写）都能看见这个意图。
 		NameCreate bool
 
+		// AllowUnknownFields 容忍模型上不存在的键（默认拒绝并报错）。
+		// 供**不可信输入的边界**使用：外部请求带的键不受本进程控制（老版本前端、
+		// 别的客户端、透传的只读字段），把它们当致命错误会让整次保存失败。
+		// 本进程的 Go 业务代码不该设它——那里写错键名就该第一次跑就炸出来。
+		// 详见 TSession.AllowUnknownFields。
+		AllowUnknownFields bool
+
 		// defaultsApplied 保证 ApplyDefaults 只生效一次。ApplyDefaults 在两处被调：
 		// 请求派发前（覆盖那些**不委托** TModel.Create 的 Create 覆写）和
 		// TModel.Create 内部（覆盖不覆写 Create 的模型）。重复调用必须是空操作，
@@ -123,6 +130,9 @@ type (
 		Domain  any      // update 支持查询条件
 		Model   string   // *
 		Method  string
+
+		// AllowUnknownFields 同 CreateRequest.AllowUnknownFields。
+		AllowUnknownFields bool
 	}
 
 	DeleteRequest struct {
@@ -210,6 +220,10 @@ func (self *TModel) Create(req *CreateRequest) ([]any, error) {
 
 	if session.IsAutoClose {
 		defer session.Close()
+	}
+
+	if req.AllowUnknownFields {
+		session.AllowUnknownFields()
 	}
 
 	if req.OnConflict.Fields != nil || req.OnConflict.DoUpdates != nil || req.OnConflict.DoNothing || req.OnConflict.UpdateAll || req.OnConflict.OnConstraint != "" {
@@ -372,6 +386,10 @@ func (self *TModel) Update(req *UpdateRequest) (int64, error) {
 	session := model.Tx()
 	if session.IsAutoClose {
 		defer session.Close()
+	}
+
+	if req.AllowUnknownFields {
+		session.AllowUnknownFields()
 	}
 
 	var effectCount int64
@@ -737,7 +755,17 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		session.Domain(relDomain)
 	}
 
-	groups, err := session.Read()
+	// Limit(-1)：子读取的边界由上面那句 In(反向键, ids...) 决定，不能再叠默认上限。
+	//
+	// 不给就是 DefaultLimit=500，而这是**整批共用**的一次查询：读 20 张单的明细发的是
+	// 一条 `WHERE order_id IN (20 个 id) LIMIT 500`。真库实测 20 张单 × 40 行 = 800 行，
+	// 读回来只有 500 行，**其中 7 张单一行明细都没有**——不是"末尾被截断"，是整条记录的
+	// 关系字段整个空掉，谁空取决于数据库返回顺序。无错误、无告警，而且调用方**没有任何
+	// API 能把 limit 传进这层子读取**。
+	//
+	// 想给 o2m 限流得按"每个父记录几行"来，那是另一回事（Odoo 也没有）；一个整批共享的
+	// 上限只会产出看着正常的错数据。
+	groups, err := session.Limit(-1).Read()
 	if err != nil {
 		log.Errf("OneToMany field %s search relate model %s failed", field.Name(), relateModel.String())
 		return nil, err
@@ -810,7 +838,12 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 				// 透传下一层嵌套规格，支持 m2o 目标记录自身的关系列内嵌(多层)。
 				sub.subReads = ctx.SubFields
 			}
-			group, err = sub.Ids(ids...).Read()
+			// Limit(-1)：子读取的边界由 ids 决定，不能再叠一层默认上限。
+			// 不给的话吃 DefaultLimit=500，而这是**按整批**去重后的 m2o 目标一次读回
+			// 来的——一次列出 600 条不同客户的记录，第 501 个之后的客户名解析不出来，
+			// 界面上那几行的 many2one 直接显示成一串数字。调用方够不着这个 limit，
+			// 没有任何 API 能传进来。见 OneToMany 处的同一条注释。
+			group, err = sub.Ids(ids...).Limit(-1).Read()
 		} else if ctx.UseNameGet {
 			group, err = relateModel.NameGet(ids)
 		}

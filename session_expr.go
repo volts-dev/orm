@@ -209,9 +209,34 @@ func (self *TSession) NoCascade() *TSession {
 	return self
 }
 
-// ForUpdate Set Read/Write locking for UPDATE
-func (self *TSession) ForUpdate() *TSession {
-	self.Statement.IsForUpdate = true
+// ForUpdate 给本次读取加排他行锁（SELECT ... FOR UPDATE）。
+//
+// 必须在事务里用，否则返回 errors.ErrLockOutsideTransaction：单语句事务会在语句
+// 结束的一瞬间释放锁，等于没加。典型的读-改-写：
+//
+//	sess.Begin()
+//	ds, err := sess.Model("sale.order").Ids(id).ForUpdate().Read()
+//	... // 此刻该行已被本事务独占
+//	sess.Model("sale.order").Ids(id).Write(map[string]any{"state": "done"})
+//	sess.Commit()
+//
+// 也可加在 Where(...).Write(...) 上，这样"定位 id 的 SELECT"与随后的 UPDATE
+// 之间不再有窗口，条件更新成为真正的原子 CAS：
+//
+//	sess.Model("sale.order").Where("state=?", "draft").ForUpdate().Write(vals)
+//
+// 可选 NoWait() / SkipLocked() 调整抢不到锁时的行为。
+// SQLite 无行锁，只打一条警告并照常执行（写事务本身即全库互斥）。
+func (self *TSession) ForUpdate(opts ...LockOption) *TSession {
+	self.Statement.Lock = newLock(LockUpdate, opts...)
+	return self
+}
+
+// ForShare 给本次读取加共享行锁（SELECT ... FOR SHARE，MySQL 5.7 为
+// LOCK IN SHARE MODE）：允许别人同样共享读，但阻止修改。
+// 约束同 ForUpdate。
+func (self *TSession) ForShare(opts ...LockOption) *TSession {
+	self.Statement.Lock = newLock(LockShare, opts...)
 	return self
 }
 

@@ -111,20 +111,15 @@ func (self *TExtendedLeaf) generate_alias() (string, string) {
 	return generate_table_alias(self.models[0].table, links, "")
 }
 
+// 恒真/恒假常量按**结构**判，不能拿 Domain2String() 的输出去比常量字符串：
+// 常量是 `(1, '=', 1)`（带空格、单引号），渲染出来是 `(1,"=",1)`，永远不相等，
+// 这两个谓词此前恒 false。见 domain.TDomainNode.IsTrueLeaf。
 func (self *TExtendedLeaf) is_true_leaf() bool {
-	if self.leaf.IsLeafNode() {
-		return domain.Domain2String(self.leaf) == domain.TRUE_LEAF
-	}
-
-	return false
+	return self.leaf.IsTrueLeaf()
 }
 
 func (self *TExtendedLeaf) is_false_leaf() bool {
-	if self.leaf.IsLeafNode() {
-		return domain.Domain2String(self.leaf) == domain.FALSE_LEAF
-	}
-
-	return false
+	return self.leaf.IsFalseLeaf()
 }
 
 // 格式化 操作符 统一使用 字母in,not in 或者字符 "=", "!="
@@ -140,7 +135,9 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 	if operator == "<>" {
 		operator = "!="
 	}
-	if utils.IsBoolItf(self.leaf.Item(2)) && utils.IndexOf(operator, "in", "not in") != -1 {
+	// ★ 传的必须是**值**不是节点：原来写 `IsBoolItf(self.leaf.Item(2))`，
+	//   Item(2) 是 *TDomainNode，IsBoolItf 恒 false，这段归一化是死的。
+	if utils.IsBoolItf(self.leaf.Item(2).Value) && utils.IndexOf(operator, "in", "not in") != -1 {
 		//   _log.warning("The domain term '%s' should use the '=' or '!=' operator." % ((left, original, right),))
 		if operator == "in" {
 			operator = "="
@@ -148,7 +145,9 @@ func (self *TExtendedLeaf) normalize_leaf() bool {
 			operator = "!="
 		}
 	}
-	if self.leaf.Item(2).IsListNode() && utils.IndexOf(operator, "=", "!=") != -1 {
+	// 同样用 Count() 而不是 IsListNode()：IsLeafNode() 的记忆化会把三元值列表
+	// 改写成 LEAF_NODE，`('x','=',['a','=','b'])` 就不会被归一成 'in'。
+	if self.leaf.Item(2).Count() > 0 && utils.IndexOf(operator, "=", "!=") != -1 {
 		//  _log.warning("The domain term '%s' should use the 'in' or 'not in' operator." % ((left, original, right),))
 		if operator == "=" {
 			operator = "in"

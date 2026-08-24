@@ -90,7 +90,7 @@ func TestRead_AutoFiltersSoftDeleted(t *testing.T) {
 	}
 
 	// default Read: should return 2 (alice + carol, not bob)
-	ds, err := o.Model(sdModelName).Read()
+	ds, err := o.Model(sdModelName).Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestRead_IncludeDeleted_ShowsAll(t *testing.T) {
 	}
 	_, _ = o.Model(sdModelName).Where("name=?", "bob").Write(map[string]any{"deleted_at": time.Now()})
 
-	ds, err := o.Model(sdModelName).IncludeDeleted().Read()
+	ds, err := o.Model(sdModelName).IncludeDeleted().Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("IncludeDeleted Read: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestRead_OnlyDeleted_ShowsOnlySoftDeleted(t *testing.T) {
 	}
 	_, _ = o.Model(sdModelName).Where("name=?", "bob").Write(map[string]any{"deleted_at": time.Now()})
 
-	ds, err := o.Model(sdModelName).OnlyDeleted().Read()
+	ds, err := o.Model(sdModelName).OnlyDeleted().Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("OnlyDeleted Read: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRead_NoFilterWhenModelHasNoDeletedField(t *testing.T) {
 	o := setupTestOrm(t)
 	defer o.Close()
 	// BenchModel has no deleted field — Read must not inject any filter
-	if _, err := o.Model("bench.model").Read(); err != nil {
+	if _, err := o.Model("bench.model").Limit(-1).Read(); err != nil {
 		t.Fatalf("Read on model without deleted field: %v", err)
 	}
 }
@@ -165,7 +165,7 @@ func TestSoftDelete_HappyPath(t *testing.T) {
 	}
 
 	// default Read should not see alice
-	ds, _ := o.Model(sdModelName).Read()
+	ds, _ := o.Model(sdModelName).Limit(-1).Read()
 	if ds.Count() != 0 {
 		t.Errorf("after SoftDelete, default Read should return 0, got %d", ds.Count())
 	}
@@ -217,7 +217,7 @@ func TestSoftDelete_AllowUnsafeSoftDeletesAll(t *testing.T) {
 		t.Errorf("expected 3 soft-deleted, got %d", n)
 	}
 
-	ds, _ := o.Model(sdModelName).Read()
+	ds, _ := o.Model(sdModelName).Limit(-1).Read()
 	if ds.Count() != 0 {
 		t.Errorf("after AllowUnsafe SoftDelete, default Read should return 0, got %d", ds.Count())
 	}

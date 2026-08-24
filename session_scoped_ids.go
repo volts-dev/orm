@@ -43,12 +43,20 @@ func (self *TSession) scopeIdsByDomain(ids []any) ([]any, error) {
 		return ids, nil
 	}
 
+	// 调用方加了 .ForUpdate() 时，这条"收窄可见范围"的 SELECT 同时把选中的行锁住，
+	// 使随后的 UPDATE/DELETE 与本次可见性判定之间不再有窗口。不加锁时行为不变。
+	lockClause, err := self.lockClause(false)
+	if err != nil {
+		return nil, err
+	}
+
 	idKey := self.Statement.IdKey
 	sql := JoinClause(
 		"SELECT", idKey,
 		"FROM", fromClause,
 		"WHERE", whereClause,
 		"AND", fmt.Sprintf("%s IN (%s)", idKey, idsToSqlHolder(ids...)),
+		lockClause,
 	)
 	params = append(params, ids...)
 

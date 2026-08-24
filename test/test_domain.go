@@ -25,7 +25,7 @@ func (self *Testchain) Domain() *Testchain {
 	}
 
 	// domain with IN operator
-	ids, _, err := model.Records().Search()
+	ids, _, err := model.Records().Limit(-1).Search()
 	if err != nil || len(ids) < 2 {
 		return self
 	}

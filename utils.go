@@ -317,3 +317,12 @@ func unquote(s string) (string, error) {
 	}
 	return string(buf), nil
 }
+
+// exportedName 把一个未导出的字段名改成导出形态，只用于错误信息里给出修法。
+// 不用 strings.Title：那个函数已废弃，且会把每个单词首字母都大写。
+func exportedName(name string) string {
+	if name == "" {
+		return name
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}

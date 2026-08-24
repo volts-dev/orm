@@ -12,7 +12,7 @@ func (self *Testchain) Or() *Testchain {
 		self.Fatal(err)
 	}
 
-	allIds, _, err := model.Records().Search()
+	allIds, _, err := model.Records().Limit(-1).Search()
 	if err != nil {
 		self.Fatal(err)
 	}

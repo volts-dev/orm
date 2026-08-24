@@ -27,7 +27,7 @@ func TestCreate_MultiRow_SetsAppliedToEveryRow(t *testing.T) {
 		t.Fatalf("expected 3 ids, got %d", len(ids))
 	}
 
-	ds, err := o.Model("bench.model").Read()
+	ds, err := o.Model("bench.model").Limit(-1).Read()
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}

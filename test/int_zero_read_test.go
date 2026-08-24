@@ -46,7 +46,7 @@ func TestIntZeroNotBlankedOnRead(t *testing.T) {
 		}
 	}
 
-	res, err := model.Records().OrderBy("id").Read()
+	res, err := model.Records().OrderBy("id").Limit(-1).Read()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -867,6 +867,41 @@ func (db *mysql) Fmter() []IFmter {
 }
 
 // MapError 把 MySQL driver 错误翻译为 ormerr sentinel
+// LockClause MySQL 的行锁语法与 PG 有三处不同，故覆写：
+//   - `OF <别名>` 直到 8.0.1 才有，且 MySQL 不会因为 LEFT JOIN 的可空侧拒绝
+//     FOR UPDATE(PG 会)，所以这里直接忽略 tableAlias，锁语句涉及的全部表。
+//   - 共享锁在 5.7 只有 `LOCK IN SHARE MODE`；8.0.1 起才有 `FOR SHARE`。
+//     默认发前者(两个版本都认)，只有需要 NOWAIT/SKIP LOCKED 时才发后者。
+//   - NOWAIT / SKIP LOCKED 同样是 8.0.1+；低版本会报语法错误，这是有意的：
+//     悄悄降级成阻塞等待会让调用方以为拿到了非阻塞语义。
+func (db *mysql) LockClause(lock *TLock, tableAlias string) (string, error) {
+	if !lock.IsLocking() {
+		return "", nil
+	}
+
+	var b strings.Builder
+	switch lock.Mode {
+	case LockUpdate:
+		b.WriteString("FOR UPDATE")
+	case LockShare:
+		if lock.Wait == LockWaitBlock {
+			return "LOCK IN SHARE MODE", nil
+		}
+		b.WriteString("FOR SHARE")
+	default:
+		return "", fmt.Errorf("orm: unknown lock mode %d", lock.Mode)
+	}
+
+	switch lock.Wait {
+	case LockWaitNoWait:
+		b.WriteString(" NOWAIT")
+	case LockWaitSkip:
+		b.WriteString(" SKIP LOCKED")
+	}
+
+	return b.String(), nil
+}
+
 func (db *mysql) MapError(err error) error {
 	if err == nil {
 		return nil
@@ -877,7 +912,9 @@ func (db *mysql) MapError(err error) error {
 		switch me.Number {
 		case 1062: // ER_DUP_ENTRY
 			return ormerr.New(ormerr.ErrDuplicate, err)
-		case 1213, 1205: // ER_LOCK_DEADLOCK / ER_LOCK_WAIT_TIMEOUT
+		case 1213, 1205, 3572: // ER_LOCK_DEADLOCK / ER_LOCK_WAIT_TIMEOUT / ER_LOCK_NOWAIT
+			// 3572：FOR UPDATE NOWAIT 抢锁失败。与死锁同属"并发没抢到"，
+			// 归 ErrConflict 让调用方能用同一条 errors.Is 分支重试。
 			return ormerr.New(ormerr.ErrConflict, err)
 		case 2006, 2013: // CR_SERVER_GONE_ERROR / CR_SERVER_LOST
 			return ormerr.New(ormerr.ErrConnection, err)

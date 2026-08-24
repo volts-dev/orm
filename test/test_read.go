@@ -14,8 +14,9 @@ func (self *Testchain) Read() *Testchain {
 		self.Fatal(err)
 	}
 
-	// read all fields (default)
-	ds, err := model.Records().Read()
+	// read all fields (default)。Limit(-1) 是明确表态"这张测试表整表读"——
+	// 无条件又无上限的读取会被 guardUnscopedRead 拦下(见 orm/session_read_limit.go)。
+	ds, err := model.Records().Limit(-1).Read()
 	if err != nil {
 		self.Fatal(err)
 	}
@@ -24,7 +25,7 @@ func (self *Testchain) Read() *Testchain {
 	}
 
 	// read with explicit field selection
-	ds, err = model.Records().Select("id", "name").Read()
+	ds, err = model.Records().Select("id", "name").Limit(-1).Read()
 	if err != nil {
 		self.Fatal(err)
 	}
@@ -58,18 +59,18 @@ func test_read(o *orm.TOrm, t *testing.T) {
 		t.Fatal(err)
 	}
 	// 测试Select 默认所有
-	_, err = model.Records().Read()
+	_, err = model.Records().Limit(-1).Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 测试Select 所有
-	_, err = model.Records().Select("*").Read()
+	_, err = model.Records().Select("*").Limit(-1).Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ds, err := model.Records().Select("id", "name").Read()
+	ds, err := model.Records().Select("id", "name").Limit(-1).Read()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func test_read(o *orm.TOrm, t *testing.T) {
 
 func test_read_and_convert(o *orm.TOrm, t *testing.T) {
 	model, _ := o.GetModel("user_model")
-	ds, err := model.Records().Read()
+	ds, err := model.Records().Limit(-1).Read()
 	if err != nil {
 		t.Fatal(err)
 	}
