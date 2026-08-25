@@ -1,7 +1,9 @@
 package orm
 
 import (
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -279,23 +281,69 @@ func isNumericValue(value any) bool {
 	return false
 }
 
+// driverText 把驱动交回的原始 []byte 还原成数字文本。
+//
+// **Postgres 的 numeric/decimal 没有对应的 Go 类型**，lib/pq 只把 int8 / float8 /
+// bool / 时间 / bytea 这几类解成 Go 值，其余一律以 []byte 交回。而**聚合会抬升
+// 类型**：`SUM(bigint)` 出来是 numeric，任何 `AVG` 也是 numeric。于是 read_group
+// 的每一个整数 measure 都拿到 []byte，utils.ToInt64 认不得这个形态、静默返回 0。
+//
+// 判据长这样：`COUNT(*)` 是 bigint、照常解成 int64，所以**分组数是对的而合计全是
+// 零** —— graph/pivot/kanban 上"每组几条"正确，"合计"永远 0，看起来像没数据而不像
+// 有 bug。sqlite 上 `SUM(int)` 仍是整数，单测因此全绿（orm 的 read_group 测试跑的
+// 正是 sqlite）。
+//
+// 顺带覆盖真实的 numeric/decimal 列：那种列读进 float64 字段同样是这条路径。
+func driverText(value any) any {
+	if b, ok := value.([]byte); ok {
+		return string(b)
+	}
+	return value
+}
+
+// toInt64Text 是整数列的解码：先按整数解，失败再按浮点解并四舍五入。
+//
+// 第二步是给**聚合**留的：`AVG` 一律回 numeric，值带小数（"3.5"），ParseInt 必然
+// 失败。直接交给 utils.ToInt64 会静默返回 0 —— "平均值恒为 0"比"平均值被取整"
+// 难查得多，而字段自己声明的就是整数类型，取整是它能表达的最接近的值。
+func toInt64Text(value any) (int64, bool) {
+	s, ok := driverText(value).(string)
+	if !ok || s == "" {
+		return 0, false
+	}
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return 0, false // 交回 utils.ToInt64 走原路，行为不变
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return int64(math.Round(f)), true
+}
+
 func converter(type_name string) func(any) any {
 	switch type_name {
 	case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial:
 		return func(value any) any {
-			return utils.ToInt(value)
+			if v, ok := toInt64Text(value); ok {
+				return int(v)
+			}
+			return utils.ToInt(driverText(value))
 		}
 	case BigInt, BigSerial:
 		return func(value any) any {
-			return utils.ToInt64(value)
+			if v, ok := toInt64Text(value); ok {
+				return v
+			}
+			return utils.ToInt64(driverText(value))
 		}
 	case Float, Real:
 		return func(value any) any {
-			return utils.ToFloat32(value)
+			return utils.ToFloat32(driverText(value))
 		}
 	case Double:
 		return func(value any) any {
-			return utils.ToFloat64(value)
+			return utils.ToFloat64(driverText(value))
 		}
 	case Char, NChar, Varchar, NVarchar, TinyText, Text, NText, MediumText, LongText, Enum, Set, Uuid, Clob, SysName:
 		return func(value any) any {
@@ -324,7 +372,10 @@ func converter(type_name string) func(any) any {
 		}
 	case Decimal, Numeric, Money, SmallMoney:
 		return func(value any) any {
-			return value // TODO 2
+			// 原样交回，但先把驱动的 []byte 还原成文本：不还原的话它会以
+			// []byte 的身份进数据集，JSON 编码成 base64 —— 一个金额字段读出来
+			// 是 "MTIuMzQ=" 比读出 0 更难认。
+			return driverText(value) // TODO 2 还应按精度解成 decimal 类型
 		}
 	default:
 		return func(value any) any {
