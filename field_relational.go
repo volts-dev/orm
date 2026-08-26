@@ -1057,6 +1057,31 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 // 设置字段获得的值
 // TODO :未完成
 func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
+	// 自定义 getter 优先，与 TOne2ManyField.OnRead 对齐。
+	//
+	// ★ 少了这一段的表现是**静默返回空数组**：字段声明成
+	// `ManyToManyField(...).Store(false).Getter(fn)`，getter **一次也不会被调**，
+	// 因为分类阶段 `field.IsRelated()` 先命中，读取就直接走关系表查询——而那张
+	// 关系表对非存储字段永远是空的。于是"算出来的关联集"恒空，请求成功、无日志。
+	// o2m 一直有这条分支，m2m 没有，两者的差别没有任何理由。
+	// 2026-08-26 由 crm.lead.duplicate_lead_ids 撞出来（角标显示"1 条疑似重复"，
+	// 点开永远是空的）；calendar.event 的 invalid_email_partner_ids /
+	// unavailable_partner_ids 也一直死在这里。
+	if self.hasGetter {
+		ctx.UseNameGet = false
+		ctx.ClassicRead = false
+		if err := self.getterFunc(ctx); err != nil {
+			return err
+		}
+		// getter 只管算出 id 列表，**id 的 JSON 形态由这里统一收口**——与下面
+		// 非 getter 那条路的输出契约必须一样。少了这一步，getter 里那句
+		// `SetByField(name, []int64{...})` 会让 19 位雪花 id 以裸 number 下发，
+		// 浏览器 JSON.parse 的那一瞬间末几位就没了（判别指纹：id 以多个 0 结尾），
+		// 之后拿它去查一律查不到、界面表现为"点开什么都没有"，不报错不打日志。
+		normalizeX2mIds(ctx)
+		return nil
+	}
+
 	field := ctx.Field
 	if !field.IsRelated() {
 		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.TypeName())
@@ -1399,4 +1424,49 @@ func (self *TMany2ManyField) update_db_foreign_keys(ctx *TTagContext) {
 	              sql.add_foreign_key(cr, self.relation, self.column2, comodel._table, 'id', 'cascade')
 	              reflect(model, '%s_%s_fkey' % (self.relation, self.column2), 'f', None, self._module)
 	*/
+}
+
+// normalizeX2mIds 把 x2many 自定义 getter 写回的 id 列表统一成读出口的形态：
+// BigNumberToString 打开且对端主键是大整数时，一律转成字符串。
+//
+// 只动**数字**元素：getter 也可能按"给了子规格就回记录"的契约写回 []map，那种原样保留。
+func normalizeX2mIds(ctx *TFieldContext) {
+	if ctx == nil || ctx.Dataset == nil || ctx.Model == nil || ctx.Field == nil {
+		return
+	}
+	if !ctx.Model.Orm().config.BigNumberToString {
+		return
+	}
+	relateModel, err := ctx.Model.Orm().GetModel(ctx.Field.RelatedModelName())
+	if err != nil || relateModel == nil {
+		return
+	}
+	if !isBigNumberField(relateModel.GetFieldByName(relateModel.IdField())) {
+		return
+	}
+
+	name := ctx.Field.Name()
+	ctx.Dataset.Range(func(_ int, record *dataset.TRecordSet) error {
+		switch list := record.GetByField(name).(type) {
+		case []int64:
+			out := make([]any, 0, len(list))
+			for _, v := range list {
+				out = append(out, utils.ToString(v))
+			}
+			record.SetByField(name, out)
+		case []any:
+			out := make([]any, 0, len(list))
+			for _, v := range list {
+				switch v.(type) {
+				case int, int32, int64, uint, uint32, uint64, float32, float64:
+					out = append(out, utils.ToString(v))
+				default:
+					out = append(out, v)
+				}
+			}
+			record.SetByField(name, out)
+		}
+		return nil
+	})
+	ctx.Dataset.First()
 }
