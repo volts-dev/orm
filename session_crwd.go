@@ -635,9 +635,13 @@ func (self *TSession) _write(src any) (int64, error) {
 			return 0, err
 		}
 
+		// 主键限定到主表：条件里出现本表没有的列(委托继承的父表字段、点号写法的
+		// 关联字段)时，where_calc 把父表 JOIN 进 from_clause，两张表都有 `id`，
+		// 裸 `id` 直接是 `column reference "id" is ambiguous`。同 scopeIdsByDomain。
+		quoter := self.orm.dialect.Quoter()
 		sql := JoinClause(
 			"SELECT",
-			self.Statement.IdKey,
+			fmt.Sprintf("%s.%s", quoter.Quote(model.Table()), quoter.Quote(self.Statement.IdKey)),
 			"FROM",
 			from_clause,
 			"WHERE",
@@ -660,6 +664,12 @@ func (self *TSession) _write(src any) (int64, error) {
 			ids[pos] = record.GetByField(self.Statement.IdKey)
 			return nil
 		})
+
+		// 条件已经在上面兑现成一批 id，接下来的 UPDATE 走 `WHERE id IN (ids)`，
+		// 只该动主表。from_clause 此刻还是 where_calc 给的**查询**用 FROM：条件
+		// 引用了本表没有的列(委托继承的父表字段)时它是两张表，直接拿去拼就成了
+		// `UPDATE 父表 as x,主表 SET ...` —— PG 与 sqlite 都是语法错。
+		from_clause = self.Statement.qualifiedTable(model.Table())
 	} else {
 		return 0, fmt.Errorf("At least have one of Where()|Domain()|Ids() condition to locate for writing update")
 	}

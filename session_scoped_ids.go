@@ -51,11 +51,20 @@ func (self *TSession) scopeIdsByDomain(ids []any) ([]any, error) {
 	}
 
 	idKey := self.Statement.IdKey
+
+	// 主键必须限定到主表：条件里只要出现一个本表没有的列——委托继承(one2one/
+	// _inherits)的父表字段，或写成点号的关联字段——where_calc 就把父表 JOIN 进
+	// FROM，两张表都有 `id` 列，裸 `id` 在 PG 上直接是
+	// `column reference "id" is ambiguous (42702)`：按 id 写/删整条路径 500，而
+	// 报出来的只是一句 SQL 错误，不指向任何模型、任何字段。单表时限定同样合法，
+	// 搜索路径(session_query.go 的 `SELECT "表"."id" FROM`)一直是这么拼的。
+	quoter := self.orm.dialect.Quoter()
+	qualifiedId := fmt.Sprintf("%s.%s", quoter.Quote(self.Statement.Model.Table()), quoter.Quote(idKey))
 	sql := JoinClause(
-		"SELECT", idKey,
+		"SELECT", qualifiedId,
 		"FROM", fromClause,
 		"WHERE", whereClause,
-		"AND", fmt.Sprintf("%s IN (%s)", idKey, idsToSqlHolder(ids...)),
+		"AND", fmt.Sprintf("%s IN (%s)", qualifiedId, idsToSqlHolder(ids...)),
 		lockClause,
 	)
 	params = append(params, ids...)
