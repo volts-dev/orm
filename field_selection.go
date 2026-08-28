@@ -143,6 +143,20 @@ func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]any {
 	return attrs
 }
 
+// OnRead 有**两件**互不相干的事要做，别把它们看成一件：
+//
+//  1. 刷新**选项表**。`selection(GetXxx)` 这种写法把方法名存进 getterMethod，
+//     每次读都调一次拿最新的 [][]string（语言、时区这类选项来自库里的表）。
+//  2. 算出**这一格的值**。非存储的 selection（由别的列推导出来，比如 res.user.role
+//     由用户的组闭包判定）靠 fluent builder 的 `.Getter(fn)` 注册一个闭包。
+//
+// 第 2 件从前**整个不做**：本方法覆盖了 TField.OnRead，而覆盖版只看 getterMethod。
+// 于是 `b.SelectionField(...).Store(false).Getter(fn)` 建出来的字段，fn 一次都不会
+// 被调用，那一列在响应里**连键都没有** —— 没有报错，看起来就像"后端没算出来"。
+// （2026-08-28 在 res.user.role 上撞到：管理员用户表单的「角色」那一格永远空白。）
+//
+// 两件事在 getterMethod 上是互斥的：tag_getter 会把 getterMethod 覆盖成值 getter 的
+// 名字，Init 又把它当选项表方法用，所以**只有闭包这一条路**能同时留住选项表。
 func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 	model := ctx.Model
 	field := self
@@ -167,6 +181,15 @@ func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 				}
 			}
 		}
+	}
+
+	// 值 getter（fluent builder 的 .Getter(fn) 注册的闭包）。放在选项表之后：
+	// 两者都可能存在，而 getter 里往往要按选项表校验自己算出来的值。
+	//
+	// 这里**不**走 getterMethod 那条：那个名字在 selection 字段上属于选项表
+	// （见 Init），拿它当值 getter 调会把选项表变成 nil，下拉框整个空掉。
+	if field.getterFunc != nil {
+		return field.getterFunc(ctx)
 	}
 
 	return nil
