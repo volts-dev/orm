@@ -601,13 +601,13 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	field := ctx.Field
 	ds := ctx.Dataset
-	var ids []any
+	var raw []any
 	if len(ctx.Ids) > 0 {
-		ids = unique(ctx.Ids)
+		raw = ctx.Ids
 	} else if ds.Count() != 0 {
-		ids = unique(ds.Keys(field.Name()))
+		raw = ds.Keys(field.Name())
 	}
-	if len(ids) == 0 {
+	if len(raw) == 0 {
 		return nil, nil
 	}
 
@@ -615,6 +615,13 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	if err != nil {
 		// # Should not happen, unless the foreign key is missing.
 		return nil, err
+	}
+
+	// 这一列可能已经被自己的 OnRead 就地归一成经典形态(false / map)了——同一次 read
+	// 里 OnRead 是按字段顺序挨个调的。原样拿去做 map 键会 panic，见 relationIdOf。
+	ids := relationIds(raw, relateModel.IdField(), "OneToOne("+field.ModelName()+"@"+field.Name()+")")
+	if len(ids) == 0 {
+		return nil, nil
 	}
 
 	//group, err := relateModel.NameGet(ids)
@@ -676,17 +683,24 @@ func (self *TModel) relSchema(ctx *TFieldContext) (string, bool) {
 
 func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	ds := ctx.Dataset
-	var ids []any
+	var raw []any
 	if len(ctx.Ids) > 0 {
-		ids = unique(ctx.Ids)
+		raw = ctx.Ids
 	} else if ds.Count() != 0 {
-		ids = unique(ds.Keys(relAnchorKey(ctx)))
+		raw = ds.Keys(relAnchorKey(ctx))
 	}
 
-	if len(ids) == 0 {
+	if len(raw) == 0 {
 		return nil, nil
 	}
 	field := ctx.Field
+
+	// 锚点列通常是本表主键(裸 id)，但 _inherits 委托时它是指向父表的 many2one——那
+	// 一列同样会被自己的 OnRead 改写成 map，所以一律过 relationIds。
+	ids := relationIds(raw, "", "OneToMany("+field.ModelName()+"@"+field.Name()+")")
+	if len(ids) == 0 {
+		return nil, nil
+	}
 
 	if !field.IsRelated() || field.TypeName() != TYPE_O2M {
 		return nil, fmt.Errorf("could not call model func OneToMany(%v,%v) from a not OneToMany field %v@%v!", ids, ctx.Field.Name(), field.IsRelated(), field.TypeName())
@@ -786,25 +800,33 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	if ctx.ClassicRead || ctx.UseNameGet {
 		field := ctx.Field
 		ds := ctx.Dataset
-		var ids []any
+		var raw []any
 		if len(ctx.Ids) > 0 {
-			ids = unique(ctx.Ids)
+			raw = ctx.Ids
 		} else if ds.Count() != 0 {
-			ids = unique(ds.Keys(field.Name()))
+			raw = ds.Keys(field.Name())
 		}
-		if len(ids) == 0 {
+		if len(raw) == 0 {
 			return nil, nil
 		}
 
 		// 检测字段是否合格
 		if !field.IsRelated() || field.TypeName() != TYPE_M2O {
-			return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", ids, field.Name(), field.IsRelated(), field.TypeName())
+			return nil, fmt.Errorf("could not call model func One2many(%v,%v) from a not One2many field %v@%v!", raw, field.Name(), field.IsRelated(), field.TypeName())
 		}
 
 		relateModelName := field.RelatedModelName()
 		relateModel, err := self.orm.GetModel(relateModelName, WithContext(ctx.Model.Options().Context))
 		if err != nil {
 			return nil, err
+		}
+
+		// 这一列可能已经被 TMany2OneField.OnRead 就地归一成经典形态(false / map)——
+		// 同一次 read 里排在本次调用之前的那个 OnRead 改写了它。原样拿去做 map 键
+		// 会 panic 掉整个 handler，见 relationIdOf。
+		ids := relationIds(raw, relateModel.IdField(), "ManyToOne("+field.ModelName()+"@"+field.Name()+")")
+		if len(ids) == 0 {
+			return nil, nil
 		}
 
 		var group *dataset.TDataSet
@@ -869,14 +891,17 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 // return : map[id]record
 func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	ds := ctx.Dataset
+	field := ctx.Field
+
+	// 锚点列通常是本表主键(裸 id)，但 _inherits 委托时它是指向父表的 many2one——那
+	// 一列同样会被自己的 OnRead 改写成 map，所以一律过 relationIds。
+	who := "ManyToMany(" + field.ModelName() + "@" + field.Name() + ")"
 	var ids []any
 	if len(ctx.Ids) > 0 {
-		ids = unique(ctx.Ids)
+		ids = relationIds(ctx.Ids, "", who)
 	} else if ds.Count() != 0 {
-		ids = unique(ds.Keys(relAnchorKey(ctx)))
+		ids = relationIds(ds.Keys(relAnchorKey(ctx)), "", who)
 	}
-
-	field := ctx.Field
 
 	if !field.IsRelated() || field.TypeName() != TYPE_M2M {
 		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelated(), field.TypeName())

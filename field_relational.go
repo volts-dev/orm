@@ -686,6 +686,119 @@ func isBlankRelationId(v any) bool {
 	return false
 }
 
+// defaultRelationIdField 是归一关系值时的兜底主键列名。模型可以用 IdField() 改掉
+// 自己的主键列名，能拿到 comodel 时一律传真名，拿不到时才落到这个兜底。
+const defaultRelationIdField = "id"
+
+// relationIdOf 把一个关系列上的值归一成裸 id。
+//
+// 同一列在**一次** read 里有两种形态：TMany2OneField.OnRead 跑之前是存储值(裸外
+// 键)，跑之后是经典形态(false，或 map{id,name,…}，见上面 OnRead 的输出契约)。而
+// TSession._read 是**一个循环**按字段顺序依次调用每个计算字段的 OnRead —— 谁先谁
+// 后只由字段顺序决定。于是一个非存储 getter 去读同一条记录的 m2o 列时，拿到哪种
+// 形态取决于它排在那个 m2o 字段之前还是之后：同一份 getter 代码，字段声明顺序一
+// 换就换一种形态，而两边都没有任何提示。
+//
+// 不归一的后果不是"取不到值"，是**整个 handler 崩掉**：map 拿去做 map 键直接触发
+// `hash of unhashable type: map[string]interface {}`，被 router 的 recover 兜成一
+// 条脱敏的 500（用户看到"服务器内部错误，请稍后再试（错误编号 ERR-xxxxxxxx）"），
+// 而日志里那条 panic 既不提字段名也不提模型名。真实案例：res.group 的 full_name
+// getter 读 category_id，排在 category_id 之后，于是读一次组列表必崩。
+//
+// 三个返回值分开表达三件不同的事：
+//
+//	resolved=false → 是个 map 但里面找不到主键列。这是真出错了，调用方要报警。
+//	ok=false       → 这个值不指向任何记录(空 FK / false)。跳过即可，是常态。
+//	ok=true        → id 可用。
+func relationIdOf(v any, idField string) (id any, ok bool, resolved bool) {
+	if idField == "" {
+		idField = defaultRelationIdField
+	}
+
+	switch t := v.(type) {
+	case map[string]any:
+		val, exist := t[idField]
+		if !exist && idField != defaultRelationIdField {
+			val, exist = t[defaultRelationIdField]
+		}
+		if !exist {
+			return nil, false, false
+		}
+		if isBlankRelationId(val) {
+			return nil, false, true
+		}
+		return val, true, true
+	case []any:
+		// NameGet 的 [id, name] 元组形态。
+		if len(t) == 0 || isBlankRelationId(t[0]) {
+			return nil, false, true
+		}
+		return t[0], true, true
+	}
+
+	// 裸外键(以及 false/0/-1/"" 这些空形态)。
+	if isBlankRelationId(v) {
+		return nil, false, true
+	}
+	return v, true, true
+}
+
+// relationIds = 归一 + 去重 + 丢空。四个关系字段入口(OneToOne/OneToMany/ManyToOne/
+// ManyToMany)共用，因为它们取 ids 的那三行代码是同一份。
+//
+// 去重按**字符串**做：同一个 id 从不同来源回来可能是 int64/string/float64(驱动的
+// 整型宽度不同、BigNumberToString 打开时是字符串)，用 any 直接做键时它们是不同的
+// 键，去重就悄悄失效。与 TMany2OneField.OnRead 里的匹配口径保持一致。
+func relationIds(vals []any, idField string, who string) []any {
+	if len(vals) == 0 {
+		return nil
+	}
+	if idField == "" {
+		idField = defaultRelationIdField
+	}
+
+	out := make([]any, 0, len(vals))
+	seen := make(map[string]bool, len(vals))
+	unresolved := 0
+	for _, v := range vals {
+		id, ok, resolved := relationIdOf(v, idField)
+		if !resolved {
+			unresolved++
+			continue
+		}
+		if !ok {
+			continue
+		}
+
+		key := utils.ToString(id)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, id)
+	}
+
+	// 静默丢掉才是最坏的结果：少几个 id 的表现是"有几行的关联列没值"，跟"这几行
+	// 本来就没关联"长得一模一样，翻日志也找不到。
+	if unresolved > 0 {
+		log.Warnf("%s: %d relation value(s) are maps without a %q key, dropped", who, unresolved, idField)
+	}
+
+	return out
+}
+
+// RelationId 把关系列上的值归一成裸 id，给模型代码里的 getter 用。
+//
+// getter 读同一条记录的另一个关系列时**必须**过这一层：那一列是裸外键还是经典
+// map，取决于它的 OnRead 排在自己前面还是后面(理由见 relationIdOf)。直接拿原值去
+// 做 map 键会 panic 掉整个请求。
+//
+// 第二个返回值为 false 表示这个值不指向任何记录(空 FK)，或者是个取不出主键的 map。
+func RelationId(v any) (any, bool) {
+	id, ok, _ := relationIdOf(v, defaultRelationIdField)
+	return id, ok
+}
+
 // OnRead 把 many2one 读成**经典形态**。
 //
 // # 输出契约(仅经典读/NameGet;plain 读回的是存储值,见下)
