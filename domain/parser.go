@@ -522,9 +522,70 @@ func newDomainParser(sql string) *TDomainParser {
 		if item.Type == lexer.SAPCE {
 			continue
 		}
-		parser.items = append(parser.items, item)
+		parser.items = appendOperatorToken(parser.items, item)
 	}
 
 	parser.Count = len(parser.items)
 	return parser
+}
+
+// MULTI_CHAR_OPERATORS 是**词法层**要重新拼回去的多字符比较符。
+//
+// 只列比较符，**绝不能**把 `=?` 放进来：`?` 是 HOLDER 不是 OPERATOR，而
+// `field=?` 是本项目字符串条件里最常见的写法，一旦被并成一个算子，每一条
+// Where("x=?") 都会散架。
+//
+// `<>` 顺带在这里归一成 `!=`。它虽然被词法器认成一个算子，却不在
+// TERM_OPERATORS 里，IsLeafNode() 认不出来，于是三元组不被当成叶子——
+// 症状与被拆开的算子一模一样。normalize_leaf 里那句 `<>` → `!=` 救不了这一步，
+// 那是**已经成为叶子之后**才跑的。
+var MULTI_CHAR_OPERATORS = map[string]string{
+	"!=": "!=",
+	"<>": "!=",
+	"<=": "<=",
+	">=": ">=",
+}
+
+// appendOperatorToken 把**紧邻的**两个 OPERATOR 词元拼回一个比较符。
+//
+// 起因：github.com/volts-dev/lexer 的 lexOperator 在 2025-11-22 那版把
+// `AcceptWhile(isOperator)` 注释掉了，改成一次只 Next() 一个 rune。于是
+// `state!=?` 出来的是 [state][!][=][?] 四个词元——那一条不再是叶子而是四个平级项，
+// AND 合并时被摊进上层，最后报
+//
+//	invalid domain leaf: expected 3 elements, got 0: state
+//
+// 报的是**字段名**，一个字都没提算子。凡是字符串条件里写了 `!=` / `<>` / `<=` /
+// `>=` 的写路径都必定 500（真机 2026-08-30：退货向导
+// stock.return.picking.action_create_returns_all）。
+//
+// 修在这里而不是逐个改调用方：调用方有十几处、且分散在 stock / purchase /
+// account / hr / registry，改完下一个人照样会再写一个。这里也不依赖 lexer 是哪一版
+// ——老版本本来就只出一个词元，拼接条件不成立，行为不变。
+//
+// 判据是**字节位置相邻**（next.Pos == cur.Pos+len(cur.Val)），所以
+// `a = ! b` 这种隔着空格的不会被并到一起；`qty>=-1` 也只并 `>=`，
+// 后面的 `-` 仍是独立词元（老版本的 AcceptWhile 会贪成 `>=-`，比现在更坏）。
+func appendOperatorToken(items []lexer.TToken, item lexer.TToken) []lexer.TToken {
+	if item.Type != lexer.OPERATOR {
+		return append(items, item)
+	}
+
+	if len(items) > 0 {
+		last := items[len(items)-1]
+		if last.Type == lexer.OPERATOR && last.Pos+len(last.Val) == item.Pos {
+			if op, ok := MULTI_CHAR_OPERATORS[last.Val+item.Val]; ok {
+				last.Val = op
+				items[len(items)-1] = last
+				return items
+			}
+		}
+	}
+
+	// 词法器**没**拆开的那些（老版本 lexer 的 AcceptWhile 路径，出的是完整的 `<>`）
+	// 同样要归一，否则 `<>` 依旧进不了 TERM_OPERATORS。
+	if op, ok := MULTI_CHAR_OPERATORS[item.Val]; ok {
+		item.Val = op
+	}
+	return append(items, item)
 }
