@@ -667,6 +667,46 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TModel
 }
 
 // #module 可以为空取默认
+// pickModelRegion 在「没有指定 module，或指定的 module 没注册过这个模型」时挑一个 region。
+//
+// ★ 这里原先写的是
+//
+//	for region_name, module_map = range obj.object_types {
+//	    if region_name == options.Module { break }
+//	}
+//
+// —— 匹配不上时循环落在 **map 迭代的最后一个** region 上，而 Go 的 map 迭代序每次
+// 都不一样。一个模型同时注册在两个 region 下时，同一个 GetModel 会**随机**返回其中
+// 一个，表现是同一条请求时好时坏、重试就好，从堆栈上看不出跟这里有关。
+//
+// 两个 region 是怎么来的：具名模块先注册了真模型（region=模块名），随后
+// `_createTable` 建表成功又触发 `TOrm._reverse()`，把库里反查出来的表按表名注册了
+// 一份 **region="" 的裸原型**。RegisterModel 里那句 `if region != "" { delete(
+// obj.object_types, "") }` 只清理"原型在前、真模型在后"的次序，反过来的次序没人清。
+//
+// 症状（vectors 侧实测 2026-08-31）：新建了表的那次启动之后，读该模型一半正常、
+// 一半报 "the model from orm is not a standar vectors model"，或者 SQL 落在**没有
+// schema 前缀**的裸表名上（拿到裸原型就走不到调用方的 schema 路由）。
+//
+// 规则：优先真实（具名）region，多个时按名字排序取第一个以保证确定性；
+// 只有原型区时才用原型区。
+func pickModelRegion(types map[string]map[string]reflect.Type) (string, map[string]reflect.Type) {
+	best := ""
+	found := false
+	for region := range types {
+		if region == "" {
+			continue // 原型区：只在没有真模型时才轮到它
+		}
+		if !found || region < best {
+			best, found = region, true
+		}
+	}
+	if !found {
+		return "", types[""]
+	}
+	return best, types[best]
+}
+
 func (self *TOsv) _getModelByModule(model string, options *ModelOptions) IModel {
 	//获取Model的Object对象
 	if v, has := self.models.Load(model); has {
@@ -678,13 +718,14 @@ func (self *TOsv) _getModelByModule(model string, options *ModelOptions) IModel 
 			)
 
 			//if obj, has := self.models[model]; has {
-			// 非常重要 检查并返回唯一一个，或指定module_name 循环最后获得的值
+			// 非常重要 检查并返回唯一一个，或指定 module_name 对应的那个。
 			obj.metaLock.RLock()
-			for region_name, module_map = range obj.object_types {
-				if region_name == options.Module {
-					break
-				}
+			if mm, ok := obj.object_types[options.Module]; ok {
+				region_name, module_map = options.Module, mm
+			} else {
+				region_name, module_map = pickModelRegion(obj.object_types)
 			}
+			_ = region_name
 			model_type, has = module_map[model]
 			obj.metaLock.RUnlock()
 
