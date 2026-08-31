@@ -63,21 +63,26 @@ const (
 	TAG_GROUP_OPERATOR = "group_operator"
 	TAG_AS             = "as"
 	TAG_STATES         = "states"
-	TAG_PRIORITY       = "priority"   // TODO
-	TAG_ON_DELETE      = "ondelete"   // TODO
-	TAG_TRANSLATE      = "translate"  // TODO
-	TAG_SELECT         = "select"     // #select=True （在外键字段上创建了一个索引）
-	TAG_CLASSIC_READ   = "read"       // #经典模式
-	TAG_CLASSIC_WRITE  = "write"      // #经典模式
-	TAG_STORE          = "store"      //
-	TAG_DOMAIN         = "domain"     //
-	TAG_ATTACHMENT     = "attachment" // #使用集中存储二进制模式 可以是表/目录/云上
-	TAG_SELECTABLE     = "selectable" //
-	TAG_GROUPS         = "groups"     // #groups('base.group_user') 只有这些组的用户才能读写该字段，逗号分隔的组 xmlid
-	TAG_DELETED        = "deleted"    // TODO
-	TAG_VER            = "version"    // TODO
-	TAG_SETTER         = "setter"     // # 函数赋值
-	TAG_GETTER         = "getter"     // # 函数赋值
+	TAG_PRIORITY       = "priority"  // TODO
+	TAG_ON_DELETE      = "ondelete"  // TODO
+	TAG_TRANSLATE      = "translate" // TODO
+	// TAG_COPY 对应 Odoo 的 `copy=`：复制记录（Duplicate）时要不要带上这个字段。
+	// 只写 `copy(false)` 有意义——默认就是复制。单号/条码这类唯一列、以及不该跟着
+	// 副本走的历史数据（审批记录、发送日志）声明它，否则复制要么撞唯一约束、
+	// 要么把上一条记录的过程数据一起抄进新记录。
+	TAG_COPY          = "copy"
+	TAG_SELECT        = "select"     // #select=True （在外键字段上创建了一个索引）
+	TAG_CLASSIC_READ  = "read"       // #经典模式
+	TAG_CLASSIC_WRITE = "write"      // #经典模式
+	TAG_STORE         = "store"      //
+	TAG_DOMAIN        = "domain"     //
+	TAG_ATTACHMENT    = "attachment" // #使用集中存储二进制模式 可以是表/目录/云上
+	TAG_SELECTABLE    = "selectable" //
+	TAG_GROUPS        = "groups"     // #groups('base.group_user') 只有这些组的用户才能读写该字段，逗号分隔的组 xmlid
+	TAG_DELETED       = "deleted"    // TODO
+	TAG_VER           = "version"    // TODO
+	TAG_SETTER        = "setter"     // # 函数赋值
+	TAG_GETTER        = "getter"     // # 函数赋值
 
 	// type
 	TAG_ID        = "id"
@@ -146,6 +151,7 @@ func init() {
 		//TAG_PRIORITY] = "priority"     // TODO
 		TAG_ON_DELETE: tag_ondelete,
 		TAG_TRANSLATE: tag_translate, // TODO
+		TAG_COPY:      tag_copy,
 		//TAG_SELECT] = "select"         // #select=True （在外键字段上创建了一个索引）
 		//TAG_CLASSIC_READ:  tag_read,
 		//TAG_CLASSIC_WRITE: tag_write,
@@ -626,6 +632,20 @@ func tag_ondelete(ctx *TTagContext) error {
 
 	if len(params) > 0 {
 		field.onDelete = strings.Trim(params[0], "'")
+	}
+	return nil
+}
+
+// tag_copy 处理 `copy(false)`。不带参数时等于 `copy(true)`，与其它布尔标签一致
+// （虽然那是默认值，写出来只是显式化）。
+func tag_copy(ctx *TTagContext) error {
+	field := ctx.Field.Base()
+	params := ctx.Params
+
+	if len(params) > 0 {
+		field.Copy(utils.ToBool(params[0]))
+	} else {
+		field.Copy(true)
 	}
 	return nil
 }

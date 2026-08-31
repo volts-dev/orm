@@ -122,6 +122,9 @@ type (
 		Searchable(val ...bool) bool
 		// Store returns whether the field is persisted to the database; when val is supplied, sets it first.
 		Store(val ...bool) bool
+		// Copy reports whether the field's value is carried over when a record is
+		// duplicated (Odoo's `copy=` attribute); when val is supplied, sets it first.
+		Copy(val ...bool) bool
 		// Size returns the size constraint (length/precision); when val is supplied, sets it first.
 		Size(val ...int) int
 		// Default returns the static default value only. To evaluate a dynamic
@@ -253,8 +256,13 @@ type (
 		translatable bool   // 字段值是否可翻译
 		outputAs     string // 读取时将值伪装为哪种类型（char/int/bool 等）
 
-		name        string   // 字段在数据库中的列名
-		store       bool     // 是否将字段值持久化到数据库
+		name  string // 字段在数据库中的列名
+		store bool   // 是否将字段值持久化到数据库
+		// noCopy 为真时，复制记录（Duplicate）不带上这个字段的值——对应 Odoo 的
+		// `copy=False`。存成"否"而不是"是"，图的是零值即默认：字段默认可复制，
+		// 而 TField 是在十几处被直接构造/浅拷贝的，没有一个统一的构造函数能把
+		// 一个默认 true 的布尔初始化上（漏一处的后果是"这个模型复制出来全是空值"）。
+		noCopy      bool
 		manual      bool     // 是否手动管理（非框架自动）
 		depends     []string // 依赖的其他字段名列表
 		readonly    bool     // 是否只读
@@ -637,6 +645,16 @@ func (self *TField) Store(val ...bool) bool {
 	}
 
 	return self.store
+}
+
+// Copy reports whether the field is carried over when a record is duplicated；
+// 传入 val 时先设置。默认为 true，`copy(false)` 标签把它关掉。
+func (self *TField) Copy(val ...bool) bool {
+	if len(val) > 0 {
+		self.noCopy = !val[0]
+	}
+
+	return !self.noCopy
 }
 
 // Default returns the static/constant default value (boundModel override or
