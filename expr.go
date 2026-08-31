@@ -1154,6 +1154,35 @@ func falsyOk(typeName, op string) bool {
 	return ok
 }
 
+// isEmptyRight 判右值是不是"空"的两种形态：nil 与空字符串。
+//
+// ★ 不能用 utils.ToString(v) == "" 一把梭：`ToString(false)` 是 "false"、
+// `ToString(0)` 是 "0"，都不该落进来（false 由上面的 falsy 分支管，0 是真值）。
+func isEmptyRight(v any) bool {
+	if v == nil {
+		return true
+	}
+	s, ok := v.(string)
+	return ok && s == ""
+}
+
+// emptyRightIsNullish 判"右值为空"在这个列类型上该不该按 IS NULL 语义处理。
+//
+// 只对**非文本**列成立 —— 文本列的 `= ”` 是合法比较，通用分支已经处理对了。
+// 认不得的类型返回 false 回落原路：宁可维持现状，也不要把一个没验过的类型
+// 改道到新语义上。
+func emptyRightIsNullish(typeName string) bool {
+	switch typeName {
+	case TYPE_SELECTION, Bool, Boolean:
+		return false
+	}
+	if SqlTypes[strings.ToUpper(typeName)] == TEXT_TYPE {
+		return false
+	}
+	_, ok := isFalsyValue(typeName, "t", "c")
+	return ok
+}
+
 func isTruthyValue(typeName, aliasTable, column string) (string, bool) {
 	q := fmt.Sprintf(`%s."%s"`, aliasTable, column)
 	switch typeName {
@@ -1435,6 +1464,38 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 		// 记录规则 domain_force 上的一崩就是整模型读不出来。
 		//
 		// 各类型"空"的准确形态见 isFalsyValue 的注释。
+		if operator.String() == "=" {
+			res_query, _ = isFalsyValue(field.TypeName(), aliasTable, left.String())
+		} else {
+			res_query, _ = isTruthyValue(field.TypeName(), aliasTable, left.String())
+		}
+		res_params = nil
+
+	} else if is_field && len(vals) > 0 && isEmptyRight(vals[0]) &&
+		(operator.String() == "=" || operator.String() == "!=") && emptyRightIsNullish(field.TypeName()) {
+		// **非文本**列上的 `= ''` / `= nil`：与上面那条 `= False` 是同一个语义
+		// （"这个字段为空"），只是右值形态不同。
+		//
+		// 不修的表现是 500，而这条 domain **不是人写的，是框架自己生成的**：
+		// read_group 的下钻域（core/model/model_controller_read_group.go 的
+		// formatGroups）对"分组键为空"的那一组，m2o 走 `AsString()` 得到空串、
+		// 日期走显式 nil，两者都拼成 `(字段,'=',空)` 发回前端；看板/透视点进
+		// 那一列时原样打回来：
+		//
+		//	SELECT ... WHERE ((folder_id = $3) OR folder_id IS NULL)  [args] [... ""]
+		//	pq: invalid input syntax for type bigint: "" (22P02)
+		//
+		// 2026-08-31 documents 的看板按工作区分组时真栈撞到：根工作区没有父级，
+		// 于是必然有一个"无工作区"的组，点它就是 500。任何"按可为空的 m2o／日期
+		// 分组"的看板都在这条路上，只是别处的分组字段大多必填才没暴露。
+		//
+		// 走到这里之前的行为：落进最后那个通用分支，`add_null := right.String() == ""`
+		// 已经补了 `OR x IS NULL`，但 `x = ?` 那半边照样把空串绑给 bigint/timestamp。
+		// PG 上是 22P02/22007，**sqlite 上被静默折算成 `x = 0` 回错行**。
+		//
+		// ★ 文本类（varchar/text/selection）**有意不进这个分支**：它们的
+		// `= ''` 本来就是合法比较，通用分支产出的 `(x = '' OR x IS NULL)` 与
+		// isFalsyValue 的输出等价，改道没有收益，只会多一处行为变更。
 		if operator.String() == "=" {
 			res_query, _ = isFalsyValue(field.TypeName(), aliasTable, left.String())
 		} else {
