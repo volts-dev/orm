@@ -2,6 +2,7 @@ package orm
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/volts-dev/orm/domain"
 	"github.com/volts-dev/utils"
@@ -174,10 +175,11 @@ func (self *TExpression) hierarchyParents(model *TModel, parentField string, fro
 
 // hierarchyParentField 决定用哪个字段当父链接。
 //
-// 本 ORM 没有 Odoo 的 _parent_name 声明，按三级约定推断：
+// 本 ORM 没有 Odoo 的 _parent_name 声明，按四级约定推断：
 //  1. 调用方点名的（`('parent_id','child_of',…)` 这种形态，字段就是父链接本身）
 //  2. 名为 parent_id 的自引用 many2one（与 Odoo 的默认一致）
 //  3. 模型上**唯一**的自引用 many2one
+//  4. 名为 parent_id 的整型列，且模型**根本没有关系元数据可查**（见下）
 //
 // 推断不出来一律报错。猜错父字段产出的是一棵错的树——那正是"看着正常的错数据"，
 // 比查不出来贵得多。
@@ -200,6 +202,25 @@ func hierarchyParentField(model *TModel, declared string) (string, error) {
 		return DefaultParentField, nil
 	}
 
+	// 第 4 级：**元数据不全时按名字认**。
+	//
+	// 微服务拓扑下，一个模型的属主在别的进程，而所有进程共用同一个库 —— 本进程
+	// 于是从表结构反射出一份同名模型：列都在、值也读得对，但 m2o 这件事没了，
+	// `parent_id` 是一根 `BIGINT`、relation 是空串。前三级全部落空，child_of 报
+	// "这个模型没有父链接"，而字段明明白白写在属主的源码里。
+	// 2026-09-03 真栈：salesvc（sale 独立进程，res.partner 属主是 kylin）的
+	// `/my/orders`、`/my/quotes` 恒 500 —— 门户上"我的订单/报价"整整两页打不开，
+	// 而同一条 `partner_id child_of` 规则在 kylin 里的 /my/invoices 一切正常。
+	//
+	// 放宽的**边界**：只在"没有任何关系元数据可参考"时才认。relation 有值却指向
+	// 别的模型，说明这个 parent_id 真的不是自引用，照旧报错 —— 那才是会产出错树的
+	// 情形。而列名 parent_id 本身就是本 ORM 的约定（DefaultParentField，与 Odoo 的
+	// _parent_name 默认值一致），在元数据缺席时它是唯一可信的信号；猜错的代价也
+	// 有限：拿一根整型列当父链接，最坏是查不出记录，不会张冠李戴到别的表。
+	if f := model.GetFieldByName(DefaultParentField); isReflectedParentColumn(f) {
+		return DefaultParentField, nil
+	}
+
 	var candidates []string
 	for _, f := range model.GetFields() {
 		if isSelfRef(f) {
@@ -210,9 +231,15 @@ func hierarchyParentField(model *TModel, declared string) (string, error) {
 	case 1:
 		return candidates[0], nil
 	case 0:
+		// 报错要说清**它究竟看到了什么**。这条错误最常见的成因不是"模型真的没有父
+		// 链接"，而是**这个进程手里的模型不是完整的那一个**（跨进程拓扑下对端模型
+		// 由别的服务提供，本进程拿到的是按 schema 现搭的壳）。只说"没找到"的话，
+		// 排查会从"是不是漏写了 parent_id"开始 —— 而字段就在源码里写着，于是整条
+		// 线索断在这里。2026-09-03 真栈：salesvc 的 /my/orders 恒 500 就卡在这。
 		return "", fmt.Errorf(
-			"hierarchy on %s: no self-referencing many2one field (expected %q or exactly one) — child_of/parent_of need a parent link",
-			modelName, DefaultParentField)
+			"hierarchy on %s: no self-referencing many2one field (expected %q or exactly one) — "+
+				"child_of/parent_of need a parent link; %s",
+			modelName, DefaultParentField, hierarchyParentDiag(model))
 	default:
 		return "", fmt.Errorf(
 			"hierarchy on %s: ambiguous parent link, several self-referencing many2one fields %v — name the one to use, e.g. ('%s','child_of',…)",
@@ -257,4 +284,43 @@ func hierarchyOpName(up bool) string {
 		return "parent_of"
 	}
 	return "child_of"
+}
+
+// hierarchyParentDiag 描述"找父链接时到底看到了什么"，只在报错路径上调用。
+//
+// 三种形态各指向完全不同的病因，而它们的**症状一模一样**：
+//   - 一个字段都没有        → 本进程手里的模型是个壳（模型属主是别的服务）
+//   - 有字段但没有 parent_id → 模型真的没有父链接，规则/域写错了对象
+//   - 有 parent_id 但不合格  → 类型不是 m2o、不 store、或对端指到了别的模型
+func hierarchyParentDiag(model *TModel) string {
+	if model == nil {
+		return "the model handle is nil"
+	}
+	fields := model.GetFields()
+	if len(fields) == 0 {
+		return "this process sees no fields on the model at all — it is most likely a stub for a " +
+			"model owned by another service, so the parent link is simply not here"
+	}
+	f := model.GetFieldByName(DefaultParentField)
+	if f == nil {
+		return fmt.Sprintf("the model has %d fields but no %q at all", len(fields), DefaultParentField)
+	}
+	return fmt.Sprintf("%q exists but is type=%s store=%v relation=%q — a parent link must be a stored many2one back to %s",
+		DefaultParentField, f.TypeName(), f.Store(), f.RelatedModelName(), model.String())
+}
+
+// isReflectedParentColumn 判断 f 是否是"从表结构反射出来、元数据已丢失"的父链接列。
+//
+// 三个条件缺一不可：存储列、关系元数据**空缺**（不是指向别处）、类型是整型。
+// 类型这一关用 SqlTypes 而不是字面比 "BIGINT"：同一根列在三种方言下的类型名不同
+// （BIGINT / INT8 / INTEGER），而本仓的类型名大小写本来就不统一。
+func isReflectedParentColumn(f IField) bool {
+	if f == nil || !f.Store() || f.RelatedModelName() != "" {
+		return false
+	}
+	if f.TypeName() == TYPE_M2O {
+		// m2o 却没有对端：声明本身就是坏的，交给报错去说清楚，别在这里替它兜。
+		return false
+	}
+	return SqlTypes[strings.ToUpper(f.TypeName())] == NUMERIC_TYPE
 }

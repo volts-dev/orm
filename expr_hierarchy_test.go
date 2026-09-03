@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/volts-dev/utils"
 )
 
 /*
@@ -294,6 +296,91 @@ func TestHierarchy_AmbiguousParentIsRejected(t *testing.T) {
 	if !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("错误信息应点明是歧义: %v", err)
 	}
+}
+
+// ---------- 元数据丢失的父链接（微服务拓扑） ----------
+
+// 一个模型的属主在别的进程、而各进程共用同一个库时，本进程从**表结构**反射出一份
+// 同名模型：列都在、值读得对，但 m2o 这件事没了 —— `parent_id` 只是一根整型列，
+// relation 是空串。前三级推断全部落空，child_of 于是报"这个模型没有父链接"，
+// 而字段明明白白写在属主的源码里。
+//
+// 2026-09-03 真栈：salesvc（sale 独立进程，res.partner 属主是 kylin）上
+// `/my/orders` 与 `/my/quotes` **恒 500** —— 客户门户里"我的订单""我的报价"两页
+// 整整打不开；同一条 `partner_id child_of` 规则在 kylin 的 /my/invoices 一切正常。
+// "别的页面好好的"正是这类 bug 的指纹。
+func TestHierarchy_ReflectedParentColumnWithoutRelationMeta(t *testing.T) {
+	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "reflected.db")}
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.SyncModel("", new(hrReflected)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	ids := map[string]int64{}
+	for _, c := range []struct{ name, parent string }{
+		{"root", ""}, {"asia", "root"}, {"cn", "asia"}, {"europe", "root"},
+	} {
+		vals := map[string]any{"name": c.name}
+		if c.parent != "" {
+			vals["parent_id"] = ids[c.parent]
+		}
+		created, err := o.Model("hr.reflected").Create(vals)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[c.name] = utils.ToInt64(created[0])
+	}
+
+	dsRes, err := o.Model("hr.reflected").
+		Domain(dm("id", "child_of", ids["asia"])).Limit(-1).OrderBy("name").Read()
+	if err != nil {
+		t.Fatalf("元数据缺席时 child_of 应当按列名 parent_id 走树，而不是报错: %v", err)
+	}
+	var got []string
+	dsRes.First()
+	for !dsRes.Eof() {
+		got = append(got, dsRes.Record().FieldByName("name").AsString())
+		dsRes.Next()
+	}
+	assertNames(t, got, "asia", "cn")
+}
+
+// hrReflected 模拟反射出来的模型：parent_id 是一根裸整型列，没有任何关系元数据。
+type hrReflected struct {
+	TModel   `table:"name('hr_reflected')"`
+	Id       int64  `field:"pk autoincr"`
+	Name     string `field:"varchar(64) recname()"`
+	ParentId int64  `field:"bigint"`
+}
+
+// 放宽只针对"没有关系元数据可参考"。relation 有值却指向**别的**模型时，
+// parent_id 就真的不是自引用 —— 那才是会产出错树的情形，必须照旧报错。
+func TestHierarchy_ParentIdPointingElsewhereIsStillRejected(t *testing.T) {
+	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "foreignparent.db")}
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.SyncModel("", new(hrCompany), new(hrForeignParent)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	if _, err := o.Model("hr.foreign.parent").Create(map[string]any{"name": "x"}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = o.Model("hr.foreign.parent").Domain(`[('id','child_of',1)]`).Limit(-1).Read()
+	if err == nil {
+		t.Fatal("parent_id 指向别的模型时不该被当成自引用父链接 —— 那会走出一棵错的树")
+	}
+}
+
+type hrForeignParent struct {
+	TModel   `table:"name('hr_foreign_parent')"`
+	Id       int64  `field:"pk autoincr"`
+	Name     string `field:"varchar(64)"`
+	ParentId int64  `field:"many2one(hr_company)"`
 }
 
 type hrTwoParents struct {
