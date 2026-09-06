@@ -29,6 +29,9 @@ const (
 	TAG_TABLE_NAME        = "table_name"
 	TAG_TABLE_DESCRIPTION = "table_description"
 	TAG_TABLE_ORDER       = "table_order"
+	// TAG_TABLE_TRANSIENT 临时模型：`table:"name('x.wizard') transient"` 或 `transient(2)`
+	//（单位小时，缺省 DefaultTransientMaxHours）。见 session_transient.go。
+	TAG_TABLE_TRANSIENT = "table_transient"
 
 	// rel
 	//TAG_RELATED   = "related" //废弃
@@ -116,6 +119,7 @@ func init() {
 		TAG_TABLE_NAME:        tag_table_name,
 		TAG_TABLE_DESCRIPTION: tag_table_description,
 		TAG_TABLE_ORDER:       tag_table_order,
+		TAG_TABLE_TRANSIENT:   tag_table_transient,
 		// # rel
 		TAG_TABLE_EXTENDS: tag_table_extends,
 		//TAG_TABLE_RELATE:  tag_table_relate,
@@ -758,6 +762,34 @@ func tag_table_description(ctx *TTagContext) error {
 	}
 	return nil
 
+}
+
+// Only for table
+// sample: `table:"name('x.wizard') transient"` / `transient(2)` / `transient('0.5')`
+// 参数是记录保留时长（小时），缺省 DefaultTransientMaxHours；非正数或不是数字直接报错，
+// 不静默落回默认值——"配了但没生效"比报错贵。
+func tag_table_transient(ctx *TTagContext) error {
+	base := ctx.Model.GetBase()
+	hours := DefaultTransientMaxHours
+	if len(ctx.Params) > 0 {
+		raw := strings.Trim(strings.TrimSpace(ctx.Params[0]), "'")
+		if raw != "" {
+			v, err := strconv.ParseFloat(raw, 64)
+			if err != nil || v <= 0 {
+				return fmt.Errorf("transient(%s) on %s: max age must be a positive number of hours", raw, ctx.Model.String())
+			}
+			hours = v
+		}
+	}
+	base.transient = true
+	base.transientMaxHours = hours
+	// Builder().TableTransient() 跑在 OnBuildFields 里，此时 RegisterModel 已经把 TModel
+	// 的元数据抄进共享对象；只改 TModel 会在下一次 GetModel 时丢掉，得直接写 obj。
+	if obj := base.Obj(); obj != nil {
+		obj.transient = true
+		obj.transientMaxHours = hours
+	}
+	return nil
 }
 
 // Only for table

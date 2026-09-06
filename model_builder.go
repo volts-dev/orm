@@ -3,6 +3,7 @@ package orm
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 
 	"github.com/volts-dev/utils"
 )
@@ -113,6 +114,23 @@ func (self *ModelBuilder) SetExprIndex(exprs ...string) *ModelBuilder {
 // SetUniqueExprIndex 表达式唯一索引：`b.SetUniqueExprIndex("lower(email)")`。
 func (self *ModelBuilder) SetUniqueExprIndex(exprs ...string) *ModelBuilder {
 	return self.SetIndexSpec(IndexSpec{Unique: true, Exprs: exprs})
+}
+
+// TableTransient 把模型声明为临时模型（等价于 table 标签 `transient(hours)`）。
+// 不传或传非正数取 DefaultTransientMaxHours。见 session_transient.go。
+func (self *ModelBuilder) TableTransient(maxHours ...float64) *ModelBuilder {
+	params := []string{}
+	if len(maxHours) > 0 && maxHours[0] > 0 {
+		params = append(params, strconv.FormatFloat(maxHours[0], 'f', -1, 64))
+	}
+	if err := tag_table_transient(&TTagContext{
+		Orm:    self.Orm,
+		Model:  self.model,
+		Params: params,
+	}); err != nil {
+		self.fail(err)
+	}
+	return self
 }
 
 // SetUniqueIndex 在给定字段集合上建立一个复合唯一索引，且不要求其中任何单列自身唯一。

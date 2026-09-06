@@ -162,6 +162,8 @@ func (self *TRemoteModelObject) Osv() *TOsv                        { return self
 func (self *TRemoteModelObject) Orm() *TOrm                        { return self.orm }
 func (self *TRemoteModelObject) GetBase() *TModel                  { return nil }
 func (self *TRemoteModelObject) GetIndexes() map[string]*TIndex    { return nil }
+func (self *TRemoteModelObject) IsTransient() bool                 { return false }
+func (self *TRemoteModelObject) TransientMaxHours() float64        { return DefaultTransientMaxHours }
 func (self *TRemoteModelObject) GetColumnsSeq() []string           { return nil }
 func (self *TRemoteModelObject) GetPrimaryKeys() []string {
 	return []string{self.schema.IdField}

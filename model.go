@@ -62,6 +62,11 @@ type (
 		//check_access_rights(operation string) bool
 		Ctx(...context.Context) context.Context //Context
 		GetIndexes() map[string]*TIndex
+		// IsTransient / TransientMaxHours：临时模型声明（table 标签 `transient` 或
+		// Builder().TableTransient()）。orm 只负责"知道哪些是临时表、按哪列判旧"和
+		// 提供 VacuumTransient 清理原语；定时触发交给应用层调度器。
+		IsTransient() bool
+		TransientMaxHours() float64
 		GetBase() *TModel // get the base model object
 		GetColumnsSeq() []string
 		GetPrimaryKeys() []string
@@ -168,22 +173,24 @@ type (
 	* 	方法命名规格 ："GetXXX","SetXXX","XXByXX"
 	 */
 	TModel struct {
-		prototype      IModel
-		super          IModel        // 继承的Model
-		modelType      reflect.Type  // Model 反射类
-		modelValue     reflect.Value // Model 反射值 供某些程序调用方法
-		orm            *TOrm         //
-		osv            *TOsv         // 对象服务
-		obj            *TModelObject //
-		options        *ModelOptions //
-		transaction    *TSession     //
-		name           string        // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
-		table          string        // mapping table name
-		description    string        // 描述
-		idField        string        // the field name which is the UID represent a record
-		recName        string        // the field name which is the name represent a record @examples: Name,Title,PartNo
-		recNamesSearch string        // names_search会搜索的字段
-		isCustomModel  bool          // 该Model是否是基Model,并非扩展Model
+		prototype         IModel
+		super             IModel        // 继承的Model
+		modelType         reflect.Type  // Model 反射类
+		modelValue        reflect.Value // Model 反射值 供某些程序调用方法
+		orm               *TOrm         //
+		osv               *TOsv         // 对象服务
+		obj               *TModelObject //
+		options           *ModelOptions //
+		transaction       *TSession     //
+		name              string        // the model name (in dot-notation, module namespace "xx.xx") 映射在OSV的名称
+		table             string        // mapping table name
+		description       string        // 描述
+		idField           string        // the field name which is the UID represent a record
+		recName           string        // the field name which is the name represent a record @examples: Name,Title,PartNo
+		recNamesSearch    string        // names_search会搜索的字段
+		isCustomModel     bool          // 该Model是否是基Model,并非扩展Model
+		transient         bool          // 临时模型：记录按 created 字段年龄定期清理
+		transientMaxHours float64       // 记录保留时长（小时）；<=0 时取 DefaultTransientMaxHours
 
 		// below vars must name as "_xxx" to avoid mixed inherited-object's vars
 		_sequence string //
@@ -499,6 +506,19 @@ func (self *TModel) GetName() string {
 // mapping table name which in database
 func (self *TModel) Table() string {
 	return self.table
+}
+
+// IsTransient 该模型是否声明为临时模型。见 session_transient.go。
+func (self *TModel) IsTransient() bool {
+	return self.transient
+}
+
+// TransientMaxHours 临时记录的保留时长（小时）。未声明或非正数时返回 DefaultTransientMaxHours。
+func (self *TModel) TransientMaxHours() float64 {
+	if self.transientMaxHours <= 0 {
+		return DefaultTransientMaxHours
+	}
+	return self.transientMaxHours
 }
 
 func (self *TModel) String() string {

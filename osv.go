@@ -506,6 +506,11 @@ func (self *TOsv) RegisterModel(region string, model *TModel, session ...*TSessi
 	obj.uidFieldName = model.idField
 	obj.nameField = model.recName
 	obj.orderFields = model.options.Order
+	// 临时模型声明只增不减：别的模块扩展同一模型时没写 transient，不能把属主的声明抹掉。
+	if model.transient {
+		obj.transient = true
+		obj.transientMaxHours = model.transientMaxHours
+	}
 
 	/* 添加默认配置 */
 	for _, opt := range self.orm.config.ModelTemplate.options {
@@ -693,6 +698,8 @@ func (self *TOsv) _initObject(val reflect.Value, atype reflect.Type, obj *TModel
 		model.isCustomModel = obj.isCustomModel
 		model.idField = obj.uidFieldName
 		model.recName = obj.nameField
+		model.transient = obj.transient
+		model.transientMaxHours = obj.transientMaxHours
 		model.prototype = m /* 保存当前模型到ORM.TModel里 */
 		model.obj = obj
 		model.osv = self
