@@ -1285,9 +1285,9 @@ func (db *postgres) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 	if index.Type == GinType {
 		using = " USING GIN"
 	}
-	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v%s (%v)", unique,
+	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v%s (%v)%s", unique,
 		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName), using,
-		quoter.Join(index.Cols, ","))
+		indexKeyParts(quoter, index), indexWhereClause(index))
 }
 
 func (db *postgres) IsColumnExist(ctx context.Context, schema, tableName, colName string) (bool, error) {
@@ -1682,21 +1682,27 @@ func parsePgIndex(tableName, indexName, indexdef string) (index *TIndex, skip bo
 		indexType = IndexType
 	}
 
-	cs := strings.Split(indexdef, "(")
-	colNames := strings.Split(cs[1][0:len(cs[1])-1], ",")
+	// 按括号深度解析而不是 Split("(")：表达式索引 `lower((name)::text)` 和部分索引的
+	// `WHERE (state = 'x'::text)` 都自带括号，简单切分会把列名切成碎片。
+	cols, exprs, where, ok := parseIndexDef(indexdef)
+	if !ok {
+		cs := strings.Split(indexdef, "(")
+		if len(cs) > 1 {
+			for _, colName := range strings.Split(cs[1][0:len(cs[1])-1], ",") {
+				cols = append(cols, strings.Trim(colName, `" `))
+			}
+		}
+	}
 
 	var isRegular bool
 	if strings.HasPrefix(indexName, DefaultIndexPrefix+tableName) || strings.HasPrefix(indexName, DefaultUniquePrefix+tableName) {
 		isRegular = true
 	}
 
-	var indexs []string
-	for _, colName := range colNames {
-		indexs = append(indexs, strings.Trim(colName, `" `))
-	}
-
-	index = newIndex(indexName, tableName, indexType, indexs...)
+	index = newIndex(indexName, tableName, indexType, cols...)
 	index.IsRegular = isRegular
+	index.Exprs = exprs
+	index.Where = where
 	return index, false
 }
 

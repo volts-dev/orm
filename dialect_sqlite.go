@@ -259,14 +259,21 @@ func (db *sqlite) GetIndexes(ctx context.Context, session *TSession, tableName s
 		}
 
 		var cols []string
+		hasExpr := false
 		for infoRows.Next() {
 			var seqno, cid int
-			var name string
+			// 表达式键部分的 name 是 NULL（cid=-2）：原来扫进 string 直接报错，
+			// 库里只要有一个表达式索引，整张表的内省就挂了。
+			var name sql.NullString
 			if err = infoRows.Scan(&seqno, &cid, &name); err != nil {
 				infoRows.Close()
 				return nil, err
 			}
-			cols = append(cols, name)
+			if !name.Valid {
+				hasExpr = true
+				continue
+			}
+			cols = append(cols, name.String)
 		}
 		infoRows.Close()
 
@@ -282,6 +289,32 @@ func (db *sqlite) GetIndexes(ctx context.Context, session *TSession, tableName s
 
 		index := newIndex(indexName, tableName, indexType, cols...)
 		index.IsRegular = isRegular
+
+		// 表达式与谓词只在 sqlite_master.sql 里有；只对需要的索引多查这一次。
+		if hasExpr || partial > 0 {
+			var def sql.NullString
+			defRows, err := db.queryer.QueryContext(ctx,
+				"SELECT sql FROM sqlite_master WHERE type='index' AND name=?", indexName)
+			if err != nil {
+				return nil, err
+			}
+			if defRows.Next() {
+				if err = defRows.Scan(&def); err != nil {
+					defRows.Close()
+					return nil, err
+				}
+			}
+			defRows.Close()
+			if def.Valid {
+				if pCols, pExprs, pWhere, ok := parseIndexDef(def.String); ok {
+					if hasExpr {
+						index.Cols = pCols
+						index.Exprs = pExprs
+					}
+					index.Where = pWhere
+				}
+			}
+		}
 		indexes[index.Name] = index
 	}
 	return indexes, nil
@@ -325,9 +358,9 @@ func (db *sqlite) CreateIndexUniqueSql(_, tableName string, index *TIndex) strin
 		unique = " UNIQUE"
 	}
 	idxName := index.GetName(tableName)
-	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v (%v)", unique,
+	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v (%v)%s", unique,
 		quoter.Quote(idxName), quoter.Quote(tableName),
-		quoter.Join(index.Cols, ","))
+		indexKeyParts(quoter, index), indexWhereClause(index))
 }
 
 func (db *sqlite) IsDatabaseExist(ctx context.Context, name string) bool              { return true }

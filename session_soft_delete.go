@@ -67,6 +67,9 @@ func (self *TSession) SoftDelete(ids ...any) (int64, error) {
 	if obj.DeletedField == "" {
 		return 0, errors.ErrNoSoftDelete
 	}
+	if err := self.Statement.Err(); err != nil {
+		return 0, err
+	}
 
 	if len(ids) > 0 {
 		self.Statement.IdParam = append(self.Statement.IdParam, ids...)

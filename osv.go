@@ -42,6 +42,15 @@ type (
 		fields        sync.Map // map[string]IField                  // map[field]
 		relations     sync.Map //map[string]string                  // inherits 继承关联表，仅记录 one2one/extends/relate 三种"嵌入式"关系；不包含 many2one/one2many/many2many 普通外键关联
 		indexes       map[string]*TIndex
+		// transient / transientMaxHours：临时模型声明。放在共享对象上是因为 GetModel
+		// 每次都从 obj 重建 TModel（见 _initObject），只写在 TModel 上会随即丢失。
+		transient         bool
+		transientMaxHours float64
+		// declErr 是 ModelBuilder 在声明阶段记下的第一个错误（列不存在、索引片段非法…）。
+		// Builder 的方法为了链式调用没有返回错误的位置，原来只 log 一句就跳过那条声明——
+		// "索引声明了却没建出来"。现在记在这里，RegisterModel / SyncModel 取出后拒绝继续。
+		declErr       error
+		declErrLock   sync.Mutex
 		relatedFields map[string]*TRelatedField          // 关联字段如 UserId CompanyID
 		commonFields  map[string]map[string]IField       //
 		methods       map[string]reflect.Type            // map[func] 存储对应的Model 类型 string:函数所在的Models
@@ -93,6 +102,32 @@ func (self *TModelObject) AddIndex(index *TIndex) {
 	self.indexesLock.Lock()
 	self.indexes[index.Name] = index
 	self.indexesLock.Unlock()
+}
+
+// RemoveIndex 从对象上摘掉一条索引声明（按名）。
+func (self *TModelObject) RemoveIndex(name string) {
+	self.indexesLock.Lock()
+	delete(self.indexes, name)
+	self.indexesLock.Unlock()
+}
+
+// failDeclaration 记录声明阶段的第一个错误；后来的不覆盖。
+func (self *TModelObject) failDeclaration(err error) {
+	if err == nil {
+		return
+	}
+	self.declErrLock.Lock()
+	if self.declErr == nil {
+		self.declErr = err
+	}
+	self.declErrLock.Unlock()
+}
+
+// DeclarationError 返回声明阶段记录的第一个错误；nil 表示声明合法。
+func (self *TModelObject) DeclarationError() error {
+	self.declErrLock.Lock()
+	defer self.declErrLock.Unlock()
+	return self.declErr
 }
 
 // add an index or an unique to table
@@ -490,6 +525,11 @@ func (self *TOsv) RegisterModel(region string, model *TModel, session ...*TSessi
 		if err := m._onBuildFields(); err != nil {
 			return err
 		}
+		// Builder 在 OnBuildFields 里记下的声明错误在这里交回：一条非法的索引声明
+		// 不该被静默跳过然后让服务带着"没有那个索引"的表跑起来。
+		if err := obj.DeclarationError(); err != nil {
+			return fmt.Errorf("model %s: %w", model.String(), err)
+		}
 
 		/* 更新字段/创建关联中间表 */
 		var sess *TSession
@@ -621,6 +661,14 @@ func (self *TOsv) GetModelByModule(model string, options *ModelOptions) (res IMo
 		return mod, nil
 	}
 
+	if options == nil || options.Module == "" {
+		// `Model xxx@ is not a standard orm.IModel type`——那个空着的 @ 后面就是"没有模块
+		// 归属"。使用方(vectors test/test.go)靠猜才读懂它；这里直接把最常见的两个成因说出来。
+		return nil, fmt.Errorf(`Model %s@ is not a standard orm.IModel type: no module owner resolved — `+
+			`the model was never synced into this ORM (SyncModel/module Bootstrap not run), `+
+			`or the caller's module could not be inferred (call GetModel from the owning module, `+
+			`or pass ModelOptions.Module explicitly)`, model)
+	}
 	return nil, fmt.Errorf(`Model %s@%s is not a standard orm.IModel type,
 		please check the name of Fields and Methods,make sure they are correct and not same each other`, model, options.Module)
 }

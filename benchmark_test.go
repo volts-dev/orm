@@ -146,3 +146,19 @@ func BenchmarkDelete_Single(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkRead_WhereEq 模拟 vectors 最常见的形状：BeforeSession 钩子每条语句都
+// 追加一次 `Where("tenant_id=?", id)`——条件字符串恒定、值走参数。度量字符串条件
+// 的解析开销（是否命中解析缓存）。
+func BenchmarkRead_WhereEq(b *testing.B) {
+	o := setupBenchOrm(b)
+	seedBenchRows(b, o, 1000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := o.Model("bench.model").Where("age=?", i%100).Where("name=?", "seed").Limit(20).Read()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

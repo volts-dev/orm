@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/volts-dev/orm/domain"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -185,7 +186,11 @@ func normalize_domain(node *domain.TDomainNode) (*domain.TDomainNode, error) {
 	}
 
 	if expected != 0 {
-		log.Errf("This domain is syntactically not correct: %s", domain.Domain2String(node))
+		// ★ 原来只 log 一句就把记账不平的树交下去：`['|', leaf]` 这种少一项的 domain
+		//   照样生成 SQL（多出来的 '|' 被吞掉，剩下的叶子按 AND 生效），结果集"看着
+		//   正常"却不是调用方写的那个条件。Odoo 在这里抛 ValueError，本仓也一样拒绝。
+		return nil, ormerr.New(ormerr.ErrInvalidDomain,
+			fmt.Errorf("domain is syntactically not correct (operator/term arity mismatch): %s", domain.Domain2String(node)))
 	}
 
 	return result, nil

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/volts-dev/orm/core"
+	"github.com/volts-dev/orm/domain"
 	"github.com/volts-dev/utils"
 )
 
@@ -308,9 +309,20 @@ func (self *TSession) Models() *TSession {
 	return self
 }
 
-// 预存数据值 供更新或者限制字段 如多租户字段
+// SetMustFieldValue 预存会话级字段值：之后本会话每条语句都带上它——
+// queryable=true 时同时作为过滤条件（`name = value`）与写入值；false 时只作写入值。
+//
+// ★ 也立刻施加到**当前**语句上。Statement.Init() 只在 NewSession 和每次 CRUD 之后跑，
+// 原来在 NewSession 之后、第一条语句之前调用本方法，那条语句什么都没带上（读回全表、
+// Create 不盖戳），从第二条起才生效——"配了但第一次没生效"的坑。同名重复设置以
+// 最后一次为准（Init 会按 Sets 重挂）；同一条语句内重复设置同名字段不再追加条件。
+//
+// 整段在 setsLock 下：race_audit_test 里多个 goroutine 并发调本方法，对当前语句的
+// 施加也必须串行，否则 Statement.Sets 是并发写 map。
 func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) {
 	self.setsLock.Lock()
+	defer self.setsLock.Unlock()
+
 	if self.Sets == nil {
 		self.Sets = make(map[string]TFieldValue)
 	}
@@ -319,7 +331,11 @@ func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) 
 		Value:     value,
 		Queryable: queryable,
 	}
-	self.setsLock.Unlock()
+
+	if _, already := self.Statement.Sets[name]; !already && queryable {
+		self.Statement.Op(domain.AND_OPERATOR, domain.New(name, "=", "?"), value)
+	}
+	self.Statement.Set(name, value)
 }
 
 // SetSchema sets current session schema namespace
@@ -394,9 +410,12 @@ func (self *TSession) CreateUniques(model string) error {
 	}
 
 	self.Statement.Model = mod
-	for _, sql := range self.Statement.generate_unique() {
-		_, err := self._exec(sql)
-		if err != nil {
+	sqls, err := self.Statement.generate_unique()
+	if err != nil {
+		return err
+	}
+	for _, sql := range sqls {
+		if _, err := self._exec(sql); err != nil {
 			return err
 		}
 	}
@@ -790,8 +809,33 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 		if curIndexs == nil {
 			curIndexs = oldModel.GetIndexes()
 		}
+		// 定义性索引（表达式/谓词）的定义哈希在名字里：声明一改，名字就变。库里那条旧
+		// 定义经 _reverse 反查也被合并进了共享 obj，在 GetIndexes() 里与新声明并列，光看
+		// 名字它像一条"另外声明的索引"——不处理的话新旧两条都留下，旧谓词的唯一约束继续
+		// 生效，改声明等于没改。同逻辑名（去掉哈希）、来自反查、且有一条非反查的新声明
+		// 与之并列的，就是过期定义：从 obj 上摘掉，不算"已声明"，下面的清理循环会 DROP 它。
+		declaredIndexes := newModel.GetIndexes()
+		{
+			declaredLogical := make(map[string]string) // 逻辑名 → 结构体声明的完整名
+			for _, index := range declaredIndexes {
+				if !index.fromDb && index.isDefinitional() {
+					declaredLogical[logicalIndexName(index.Name)] = index.Name
+				}
+			}
+			for name, index := range declaredIndexes {
+				if !index.fromDb || !index.isDefinitional() {
+					continue
+				}
+				if fresh, ok := declaredLogical[logicalIndexName(index.Name)]; ok && fresh != index.Name {
+					log.Infof("Table <%s> index %s: definition changed (now %s); dropping the stale one", tableName, index.Name, fresh)
+					newModel.Obj().RemoveIndex(index.Name)
+					delete(declaredIndexes, name)
+				}
+			}
+		}
+
 		var existIndex *TIndex
-		for name, index := range newModel.GetIndexes() { // key 是 struct tag 原始名
+		for name, index := range declaredIndexes { // key 是 struct tag 原始名
 			// 1. 按加工名(GetName)完全匹配数据库索引——curIndexs 的 key 本就是加工名,
 			// 直接拿原始 name 去查永远落空(见 issue-orm-index-idempotency-restart-fatal
 			// 的教训：两套名字体系不能直接比较),必须先转换成同一空间再比。
@@ -952,6 +996,9 @@ func (self *TSession) _addIndex(tableName, idxName string) error {
 		return nil
 	}
 
+	if err := self.orm.dialect.ValidateIndex(index); err != nil {
+		return err
+	}
 	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
 	_, err = self._exec(sql)
 	return err
@@ -977,6 +1024,9 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 		return nil
 	}
 
+	if err := self.orm.dialect.ValidateIndex(index); err != nil {
+		return err
+	}
 	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
 	_, err = self._exec(sql)
 	return err

@@ -23,6 +23,10 @@ func (self *TSession) Search() ([]any, int64, error) {
 		}
 	}()
 
+	if err := self.Statement.Err(); err != nil {
+		return nil, 0, err
+	}
+
 	// Search 此前**完全没有上限**（_search 里是 `if LimitClause > 0`），
 	// 枚举整张表的 id 一直是放行的——DefaultLimit 那道"防扫全表"从来没覆盖到这条路。
 	// 这里补上与 Read 同一道守卫。
@@ -70,6 +74,9 @@ func (self *TSession) Count() (int, error) {
 	if self.IsDeprecated {
 		return -1, ErrInvalidSession
 	}
+	if err := self.Statement.Err(); err != nil {
+		return 0, err
+	}
 
 	self.Statement.IsCount = true
 
@@ -96,6 +103,10 @@ func (self *TSession) Sum(fieldName string) (float64, error) {
 
 	if self.IsAutoClose {
 		defer self.Close()
+	}
+
+	if err := self.Statement.Err(); err != nil {
+		return 0, err
 	}
 
 	// SUM 是聚合，没有可锁的行。这里主动校验，让 .ForUpdate().Sum() 明确报错，

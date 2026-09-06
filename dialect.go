@@ -59,6 +59,9 @@ type (
 		DropTableSql(schema, tableName string) string
 		CreateIndexUniqueSql(schema, tableName string, index *TIndex) string
 		DropIndexUniqueSql(schema, tableName string, index *TIndex) string
+		// ValidateIndex 在生成 DDL 之前判断本方言能否**如实**表达这条索引。
+		// 表达不了就返回 ErrIndexUnsupported，而不是生成一条语义不同的 SQL。
+		ValidateIndex(index *TIndex) error
 		DropColumnNotNullSql(schema, tableName string, col IField) string
 		DropColumnDefaultSql(schema, tableName string, col IField) string
 		ModifyColumnSql(schema, tableName string, col IField) string
@@ -287,9 +290,15 @@ func (db *TDialect) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 	}
 	// 索引名从裸表名派生（不带 schema）——索引与表同 schema，名字里不掺限定符。
 	idxName = index.GetName(tableName)
-	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)", unique,
+	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)%s", unique,
 		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName),
-		quoter.Join(index.Cols, ","))
+		indexKeyParts(quoter, index), indexWhereClause(index))
+}
+
+// ValidateIndex 默认实现：表达式与部分索引都是标准 SQL，PG/SQLite 原生支持。
+// 表达不了的方言（MySQL）自行覆写。
+func (db *TDialect) ValidateIndex(index *TIndex) error {
+	return nil
 }
 
 func (db *TDialect) DropIndexUniqueSql(schema, tableName string, index *TIndex) string {

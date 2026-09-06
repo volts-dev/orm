@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 
 	"github.com/volts-dev/utils"
@@ -163,6 +165,11 @@ func New(field any, operators any, values ...any) *TDomainNode {
 	// "3 孩子" 的巧合正确形状,原样保留,不改变其行为。
 	switch len(values) {
 	case 0:
+		// 没有值也要占住第三个孩子：`New("id","in")`（调用方把空切片展开进来）
+		// 原来只有两个孩子，IsLeafNode() 恒 false，整棵树结构性坏掉却不报错。
+		// 空值节点让它成为合法叶子；in/not in 由 expr 渲染成 FALSE/TRUE，其余
+		// 操作符按 nil 右值处理（IS NULL 语义）。
+		node.Push(NewDomainNode())
 	case 1:
 		node.Push(values[0])
 	default:
@@ -243,12 +250,13 @@ func (self *TDomainNode) OR(nodes ...*TDomainNode) *TDomainNode {
 	return self
 }
 
+// IN 追加 `name IN (args...)` 条件（AND 叠加）。
+//
+// ★ 空集合**不再当作"没有这个条件"丢掉**。原来 len(args)==0 直接 return：
+// `Ids(空).Read()` / `IN("id")` 读回整页甚至全表——vectors 的权限界面为此专门
+// 造过一条"不可能命中"的假条件（api_user_admin.go idListDomain）。数学语义是
+// `x IN ()` 恒假，这里落成合法叶子 (name, 'IN', <空>)，expr 渲染为 FALSE。
 func (self *TDomainNode) IN(name string, args ...any) *TDomainNode {
-	if len(args) == 0 {
-		// TODO report err stack
-		return self
-	}
-
 	cond := NewDomainNode()
 	cond.Push(name)
 	cond.Push("IN")
@@ -259,9 +267,13 @@ func (self *TDomainNode) IN(name string, args ...any) *TDomainNode {
 	return self
 }
 
+// NotIn 追加 `name NOT IN (args...)` 条件（AND 叠加）。
+//
+// 空集合是无操作：`x NOT IN ()` 恒真，而恒真是 AND 的单位元，加与不加结果相同。
+// 有意不落成 TRUE 叶子——那会让 hasCondition() 把一条"什么都没限制"的语句当成
+// 有条件，绕开 Write/Delete 的 ErrUnsafe 守卫。
 func (self *TDomainNode) NotIn(name string, args ...any) *TDomainNode {
 	if len(args) == 0 {
-		// TODO report err stack
 		return self
 	}
 
@@ -714,6 +726,77 @@ Examples::
 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 "*/
 // 返回列表中的所有值
+// MarshalJSON 以 Odoo 的列表形态输出：值节点 → JSON 标量，叶子/列表 → JSON 数组。
+//
+// 默认编码只会输出导出的 Value 字段（`{"Value":null}`），nodeType 与 children 全丢，
+// 一棵条件树过一次 JSON 就只剩空壳——vectors 跨进程读记录时因此只敢传字符串
+// domain（"domain.New 造出的 TDomainNode 经 JSON 往返不保真"）。列表形态与
+// Any2Domain 的输入形状一致，接收方不用改任何东西。
+func (self *TDomainNode) MarshalJSON() ([]byte, error) {
+	return json.Marshal(self.toAny())
+}
+
+// toAny 把节点树还原成 []any 嵌套（叶子 [field, op, value]，列表 [item...]）。
+func (self *TDomainNode) toAny() any {
+	if self == nil {
+		return nil
+	}
+	if len(self.children) == 0 {
+		if self.nodeType == VALUE_NODE {
+			return self.Value
+		}
+		return []any{}
+	}
+	out := make([]any, len(self.children))
+	for i, child := range self.children {
+		out[i] = child.toAny()
+	}
+	return out
+}
+
+// UnmarshalJSON 从列表形态解回节点树，是 MarshalJSON 的逆。
+//
+// 数字一律经 json.Number 还原：默认解码把所有数字变成 float64，19 位雪花 id
+// 超过 2^53 会被削掉末几位——那正是 vectors 里 id 一律按字符串传的原因。
+func (self *TDomainNode) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var raw any
+	if err := dec.Decode(&raw); err != nil {
+		return err
+	}
+	node, err := parseAny(normalizeJSONNumbers(raw), nil)
+	if err != nil {
+		return err
+	}
+	if node == nil {
+		node = NewDomainNode()
+	}
+	*self = *node
+	return nil
+}
+
+// normalizeJSONNumbers 把 json.Number 落成 int64（整数）或 float64（其余），递归处理列表。
+func normalizeJSONNumbers(v any) any {
+	switch t := v.(type) {
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return i
+		}
+		if f, err := t.Float64(); err == nil {
+			return f
+		}
+		return t.String()
+	case []any:
+		for i := range t {
+			t[i] = normalizeJSONNumbers(t[i])
+		}
+		return t
+	default:
+		return v
+	}
+}
+
 func (self *TDomainNode) Flatten() []any {
 	var lst []any
 

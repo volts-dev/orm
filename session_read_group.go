@@ -141,6 +141,9 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 	if self.IsDeprecated {
 		return nil, ErrInvalidSession
 	}
+	if err := self.Statement.Err(); err != nil {
+		return nil, err
+	}
 
 	// groupBy 为空是合法的：对齐 Odoo，返回**整个 domain 的一行合计**（无 GROUP BY）。
 	// graph 视图在没有分组维度时就是这么发的（前端把这一行标成 "Total"），报错会让

@@ -41,6 +41,21 @@ var (
 	ErrLockOutsideTransaction = errors.New("orm: row lock requires an explicit transaction; call Begin() first")
 	// ErrLockNotApplicable 该查询形态不能加行锁（GROUP BY / Count 等聚合）。
 	ErrLockNotApplicable = errors.New("orm: row lock cannot be applied to this query")
+
+	// ErrInvalidDomain：Where()/Domain()/And()/Or() 收到的条件解析失败或类型不支持。
+	// 链式方法没有返回错误的位置，于是记在 Statement 上，由随后的
+	// Read/Search/Count/Sum/Write/Delete/ReadGroup 统一交回——绝不静默丢弃条件。
+	// 原来只 log 不报错：条件被整个丢掉，读回全表、按域写/删越界，都是"看着正常的
+	// 错结果"，也是 vectors 侧反复记录的"domain 解析失败是降级不是中断"。
+	ErrInvalidDomain = errors.New("orm: invalid domain/condition")
+
+	// ErrIndexUnsupported：当前方言/版本表达不了这条索引（如 MySQL < 8.0.13 的
+	// 表达式索引、部分唯一索引）。拒绝而不是退化——退化会静默改变唯一性语义。
+	ErrIndexUnsupported = errors.New("orm: index definition not supported by this database")
+	// ErrNotTransient：对没有声明 transient 的模型调用 VacuumTransient。
+	ErrNotTransient = errors.New("orm: model is not transient")
+	// ErrNoCreatedField：transient 模型没有 `created` 标签字段，无从判断记录年龄。
+	ErrNoCreatedField = errors.New("orm: model has no 'created' tag field")
 )
 
 // ORMError 携带上下文的 ORM 错误，支持 errors.Is/As

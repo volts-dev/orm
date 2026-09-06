@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/volts-dev/orm/core"
@@ -166,6 +167,130 @@ var (
 type mysql struct {
 	TDialect
 	rowFormat string
+
+	// functional key parts（表达式索引）支持情况：MySQL ≥ 8.0.13 有，MariaDB/TiDB 没有。
+	// 惰性查一次 @@VERSION 并缓存；funcIdxForce 供测试与无连接场景强制指定。
+	funcIdxOnce  sync.Once
+	funcIdxOK    bool
+	funcIdxForce *bool
+	// 非唯一部分索引退化成全表索引时只告警一次（按索引名）。
+	partialWarned sync.Map
+}
+
+// mysqlSupportsFunctionalIndex 判断版本是否支持 functional key parts。
+func mysqlSupportsFunctionalIndex(v *core.Version) bool {
+	if v == nil {
+		return false
+	}
+	lowerAll := strings.ToLower(v.Number + " " + v.Edition + " " + v.Level)
+	if strings.Contains(lowerAll, "mariadb") || strings.Contains(lowerAll, "tidb") {
+		return false
+	}
+	return versionAtLeast(v.Number, 8, 0, 13)
+}
+
+// versionAtLeast 比较 "8.0.13" 这类点分版本号；解析不出来按不支持处理。
+func versionAtLeast(number string, major, minor, patch int) bool {
+	parts := strings.SplitN(strings.TrimSpace(number), ".", 3)
+	nums := [3]int{}
+	for i := 0; i < len(parts) && i < 3; i++ {
+		digits := parts[i]
+		for j, r := range digits {
+			if r < '0' || r > '9' {
+				digits = digits[:j]
+				break
+			}
+		}
+		if digits == "" {
+			return false
+		}
+		n := 0
+		for _, r := range digits {
+			n = n*10 + int(r-'0')
+		}
+		nums[i] = n
+	}
+	want := [3]int{major, minor, patch}
+	for i := 0; i < 3; i++ {
+		if nums[i] != want[i] {
+			return nums[i] > want[i]
+		}
+	}
+	return true
+}
+
+func (db *mysql) supportsFunctionalIndex() bool {
+	if db.funcIdxForce != nil {
+		return *db.funcIdxForce
+	}
+	db.funcIdxOnce.Do(func() {
+		if db.queryer == nil {
+			return
+		}
+		v, err := db.Version(context.Background())
+		if err != nil {
+			log.Warnf("mysql: cannot read server version (%v); treating functional key parts as unsupported", err)
+			return
+		}
+		db.funcIdxOK = mysqlSupportsFunctionalIndex(v)
+	})
+	return db.funcIdxOK
+}
+
+// ValidateIndex：表达式索引与**唯一**部分索引都要靠 functional key parts 表达；
+// 没有它就拒绝。非唯一部分索引不在此拒绝——它能无损退化成全表索引（见 CreateIndexUniqueSql）。
+func (db *mysql) ValidateIndex(index *TIndex) error {
+	needsFunctional := index.HasExprs() || (index.Type == UniqueType && index.IsPartial())
+	if needsFunctional && !db.supportsFunctionalIndex() {
+		return ormerr.New(ormerr.ErrIndexUnsupported, fmt.Errorf(
+			"index %s needs functional key parts (MySQL >= 8.0.13; MariaDB/TiDB have none): "+
+				"expression indexes and partial UNIQUE indexes cannot be expressed here, and a plain "+
+				"fallback would silently change uniqueness semantics", index.Name))
+	}
+	return nil
+}
+
+// CreateIndexUniqueSql（MySQL）：
+//
+//   - 表达式键部分 → functional key part `((expr))`。
+//   - **唯一**部分索引 → 每个键部分包成 `(CASE WHEN (谓词) THEN 键 ELSE NULL END)`：
+//     不满足谓词的行所有键都是 NULL，而 NULL 不参与唯一冲突，语义与真正的部分唯一
+//     索引一致。
+//   - **非唯一**部分索引 → 去掉谓词建全表索引：结果集完全一致，只是多占空间；告警一次。
+func (db *mysql) CreateIndexUniqueSql(schema, tableName string, index *TIndex) string {
+	quoter := db.dialect.Quoter()
+	var unique string
+	if index.Type == UniqueType {
+		unique = " UNIQUE"
+	}
+	idxName := index.GetName(tableName)
+
+	wrap := index.IsPartial() && index.Type == UniqueType
+	if index.IsPartial() && index.Type != UniqueType {
+		if _, warned := db.partialWarned.LoadOrStore(idxName, true); !warned {
+			log.Warnf("mysql: partial index %s on %s has no native equivalent; creating a full-table index instead (same results, more space)", idxName, tableName)
+		}
+	}
+
+	parts := make([]string, 0, len(index.Cols)+len(index.Exprs))
+	for _, c := range index.Cols {
+		p := quoter.Quote(strings.TrimSpace(c))
+		if wrap {
+			p = fmt.Sprintf("(CASE WHEN (%s) THEN %s ELSE NULL END)", strings.TrimSpace(index.Where), p)
+		}
+		parts = append(parts, p)
+	}
+	for _, e := range index.Exprs {
+		e = strings.TrimSpace(e)
+		p := "(" + e + ")"
+		if wrap {
+			p = fmt.Sprintf("(CASE WHEN (%s) THEN %s ELSE NULL END)", strings.TrimSpace(index.Where), e)
+		}
+		parts = append(parts, p)
+	}
+
+	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)", unique,
+		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName), strings.Join(parts, ","))
 }
 
 var mysqlColAliases = map[string]string{
@@ -744,7 +869,13 @@ func (db *mysql) GetModels(ctx context.Context, session *TSession) ([]IModel, er
 
 func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
 	args := []any{db.DbName, tableName}
+	// functional key parts 在 STATISTICS 里 COLUMN_NAME 为 NULL、表达式在 EXPRESSION 列
+	//（8.0.13+ 才有这一列，老版本查它会直接报错）。
+	withExpr := db.supportsFunctionalIndex()
 	s := "SELECT `INDEX_NAME`, `NON_UNIQUE`, `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? ORDER BY `SEQ_IN_INDEX`"
+	if withExpr {
+		s = "SELECT `INDEX_NAME`, `NON_UNIQUE`, `COLUMN_NAME`, `EXPRESSION` FROM `INFORMATION_SCHEMA`.`STATISTICS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? ORDER BY `SEQ_IN_INDEX`"
+	}
 
 	rows, err := db.queryer.QueryContext(ctx, s, args...)
 	if err != nil {
@@ -755,11 +886,17 @@ func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName st
 	indexes := make(map[string]*TIndex)
 	for rows.Next() {
 		var indexType int
-		var indexName, colName, nonUnique string
-		err = rows.Scan(&indexName, &nonUnique, &colName)
+		var indexName, nonUnique string
+		var colNull, exprNull sql.NullString
+		if withExpr {
+			err = rows.Scan(&indexName, &nonUnique, &colNull, &exprNull)
+		} else {
+			err = rows.Scan(&indexName, &nonUnique, &colNull)
+		}
 		if err != nil {
 			return nil, err
 		}
+		colName := colNull.String
 
 		if indexName == "PRIMARY" {
 			continue
@@ -786,7 +923,13 @@ func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName st
 			index.Name = indexName
 			indexes[indexName] = index
 		}
-		index.AddColumn(colName)
+		if !colNull.Valid && exprNull.Valid {
+			index.Exprs = append(index.Exprs, exprNull.String)
+			continue
+		}
+		if colName != "" {
+			index.AddColumn(colName)
+		}
 	}
 	if rows.Err() != nil {
 		return nil, rows.Err()

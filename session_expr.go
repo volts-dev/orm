@@ -80,7 +80,7 @@ func (self *TSession) Ids(ids ...any) *TSession {
 }
 
 // Where condition
-// Example: Where("id==?",1)
+// Example: Where("id=?", 1)   （注意是单个 =：`==` 不是本 DSL 的算子，会以 invalid domain leaf 报错）
 // 支持Domain 返回解析为Domain
 func (self *TSession) Where(clause string, args ...any) *TSession {
 	self.Statement.Where(clause, args...)

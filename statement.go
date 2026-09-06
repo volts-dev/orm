@@ -5,16 +5,24 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/volts-dev/orm/domain"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
 type (
-	// TODO 添加错误信息使整个statement 无法执行错误不合法查询
 	TStatement struct {
-		session        *TSession
+		session *TSession
+		// err 是链式构造阶段记录的**第一个**错误（条件解析失败、参数类型不支持）。
+		// Where()/Domain()/And()/Or() 为了链式调用没有返回错误的位置，原来只 log
+		// 一句就把条件丢掉继续跑——读回全表、按域写/删越界，都是"看着正常的错结果"。
+		// 现在记在这里，Read/Search/Count/Sum/Write/Delete/ReadGroup 执行前经 Err()
+		// 取出并拒绝执行。Init() 复位。
+		err            error
 		Model          IModel              //*TModel
 		domain         *domain.TDomainNode // 查询条件
 		Params         []any               // 储存有序值
@@ -56,6 +64,7 @@ func (self *TStatement) Init() {
 	// 读取侧全部 nil 安全(nil map 查得到 ok=false、nil slice 可 append/len)，
 	// 写入侧 NullableFields 已在 session_expr.go 里按需懒建。
 	self.domain = domain.NewDomainNode()
+	self.err = nil
 	self.IdParam = nil
 	self.Fields = nil
 	self.OmitFields = nil
@@ -70,6 +79,16 @@ func (self *TStatement) Init() {
 	self.Lock = nil
 	self.Params = nil
 	self.Sets = nil
+	// ★ 这五个原来**从不复位**，在复用的会话（NewSession / 事务）上会从上一条语句漏进
+	//   下一条：Count() 经 Funcs("count") 留下的 FuncsClause 让紧接着的 Read 去 SELECT
+	//   一个不存在的列（sqlite: `no such column: count`）；GroupBy 让下一条查询多出
+	//   GROUP BY；OnConflict 让下一条 Create 静默继承 ON CONFLICT DO UPDATE/NOTHING
+	//   ——那是"看着成功的错数据"。语句级子句一律随语句复位。
+	self.FuncsClause = nil
+	self.GroupByClause = nil
+	self.SortClauses = nil
+	self.OnConflict = nil
+	self.UseCascade = false
 
 	/* 复制session */
 	// 在读锁下对 session.Sets 做快照，避免与 SetMustFieldValue 并发读写 map
@@ -81,11 +100,83 @@ func (self *TStatement) Init() {
 	self.session.setsLock.RUnlock()
 	for _, f := range sets {
 		if f.Queryable {
-			self.Where(f.Name+"=?", f.Value)
+			// 直接搭叶子，不再走 Where(f.Name+"=?") 的字符串解析：Init 在**每次** CRUD
+			// 后都跑一遍，会话上挂了 Queryable Set（SetMustFieldValue）时原来等于每条
+			// 语句都要付一次 String2Domain（实测 ~9.8µs / 42 allocs，直建 ~0.7µs / 10 allocs）。
+			// 形状与解析结果完全相同：("name","=","?") 叶子 + Params 追加值。
+			self.Op(domain.AND_OPERATOR, domain.New(f.Name, "=", "?"), f.Value)
 		}
 
 		self.Set(f.Name, f.Value)
 	}
+}
+
+// 字符串条件的解析缓存。
+//
+// vectors 的 BeforeSession 钩子给**每条**语句追加一次 `Where("tenant_id=?", id)`——
+// 条件原文恒定、值走参数，String2Domain 一次约 9.8µs / 42 allocs，全是重复劳动。
+// 这里按原文缓存解析结果。两条纪律：
+//   - 缓存里的那棵是**只读母本**，取用一律 Clone()：下游（normalize_leaf 把操作符
+//     小写回写、expr 的替换叶子等）会就地改写节点，母本一旦外流，第二次命中拿到的
+//     就是被改过的树。
+//   - 有上限：只收 ≤256 字节的原文，最多 2048 条，满了就不再收新条目。带字面量值
+//     的条件（`name='foo'`）会让键无限多，上限保证不会无界增长。
+var (
+	condParseCache      sync.Map // string → *domain.TDomainNode（只读母本）
+	condParseCacheCount atomic.Int32
+)
+
+const (
+	condParseCacheMaxKeyLen  = 256
+	condParseCacheMaxEntries = 2048
+)
+
+// parseCondString 解析一条字符串条件，命中缓存时返回母本的克隆。
+func parseCondString(s string) (*domain.TDomainNode, error) {
+	cacheable := len(s) <= condParseCacheMaxKeyLen
+	if cacheable {
+		if v, ok := condParseCache.Load(s); ok {
+			return v.(*domain.TDomainNode).Clone(), nil
+		}
+	}
+	node, err := domain.String2Domain(s, nil)
+	if err != nil || node == nil {
+		return node, err
+	}
+	if cacheable && condParseCacheCount.Load() < condParseCacheMaxEntries {
+		// 存的是克隆、交出去的是原件：母本从这一刻起不再被任何人碰。
+		if _, loaded := condParseCache.LoadOrStore(s, node.Clone()); !loaded {
+			condParseCacheCount.Add(1)
+		}
+	}
+	return node, nil
+}
+
+// isBlankDomainString 判断一条字符串条件是否"什么都没说"：空白、`[]`、`()`
+// 及其**配对**的任意嵌套/组合。这些是合法的空条件（无操作），不是语法错误。
+// 括号不配对（`((`、`)))`、`[(`）不算空——那是被截断的垃圾，解析器会把它解成空树，
+// 必须报错而不是当成"没条件"。
+func isBlankDomainString(s string) bool {
+	var stack []rune
+	for _, r := range s {
+		switch r {
+		case ' ', '\t', '\r', '\n', ',':
+		case '[', '(':
+			stack = append(stack, r)
+		case ']', ')':
+			if len(stack) == 0 {
+				return false
+			}
+			open := stack[len(stack)-1]
+			if (r == ']' && open != '[') || (r == ')' && open != '(') {
+				return false
+			}
+			stack = stack[:len(stack)-1]
+		default:
+			return false
+		}
+	}
+	return len(stack) == 0
 }
 
 // Id generate "where id = ? " statment or for composite key "where key1 = ? and key2 = ?"
@@ -118,8 +209,37 @@ func flattenIds(ids []any) []any {
 }
 
 func (self *TStatement) Ids(ids ...any) *TStatement {
-	self.IdParam = append(self.IdParam, flattenIds(ids)...)
+	flat := flattenIds(ids)
+	if len(flat) == 0 {
+		// 点了名却一个 id 都没有（`Ids(empty...)` / 全 nil）：语义是"这零条记录"，
+		// 不是"不按 id 过滤"。原来什么都不加，于是 `Ids(空).Read()` 读回整页、
+		// `Ids(空).Limit(-1).Read()` 读回全表（vectors export_data 正是这个形状），
+		// 而 Write/Delete 则退到"按会话可见范围全选"。这里落一条 `id IN ()` 恒假
+		// 叶子：读回空集，写/删影响 0 行。与 Odoo `browse([])` 一致。
+		idField := "id"
+		if self.Model != nil {
+			idField = self.Model.IdField()
+		}
+		if self.domain == nil {
+			self.domain = domain.NewDomainNode()
+		}
+		self.domain.IN(idField)
+		return self
+	}
+	self.IdParam = append(self.IdParam, flat...)
 	return self
+}
+
+// Err 返回链式构造阶段记录的第一个错误；nil 表示语句合法。见 TStatement.err。
+func (self *TStatement) Err() error {
+	return self.err
+}
+
+// fail 记录第一个错误，后来的不覆盖——第一个才是根因。
+func (self *TStatement) fail(err error) {
+	if err != nil && self.err == nil {
+		self.err = err
+	}
 }
 
 func (self *TStatement) Select(fields ...string) *TStatement {
@@ -157,24 +277,40 @@ func (self *TStatement) Op(op string, cond any, args ...any) *TStatement {
 	var new_cond *domain.TDomainNode
 	var err error
 	switch v := cond.(type) {
+	case nil:
+		// 没给条件就是没条件（请求体里 Domain 缺省为 nil），不是错误。
+		return self
 	case string:
-		// 添加信的条件
-		new_cond, err = domain.String2Domain(v, nil)
-		if err != nil {
-			log.Err(err)
+		if isBlankDomainString(v) {
+			return self // "" / "[]" / "()"：空条件，无操作
+		}
+		new_cond, err = parseCondString(v)
+		if err == nil && (new_cond == nil || new_cond.IsEmpty()) {
+			// ★ 解析器对垃圾输入（`((`、只剩括号的半截字符串）不报错而是回一棵空树。
+			//   空树 == 没条件，这条语句就静默变成了"无条件"——恰是最危险的一种降级。
+			//   非空输入解析成空，一律按语法错误处理。
+			err = fmt.Errorf("condition parsed to nothing (syntax error?)")
 		}
 	case []any:
 		if len(v) == 0 {
 			return self
 		}
 		new_cond, err = domain.Any2Domain(v, nil)
-		if err != nil {
-			log.Err(err)
-		}
 	case *domain.TDomainNode:
 		new_cond = v
 	default:
-		log.Errf("op not support this query %v", v)
+		err = fmt.Errorf("unsupported condition type %T (want string, []any or *domain.TDomainNode)", cond)
+	}
+
+	if err != nil {
+		// ★ 不能只 log：解析失败若继续往下走，这条条件就整个不见了，语句变成
+		//   "少一个条件的合法查询"——读回全表、按域写/删越界，且一切静默。
+		//   记到语句上，由执行入口拒绝；Params 也不追加，保持与占位符对齐。
+		self.fail(ormerr.New(ormerr.ErrInvalidDomain, fmt.Errorf("%v: %w", cond, err)))
+		return self
+	}
+	if new_cond == nil {
+		return self
 	}
 
 	self.domain.OP(op, new_cond)
@@ -196,14 +332,8 @@ func (self *TStatement) Or(query string, args ...any) *TStatement {
 }
 
 // In generate "Where column IN (?) " statement
+// In 追加 `field IN (args...)`。空集合落成恒假条件而不是丢掉——见 domain.IN。
 func (self *TStatement) In(field string, args ...any) *TStatement {
-	if len(args) == 0 {
-		// FIXME IN Condition must pass at least one arguments
-		// TODO report err stack
-		log.Errf("IN Condition must pass at least one arguments")
-		return self
-	}
-
 	if self.domain == nil {
 		self.domain = domain.NewDomainNode()
 	}
@@ -214,14 +344,8 @@ func (self *TStatement) In(field string, args ...any) *TStatement {
 	return self
 }
 
+// NotIn 追加 `field NOT IN (args...)`。空集合是无操作（恒真）——见 domain.NotIn。
 func (self *TStatement) NotIn(field string, args ...any) *TStatement {
-	if len(args) == 0 {
-		// FIXME IN Condition must pass at least one arguments
-		// TODO report err stack
-		log.Errf("NotIn Condition must pass at least one arguments")
-		return self
-	}
-
 	if self.domain == nil {
 		self.domain = domain.NewDomainNode()
 	}
@@ -358,16 +482,19 @@ func (self *TStatement) generate_create_table() string {
 	return self.session.orm.dialect.CreateTableSql(self.session, self.Model, self.StoreEngine, self.Charset)
 }
 
-func (self *TStatement) generate_unique() []string {
+func (self *TStatement) generate_unique() ([]string, error) {
 	indexes := self.Model.Obj().indexes
 	var sqls = make([]string, 0, len(indexes))
 	for _, index := range indexes {
 		if index.Type == UniqueType {
+			if err := self.session.orm.dialect.ValidateIndex(index); err != nil {
+				return nil, err
+			}
 			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Schema, self.Model.Table(), index)
 			sqls = append(sqls, sql)
 		}
 	}
-	return sqls
+	return sqls, nil
 }
 
 func (self *TStatement) generate_add_column(field IField) (string, []any) {
@@ -399,6 +526,10 @@ func (self *TStatement) generate_index() ([]string, error) {
 				continue
 			}
 
+			// 方言表达不了（MySQL 老版本的表达式索引）就在这里拒绝，而不是拼一条语义不同的 DDL。
+			if err := self.session.orm.dialect.ValidateIndex(index); err != nil {
+				return nil, err
+			}
 			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Schema, tableName, index)
 			sqls = append(sqls, sql)
 		}

@@ -967,6 +967,10 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 		return nil, err
 	}
 
+	// 反查出来的索引打上 fromDb：之后与结构体声明合并进共享 obj 时才分得清来源。
+	for _, idx := range indexes {
+		idx.fromDb = true
+	}
 	modelObject.indexes = indexes
 
 	return model, nil
@@ -1003,6 +1007,10 @@ func (self *TOrm) _buildModelMeta(model IModel, colSeq []string, fields map[stri
 
 	if indexes == nil {
 		indexes = make(map[string]*TIndex)
+	}
+	// 反查出来的索引打上 fromDb：之后与结构体声明合并进共享 obj 时才分得清来源。
+	for _, idx := range indexes {
+		idx.fromDb = true
 	}
 	modelObject.indexes = indexes
 

@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/volts-dev/utils"
@@ -29,11 +30,35 @@ func newModelBuilder(orm *TOrm, model *TModel) *ModelBuilder {
 	}
 }
 
+// fail 记录声明错误到模型对象上（RegisterModel 会取出并拒绝），同时留一条日志。
+// Builder 方法为了链式调用不返回错误，但绝不能静默跳过一条声明。
+func (self *ModelBuilder) fail(err error) {
+	if err == nil {
+		return
+	}
+	log.Errf("model %s: %v", self.model.String(), err)
+	self.model.Obj().failDeclaration(err)
+}
+
+// Err 返回本模型声明阶段记录的第一个错误（含此前其他 Builder 实例记下的）。
+func (self *ModelBuilder) Err() error {
+	return self.model.Obj().DeclarationError()
+}
+
 func (self *ModelBuilder) SetIndex(fieldNames ...string) *ModelBuilder {
+	if len(fieldNames) == 0 {
+		self.fail(fmt.Errorf("SetIndex: need at least one field"))
+		return self
+	}
 	/* 识别索引类型 */
 	idxType := IndexType
 	for _, fieldName := range fieldNames {
 		field := self.model.GetFieldByName(fieldName)
+		if field == nil {
+			// 原来这里直接 field.IsUnique() 空指针崩掉整个注册流程，栈指向 builder 而不是那个拼错的字段名。
+			self.fail(fmt.Errorf("SetIndex: field %q does not exist", fieldName))
+			return self
+		}
 
 		if field.IsUnique() {
 			idxType = UniqueType
@@ -43,6 +68,51 @@ func (self *ModelBuilder) SetIndex(fieldNames ...string) *ModelBuilder {
 
 	self.model.Obj().AddIndex(newIndex("", self.model.Table(), idxType, fieldNames...))
 	return self
+}
+
+// SetIndexSpec 按完整声明建索引：普通列 + 表达式键部分 + 部分索引谓词，可唯一。
+//
+//	b.SetIndexSpec(IndexSpec{Unique: true, Cols: []string{"tenant_id", "key"}, Where: "state = 'pending'"})
+//	b.SetIndexSpec(IndexSpec{Unique: true, Exprs: []string{"lower(email)"}})
+//
+// 名字自动生成并带定义哈希（改了谓词/表达式 → 名字变 → SyncModel 重建）。
+// 各方言的表达能力见 index.go 与 dialect_mysql.go 的注释。
+func (self *ModelBuilder) SetIndexSpec(spec IndexSpec) *ModelBuilder {
+	for _, c := range spec.Cols {
+		if self.model.GetFieldByName(c) == nil {
+			self.fail(fmt.Errorf("SetIndexSpec: field %q does not exist", c))
+			return self
+		}
+	}
+	index, err := newIndexSpec(self.model.Table(), spec)
+	if err != nil {
+		self.fail(fmt.Errorf("SetIndexSpec: %w", err))
+		return self
+	}
+	self.model.Obj().AddIndex(index)
+	return self
+}
+
+// SetPartialUniqueIndex 部分唯一索引：只在满足 where 的行之间约束唯一。
+//
+//	b.SetPartialUniqueIndex("state = 'pending'", "tenant_id", "job_key")
+func (self *ModelBuilder) SetPartialUniqueIndex(where string, fieldNames ...string) *ModelBuilder {
+	return self.SetIndexSpec(IndexSpec{Unique: true, Cols: fieldNames, Where: where})
+}
+
+// SetPartialIndex 部分（非唯一）索引：只为满足 where 的行建索引。
+func (self *ModelBuilder) SetPartialIndex(where string, fieldNames ...string) *ModelBuilder {
+	return self.SetIndexSpec(IndexSpec{Cols: fieldNames, Where: where})
+}
+
+// SetExprIndex 表达式索引（非唯一）：`b.SetExprIndex("lower(name)")`。
+func (self *ModelBuilder) SetExprIndex(exprs ...string) *ModelBuilder {
+	return self.SetIndexSpec(IndexSpec{Exprs: exprs})
+}
+
+// SetUniqueExprIndex 表达式唯一索引：`b.SetUniqueExprIndex("lower(email)")`。
+func (self *ModelBuilder) SetUniqueExprIndex(exprs ...string) *ModelBuilder {
+	return self.SetIndexSpec(IndexSpec{Unique: true, Exprs: exprs})
 }
 
 // SetUniqueIndex 在给定字段集合上建立一个复合唯一索引，且不要求其中任何单列自身唯一。

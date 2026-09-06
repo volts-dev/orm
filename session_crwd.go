@@ -60,6 +60,12 @@ func (self *TSession) Read() (*TDataset, error) {
 		return nil, ErrInvalidSession
 	}
 
+	// 链式阶段记下的条件错误（Where/Domain 解析失败）在这里交回，绝不带着
+	// "少一个条件"的语句往下跑。放在 BeforeSession 之后，钩子追加的坏条件一并抓住。
+	if err := self.Statement.Err(); err != nil {
+		return nil, err
+	}
+
 	// 守卫放在 BeforeSession **之后**：多租户/行级权限是靠那个钩子往会话上追加条件
 	// 实现的，放在前面会把它们追加的条件当成不存在，把正常读取一律拦下。
 	if err := self.guardUnscopedRead(); err != nil {
@@ -93,6 +99,11 @@ func (self *TSession) Write(data any) (effect int64, err error) {
 		return -1, ErrInvalidSession
 	}
 
+	// 条件解析失败的语句不许写：少一个条件的 UPDATE 改的是别人的行。
+	if err := self.Statement.Err(); err != nil {
+		return 0, err
+	}
+
 	return self._write(data)
 }
 
@@ -118,9 +129,13 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 		return -1, ErrInvalidSession
 	}
 
-	// TODO 为什么用len
 	if len(self.Statement.Model.String()) < 1 {
 		return 0, ErrTableNotFound
+	}
+
+	// 条件解析失败的语句不许删：少一个条件的 DELETE 删的是别人的行。
+	if err := self.Statement.Err(); err != nil {
+		return 0, err
 	}
 
 	// get id list — merge explicit args with any ids already set via Ids()
@@ -656,7 +671,10 @@ func (self *TSession) _write(src any) (int64, error) {
 
 		len := ds.Count()
 		if len == 0 {
-			return 0, fmt.Errorf("Not records found from database matching for writing update!")
+			// 带类型的 ErrNotFound，调用方可 errors.Is 判别；原文保留在 cause 里——
+			// vectors 侧有按这句原文匹配的存量代码（invite_flow_test / api_user_actions）。
+			return 0, errors.New(errors.ErrNotFound,
+				fmt.Errorf("Not records found from database matching for writing update!"))
 		}
 
 		ids = make([]any, len)
