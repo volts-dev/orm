@@ -141,6 +141,17 @@ type (
 		Domain  any    // delete 支持查询条件
 		Model   string // *
 		Method  string
+
+		// ModuleUninstall 标记「这一次删除是模块卸载的行级清理」，对标 Odoo 的
+		// `@api.ondelete(at_uninstall=False)`：模型上那些"不许删"的业务守卫
+		// （启用中的方案不许删、已过账的凭证不许删……）是写给**界面上的人**看的，
+		// 卸载模块时它们必须让路——模块自带的数据本来就该随模块一起消失。
+		//
+		// ★ 它随请求过 JSON，所以**跨得过 RPC**（属主模型在别的进程时同样有效）；
+		// 也正因为过 JSON，浏览器伪造得出来：属主侧的公开入口
+		// （vectors core/model.Api_Delete）只在**服务会话**（有服务身份、无用户
+		// 身份）下认它，用户令牌打来的一律清零。判据与 checkModelAccess 同源。
+		ModuleUninstall bool
 	}
 
 	UploadRequest struct {
