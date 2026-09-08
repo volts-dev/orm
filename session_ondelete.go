@@ -3,6 +3,8 @@ package orm
 import (
 	"fmt"
 	"strings"
+
+	"github.com/volts-dev/volts/errors"
 )
 
 // many2one 的 `ondelete` 策略：删掉一条记录时，怎么处置**指向它的**那些行。
@@ -207,9 +209,13 @@ func (self *TSession) checkOnDeleteRestrict(modelName string, ids []any, depth i
 				return err
 			}
 			if len(blocking) > 0 {
-				return fmt.Errorf(
+				// ★ 带 400：这句话是**写给人看的**（"先把那些记录删掉或改指向别处"），
+				// 不带码的话它在出口会被当成"未预期的内部错误"整句换成一枚
+				// ERR-xxxxxxxx，用户只知道失败、不知道是谁挡着。2026-09-08 真栈：
+				// 卸载 loyalty 被三张礼品卡挡住，界面上只有 ERR-38fd2b4b。
+				return errors.New("", 400, fmt.Sprintf(
 					"cannot delete %s: %s.%s still references it (ondelete='restrict'; e.g. %s id %v) — remove or reassign those records first",
-					modelName, ref.model, ref.column, ref.model, blocking[0])
+					modelName, ref.model, ref.column, ref.model, blocking[0]))
 			}
 		case onDeleteCascade:
 			childIds, err := self.referencingIds(ref, fresh, 0)
