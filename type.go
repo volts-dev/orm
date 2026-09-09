@@ -536,6 +536,22 @@ func (s *SQLType) IsNumeric() bool {
 	return s.IsType(NUMERIC_TYPE)
 }
 
+// IsFractional 报告这个数值类型**能不能存小数**。
+//
+// NUMERIC_TYPE 把整数与小数混在一起（TinyInt … BigInt 和 Real/Float/Double/
+// Decimal/Numeric/Money 全在里面），凡是拿 IsNumeric() 当"可以按整数处理"的地方
+// 都会把小数悄悄截掉。`tag_default` 就是这么错的：`default(0.01)` 经 ToInt64 变
+// 成 0，不报错、不告警，落库与前端拿到的都是 0。
+//
+// 判据是"这一列能不能存 0.5"，不是"Go 侧是什么类型"。
+func (s *SQLType) IsFractional() bool {
+	switch s.Name {
+	case Real, Float, Double, Decimal, Numeric, Money, SmallMoney:
+		return true
+	}
+	return false
+}
+
 // IsArray returns true if column is an array type
 func (s *SQLType) IsArray() bool {
 	return s.IsType(ARRAY_TYPE)

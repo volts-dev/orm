@@ -353,7 +353,23 @@ func tag_default(ctx *TTagContext) error {
 	}
 
 	if field.SqlType.IsNumeric() {
-		defaultValue = utils.ToInt64(defaultValue)
+		// ★ 小数类型不能走 ToInt64。NUMERIC_TYPE 把整数与小数混在一起，此前一律
+		// ToInt64 —— `double() default(0.01)` 落成 0，**不报错、不告警**，DDL、
+		// 落库、前端拿到的默认值全是 0。
+		//
+		// 真栈上量到的影响面：全仓 139 个带默认值的浮点字段里 136 个写的是
+		// 0.0/1.0（截整后碰巧是对的，这就是它一直没被发现的原因），真受影响的只有
+		// forum 的两个相关度参数（0.8/1.8 → 0，"按相关度排序"整档是平的）与
+		// point_of_sale 的 account_cash_rounding.Rounding（0.01 → 0）。
+		//
+		// 改完不会引起 ALTER 抖动：那 136 个经 utils.ToString 仍然是 "0"/"1"，
+		// 与库里内省回来的字符串一致；真正不一致的正是那三个，它们会在下一次
+		// SyncModel 被改对（见 session.go 里默认值比对那段）。
+		if field.SqlType.IsFractional() {
+			defaultValue = utils.ToFloat64(defaultValue)
+		} else {
+			defaultValue = utils.ToInt64(defaultValue)
+		}
 	}
 
 	if field.typeName == Bool {
