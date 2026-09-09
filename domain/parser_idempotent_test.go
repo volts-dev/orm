@@ -79,52 +79,53 @@ func TestString_NestedIsIdempotent(t *testing.T) {
 	}
 }
 
-// ★ 已知限制（**未修**，此测试钉住现状）：String()→String2Domain 这条往返
-// 对三种值形态是有损的，而且损法都是"叶子不再是叶子"，落到 ORM 就是**整条
-// domain 被丢掉、返回全表**：
+// ★ 【2026-09-09 修，本条已由"钉住损耗"翻成"钉住无损"】
 //
-//	("f","=",1.5)   →  ["f","="]           浮点值整个消失
+// 曾经：String()→String2Domain 这条往返对三种值形态有损，损法都是"叶子不再是
+// 叶子"，落到 ORM 就是**整条 domain 被丢掉、返回全表**：
+//
+//	("f","=",1.5)   →  ["f","="]           浮点值整个消失（解析器 switch 没有 FLOAT 这一档）
 //	("n","=",-3)    →  ["n","=","-",3]     负号被词法器切成独立 token
-//	("b","=",true)  →  ("b","=","true")    布尔变成字符串（拿字符串比布尔列）
+//	("b","=",true)  →  ("b","=","true")    布尔变成字符串
 //
-// 价格 / 金额 / 余额 / 数量这类条件正好全中。修它要动词法器（负号、小数点），
-// 是热路径上的大改，本次不做。
+// 价格 / 金额 / 余额 / 数量这类条件正好全中。前两种已在 parser.go 修掉
+// （appendOperatorToken 里合并符号位、switch 补 FLOAT 一档，见
+// parser_negative_number_test.go）；布尔那条量下来其实早就是真 bool 了，
+// 上面那行是**陈的**。
 //
-// **结论是那条既定规则的真正依据**：改写过的 domain 一律**递节点**给 ORM，
-// 中间不经过字符串（orm/statement.go 的 Op() 认 *TDomainNode）。只要不走这趟
-// 字符串，上面三种损耗一个都碰不到。
-//
-// 哪天词法器修好了，这条会变红——那时才该回头放宽调用侧的规矩。
-func TestString_RoundTripStillLosesFloatsAndNegatives(t *testing.T) {
+// **那条既定规则不变**：改写过的 domain 仍然一律**递节点**给 ORM，中间不经过
+// 字符串（orm/statement.go 的 Op() 认 *TDomainNode）。依据换了一个 ——
+// 不再是"往返有损"，而是"往返这一趟本来就没必要，而且每多一种值形态就多一次
+// 出错的机会"。product / account 里那几处 AST 守卫因此照旧保留。
+func TestString_RoundTripIsLosslessForScalarValues(t *testing.T) {
 	cases := []struct {
 		name string
 		node *TDomainNode
+		want any
 	}{
-		{"浮点", NewDomainNode("&", New("f", "=", 1.5), New("s", "=", "x"))},
-		{"负数", NewDomainNode("&", New("n", "=", -3), New("s", "=", "x"))},
+		{"浮点", NewDomainNode("&", New("f", "=", 1.5), New("s", "=", "x")), 1.5},
+		{"负数", NewDomainNode("&", New("n", "=", -3), New("s", "=", "x")), int64(-3)},
+		{"负小数", NewDomainNode("&", New("f", "=", -1.5), New("s", "=", "x")), -1.5},
+		{"布尔", NewDomainNode("&", New("b", "=", true), New("s", "=", "x")), true},
+		{"整数", NewDomainNode("&", New("i", "=", 7), New("s", "=", "x")), int64(7)},
+		{"带逗号的串", NewDomainNode("&", New("s", "=", "a,b"), New("s", "=", "x")), "a,b"},
 	}
 	for _, c := range cases {
 		back, err := String2Domain(c.node.String(), nil)
 		if err != nil {
-			t.Fatalf("%s：解析报错了（那是另一个故事）：%v", c.name, err)
+			t.Errorf("%s：解析报错 %v", c.name, err)
+			continue
 		}
-		if back.Item(1).IsLeafNode() {
-			t.Fatalf("%s：往返已经无损了（%s）——词法器修好了，"+
-				"请复查 product 那条 AST 守卫与各处「递节点」注释是否还需要保留",
+		leaf := back.Item(1)
+		if !leaf.IsLeafNode() {
+			t.Errorf("%s：往返之后不再是叶子（%s）—— 落到 ORM 是整条 domain 被丢掉、返回全表",
 				c.name, back.String())
+			continue
 		}
-	}
-
-	// 反过来：整数和字符串是无损的，所以上面的失败一定是值形态引起的，
-	// 不是"往返全都坏"。
-	ok := NewDomainNode("&", New("i", "=", 7), New("s", "=", "a,b"))
-	back, err := String2Domain(ok.String(), nil)
-	if err != nil {
-		t.Fatalf("整数/字符串这条也解析不回来：%v", err)
-	}
-	for i := 1; i <= 2; i++ {
-		if !back.Item(i).IsLeafNode() {
-			t.Fatalf("整数/字符串本该无损，第 %d 项却不是叶子：%s", i, back.String())
+		// ★ 光看长相不够：值的**类型**也要保住，拿字符串去比数值/布尔列
+		//   在 SQL 那一侧会被引号括起来。
+		if got := leaf.Item(2).Value; got != c.want {
+			t.Errorf("%s：值是 %#v，想要 %#v", c.name, got, c.want)
 		}
 	}
 }

@@ -332,7 +332,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 		case lexer.RPAREN, lexer.RBRACK:
 			goto exit
 
-		case lexer.IDENT, lexer.HOLDER, lexer.STRING, lexer.NUMBER:
+		case lexer.IDENT, lexer.HOLDER, lexer.STRING, lexer.NUMBER, lexer.FLOAT:
 			value := strings.ToLower(item.Val)
 			if value == "is" {
 				parser.ConsumeWhitespace()
@@ -373,6 +373,26 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 				// 项目自己的 one2many 字段声明就是这个写法
 				// (`domain([('active','=',True)])`)，域里筛不出东西还不报错。
 				list.Push(value == "true")
+				break
+			} else if item.Type == lexer.FLOAT {
+				// ★ 小数字面量。
+				//
+				// 词法器出的是一个完整的 FLOAT 词元（`1.5` 就是一个词元），
+				// 而上面那个 switch **此前没有 FLOAT 这一档** —— 于是整个值
+				// 连一句报错都没有地被丢掉：`[('f','=',1.5)]` 解析出来是
+				// 两个元素的 `["f","="]`，值不见了。
+				//
+				// 这比负数那条更坏：负数至少还剩一个多出来的元素能让下游报
+				// "expected 3 elements"，而这里是**少**一个，`('amount','>',0.5)`
+				// 这种在收银/账那侧就是钱。
+				//
+				// 不走下面那条 context 变量替换的路：那条路最后 Push 的是
+				// **字符串**，而数值列拿到字符串会被引号括起来。
+				if f, err := strconv.ParseFloat(trimQuotes(item.Val), 64); err == nil {
+					list.Push(f)
+					break
+				}
+				list.Push(Unquote(trimQuotes(item.Val)))
 				break
 			} else {
 				// 匹配变量值
@@ -567,6 +587,34 @@ var MULTI_CHAR_OPERATORS = map[string]string{
 // `a = ! b` 这种隔着空格的不会被并到一起；`qty>=-1` 也只并 `>=`，
 // 后面的 `-` 仍是独立词元（老版本的 AcceptWhile 会贪成 `>=-`，比现在更坏）。
 func appendOperatorToken(items []lexer.TToken, item lexer.TToken) []lexer.TToken {
+	// 负号是**值的一部分**，不是算子。
+	//
+	// 词法器把 `('id','=',-5)` 出成 [id][=][-][5]：`-` 是一个独立的 OPERATOR
+	// 词元。不合回去的话这条叶子就是**四个元素**，IsLeafNode() 认不出来，
+	// 于是被摊进上层，最后在 expr.go 报
+	//
+	//	invalid domain leaf: expected 3 elements, got 0: id
+	//
+	// —— 报的是**字段名**，一个字都没提那个负号（与上面 `!=` 被拆开是同一种
+	// 症状）。更坏的是 **String2Domain 这一步不报错**：它安安静静地产出
+	// `["id","=","-",5]`，要到真正取数时才炸，所以任何"先解析再看看对不对"的
+	// 探针都是绿的。2026-09-09 真栈量到：收银台拿本地券的负数 id 查库，
+	// 每次结账在属主进程留一条 500，调用方那侧只看得到一句被脱敏的 WARN。
+	//
+	// 合并的判据只有两条：紧邻（`- 5` 隔着空格的不动）、后面是 NUMBER。
+	// 本 DSL **没有算术**——OPERATOR 分支只是把算子当字符串 Push 进去——所以
+	// 一个夹在两个值中间的 `-` 本来也只会拼出一个坏节点，合并不会比现在更坏。
+	if (item.Type == lexer.NUMBER || item.Type == lexer.FLOAT) && len(items) > 0 {
+		last := items[len(items)-1]
+		if last.Type == lexer.OPERATOR && (last.Val == "-" || last.Val == "+") &&
+			last.Pos+len(last.Val) == item.Pos {
+			item.Val = last.Val + item.Val
+			item.Pos = last.Pos
+			items[len(items)-1] = item
+			return items
+		}
+	}
+
 	if item.Type != lexer.OPERATOR {
 		return append(items, item)
 	}
