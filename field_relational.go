@@ -824,6 +824,25 @@ func (self *TMany2OneField) OnRead(ctx *TFieldContext) error {
 		return fmt.Errorf("the field %s must related field, but not %s!", field.Name(), field.TypeName())
 	}
 
+	// ★ 非存储、带 getter 的 many2one（**算出来的外键**：库位的所属仓库、包裹的库位与
+	// 货主、补货规则的产品分类……）：先让 getter 把 id 填进这一列，下面再照常归一。
+	//
+	// o2m 一直有这一支，m2m 2026-08-26 补上（见 TMany2ManyField.OnRead），m2o 一直
+	// 没有：分类阶段 `IsRelated()` 先命中，读取直接走到这里，而下面只会拿这一列里
+	// **已有**的外键去对端取名字——非存储列里这一列谁也没填，于是 getter 一次都不会被
+	// 调，字段恒空（plain 读是没有这个键、经典读是 false），请求成功、无日志。
+	//
+	// getter 只管算 id；传给它的上下文关掉 Classic/NameGet，形态由下面统一收口
+	// （plain 读留裸 id，AsMap 出口按字符串下发；经典读换成对端记录）。
+	if self.hasGetter && !field.Store() {
+		getterCtx := *ctx
+		getterCtx.UseNameGet = false
+		getterCtx.ClassicRead = false
+		if err := self.TField.OnRead(&getterCtx); err != nil {
+			return err
+		}
+	}
+
 	// 形态归一**只在经典读里做**。plain 读回的是存储值:裸外键。写回要用它、内部
 	// 按 id 匹配也要用它,把它换成 false/map 会让"读出来再写回去"这条最常见的用法
 	// 直接坏掉。ManyToOne() 本身也只在这两种模式下才真去查对端。
