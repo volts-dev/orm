@@ -333,11 +333,18 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 			}
 		}
 
+		/* 模型的逐条建前钩子：「缺省 + 显式值在范围内才保留」的列在这里定（见 ICreateValuesHook） */
+		touched, err := self.beforeCreateValues(data.Record())
+		if err != nil {
+			return ids, err
+		}
+
 		/* 拆分数据 */
 		explicitKeys := explicitKeysOf(one)
 		if !srcWasSets {
 			explicitKeys = mergeExplicitKeys(explicitKeys, self.Statement.Sets)
 		}
+		explicitKeys = mergeHookKeys(explicitKeys, touched)
 		newValues, refValues, newTodo, err := self._separateValues(data, self.Statement.Fields, self.Statement.NullableFields, true, nil, explicitKeys)
 		if err != nil {
 			return ids, err
