@@ -732,6 +732,10 @@ func tag_domain(ctx *TTagContext) error {
 
 	if len(params) > 0 {
 		domain := strings.Trim(params[0], "'")
+		// 标签参数用单引号包，里面的单引号写成两个（同 title / help）。此前这里不反转义，
+		// `domain('[(''type'', ''='', ''consu'')]')` 原样带着双写的引号下发给前端与服务端，
+		// 两边都解析成一串空串 —— 模型上写着的 domain 全部静默不生效。
+		domain = strings.Replace(domain, "''", "'", -1)
 		field.domain = domain
 	}
 	return nil
