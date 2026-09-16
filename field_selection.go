@@ -124,9 +124,11 @@ func parseSelectionJSON(s string) ([][]string, error) {
 
 func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]any {
 	model := ctx.Model
-	model_val := reflect.ValueOf(model) //TODO 使用Webgo对象池
 
-	if lMehodName := self.Getter(); lMehodName != "" {
+	// 没给 Model 时退回静态选项表，而不是对零值 reflect.Value 调 MethodByName 然后
+	// panic —— 那会把整个请求打成 500，且日志里只剩一行 reflect 报错，指不到调用方。
+	if lMehodName := self.Getter(); lMehodName != "" && model != nil {
+		model_val := reflect.ValueOf(model)
 		if m := model_val.MethodByName(lMehodName); m.IsValid() {
 			//results := m.Call([]reflect.Value{model.Base().modelValue}) //
 			results := m.Call(nil) //
