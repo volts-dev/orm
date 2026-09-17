@@ -27,13 +27,69 @@ func trimQuotes(s string) string {
 	return s
 }
 
+// tokenText 取词元的字面文本。
+//
+// ★ 词法器吐出的 STRING **本来就不含外层引号**（lexString 先 Emit(QUOTES) 再 Emit(STRING)），
+// 对它再做 trimQuotes 会把值自己两端的 `"` 剥掉：`'say "hi"'` 解析成 `say "hi`。
+func tokenText(item lexer.TToken) string {
+	if item.Type == lexer.STRING {
+		return item.Val
+	}
+	return trimQuotes(item.Val)
+}
+
 func Quote(s string) string {
 	return strconv.Quote(s)
 }
 
+// Unquote 按 **Python 单引号字符串**的规则解开 domain 字面量里的转义。
+//
+// ★ 原来是 `strconv.Unquote("\"" + s + "\"")` 且丢掉错误 —— 那是 Go 双引号串的语法：
+// 不认 `\'`、不认值里的 `"`、不认未知转义 `\y`，任何一种都让它报错，于是**静默
+// 返回空串**。表现是 `[('name','ilike','O\'Brien')]` 解析成 `ilike ''` —— 匹配全表，
+// 不报错；`=` 则是什么都查不到。调用方怎么转义都没用（2026-09-17 实测）。
+//
+// 认的转义：`\\` `\'` `\"` `\n` `\t` `\r` `\uXXXX`；其余的反斜杠**原样保留**，
+// 与 Python 对未知转义的处理一致（`'x\y'` 就是 `x\y`）。
 func Unquote(s string) string {
-	s, _ = strconv.Unquote(`"` + s + `"`)
-	return s
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != '\\' || i+1 >= len(s) {
+			b.WriteByte(c)
+			continue
+		}
+		switch n := s[i+1]; n {
+		case '\\', '\'', '"':
+			b.WriteByte(n)
+			i++
+		case 'n':
+			b.WriteByte('\n')
+			i++
+		case 't':
+			b.WriteByte('\t')
+			i++
+		case 'r':
+			b.WriteByte('\r')
+			i++
+		case 'u':
+			if i+6 <= len(s) {
+				if r, err := strconv.ParseUint(s[i+2:i+6], 16, 32); err == nil {
+					b.WriteRune(rune(r))
+					i += 5
+					continue
+				}
+			}
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // relScalar 把数据集里取到的**关系值**归一成能进 SQL 的裸标量。
@@ -392,7 +448,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 					list.Push(f)
 					break
 				}
-				list.Push(Unquote(trimQuotes(item.Val)))
+				list.Push(Unquote(tokenText(item)))
 				break
 			} else {
 				// 匹配变量值
@@ -417,7 +473,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 
 				}
 
-				v := Unquote(trimQuotes(item.Val))
+				v := Unquote(tokenText(item))
 
 				if vv, err := utils.IsNumeric(v); err == nil {
 					list.Push(vv)
