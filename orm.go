@@ -190,6 +190,14 @@ func (self *TOrm) Close() error {
 	return self.db.Close()
 }
 
+// AddHook 注册一个 core.Hook，在本 TOrm 的每一次 SQL Query/Exec 前后都会被调用
+// （core/db.go 的 QueryContext/ExecContext）。全进程只有一份 *core.DB（session.go
+// NewSession 里 db: orm.db），所以这里注册是全局生效，不区分调用方；按需（比如按会话
+// 开关）取舍要在 Hook 自己的 BeforeProcess/AfterProcess 里读 ContextHook.Ctx 的值来做。
+func (self *TOrm) AddHook(h ...core.Hook) {
+	self.db.AddHook(h...)
+}
+
 // TZTime change one time to time location
 func (self *TOrm) FormatTimeZone(t time.Time) time.Time {
 	if !t.IsZero() { // if time is not initialized it's not suitable for Time.In()

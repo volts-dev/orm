@@ -329,6 +329,14 @@ func (self *TModel) Db() *TSession {
 	session := NewSession(self.orm)
 	/* 提供参考Model*/
 	session.Statement.Model = self.prototype
+	// 把模型自己的 context 带进新建的 session——self.options.Context 只挂 value（见
+	// Ctx() 的调用方，例如上层给它塞 AuthSession），从不携带取消/超时,所以这里补上
+	// 不会让正在跑的 SQL 因为请求生命周期结束被提前取消。之前这里从不传 context，
+	// session 执行 SQL 时永远用的是 context.Background()，任何想借 context 传值
+	// 穿透到 SQL 执行层(比如按 session 开关的性能分析采集器)的机制都因此从来生效不了。
+	if ctx := self.options.Context; ctx != nil {
+		session.WithContext(ctx)
+	}
 	/* 从Model获取必要信息 */
 	return session.Model(self.String())
 }
@@ -398,6 +406,10 @@ func (self *TModel) Records() *TSession {
 	session := NewSession(self.orm)
 	/* 提供参考Model*/
 	session.Statement.Model = self.prototype
+	// 见 Db() 同一段注释：把 self.options.Context 带进新建 session。
+	if ctx := self.options.Context; ctx != nil {
+		session.WithContext(ctx)
+	}
 	/* 从Model获取必要信息 */
 	return session.Model(self.String())
 }
