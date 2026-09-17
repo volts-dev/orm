@@ -1794,7 +1794,18 @@ func (db *postgres) MapError(err error) error {
 		switch pe.Code {
 		case "23505": // unique_violation
 			return ormerr.New(ormerr.ErrDuplicate, err)
-		case "23503", "23502": // foreign_key_violation / not_null_violation
+		case "23502": // not_null_violation
+			// 与 23503 分开：数据库说的是"这一列不能为空"，也就是**必填**。
+			// PostgreSQL 在 23502 上一定带 column_name，于是这条错误照样点得出
+			// 字段——上层据此给用户一句"请填写「客户」"，而不是一枚 ERR-xxxx。
+			// 写入路径上 ORM 自己那道必填检查只管新建（session_crwd.go），显式往
+			// required 列写空值的更新走的正是这里。
+			e := ormerr.New(ormerr.ErrRequired, err)
+			if pe.Column != "" {
+				e = e.WithFields(pe.Column)
+			}
+			return e
+		case "23503": // foreign_key_violation
 			return ormerr.New(ormerr.ErrValidation, err)
 		case "40001", "40P01", "55P03": // serialization_failure / deadlock_detected / lock_not_available
 			// 55P03：SELECT ... FOR UPDATE NOWAIT 抢锁失败。与死锁同属

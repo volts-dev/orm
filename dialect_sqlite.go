@@ -441,6 +441,24 @@ func (db *sqlite) GenInsertSql(tableName string, fields []string, uniqueFields [
 	return sqlStr.String()
 }
 
+// notNullColumn 从 "NOT NULL constraint failed: sys_attachment.name" 里取出列名。
+// 取不到就返回空串——点不出字段也比把整条驱动原文交给调用方强。
+func notNullColumn(msg string) string {
+	const marker = "NOT NULL constraint failed:"
+	i := strings.Index(msg, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(msg[i+len(marker):])
+	if j := strings.IndexAny(rest, " \t\n"); j >= 0 {
+		rest = rest[:j]
+	}
+	if k := strings.LastIndex(rest, "."); k >= 0 {
+		rest = rest[k+1:]
+	}
+	return rest
+}
+
 // MapError 把 SQLite driver 错误翻译为 ormerr sentinel
 // modernc.org/sqlite 错误暴露为字符串，靠 message 匹配
 func (db *sqlite) MapError(err error) error {
@@ -454,9 +472,16 @@ func (db *sqlite) MapError(err error) error {
 		return ormerr.New(ormerr.ErrDuplicate, err)
 	case strings.Contains(msg, "database is locked"):
 		return ormerr.New(ormerr.ErrConflict, err)
+	case strings.Contains(msg, "NOT NULL constraint failed"):
+		// "NOT NULL constraint failed: t.col" —— 必填，且列名就在冒号后面那半句里。
+		// 理由同 postgres 的 23502。
+		e := ormerr.New(ormerr.ErrRequired, err)
+		if col := notNullColumn(msg); col != "" {
+			e = e.WithFields(col)
+		}
+		return e
 	case strings.Contains(msg, "no such table"),
-		strings.Contains(msg, "FOREIGN KEY constraint failed"),
-		strings.Contains(msg, "NOT NULL constraint failed"):
+		strings.Contains(msg, "FOREIGN KEY constraint failed"):
 		return ormerr.New(ormerr.ErrValidation, err)
 	}
 

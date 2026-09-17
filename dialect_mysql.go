@@ -1045,6 +1045,19 @@ func (db *mysql) LockClause(lock *TLock, tableAlias string) (string, error) {
 	return b.String(), nil
 }
 
+// badNullColumn 从 "Column 'name' cannot be null" 里取出列名；取不到返回空串。
+func badNullColumn(msg string) string {
+	i := strings.Index(msg, "'")
+	if i < 0 {
+		return ""
+	}
+	j := strings.Index(msg[i+1:], "'")
+	if j < 0 {
+		return ""
+	}
+	return msg[i+1 : i+1+j]
+}
+
 func (db *mysql) MapError(err error) error {
 	if err == nil {
 		return nil
@@ -1061,6 +1074,14 @@ func (db *mysql) MapError(err error) error {
 			return ormerr.New(ormerr.ErrConflict, err)
 		case 2006, 2013: // CR_SERVER_GONE_ERROR / CR_SERVER_LOST
 			return ormerr.New(ormerr.ErrConnection, err)
+		case 1048: // ER_BAD_NULL_ERROR: Column 'x' cannot be null
+			// 必填。此前根本没映射，整条驱动原文一路走到出口被脱敏。
+			// 理由同 postgres 的 23502。
+			e := ormerr.New(ormerr.ErrRequired, err)
+			if col := badNullColumn(me.Message); col != "" {
+				e = e.WithFields(col)
+			}
+			return e
 		case 1452, 1451: // ER_NO_REFERENCED_ROW_2 / ER_ROW_IS_REFERENCED_2
 			return ormerr.New(ormerr.ErrValidation, err)
 		}

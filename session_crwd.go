@@ -1470,7 +1470,9 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 	idKeyName := self.Statement.IdKey
 
 	/* 处理常规字段 */
-	var errs []string
+	// missing：这一笔写入缺了哪些必填字段。收**字段名**而不是拼好的句子——上层
+	// （vectors 的 core/model）要拿它换成字段标签说给用户听，见 errors.ErrRequired。
+	var missing []string
 	var name string
 	var field IField
 	var fieldValue any
@@ -1710,7 +1712,7 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 						if field.HasSetter() || field.HasGetter() || field.DefaultFunc() != nil {
 							continue
 						}
-						errs = append(errs, fmt.Sprintf("Field %s is required", field.Name()))
+						missing = append(missing, field.Name())
 					}
 				}
 				//}
@@ -1826,8 +1828,18 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 	}
 
 	// 如果出现错误
-	if len(errs) != 0 {
-		return nil, nil, nil, errors.New(errors.ErrValidation, fmt.Errorf("%s", strings.Join(errs, "\n")))
+	if len(missing) != 0 {
+		// 文案与从前一字不差（"Field %s is required"，一行一个），变的是**错误带上了
+		// 可判别的 sentinel 与字段名**：ErrRequired 仍 unwrap 到 ErrValidation，既有的
+		// errors.Is(err, ErrValidation) 照旧；新的调用方用 errors.RequiredFields(err)
+		// 取字段名，把它翻成一句带错误码、说得出是哪个格子的话，不再跟驱动原文一起
+		// 被出口整条脱敏成"服务器内部错误"。
+		lines := make([]string, 0, len(missing))
+		for _, name := range missing {
+			lines = append(lines, fmt.Sprintf("Field %s is required", name))
+		}
+		return nil, nil, nil, errors.New(errors.ErrRequired,
+			fmt.Errorf("%s", strings.Join(lines, "\n"))).WithFields(missing...)
 	}
 
 	return new_vals, rel_vals, upd_todo, nil
@@ -1860,8 +1872,17 @@ func (self *TSession) _check_selection_field_value(field IField, value any) {
 // 选取规则：在模型声明的唯一索引里，挑第一个「所有列都出现在本次 INSERT 列表中」
 // 的索引，按索引自身的列序返回。按索引名排序保证同一模型每次结果一致。
 // 找不到合适的索引就原样返回入参，让上层沿用既有行为（通常回落到主键）。
+//
+// uniqueFields 为空时**也要找**：复合唯一索引（SetUniqueIndex("tenant_id","module","name")）
+// 的列没有一列带 field 级 unique 标志，调用方按标志收集出来的列表必然是空的——
+// 此前这里直接不介入，冲突目标回落到主键 (id)，而 id 是雪花号、每次插入都新鲜，
+// 于是 ON CONFLICT 永远不触发，重复行直接撞上复合唯一索引报 23505。真栈表现：
+// 装模块失败后重试，registerRemoteModelMeta 写 sys_model_data 的 model_<x> xmlid
+// 一律 `duplicate key value violates unique constraint "UQE_smdata_timname"`，
+// 一个半截安装把这个模块永远堵死。要求「整组列都在本次 INSERT 里」这一条不变，
+// 所以只会选中确实会被本次插入撞上的索引。
 func expandToUniqueIndex(indexes map[string]*TIndex, insertFields, uniqueFields []string) []string {
-	if len(uniqueFields) == 0 || len(indexes) == 0 {
+	if len(indexes) == 0 {
 		return uniqueFields
 	}
 
@@ -1886,8 +1907,10 @@ func expandToUniqueIndex(indexes map[string]*TIndex, insertFields, uniqueFields 
 			continue
 		}
 		// 必须整组列都在本次 INSERT 里，缺一列这个索引就用不了；
-		// 同时要求它确实覆盖了调用方识别出的某个唯一字段，避免选到无关索引。
-		complete, relevant := true, false
+		// 调用方识别出了唯一字段时，还要求索引确实覆盖其中某一列，避免选到无关索引
+		// （没识别出任何唯一字段时没有这层约束——任何被本次插入完整覆盖的唯一索引
+		// 都是会被撞上的那个）。
+		complete, relevant := true, len(uniqueFields) == 0
 		for _, col := range idx.Cols {
 			if !inInsert[col] {
 				complete = false

@@ -71,8 +71,28 @@ func TestExpandToUniqueIndex(t *testing.T) {
 			want:         "name",
 		},
 		{
-			name:         "没有唯一字段时不介入",
+			// 复合唯一索引的列没有一列带 field 级 unique 标志，调用方收集到的
+			// uniqueFields 必然为空；此前这里「不介入」，冲突目标回落到雪花 id，
+			// ON CONFLICT 永远不触发——sys_model_data 的 (tenant_id, module, name)
+			// 就是这样让失败的模块安装一重试就撞 23505 的。
+			name:         "没有唯一字段、但有被本次 INSERT 完整覆盖的唯一索引时选它",
 			indexes:      composite,
+			insertFields: []string{"id", "name", "attribute_id"},
+			uniqueFields: nil,
+			want:         "name,attribute_id",
+		},
+		{
+			name:         "没有唯一字段、唯一索引又没被完整覆盖时仍不介入",
+			indexes:      composite,
+			insertFields: []string{"id", "name"},
+			uniqueFields: nil,
+			want:         "",
+		},
+		{
+			name: "没有唯一字段、只有非唯一索引时不介入",
+			indexes: map[string]*TIndex{
+				"idx_name": {Name: "idx_name", Type: IndexType, Cols: []string{"name", "attribute_id"}},
+			},
 			insertFields: []string{"id", "name", "attribute_id"},
 			uniqueFields: nil,
 			want:         "",

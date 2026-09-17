@@ -54,16 +54,29 @@ var (
 	ErrIndexUnsupported = errors.New("orm: index definition not supported by this database")
 	// ErrNotTransient：对没有声明 transient 的模型调用 VacuumTransient。
 	ErrNotTransient = errors.New("orm: model is not transient")
+	// ErrRequired：写入缺了必填字段。
+	//
+	// **它 unwrap 到 ErrValidation**，所以既有的 errors.Is(err, ErrValidation) 一个字
+	// 都不用改；新代码用 errors.Is(err, ErrRequired) 把它与别的校验失败（外键冲突、
+	// 类型解析）分开，用 RequiredFields(err) 拿到到底缺了哪几个字段。
+	//
+	// 分出来的理由不是分类学上的整洁，是**它能不能出进程**：ErrValidation 底下还盖着
+	// 驱动原文（`pq: …`、整条 SQL、表名列名），上层出口只能整条脱敏成"服务器内部
+	// 错误（错误编号 ERR-xxxx）"；而"某字段必填"这句话是 ORM **自己**生成的、只含
+	// 字段名，是少数可以原样交给用户的校验错误。分不出来，它就只能跟着一起被糊掉
+	// ——那正是所有模型上"必填"提示长年全变成 500 的原因。
+	ErrRequired = fmt.Errorf("orm: required field missing: %w", ErrValidation)
 	// ErrNoCreatedField：transient 模型没有 `created` 标签字段，无从判断记录年龄。
 	ErrNoCreatedField = errors.New("orm: model has no 'created' tag field")
 )
 
 // ORMError 携带上下文的 ORM 错误，支持 errors.Is/As
 type ORMError struct {
-	Kind  error  // 一个 sentinel（ErrNotFound / ErrDuplicate / ... ）
-	Field string // 可选：关联字段名
-	SQL   string // 可选：脱敏后的 SQL（参数字面量替换为占位符）
-	Cause error  // 可选：底层 driver 错误
+	Kind   error    // 一个 sentinel（ErrNotFound / ErrDuplicate / ... ）
+	Field  string   // 可选：关联字段名
+	Fields []string // 可选：一次报多个字段（必填校验一笔写入可能缺好几个）
+	SQL    string   // 可选：脱敏后的 SQL（参数字面量替换为占位符）
+	Cause  error    // 可选：底层 driver 错误
 }
 
 // Error 实现 error 接口
@@ -71,6 +84,9 @@ func (e *ORMError) Error() string {
 	parts := []string{e.Kind.Error()}
 	if e.Field != "" {
 		parts = append(parts, fmt.Sprintf("field=%s", e.Field))
+	}
+	if len(e.Fields) > 0 {
+		parts = append(parts, fmt.Sprintf("fields=%s", strings.Join(e.Fields, ",")))
 	}
 	if e.SQL != "" {
 		parts = append(parts, fmt.Sprintf("sql=%s", e.SQL))
@@ -95,6 +111,30 @@ func New(kind error, cause error) *ORMError {
 func (e *ORMError) WithField(name string) *ORMError {
 	e.Field = name
 	return e
+}
+
+// WithFields 链式设置一组字段名（必填校验用：一笔写入可能缺好几个）。
+func (e *ORMError) WithFields(names ...string) *ORMError {
+	e.Fields = names
+	return e
+}
+
+// RequiredFields 报告这个错误是不是"缺必填字段"，是的话返回缺的字段名。
+//
+// 走 errors.As，所以调用方随手 fmt.Errorf("...: %w", err) 包几层都还找得到——
+// 类型断言在这里必错，业务代码包装错误是常态。
+func RequiredFields(err error) []string {
+	var e *ORMError
+	if !errors.As(err, &e) || !errors.Is(e.Kind, ErrRequired) {
+		return nil
+	}
+	if len(e.Fields) > 0 {
+		return e.Fields
+	}
+	if e.Field != "" {
+		return []string{e.Field}
+	}
+	return nil
 }
 
 // WithSQL 链式设置 SQL（自动脱敏）
