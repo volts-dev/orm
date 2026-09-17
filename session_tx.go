@@ -72,3 +72,24 @@ func (self *TSession) Rollback(e error) error {
 func (self *TSession) IsTx() bool {
 	return !self.IsAutoCommit
 }
+
+// AfterCommit 让 fn 在"刚才写下的东西对别的连接可见之后"执行。
+//
+//   - 会话在事务里：登记到底层事务上，提交成功后执行；回滚/提交失败则丢弃。
+//     登记在 *core.Tx 上，所以从派生会话（Clone、_getModel）登记的回调，发起
+//     Commit 的那个会话一样会执行到。
+//   - 会话不在事务里（自动提交）：**立即执行**——每条语句已经各自提交了。
+//
+// 调用方因此不必知道自己被谁、以哪种方式调用：同一段业务代码既会被前台控制器
+// 直接调（自动提交），也会被通用 CRUD 入口包在 `tx.Begin()…tx.Commit()` 里调。
+// 典型用途是跨进程通知：对端要按 id 回头读这条记录，事务没提交它就读不到。
+func (self *TSession) AfterCommit(fn func()) {
+	if fn == nil {
+		return
+	}
+	if self.IsAutoCommit || self.IsCommitedOrRollbacked || self.tx == nil {
+		fn()
+		return
+	}
+	self.tx.AfterCommit(fn)
+}

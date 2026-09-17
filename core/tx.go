@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"database/sql"
+	"runtime/debug"
+	"sync"
 )
 
 var (
@@ -14,7 +16,26 @@ type Tx struct {
 	*sql.Tx
 	db  *DB
 	ctx context.Context
+
+	// afterCommit 是"这个事务真的提交成功之后"才该做的事，见 AfterCommit。
+	// 挂在 Tx 上而不是 TSession 上：派生会话（_getModel、Clone）各是一个新的
+	// TSession，但共享同一个 *Tx 指针——挂在会话上的话，从派生会话登记的回调
+	// 发起 Commit 的那个会话根本看不见。
+	hookMu      sync.Mutex
+	afterCommit []func()
+	// state 是事务的终态。派生会话复制的是 *Tx 指针与当时的标志位，事务结束后
+	// 它们手里还是这个 Tx——此时再登记的回调要按终态处理（见 AfterCommit），
+	// 否则会挂在一个再也不会提交的事务上，永远不执行、也不报错。
+	state txState
 }
+
+type txState int
+
+const (
+	txActive txState = iota
+	txCommitted
+	txRolledBack
+)
 
 // BeginTx begin a transaction with option
 func (db *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
@@ -28,7 +49,7 @@ func (db *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
 	if err := db.afterProcess(hookCtx); err != nil {
 		return nil, err
 	}
-	return &Tx{tx, db, ctx}, nil
+	return &Tx{Tx: tx, db: db, ctx: ctx}, nil
 }
 
 // Begin begins a transaction
@@ -45,11 +66,72 @@ func (tx *Tx) Commit() error {
 	}
 	err = tx.Tx.Commit()
 	hookCtx.End(ctx, nil, err)
-	return tx.db.afterProcess(hookCtx)
+	// afterProcess 先交回提交本身的错误（Hooks.AfterProcess 以 c.Err 打底），
+	// 再是钩子的。任何一种都算"没确认提交成功"：宁可不做，也不在一个可能没提交的
+	// 事务上做"提交之后"的事。
+	if err := tx.db.afterProcess(hookCtx); err != nil {
+		tx.finish(txRolledBack)
+		return err
+	}
+	tx.runAfterCommit(tx.finish(txCommitted))
+	return nil
+}
+
+// AfterCommit 登记一个在本事务**提交成功之后**才执行的回调。
+//
+// 存在的理由：有些副作用必须等数据对**别的连接**可见之后才能做——典型是跨进程
+// 通知（mail 服务回头按 id 读这条记录渲染邮件）、推送、缓存失效。在事务里直接做，
+// 对端读到的是一条还不存在的记录；而事务回滚的话，那封信已经发出去了。
+//
+// 回滚、提交失败时回调**丢弃，不执行**。回调按登记顺序执行，单个回调 panic 只记
+// 日志，不影响其余回调，也不改变 Commit 的返回值——事务已经提交了，没有什么能
+// 再让它"失败"。
+//
+// 事务已经结束时再登记：已提交的立即执行，已回滚的丢弃。
+func (tx *Tx) AfterCommit(fn func()) {
+	if fn == nil {
+		return
+	}
+	tx.hookMu.Lock()
+	switch tx.state {
+	case txCommitted:
+		tx.hookMu.Unlock()
+		tx.runAfterCommit([]func(){fn})
+		return
+	case txRolledBack:
+		tx.hookMu.Unlock()
+		return
+	}
+	tx.afterCommit = append(tx.afterCommit, fn)
+	tx.hookMu.Unlock()
+}
+
+// finish 记下终态并取走已登记的回调。
+func (tx *Tx) finish(state txState) []func() {
+	tx.hookMu.Lock()
+	tx.state = state
+	fns := tx.afterCommit
+	tx.afterCommit = nil
+	tx.hookMu.Unlock()
+	return fns
+}
+
+func (tx *Tx) runAfterCommit(fns []func()) {
+	for _, fn := range fns {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Errf("after-commit hook panicked: %v\n%s", r, debug.Stack())
+				}
+			}()
+			fn()
+		}()
+	}
 }
 
 // Rollback rollback the transaction
 func (tx *Tx) Rollback() error {
+	tx.finish(txRolledBack) // 回滚了就不该发生"提交之后"的事
 	hookCtx := NewContextHook(tx.ctx, "ROLLBACK", nil)
 	ctx, err := tx.db.beforeProcess(hookCtx)
 	if err != nil {
