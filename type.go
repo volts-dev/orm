@@ -173,6 +173,8 @@ var (
 	Json  = "JSON" // ORM
 	Jsonb = "JSONB"
 	Array = "ARRAY"
+	// Vector 是 pgvector 扩展的列类型 vector(N)（见 field_vector.go）。
+	Vector = "VECTOR"
 
 	// new
 	TYPE_O2O       = "one2one"   // ORM
@@ -187,6 +189,8 @@ var (
 	// （见 field_properties.go）：定义挂在别的记录上，值内联在本记录的 jsonb 列里。
 	TYPE_PROPERTIES            = "properties"
 	TYPE_PROPERTIES_DEFINITION = "properties_definition"
+	// TYPE_VECTOR 是 pgvector 向量字段的 ORM 类型名（对标 Odoo ir.model.fields ttype=vector）。
+	TYPE_VECTOR = "vector"
 
 	SqlTypes = map[string]int{
 		Bool:      BOOL_TYPE,
@@ -216,6 +220,8 @@ var (
 		Set:   TEXT_TYPE,
 		Json:  TEXT_TYPE,
 		Jsonb: TEXT_TYPE,
+		// 向量按文本搬运（线上形态是 `[a,b,c]`）。
+		Vector: TEXT_TYPE,
 
 		Char:       TEXT_TYPE,
 		NChar:      TEXT_TYPE,

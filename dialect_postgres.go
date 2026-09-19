@@ -932,6 +932,12 @@ func (db *postgres) GetSqlType(field IField) string {
 		return Jsonb
 	case Double:
 		return "DOUBLE PRECISION"
+	case Vector:
+		// pgvector：维数就是 size，不给维数的 `vector` 列建不了 ivfflat 索引。
+		if c.size > 0 {
+			return "vector(" + utils.ToString(c.size) + ")"
+		}
+		return "vector"
 	default:
 		if c.isAutoIncrement {
 			return Serial
@@ -1309,7 +1315,7 @@ func (db *postgres) IsColumnExist(ctx context.Context, schema, tableName, colNam
 func (db *postgres) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	// FIXME: the schema should be replaced by user custom's
 	args := []any{model.Table(), db.getSchema(session)}
-	s := `SELECT column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
+	s := `SELECT column_name, column_default, is_nullable, CASE WHEN s.data_type = 'USER-DEFINED' THEN format_type(f.atttypid, f.atttypmod) ELSE s.data_type END AS data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
     CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
     CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
 FROM pg_attribute f
@@ -1475,6 +1481,16 @@ func (db *postgres) parsePgColumn(model IModel, colName string, colDefault *stri
 		sql_type = SQLType{Binary, 0, 0}
 
 	default:
+		// 扩展类型（information_schema 报 USER-DEFINED）由 GetFields 的 SELECT 换成了
+		// format_type 的输出，pgvector 的列在这里是 `vector(1536)`。
+		if lower := strings.ToLower(dataType); strings.HasPrefix(lower, "vector") {
+			dims := 0
+			if i, j := strings.IndexByte(lower, '('), strings.IndexByte(lower, ')'); i > 0 && j > i {
+				dims, _ = strconv.Atoi(lower[i+1 : j])
+			}
+			sql_type = SQLType{Vector, dims, 0}
+			break
+		}
 		startIdx := strings.Index(strings.ToLower(dataType), "string(")
 		if startIdx != -1 && strings.HasSuffix(dataType, ")") {
 			length := dataType[startIdx+8 : len(dataType)-1]
@@ -1542,7 +1558,7 @@ func (db *postgres) parsePgColumn(model IModel, colName string, colDefault *stri
 // 跨 schema(public/system)串行匹配。
 func (db *postgres) GetAllFields(ctx context.Context, session *TSession) (map[string][]string, map[string]map[string]IField, error) {
 	args := []any{db.getSchema(session)}
-	s := `SELECT c.relname AS table_name, column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
+	s := `SELECT c.relname AS table_name, column_name, column_default, is_nullable, CASE WHEN s.data_type = 'USER-DEFINED' THEN format_type(f.atttypid, f.atttypmod) ELSE s.data_type END AS data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
     CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
     CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
 FROM pg_attribute f

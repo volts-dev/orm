@@ -424,6 +424,9 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 			// "could not create this new field"——表建得出来，下次启动 DBMetas
 			// 反查时整个模型加载失败。
 			fieldType = TYPE_JSONB
+		case Vector:
+			// 同上：反查回来的 vector(N) 列没有这一条就建不出字段，整个模型加载失败。
+			fieldType = TYPE_VECTOR
 		}
 
 		creator, ok := field_creators[fieldType]
