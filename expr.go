@@ -805,6 +805,7 @@ func (self *TExpression) parse(context map[string]any) error {
 				Model:    model,
 				Field:    field,
 				Session:  self.session,
+				Origin:   self.searchOrigin(),
 				Operator: operator.String(),
 				Value:    right.Value,
 				Right:    right,

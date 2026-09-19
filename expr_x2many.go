@@ -66,9 +66,23 @@ func isX2many(field IField) bool {
 // 见文件头：必须 Clone（带 schema 与事务），且调用方不得 Close。
 func (self *TExpression) subSession() *TSession {
 	if self.session != nil {
-		return self.session.Clone()
+		sub := self.session.Clone()
+		sub.searchOrigin = self.searchOrigin()
+		return sub
 	}
 	return NewSession(self.orm)
+}
+
+// searchOrigin 返回发起本次查询的模型：派生会话上是一路传下来的那个，
+// 否则就是本会话自己挂着的模型。见 TFieldSearchContext.Origin。
+func (self *TExpression) searchOrigin() IModel {
+	if self.session == nil {
+		return nil
+	}
+	if self.session.searchOrigin != nil {
+		return self.session.searchOrigin
+	}
+	return self.session.Statement.Model
 }
 
 // qualify 给表名补上会话 schema。中间表/关联表这条路是手工拼 SQL，不经过

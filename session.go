@@ -52,6 +52,10 @@ type (
 		allowUnknownFields bool           // 写入时容忍模型上不存在的键（默认拒绝）；经 AllowUnknownFields() 设置
 		softDeleteMode     softDeleteMode // Phase 2: controls Read-path soft-delete filtering (default: filterActive)
 		exposeScopedFields bool           // 当 true 时，model.BeforeSession 钩子跳过字段级脱敏（如多租户 tenant_id 的 Omit）；默认 false=脱敏（fail closed）。经 IncludeScopedFields() 设置
+		// searchOrigin 是**发起这次查询的那个模型**，由 domain 解析派生子查询时
+		// 一路传下去（见 expr_x2many.go 的 subSession 与 field_searcher.go 的 Origin）。
+		// 只有派生会话上才有值；普通会话为 nil。
+		searchOrigin IModel
 	}
 )
 
