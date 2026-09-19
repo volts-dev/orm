@@ -48,20 +48,23 @@ type (
 	}
 )
 
-// propertyAllowedTypes 当前支持的规格类型。
+// propertyAllowedTypes 支持的规格类型 —— 与 Odoo 19 `Properties.ALLOWED_TYPES` 一致。
 //
-// Odoo 还支持 many2one / many2many / selection / tags / html，本仓分阶段落地——
-// 未支持的类型在写入时**报错**而不是静默存下：存进去就会有人填值，等到真支持时
-// 那些值的语义已经无从考证了。
+// 不在表里的类型在写入时**报错**而不是静默存下：存进去就会有人填值，语义无从考证。
 var propertyAllowedTypes = map[string]bool{
 	"boolean":   true,
 	"integer":   true,
 	"float":     true,
 	"char":      true,
 	"text":      true,
+	"html":      true,
 	"date":      true,
 	"datetime":  true,
 	"monetary":  true,
+	"many2one":  true, // 值是 comodel 上的一个 id；读出去是 [id, 显示名]
+	"many2many": true, // 值是 id 列表；读出去是 [[id, 显示名], ...]
+	"selection": true, // 定义带 selection: [[key, label], ...]；值是 key
+	"tags":      true, // 定义带 tags: [[key, label, color], ...]；值是 key 列表
 	"separator": true, // 纯 UI 分隔标题，没有值
 }
 
@@ -283,21 +286,118 @@ func (self *TPropertiesField) OnRead(ctx *TFieldContext) error {
 		return nil
 	})
 
-	// 3. 合并
+	// 3. 合并（按定义清理值），关系型的先攒下来一次补显示名
+	merged := make(map[string][]map[string]any, ds.Count())
+	var all []map[string]any
 	ds.Range(func(pos int, rec *dataset.TRecordSet) error {
 		recKey := utils.ToString(rec.GetByField(idField))
 		cid, has := containerByRecord[recKey]
 		if !has {
-			rec.SetByField(fieldName, []map[string]any{})
+			merged[recKey] = []map[string]any{}
 			return nil
 		}
 		definition := definitions[utils.ToString(cid)]
 		values := toPropertyDict(decodeJsonValue(rec.GetByField(fieldName)))
-		rec.SetByField(fieldName, dictToPropertyList(values, definition))
+		list := dictToPropertyList(values, definition)
+		parsePropertyValues(list)
+		merged[recKey] = list
+		all = append(all, list...)
+		return nil
+	})
+	addPropertyDisplayNames(model, ctx.Session, all)
+	ds.Range(func(pos int, rec *dataset.TRecordSet) error {
+		rec.SetByField(fieldName, merged[utils.ToString(rec.GetByField(idField))])
 		return nil
 	})
 
 	return nil
+}
+
+// addPropertyDisplayNames 对标 Odoo `_add_display_name`：many2one / many2many 的值与默认值
+// 补上显示名，前端的 m2o/m2m 控件直接渲染。按 comodel 分组、一个 comodel 一次读。
+// 读不到的（记录删了）many2one 置 false、many2many 去掉那一项。
+func addPropertyDisplayNames(model IModel, session *TSession, list []map[string]any) {
+	idsByModel := map[string][]any{}
+	for _, item := range list {
+		typ := utils.ToString(item["type"])
+		comodel := utils.ToString(item["comodel"])
+		if comodel == "" || (typ != "many2one" && typ != "many2many") {
+			continue
+		}
+		for _, key := range []string{"value", "default"} {
+			v := item[key]
+			if utils.IsBlank(v) {
+				continue
+			}
+			if typ == "many2one" {
+				idsByModel[comodel] = append(idsByModel[comodel], v)
+			} else if vals, ok := v.([]any); ok {
+				idsByModel[comodel] = append(idsByModel[comodel], vals...)
+			}
+		}
+	}
+	if len(idsByModel) == 0 {
+		return
+	}
+	names := map[string]map[string]string{}
+	for comodel, ids := range idsByModel {
+		m, err := model.Orm().GetModel(comodel, WithContext(model.Options().Context))
+		if err != nil {
+			continue
+		}
+		sub := m.Records()
+		if session != nil && session.Schema != "" {
+			sub.SetSchema(session.Schema)
+		}
+		nameField := m.GetRecordName()
+		cols := []string{m.IdField()}
+		if nameField != "" {
+			cols = append(cols, nameField)
+		}
+		ds, err := sub.Select(cols...).Ids(ids...).Read()
+		if err != nil {
+			continue
+		}
+		byId := map[string]string{}
+		ds.Range(func(pos int, rec *dataset.TRecordSet) error {
+			n := ""
+			if nameField != "" {
+				n = utils.ToString(rec.GetByField(nameField))
+			}
+			byId[utils.ToString(rec.GetByField(m.IdField()))] = n
+			return nil
+		})
+		names[comodel] = byId
+	}
+	for _, item := range list {
+		typ := utils.ToString(item["type"])
+		byId, ok := names[utils.ToString(item["comodel"])]
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"value", "default"} {
+			v := item[key]
+			if utils.IsBlank(v) {
+				continue
+			}
+			if typ == "many2one" {
+				if n, found := byId[utils.ToString(v)]; found {
+					item[key] = []any{v, n}
+				} else {
+					item[key] = false
+				}
+				continue
+			}
+			vals, _ := v.([]any)
+			out := []any{}
+			for _, id := range vals {
+				if n, found := byId[utils.ToString(id)]; found {
+					out = append(out, []any{id, n})
+				}
+			}
+			item[key] = out
+		}
+	}
 }
 
 // readContainerIds 返回 记录id(字符串) -> 容器id。
@@ -411,6 +511,9 @@ func (self *TPropertiesField) OnWrite(ctx *TFieldContext) error {
 			return err
 		}
 	}
+
+	removePropertyDisplayNames(kept)
+	parsePropertyValues(kept)
 
 	// 没填值的项落默认值——Odoo 在容器变化时用 compute 做同一件事。
 	for _, item := range kept {
@@ -742,8 +845,208 @@ func validatePropertiesDefinition(list []map[string]any) error {
 		if !propertyAllowedTypes[typ] {
 			return fmt.Errorf("the property type %q is not supported yet (property %q)", typ, name)
 		}
+
+		// html 与 `_html` 后缀互为充要（Odoo：值要按 html 净化，名字就是那个标记）。
+		if typ == "html" && !strings.HasSuffix(name, "_html") {
+			return fmt.Errorf("HTML property name should end with `_html`")
+		}
+		if typ != "html" && strings.HasSuffix(name, "_html") {
+			return fmt.Errorf("only HTML properties can have the `_html` suffix")
+		}
+
+		// 参数只能出现在对应的类型上（PROPERTY_PARAMETERS_MAP）。
+		for param, types := range propertyParameterTypes {
+			if _, has := item[param]; has && !types[typ] {
+				return fmt.Errorf("invalid property parameter %q", param)
+			}
+		}
+
+		if raw, has := item["selection"]; has && raw != nil {
+			opts, ok := raw.([]any)
+			if !ok {
+				return fmt.Errorf("wrong options %v", raw)
+			}
+			seenOpt := map[string]bool{}
+			for _, o := range opts {
+				pair, ok := o.([]any)
+				if !ok || len(pair) != 2 {
+					return fmt.Errorf("wrong options %v", raw)
+				}
+				key := utils.ToString(pair[0])
+				if seenOpt[key] {
+					return fmt.Errorf("some options are duplicated: %s", key)
+				}
+				seenOpt[key] = true
+			}
+		}
+		if raw, has := item["tags"]; has && raw != nil {
+			tags, ok := raw.([]any)
+			if !ok {
+				return fmt.Errorf("wrong tags definition %v", raw)
+			}
+			seenTag := map[string]bool{}
+			for _, t := range tags {
+				triple, ok := t.([]any)
+				if !ok || len(triple) != 3 || !isIntegral(triple[2]) {
+					return fmt.Errorf("wrong tags definition %v", raw)
+				}
+				key := utils.ToString(triple[0])
+				if seenTag[key] {
+					return fmt.Errorf("some tags are duplicated: %s", key)
+				}
+				seenTag[key] = true
+			}
+		}
 	}
 	return nil
+}
+
+// propertyParameterTypes —— Odoo `PROPERTY_PARAMETERS_MAP`：某个参数只能出现在哪些类型上。
+var propertyParameterTypes = map[string]map[string]bool{
+	"comodel":   {"many2one": true, "many2many": true},
+	"domain":    {"many2one": true, "many2many": true},
+	"selection": {"selection": true},
+	"tags":      {"tags": true},
+}
+
+// isIntegral 判断 JSON 解出来的值是不是整数（float64 的整数值也算）。
+func isIntegral(v any) bool {
+	switch n := v.(type) {
+	case int, int32, int64:
+		return true
+	case float64:
+		return n == float64(int64(n))
+	}
+	return false
+}
+
+// parsePropertyValues 对标 Odoo `_parse_json_types`：按定义清理读回来的值——
+// 选项被删了的 selection 置 false、不在定义里的 tag 去掉、关系型值不是 id 的清空、
+// html 名字不带 `_html` 的不信任。就地修改。
+func parsePropertyValues(list []map[string]any) {
+	for _, item := range list {
+		value, has := item["value"]
+		if !has || value == nil {
+			continue
+		}
+		switch utils.ToString(item["type"]) {
+		case "boolean":
+			item["value"] = utils.ToBool(value)
+		case "char", "text":
+			if _, ok := value.(string); !ok {
+				item["value"] = false
+			}
+		case "selection":
+			if utils.IsBlank(value) {
+				continue
+			}
+			keep := false
+			if opts, ok := item["selection"].([]any); ok {
+				for _, o := range opts {
+					if pair, ok := o.([]any); ok && len(pair) > 0 && utils.ToString(pair[0]) == utils.ToString(value) {
+						keep = true
+						break
+					}
+				}
+			}
+			if !keep {
+				item["value"] = false
+			}
+		case "tags":
+			all := map[string]bool{}
+			if tags, ok := item["tags"].([]any); ok {
+				for _, t := range tags {
+					if triple, ok := t.([]any); ok && len(triple) > 0 {
+						all[utils.ToString(triple[0])] = true
+					}
+				}
+			}
+			out := []any{}
+			if vals, ok := value.([]any); ok {
+				for _, v := range vals {
+					if all[utils.ToString(v)] {
+						out = append(out, v)
+					}
+				}
+			}
+			item["value"] = out
+		case "many2one":
+			if !isIntegral(value) && !isIdString(value) {
+				item["value"] = false
+			}
+		case "many2many":
+			vals, ok := value.([]any)
+			if !ok {
+				item["value"] = []any{}
+				continue
+			}
+			seen := map[string]bool{}
+			out := []any{}
+			for _, v := range vals {
+				if (isIntegral(v) || isIdString(v)) && !seen[utils.ToString(v)] {
+					seen[utils.ToString(v)] = true
+					out = append(out, v)
+				}
+			}
+			item["value"] = out
+		case "html":
+			if !strings.HasSuffix(utils.ToString(item["name"]), "_html") {
+				item["value"] = false
+			}
+		}
+	}
+}
+
+// isIdString —— 雪花 id 过 JSON 时常以字符串出现（19 位整数超出 JS 安全整数）。
+func isIdString(v any) bool {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// removePropertyDisplayNames 对标 Odoo `_remove_display_name`：前端发回来的关系型值
+// 带着显示名，落库前剥掉 —— many2one (35, 'Bob') → 35、many2many [(35,'Bob')] → [35]。
+func removePropertyDisplayNames(list []map[string]any) {
+	for _, item := range list {
+		value, has := item["value"]
+		if !has || utils.IsBlank(value) {
+			continue
+		}
+		switch utils.ToString(item["type"]) {
+		case "many2one":
+			if pair, ok := value.([]any); ok && len(pair) > 0 {
+				item["value"] = pair[0]
+			} else if m, ok := value.(map[string]any); ok {
+				item["value"] = m["id"]
+			}
+		case "many2many":
+			vals, ok := value.([]any)
+			if !ok {
+				continue
+			}
+			out := make([]any, 0, len(vals))
+			for _, v := range vals {
+				switch t := v.(type) {
+				case []any:
+					if len(t) > 0 {
+						out = append(out, t[0])
+					}
+				case map[string]any:
+					out = append(out, t["id"])
+				default:
+					out = append(out, v)
+				}
+			}
+			item["value"] = out
+		}
+	}
 }
 
 // m2oRawId 把 many2one 的各种形态（裸 id / [id,name] 经典元组 / {id:...} 记录）归一成裸 id。

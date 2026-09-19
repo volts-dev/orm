@@ -116,7 +116,7 @@ func TestValidatePropertiesDefinition(t *testing.T) {
 		{"缺 name", []map[string]any{{"type": "char"}}, true},
 		{"缺 type", []map[string]any{{"name": "a"}}, true},
 		{"重名", []map[string]any{{"name": "a", "type": "char"}, {"name": "a", "type": "text"}}, true},
-		{"未支持的类型", []map[string]any{{"name": "a", "type": "many2one"}}, true},
+		{"未支持的类型", []map[string]any{{"name": "a", "type": "one2many"}}, true},
 	}
 
 	for _, c := range cases {
