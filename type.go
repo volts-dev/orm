@@ -187,6 +187,9 @@ var (
 	TYPE_JSONB = "jsonb"
 	// TYPE_PROPERTIES / TYPE_PROPERTIES_DEFINITION 是"自定义规格"这一对字段
 	// （见 field_properties.go）：定义挂在别的记录上，值内联在本记录的 jsonb 列里。
+	// TYPE_HTML html 字段对外报的类型名。列仍是 TEXT（见 field_object.go 的 THtmlField.Init）；类型名
+	// 单独叫 html，前端才知道这一列该用富文本编辑器，而不是把 HTML 源码塞进一个 textarea。
+	TYPE_HTML                  = "html"
 	TYPE_PROPERTIES            = "properties"
 	TYPE_PROPERTIES_DEFINITION = "properties_definition"
 	// TYPE_VECTOR 是 pgvector 向量字段的 ORM 类型名（对标 Odoo ir.model.fields ttype=vector）。
@@ -223,12 +226,15 @@ var (
 		// 向量按文本搬运（线上形态是 `[a,b,c]`）。
 		Vector: TEXT_TYPE,
 
-		Char:       TEXT_TYPE,
-		NChar:      TEXT_TYPE,
-		Varchar:    TEXT_TYPE,
-		NVarchar:   TEXT_TYPE,
-		TinyText:   TEXT_TYPE,
-		Text:       TEXT_TYPE,
+		Char:     TEXT_TYPE,
+		NChar:    TEXT_TYPE,
+		Varchar:  TEXT_TYPE,
+		NVarchar: TEXT_TYPE,
+		TinyText: TEXT_TYPE,
+		Text:     TEXT_TYPE,
+		// html 字段的类型名（TYPE_HTML，大写后查表）：按 typeName 归类的地方（expr 的 = False / != False）
+		// 要把它当文本——它的列本来就是 TEXT。
+		"HTML":     TEXT_TYPE,
 		NText:      TEXT_TYPE,
 		MediumText: TEXT_TYPE,
 		LongText:   TEXT_TYPE,

@@ -37,6 +37,10 @@ func newHtmlField() IField {
 // 列类型本来就该一样；Odoo 的 fields.Html 也是继承 fields.Text。
 func (self *THtmlField) Init(ctx *TTagContext) {
 	initCharField(ctx, Text)
+	// 列是 TEXT，但类型名是 html：前端按类型名选控件，报成 TEXT 的话每个 html 字段都被画成 textarea、
+	// 用户看到的是一堆 HTML 标签（2026-09-20 html_editor 接进 vertex 表单时发现）。按 typeName 归类的地方
+	// 经 SqlTypes["HTML"] 仍当文本处理。
+	ctx.Field.Base().typeName = TYPE_HTML
 }
 
 func (self *TBinField) Init(ctx *TTagContext) {
