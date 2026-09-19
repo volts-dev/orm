@@ -964,6 +964,16 @@ func (self *TSession) _read() (*dataset.TDataSet, error) {
 		}
 	}
 
+	// ★ 有要读后再算的字段（非存储 getter / 关系 / properties）时，主键必须进 SELECT：
+	// 它们全都按记录 id 去取值。调用方只点了这类字段、没点 id 时（pro.variant 的 name
+	// 是非存储 getter，`Fields: ["name"]`），此前 SELECT 里一列都没有——整次读回 0 行；
+	// 混着一个存储列时行回来了，但 getter 拿不到 id，那一格静默缺失（2026-09-19）。
+	// Odoo 的 read 恒带 id，这里只在确实需要时补，只读存储列的调用方结果形状不变。
+	if idf := model.IdField(); (hasScalarCompute || len(relateFields) > 0 || len(postReadFields) > 0) && idf != "" &&
+		utils.IndexOf(idf, storeFields...) == -1 {
+		storeFields = append([]string{idf}, storeFields...)
+	}
+
 	// 获取数据库数据
 	//# fetch stored fields from the database to the cache
 	dataset, _, err := self._readFromDatabase(storeFields, relateFields)

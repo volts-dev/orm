@@ -104,3 +104,41 @@ func TestNonStoredMany2oneGetterIsComputed(t *testing.T) {
 		t.Fatalf("classic read mirror_category_id = %v, want {id:%s name:Office}", m, wantId)
 	}
 }
+
+// 只点名 getter 字段、没点 id 时，主键也必须进 SELECT：getter 按 id 取值。
+// 此前 `Select("mirror_category_id")` 的 SELECT 一列都没有，整次读回 0 行；混一个存储列
+// （name）时行回来了，但 getter 拿不到 id，那一格静默为空（vectors 侧 pro.variant 的
+// name 是非存储 getter，`Fields: ["name"]` 读变体回 0 条，2026-09-19）。
+func TestGetterOnlyReadStillSelectsPrimaryKey(t *testing.T) {
+	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatalf("orm.New: %v", err)
+	}
+	if _, err := o.SyncModel("", new(M2OGetterCatModel), new(M2OGetterItemModel)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	catIds, err := o.Model("m2o.getter.cat").Create(map[string]any{"name": "Office"})
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	itemIds, err := o.Model("m2o.getter.item").Create(map[string]any{"name": "Chair", "category_id": catIds[0]})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	wantId := utils.ToString(catIds[0])
+
+	for _, fields := range [][]string{{"mirror_category_id"}, {"name", "mirror_category_id"}} {
+		res, err := o.Model("m2o.getter.item").Ids(itemIds[0]).Select(fields...).Read()
+		if err != nil {
+			t.Fatalf("read %v: %v", fields, err)
+		}
+		if res.Count() != 1 {
+			t.Fatalf("read %v: %d rows, want 1", fields, res.Count())
+		}
+		res.First()
+		if got := utils.ToString(res.Record().GetByField("mirror_category_id")); got != wantId {
+			t.Fatalf("read %v: mirror_category_id = %q, want %q", fields, got, wantId)
+		}
+	}
+}

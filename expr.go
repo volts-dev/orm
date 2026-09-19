@@ -726,7 +726,11 @@ func (self *TExpression) parse(context map[string]any) error {
 			subNode.Push(path[1])
 			subNode.Push(operator.String())
 			subNode.Push(right.Clone())
-			lDs, rerr := self.subSession().Model(target.String()).Domain(subNode).Limit(-1).Read()
+			// ★ 只选 id：这里只要对端的 id 集合。不带 Select 时会读对端**全部列**并跑它的
+			//   全部 getter——pro.variant 的公司记录规则转发到 product_template_id.company_id，
+			//   每读一次变体就把整张 pro_tmpl（含 image_1920 原图）读一遍，真栈单次 609ms，
+			//   库存移动列表读一行要 2 秒多（2026-09-19）。下面几处同理。
+			lDs, rerr := self.subSession().Model(target.String()).Select(target.IdField()).Domain(subNode).Limit(-1).Read()
 			if rerr != nil {
 				return rerr
 			}
@@ -757,7 +761,7 @@ func (self *TExpression) parse(context map[string]any) error {
 			if terr != nil {
 				return terr
 			}
-			lDs, rerr := self.subSession().Model(target.String()).Domain(subNode).Limit(-1).Read()
+			lDs, rerr := self.subSession().Model(target.String()).Select(target.IdField()).Domain(subNode).Limit(-1).Read()
 			if rerr != nil {
 				return rerr
 			}
@@ -766,7 +770,7 @@ func (self *TExpression) parse(context map[string]any) error {
 				right_ids = lDs.Keys()
 			}
 
-			lDs, rerr = self.subSession().Model(model.String()).
+			lDs, rerr = self.subSession().Model(model.String()).Select(model.idField).
 				Domain(idInLeaf(model.idField, path[0], right_ids)).Limit(-1).Read()
 			if rerr != nil {
 				return rerr
@@ -970,7 +974,7 @@ func (self *TExpression) parse(context map[string]any) error {
 					subNode.Push(recName)
 					subNode.Push(operator.String())
 					subNode.Push(right.Clone())
-					lDs, rerr := self.subSession().Model(target.String()).Domain(subNode).Limit(-1).Read()
+					lDs, rerr := self.subSession().Model(target.String()).Select(target.IdField()).Domain(subNode).Limit(-1).Read()
 					if rerr != nil {
 						return rerr
 					}
