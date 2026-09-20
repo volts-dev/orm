@@ -178,3 +178,39 @@ func TestTagGroupOperator_EmptyParams(t *testing.T) {
 		t.Errorf("未指定时应为空串，实得 %q", got)
 	}
 }
+
+// 部分索引（带 WHERE 谓词）不能当 ON CONFLICT 的目标：Postgres 只在语句里把同一个
+// 谓词重复一遍时才认它，光给列名报 42P10。
+//
+// 真栈战绩（2026-09-20）：ai 模块在 sys_action 上建了
+// `UNIQUE (tenant_id, ai_tool_name) WHERE use_in_ai IS TRUE`（照抄 Odoo），
+// 于是**整个模块装不上**，而错误文案既不提索引名也不提"部分索引"，看着像 XML 写错了。
+func TestExpandToUniqueIndex_SkipsPartialIndex(t *testing.T) {
+	insert := []string{"id", "tenant_id", "ai_tool_name", "name"}
+
+	partial := map[string]*TIndex{
+		"ir_act_server_ai_tool_name_unique": {
+			Name: "ir_act_server_ai_tool_name_unique", Type: UniqueType,
+			Cols: []string{"tenant_id", "ai_tool_name"}, Where: "use_in_ai IS TRUE",
+		},
+	}
+	// 唯一可选的索引是部分索引 → 不介入，原样返回（上层回落到主键）。
+	if got := strings.Join(expandToUniqueIndex(partial, insert, nil), ","); got != "" {
+		t.Fatalf("部分索引不该被选作冲突目标，却拿到 %q", got)
+	}
+	// 调用方识别出了唯一字段时也一样：宁可回落到那些字段，也不能指向部分索引。
+	if got := strings.Join(expandToUniqueIndex(partial, insert, []string{"ai_tool_name"}), ","); got != "ai_tool_name" {
+		t.Fatalf("应原样返回入参，却拿到 %q", got)
+	}
+
+	// 同一张表上另有一个全表唯一索引时，选它。
+	both := map[string]*TIndex{
+		"ir_act_server_ai_tool_name_unique": partial["ir_act_server_ai_tool_name_unique"],
+		"zz_full_unique": {
+			Name: "zz_full_unique", Type: UniqueType, Cols: []string{"tenant_id", "name"},
+		},
+	}
+	if got := strings.Join(expandToUniqueIndex(both, insert, nil), ","); got != "tenant_id,name" {
+		t.Fatalf("应选中全表唯一索引，却拿到 %q", got)
+	}
+}

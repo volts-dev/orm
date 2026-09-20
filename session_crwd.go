@@ -1916,6 +1916,19 @@ func expandToUniqueIndex(indexes map[string]*TIndex, insertFields, uniqueFields 
 		if idx == nil || idx.Type != UniqueType || len(idx.Cols) == 0 {
 			continue
 		}
+		// ★ 部分索引（`CREATE UNIQUE INDEX … WHERE 谓词`）不能当冲突目标。Postgres
+		// 只在语句里**把同一个谓词重复一遍**（`ON CONFLICT (列…) WHERE 谓词`）时才
+		// 认它，光给列名照样报 42P10；而就算补上谓词也不对：不满足谓词的那些行根本
+		// 撞不上这个索引，同一条语句对不同的行会有两套语义。跳过它、回落到主键才是对的。
+		//
+		// 真栈战绩（2026-09-20）：ai 模块的 sys_action 上有
+		// `ir_act_server_ai_tool_name_unique UNIQUE (tenant_id, ai_tool_name) WHERE use_in_ai IS TRUE`
+		// （照抄 Odoo），于是**整个模块装不上**——报错停在第一条 XML 记录，文案是
+		// "there is no unique or exclusion constraint matching the ON CONFLICT specification"，
+		// 既不提索引名也不提是部分索引，看着像数据文件写错了。
+		if idx.Where != "" {
+			continue
+		}
 		// 必须整组列都在本次 INSERT 里，缺一列这个索引就用不了；
 		// 调用方识别出了唯一字段时，还要求索引确实覆盖其中某一列，避免选到无关索引
 		// （没识别出任何唯一字段时没有这层约束——任何被本次插入完整覆盖的唯一索引
