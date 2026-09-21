@@ -71,3 +71,58 @@ func TestOP_ImplicitAndList_Or(t *testing.T) {
 		t.Errorf("operator = %q, want %q", op, OR_OPERATOR)
 	}
 }
+
+// 回归（2026-09-22 真栈）：vectors 列表搜索在显示名叶子上 OR 进候选 id，
+// [A, B] 变成 [A, '|', B, C] —— 4 个元素、两项。再 AND 租户条件时旧实现按元素个数
+// 补了 3 个 '&'，得到 ['&','&','&','&',A,'|',B,C,T]，normalize_domain 报
+// arity mismatch，按名字搜 sys.attachment 直接 500。应当只补 1 个。
+func TestOP_ImplicitAndList_WithNestedOr(t *testing.T) {
+	self, err := Any2Domain([]any{
+		[]any{"res_model", "=", "knowledge.cover"},
+		"|", []any{"name", "ilike", "probe"}, []any{"id", "in", []any{"1", "2"}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	self.OP(AND_OPERATOR, New("tenant_id", "=", "?"))
+
+	want := `[('&'),('&'),('res_model','=','knowledge.cover'),('|'),('name','ilike','probe'),('id','in',['1','2']),('tenant_id','=','?')]`
+	got := Domain2String(self)
+	if missing := self.missingAnds(); missing != 0 {
+		t.Fatalf("结果仍不是一项（还缺 %d 个 '&'）：%s", missing, got)
+	}
+	if n := countOps(self, AND_OPERATOR); n != 2 {
+		t.Fatalf("应有 2 个 '&'，实际 %d 个：%s\nwant 形如 %s", n, got, want)
+	}
+}
+
+// 以运算符开头、后面仍有隐式 AND：['|', A, B, C] = (A|B) & C。
+// 再 AND D 应为 ['&', '&', '|', A, B, C, D]，而不是把 D 和 C 错位成一组。
+func TestOP_OperatorPrefixedImplicitAnd(t *testing.T) {
+	self, err := Any2Domain([]any{
+		"|", []any{"a", "=", 1}, []any{"b", "=", 2}, []any{"c", "=", 3},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	self.OP(AND_OPERATOR, New("d", "=", 4))
+	if missing := self.missingAnds(); missing != 0 {
+		t.Fatalf("结果仍不是一项（还缺 %d 个 '&'）：%s", missing, Domain2String(self))
+	}
+	if n := countOps(self, AND_OPERATOR); n != 2 {
+		t.Fatalf("应有 2 个 '&'，实际 %d 个：%s", n, Domain2String(self))
+	}
+	if self.Item(0).String() != AND_OPERATOR || self.Item(1).String() != AND_OPERATOR || self.Item(2).String() != OR_OPERATOR {
+		t.Fatalf("前缀应为 & & |：%s", Domain2String(self))
+	}
+}
+
+func countOps(n *TDomainNode, op string) int {
+	c := 0
+	for _, ch := range n.Nodes() {
+		if ch.IsValueNode() && ch.String() == op {
+			c++
+		}
+	}
+	return c
+}

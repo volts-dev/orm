@@ -200,6 +200,11 @@ func (self *TDomainNode) OP(op string, node *TDomainNode) *TDomainNode {
 			}
 
 		} else if self.Item(0).IsDomainOperator() {
+			// 以运算符开头也可能后面还跟着隐式 AND：['|', A, B, C] = (A|B) & C。
+			// 不先补齐就前插 op，新条件会和 C 错位成一组。
+			for i, n := 0, self.missingAnds(); i < n; i++ {
+				self.Insert(0, AND_OPERATOR)
+			}
 			if node.IsLeafNode() {
 				// 添加单叶新条件
 				self.Insert(0, op) // 添加操作符
@@ -217,10 +222,24 @@ func (self *TDomainNode) OP(op string, node *TDomainNode) *TDomainNode {
 				// 单条件被包了一层列表 -> 解包当作该条件处理
 				*self = *self.Item(0).Clone()
 			} else {
-				// 多条件隐式 AND -> 把 '&' 显式补到前面(n 个条件需 n-1 个 '&')。
-				// 注意: Insert 会增加 Count(), 必须先固定循环次数避免死循环。
-				for i, n := 0, self.Count()-1; i < n; i++ {
-					self.Insert(0, AND_OPERATOR)
+				// 多条件隐式 AND -> 把缺的 '&' 显式补到前面。
+				// ★ 按运算符元数记账，不按元素个数：[A, '|', B, C] 是 4 个元素、却只有
+				//   两项（A 与 B|C），只缺 1 个 '&'。原来补 n-1=3 个，多出的两个让
+				//   normalize_domain 报 arity mismatch —— vectors 列表搜索在显示名叶子上
+				//   OR 进候选 id（list_search.go / translate_search.go）后必然是这个形状，
+				//   按名字搜 sys.attachment 等模型直接 500。
+				if missing := self.missingAnds(); missing > 0 {
+					for i := 0; i < missing; i++ {
+						self.Insert(0, AND_OPERATOR)
+					}
+				} else {
+					// 记账平不了（运算符多于项）：再递归会死循环，原样拼上交给 normalize_domain 拒绝
+					cond := NewDomainNode()
+					cond.Insert(0, op)
+					cond.Push(self.Clone())
+					cond.Push(node)
+					*self = *cond
+					return self
 				}
 			}
 			return self.OP(op, node)
@@ -228,6 +247,28 @@ func (self *TDomainNode) OP(op string, node *TDomainNode) *TDomainNode {
 	}
 
 	return self
+}
+
+// missingAnds 数这个列表凑成**一项**还缺几个 '&'（隐式 AND 的个数）。
+// 记账同 orm 的 normalize_domain / Odoo 的 normalize_domain：'!' 一元、'&' '|' 二元，
+// 其余孩子各算一项；缺的 '&' 全部前插即可（Odoo 也是 insert(0, '&')）。
+func (self *TDomainNode) missingAnds() int {
+	expected, missing := 1, 0
+	for _, n := range self.children {
+		if expected == 0 {
+			missing++
+			expected = 1
+		}
+		switch {
+		case n.IsValueNode() && n.String() == NOT_OPERATOR:
+			// 一元：expected 不变
+		case n.IsValueNode() && n.IsDomainOperator():
+			expected++
+		default:
+			expected--
+		}
+	}
+	return missing
 }
 
 func (self *TDomainNode) Type() NodeType {
