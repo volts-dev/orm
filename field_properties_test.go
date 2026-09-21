@@ -192,3 +192,20 @@ func TestM2ORawId(t *testing.T) {
 		}
 	}
 }
+
+// 没有定义时读出来是空列表，不是 null（Odoo 契约；上游前端直接遍历它）。
+func TestPropertiesDefinitionReadsEmptyAsList(t *testing.T) {
+	f := new(TPropertiesDefinitionField)
+	for _, raw := range []any{nil, "", []byte("null")} {
+		var cell any = raw
+		got := f.onConvertToRead(nil, nil, []any{&cell}, 0)
+		list, ok := got.([]any)
+		if !ok || len(list) != 0 {
+			t.Fatalf("%#v 读出来应当是空列表，得到 %#v", raw, got)
+		}
+	}
+	var cell any = `[{"name":"a","type":"date"}]`
+	if got, ok := f.onConvertToRead(nil, nil, []any{&cell}, 0).([]any); !ok || len(got) != 1 {
+		t.Fatalf("有定义时原样解出来，得到 %#v", got)
+	}
+}

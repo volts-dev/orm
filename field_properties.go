@@ -121,7 +121,14 @@ func (self *TPropertiesDefinitionField) Init(ctx *TTagContext) {
 
 func (self *TPropertiesDefinitionField) onConvertToRead(session *TSession, cols []string, record []any, colIndex int) any {
 	value := *record[colIndex].(*any)
-	return decodeJsonValue(value)
+	// 没有定义时回**空列表**，不回 null（Odoo 的契约：properties_definition 读出来永远是列表）。
+	// 上游前端直接遍历它 —— knowledge 的条目日历设置对话框 `for (const d of definitions)`，
+	// 在一篇还没加过属性的文章上 null 就是 `is not iterable`，对话框整个打不开。
+	decoded := decodeJsonValue(value)
+	if decoded == nil {
+		return []any{}
+	}
+	return decoded
 }
 
 func (self *TPropertiesDefinitionField) onConvertToWrite(session *TSession, value any) any {
