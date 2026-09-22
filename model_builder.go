@@ -226,6 +226,26 @@ func (self *ModelBuilder) Field(name, fieldType string) *fieldStatment {
 	}
 }
 
+// Extend 取结构体 tag 已经声明好的字段，只往上**补**属性（Getter / Setter / Searcher /
+// Store……），不重建字段。
+//
+// Field() 是整字段替换：tag 上的 digits / min_display_digits / groups / help 统统丢掉，
+// 而 builder 又没有这几项的设置口子。要把一列存储列改成「非存储 + 读写代理」又不想
+// 丢掉那些元数据时用它（例如 pro.tmpl.standard_price 的 groups('registry.group_user')——
+// 整字段替换会让成本对所有人可见）。
+//
+// 字段不存在是声明错误，直接 Fatal（同 Field 对 NewField 失败的处理）。
+func (self *ModelBuilder) Extend(name string) *fieldStatment {
+	field := self.model.GetFieldByName(name)
+	if field == nil {
+		log.Fatalf("orm: Extend(%q) on model %s: 字段未声明——先在结构体 tag 或 Field() 里声明", name, self.model.name)
+	}
+	return &fieldStatment{
+		builder: self,
+		field:   field,
+	}
+}
+
 func (self *ModelBuilder) SetName(name string) *ModelBuilder {
 	return self
 }
