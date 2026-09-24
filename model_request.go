@@ -827,7 +827,9 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 
 		relateModelName := field.RelatedModelName()
-		relateModel, err := self.orm.GetModel(relateModelName, WithContext(ctx.Model.Options().Context))
+		// 标记为「关联标签读取」（见 label_read.go）：下面两支都只取关联记录的 id + 名字。
+		// 授权由宿主判；这里只如实标出这次读的性质。
+		relateModel, err := self.orm.GetModel(relateModelName, WithContext(WithLabelRead(ctx.Model.Options().Context)))
 		if err != nil {
 			return nil, err
 		}
