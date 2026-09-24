@@ -1219,3 +1219,66 @@ func TestMergeExplicitKeys(t *testing.T) {
 		t.Errorf("struct 源不该被 Sets 改变语义：%v", k)
 	}
 }
+
+// TestSeparateValues_NonStoreSetterNotFiredWhenAbsent 盯住一个曾经在库里抹数据的行为：
+// 非存储字段的 setter **只有调用方给了这一列时**才该进 upd_todo（进去就等于在
+// _todoCompute 里被调用）。
+//
+// 坏掉时的样子：改 pro.tmpl 的 name，变体上的 barcode / default_code /
+// standard_price / volume / weight 被一起写成空——那五格是 Store(false)+Setter 的
+// 代理字段，setter 拿到的 ctx.Value 是 nil，分不清"没给"与"给了空"，照着写出去。
+// 零报错零日志，成本被清零则整批货按 0 估值。
+func TestSeparateValues_NonStoreSetterNotFiredWhenAbsent(t *testing.T) {
+	fields := []IField{
+		newTestField("name", withModelName("test.model")),
+		// 代理字段：非存储 + setter。
+		newTestField("proxy", withModelName("test.model"), withStore(false), withHasSetter()),
+	}
+	obj := testModelObj(fields, nil, nil)
+	session := testSession("test.model", "id", obj)
+
+	// ① 只写 name（proxy 这一列**没提**）→ proxy 不该进 upd_todo。
+	data := makeDataSet(map[string]any{"name": "renamed"})
+	_, _, updTodo, err := session._separateValues(data, nil, nil, false, []any{int64(1)}, map[string]bool{"name": true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range updTodo {
+		if f.Name() == "proxy" {
+			t.Fatal("没给的非存储字段进了 upd_todo：它的 setter 会被拿 nil 调用一遍，" +
+				"代理字段会把目标记录上的真值抹成空（改模板名字清空变体成本/条码就是这个）")
+		}
+	}
+
+	// ② 显式给了值 → 照旧要进 upd_todo，否则写入被静默丢弃。
+	data2 := makeDataSet(map[string]any{"name": "renamed", "proxy": "v"})
+	_, _, updTodo2, err := session._separateValues(data2, nil, nil, false, []any{int64(1)}, map[string]bool{"name": true, "proxy": true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, f := range updTodo2 {
+		if f.Name() == "proxy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("显式给了值的非存储字段没进 upd_todo：setter 不会被调用，写入被静默丢弃")
+	}
+
+	// ③ 显式写 nil（"清空"的意思）也要进：explicitKeys 里有这个键就算表达过。
+	data3 := makeDataSet(map[string]any{"name": "renamed", "proxy": nil})
+	_, _, updTodo3, err := session._separateValues(data3, nil, nil, false, []any{int64(1)}, map[string]bool{"name": true, "proxy": true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found = false
+	for _, f := range updTodo3 {
+		if f.Name() == "proxy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("显式写 nil 的非存储字段没进 upd_todo：清空这个动作会被静默丢弃")
+	}
+}

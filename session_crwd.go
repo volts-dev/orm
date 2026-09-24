@@ -1798,8 +1798,29 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 				}
 				record.SetByField(name, fieldValue)
 			}
-		} else {
-			//# 大型复杂计算字段
+		} else if explicit || setted {
+			//# 大型复杂计算字段（非存储/无物理列，且调用方**确实给了这一列**）
+			//
+			// ★ 那道 `explicit || setted` 是承重的，不是优化。这一支的字段最后由
+			// _todoCompute 的 `!field.Store()` 分支在 ids != nil 时调 OnWrite，
+			// 也就是调字段自己的 setter。此前无条件 append，于是**模型上每一个非存储
+			// 字段的 setter，在每次写入时都会被调一遍，值是 nil**——调用方根本没提这
+			// 一列。setter 看不出"没给"与"给了空"的区别（ctx.Value 两种情形都是 nil），
+			// 照着把空值写出去就是静默的数据丢失：product 的 pro.tmpl 上 barcode /
+			// default_code / standard_price / volume / weight 五格是唯一变体那几列的
+			// 读写代理（Store(false) + Setter），于是**改一次产品模板的名字，变体的
+			// 条码、内部编码、成本、体积、重量全被抹成空**，库里真的被 UPDATE 掉，
+			// 零报错、零日志。成本被清零意味着标准成本估值整批按 0 计价。
+			//
+			// 判据两条缺一不可：
+			//   explicit —— 键在输入 map 里（含显式写 nil，那是"清空"的意思）或被
+			//               Select()/Fields() 点了名；
+			//   setted   —— 值非 nil。结构体入参时 explicitKeysOf 返回 nil（非 map
+			//               源没有"键集合"可言），全靠这一条兜住。
+			// 语义与上游一致：Odoo 的 inverse 只在字段出现在 vals 里时才被调用。
+			//
+			// 关系字段（o2o/o2m/m2o/m2m）不从这里走——它们在上面 field.IsRelated()
+			// 那一支就 continue 了，而那里本来就有 setted 闸。
 			upd_todo = append(upd_todo, field)
 		}
 
