@@ -765,11 +765,10 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			return nil, err
 		}
 	}
-	if expr := field.Domain(); expr != "" {
-		node, err := domain.String2Domain(expr, ds)
-		if err != nil {
-			return nil, err
-		}
+	// 与命令 5/6 找「现有子行」用的是同一个入口（fieldComodelDomain），两边看到同一组。
+	if node, err := fieldComodelDomain(field, ds); err != nil {
+		return nil, err
+	} else if node != nil {
 		if relDomain == nil {
 			relDomain = node
 		} else {
@@ -929,12 +928,10 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 	}
 
-	if expr := field.Domain(); expr != "" {
-		node, err := domain.String2Domain(expr, ds)
-		if err != nil {
-			return nil, err
-		}
-
+	// 与命令 5/6 找「现有关联」用的是同一个入口（fieldComodelDomain），两边看到同一组。
+	if node, err := fieldComodelDomain(field, ds); err != nil {
+		return nil, err
+	} else if node != nil {
 		if domainNode == nil {
 			domainNode = node
 		} else {

@@ -426,8 +426,9 @@ func (self *TOne2ManyField) OnWrite(ctx *TFieldContext) error {
 			}
 
 		case 5: // Clear (5)
+			// 只清 domain 之内的子行，见 o2mChildIds。
 			for _, parentId := range ctx.Ids {
-				current, err := o2mChildIds(comodel, inverse, parentId)
+				current, err := o2mChildIds(comodel, inverse, parentId, field)
 				if err != nil {
 					return err
 				}
@@ -449,8 +450,10 @@ func (self *TOne2ManyField) OnWrite(ctx *TFieldContext) error {
 			for _, id := range wanted {
 				wantedKeys[utils.ToString(id)] = true
 			}
+			// 「替换」的是这个字段**看得见**的那一组：domain 外的子行既不在 current 里，
+			// 也就不会被当成 stale 解绑/删除，见 o2mChildIds。
 			for _, parentId := range ctx.Ids {
-				current, err := o2mChildIds(comodel, inverse, parentId)
+				current, err := o2mChildIds(comodel, inverse, parentId, field)
 				if err != nil {
 					return err
 				}
@@ -540,7 +543,16 @@ func toStringMap(v any) (map[string]any, error) {
 // 一样会被删——是**跨记录的销毁**。父记录条件为什么会丢还没查清（纯 orm 模型、
 // 以及子模型带记录规则两种情形都复现不出来，见 field_o2m_scope_test.go /
 // field_o2m_recordrule_test.go），但无论原因是什么，这一步都不该把整张表交出去。
-func o2mChildIds(comodel IModel, inverse string, parentId any) ([]any, error) {
+//
+// ★ **只列字段 domain 之内的子行。** 命令 5（清空）与 6（整体替换）拿这批 id 去解绑/删除，
+// 所以它必须与读取路径（TModel.OneToMany）看到的是同一组——同一张子表按 domain 切成
+// 几个 o2m 字段时，对其中一个发 (5,) 不能把别的字段的行一起带走。此前这里只按反向键
+// 找，account.move.invoice_line_ids（domain 只含 product/section/note 行，反向键
+// move_id 必填＝解绑即删除）上一次 (5,) 或 (6,0,ids) 会把同一张发票的税额行、应收行
+// 一起删掉，不报错。上游 Odoo 19 One2many.write_real 的 CLEAR/SET 查的正是
+// `get_comodel_domain(model) & (inverse in recs) & (id not in lines)`。
+// 2（删除）/ 3（解绑）点名 id，与上游一致不看 domain，不经过这里。
+func o2mChildIds(comodel IModel, inverse string, parentId any, field IField) ([]any, error) {
 	// 父 id 为空时读出来的必然是整张表。宁可报错也不能让调用方拿去删。
 	if parentId == nil || utils.IsBlank(parentId) {
 		return nil, fmt.Errorf(
@@ -548,9 +560,19 @@ func o2mChildIds(comodel IModel, inverse string, parentId any) ([]any, error) {
 			comodel.String())
 	}
 
+	dom := domain.New(inverse, "=", parentId)
+	// 每次现解析一棵新树：Read 会就地改调用方传进去的 domain（见 fieldComodelDomain）。
+	fieldDom, err := fieldComodelDomain(field, nil)
+	if err != nil {
+		return nil, err
+	}
+	if fieldDom != nil {
+		dom.AND(fieldDom)
+	}
+
 	idField := comodel.IdField()
 	ds, err := comodel.Read(&ReadRequest{
-		Domain: domain.New(inverse, "=", parentId),
+		Domain: dom,
 		// 反向键一起读回来，下面自己核对——只读 id 的话，域丢了也看不出来。
 		Fields: []string{idField, inverse},
 		Limit:  -1,
@@ -581,6 +603,39 @@ func o2mChildIds(comodel IModel, inverse string, parentId any) ([]any, error) {
 			comodel.String(), inverse, parentId, foreign)
 	}
 	return ids, nil
+}
+
+// fieldComodelDomain 把关系字段上声明的 domain 解析成对端模型上的条件；字段没有
+// domain（或解析出来是空树）时返回 nil。
+//
+// **读写两条路共用这一个入口**：o2m/m2m 的读取（TModel.OneToMany / ManyToMany）按它过滤，
+// 命令 5/6 找"现有的那一组"也按它过滤——两边看到的必须是同一组，否则"清空这一栏"会清掉
+// 这一栏里根本看不见的行。
+//
+// context 是 domain 里裸标识符（不带引号的 `company_id`）取值用的数据集，与
+// domain.String2Domain 的语义相同。读取路径传父记录的数据集；写入路径没有完整的父记录
+// 可传，给 nil——引用父记录字段的 domain 在写入侧会解析成字面串、筛不出东西，于是 5/6
+// **少解绑而不是多删**。这类 domain 本来就不该写在模型字段上（服务端读取也会被它错误
+// 过滤），写在视图的 `<field domain=...>` 上。
+//
+// 每次调用都返回一棵新树：TModel.Read 会就地改写传进去的 domain，缓存一棵共用的树会被
+// 第一次读取改坏。
+func fieldComodelDomain(field IField, context *dataset.TDataSet) (*domain.TDomainNode, error) {
+	if field == nil {
+		return nil, nil
+	}
+	expr := field.Domain()
+	if expr == "" {
+		return nil, nil
+	}
+	node, err := domain.String2Domain(expr, context)
+	if err != nil {
+		return nil, fmt.Errorf("field <%s@%s> domain %q: %w", field.Name(), field.ModelName(), expr, err)
+	}
+	if node == nil || node.Count() == 0 {
+		return nil, nil
+	}
+	return node, nil
 }
 
 // o2mDetach 把子行从父记录上摘下来:反向键必填时删除,否则置空外键留下记录本身。
@@ -1339,6 +1394,13 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 //
 // 返回原元组及是否匹配。
 func isM2MCommandTuple(val any) ([]any, bool) {
+	// 单元素只认 (5,)：Clear 不带 id 也不带值，上游 Odoo 的 CLEAR 只看 command[0]。
+	// 此前一律要求二/三元组，documents 的「替换标签」发的 [(5,), (4, id)] 于是整份被当成
+	// 裸 id 列表，命令元组本身绑进 SQL 报错（pq 22P02 `"{5}"`）。其余单元素（如 [4]）
+	// 缺了必需的 id，仍不视为命令。
+	if s, ok := val.([]any); ok && len(s) == 1 && utils.ToInt64(s[0]) == 5 {
+		return s, true
+	}
 	if s, ok := val.([]any); ok && (len(s) == 2 || len(s) == 3) {
 		code := utils.ToInt64(s[0])
 		if code >= 0 && code <= 6 {
@@ -1407,6 +1469,12 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 						return err
 					}
 				case 5: // Clear (5, 0, 0)
+					// 字段带 domain 时只清 domain 之内的关联，见 setWithinDomain。
+					if handled, err := self.setWithinDomain(ctx, nil); err != nil {
+						return err
+					} else if handled {
+						continue
+					}
 					if err := self.unlink_all(ctx, nil); err != nil {
 						return err
 					}
@@ -1420,6 +1488,12 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 						ids = []any{cmd[2]} // Fallback if it's a single element
 					}
 
+					// 字段带 domain 时只替换 domain 之内的那一组，见 setWithinDomain。
+					if handled, err := self.setWithinDomain(ctx, ids); err != nil {
+						return err
+					} else if handled {
+						continue
+					}
 					if err := self.unlink_all(ctx, nil); err != nil { // 先清除所有关联
 						return err
 					}
@@ -1466,6 +1540,135 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 	}
 
 	return nil
+}
+
+// setWithinDomain 执行带 domain 的 m2m 字段上的 5（清空，wanted 为空）与 6（整体替换为
+// wanted）：**只动字段 domain 之内的关联**。字段没有 domain 时返回 handled=false，由调用方
+// 走原来"清掉全部再链接"的路，行为不变。
+//
+// 为什么：同一张关系表可以按 domain 切成几个 m2m 字段（或关系表里本来就有这一栏看不见
+// 的对端），读取路径（TModel.ManyToMany）按 domain 过滤，用户在这一栏里看到、改动的只是
+// 那一组；此前 5/6 按关系表把该记录的**全部**关联删掉，domain 外的关联被静默带走。
+// 上游 Odoo 19 Many2many.write_real 的 CLEAR/SET 作用于 old_relation = record[self.name]
+// ——即按 domain 过滤后的那一组——要删的只是 old − new，要加的是 new − old。
+// 3（解绑）点名 id，不看 domain，不经过这里。
+//
+// 逐个父记录处理：每个父记录"已有的关联"不同，要加的也就不同；只插缺的那几条，不依赖
+// 关系表上一定有 UNIQUE（早年建出来的关系表未必有，ON CONFLICT DO NOTHING 就挡不住重复）。
+func (self *TMany2ManyField) setWithinDomain(ctx *TFieldContext, wanted []any) (handled bool, err error) {
+	field := ctx.Field
+	probe, err := fieldComodelDomain(field, nil)
+	if err != nil {
+		return true, err
+	}
+	if probe == nil {
+		return false, nil
+	}
+	if len(ctx.Ids) == 0 {
+		return true, nil
+	}
+
+	comodel, err := ctx.Session._getModel(field.RelatedModelName())
+	if err != nil {
+		return true, err
+	}
+	idField := comodel.IdField()
+
+	quoter := ctx.Session.Orm().dialect.Quoter()
+	midTable := quoter.QuoteTable(ctx.Session.Schema, strings.Replace(field.JoinModelName(), ".", "_", -1))
+	relKey := field.RelatedKeyName()
+	linkedSql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
+		quoter.Quote(relKey), midTable, quoter.Quote(field.JoinSourceKey()))
+
+	wantedKeys := make(map[string]bool, len(wanted))
+	for _, id := range wanted {
+		wantedKeys[utils.ToString(id)] = true
+	}
+
+	for _, parentId := range ctx.Ids {
+		if parentId == nil || utils.IsBlank(parentId) {
+			return true, fmt.Errorf("many2many <%s@%s>: refusing to clear/set relations of a blank record id",
+				field.Name(), field.ModelName())
+		}
+
+		// 1. 该记录当前的全部关联。
+		linkedDs, err := ctx.Session._query(linkedSql, parentId)
+		if err != nil {
+			return true, err
+		}
+		linked := make([]any, 0)
+		linkedKeys := make(map[string]bool)
+		if linkedDs != nil {
+			linkedDs.Range(func(_ int, rec *dataset.TRecordSet) error {
+				id := rec.GetByField(relKey)
+				if id == nil || utils.IsBlank(id) {
+					return nil
+				}
+				if key := utils.ToString(id); !linkedKeys[key] {
+					linkedKeys[key] = true
+					linked = append(linked, id)
+				}
+				return nil
+			})
+		}
+
+		// 2. 其中落在 domain 之内的那一组 = 这个字段"看得见"的现值。
+		var visible []any
+		if len(linked) > 0 {
+			dom := domain.New(idField, "in", linked...)
+			fieldDom, err := fieldComodelDomain(field, nil) // 新树：Read 会就地改写 domain
+			if err != nil {
+				return true, err
+			}
+			dom.AND(fieldDom)
+			ds, err := comodel.Read(&ReadRequest{Domain: dom, Fields: []string{idField}, Limit: -1})
+			if err != nil {
+				return true, err
+			}
+			if ds != nil {
+				ds.Range(func(_ int, rec *dataset.TRecordSet) error {
+					id := rec.GetByField(idField)
+					// 只认本来就挂着的：拿去删的集合多一个都是别人的关联。
+					if linkedKeys[utils.ToString(id)] {
+						visible = append(visible, id)
+					}
+					return nil
+				})
+			}
+		}
+
+		// 3. 删 visible − wanted，加 wanted − linked。
+		stale := make([]any, 0, len(visible))
+		for _, id := range visible {
+			if !wantedKeys[utils.ToString(id)] {
+				stale = append(stale, id)
+			}
+		}
+		add := make([]any, 0, len(wanted))
+		seen := make(map[string]bool, len(wanted))
+		for _, id := range wanted {
+			key := utils.ToString(id)
+			if linkedKeys[key] || seen[key] {
+				continue
+			}
+			seen[key] = true
+			add = append(add, id)
+		}
+
+		one := &TFieldContext{Session: ctx.Session, Model: ctx.Model, Field: field, Ids: []any{parentId}, Context: ctx.Context}
+		// unlink_all 的 ids 为空＝删掉该记录的全部关联，必须先判空。
+		if len(stale) > 0 {
+			if err := self.unlink_all(one, stale); err != nil {
+				return true, err
+			}
+		}
+		if len(add) > 0 {
+			if err := self.link(one, add); err != nil {
+				return true, err
+			}
+		}
+	}
+	return true, nil
 }
 
 // # beware of duplicates when inserting

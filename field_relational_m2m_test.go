@@ -56,6 +56,12 @@ func TestParseM2MCommands(t *testing.T) {
 			wantOK: false,
 		},
 		{
+			name:     "单元素 Clear (5,) —— 上游合法写法",
+			input:    []any{[]any{5}, []any{4, "1"}},
+			wantOK:   true,
+			wantCmds: [][]any{{5}, {4, "1"}},
+		},
+		{
 			name:   "长度为1的元组不视为命令",
 			input:  []any{[]any{4}},
 			wantOK: false,
