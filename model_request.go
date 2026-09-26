@@ -962,6 +962,17 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		ctx.Session.setsLock.RLock()
 		sess.Sets = ctx.Session.Sets
 		ctx.Session.setsLock.RUnlock()
+
+		// 调用方在写事务里时，关系表必须在**同一个事务**里读：同一事务里刚 link 进去的行
+		// 只有那个事务看得见。NewSession 另起的连接读不到，于是「写完 m2m 紧接着回读」
+		// 恒为空、不报错（2026-09-26 social.post 建帖时按选中账号回算 media_ids，读回来
+		// 一个账号都没有，下游拿空列表写 [6,0,[]] 才炸出来）。
+		// 事务归调用方：标成已结束，本会话 Close 时不替它回滚。
+		if !ctx.Session.IsAutoCommit && ctx.Session.tx != nil {
+			sess.tx = ctx.Session.tx
+			sess.IsAutoCommit = false
+			sess.IsCommitedOrRollbacked = true
+		}
 	}
 	// NewSession 起的新会话不继承调用方 schema。非默认 schema 租户(如
 	// VectorsSystem 用 "system")下,下面手工拼接的 FROM/JOIN 裸表名(不经过
