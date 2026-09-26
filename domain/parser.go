@@ -229,7 +229,7 @@ func parseAny(data any, context *dataset.TDataSet) (*TDomainNode, error) {
 		}
 
 		// Numeric logic consistent with existing parser
-		if vv, err := utils.IsNumeric(val); err == nil {
+		if vv, ok := intLiteral(val); ok {
 			return NewDomainNode(vv), nil
 		}
 
@@ -475,7 +475,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 
 				v := Unquote(tokenText(item))
 
-				if vv, err := utils.IsNumeric(v); err == nil {
+				if vv, ok := intLiteral(v); ok {
 					list.Push(vv)
 					break
 				}
@@ -692,4 +692,21 @@ func appendOperatorToken(items []lexer.TToken, item lexer.TToken) []lexer.TToken
 		item.Val = op
 	}
 	return append(items, item)
+}
+
+// intLiteral 把一个值当整数取出来——**只在取出的数能原样写回这个串时**。
+//
+// 以前是裸 `strconv.ParseInt`：它认前导 `+` 和前导零，于是带引号的 `'+32456001122'`
+// 被解析成 32456001122、`'007'` 成了 7，比较的是另一个值，**不报错、恒回 0 条**。
+// 2026-09-26 真栈撞到：短信退订页按 E164 号码（`+` 开头）找联系人一个都找不到，
+// 退订静默没生效，页面却说成功了。
+//
+// `'5'` → 5、`'2103…'`（雪花 id）→ int 这些照旧：它们写得回原串，没有丢信息。
+// 回归：domain/parser_numeric_string_test.go。
+func intLiteral(s string) (int64, bool) {
+	v, err := utils.IsNumeric(s)
+	if err != nil || strconv.FormatInt(v, 10) != s {
+		return 0, false
+	}
+	return v, true
 }
