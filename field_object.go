@@ -43,6 +43,25 @@ func (self *THtmlField) Init(ctx *TTagContext) {
 	ctx.Field.Base().typeName = TYPE_HTML
 }
 
+// onConvertToRead 把 bytea 列读回来的 []byte 还原成字符串。
+//
+// binary() 字段的值在本仓一律是 **base64 文本**（Odoo 语义：写进去的是 base64 字符串、读回来也是；
+// XML 数据的 type="base64" file=… 由导入器编好再写，前端上传同样送 base64）。列是 bytea，存的就是
+// 那串文本的字节，lib/pq 交回 []byte —— 原样往上交的话，一过 JSON（API 读、跨进程读）Go 会把
+// []byte **再编一遍 base64**：社交营销 social.media 的平台图标读出来是 "UEhOMlp5…"
+// （= base64(base64(<svg…))），/web/image 解一遍给出去的还是 base64 文本，一排碎图，不报错。
+// 同一进程里用 AsString() 读的地方（/web/image 本地那条路）从前碰巧是对的，所以这病只在跨进程 /
+// 前端直读时出现。
+//
+// 只动 binary() 这一种：其它 blob 列（Go 结构体里的 []byte 自动映射成的）仍给 []byte。
+func (self *TBinField) onConvertToRead(session *TSession, cols []string, record []any, colIndex int) any {
+	value := *record[colIndex].(*any)
+	if b, ok := value.([]byte); ok {
+		return string(b)
+	}
+	return value
+}
+
 func (self *TBinField) Init(ctx *TTagContext) {
 	field := ctx.Field.Base()
 	//if field.SqlType.Name == "" {
