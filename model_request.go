@@ -766,7 +766,7 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 	}
 	// 与命令 5/6 找「现有子行」用的是同一个入口（fieldComodelDomain），两边看到同一组。
-	if node, err := fieldComodelDomain(field, ds); err != nil {
+	if node, err := fieldComodelDomain(field); err != nil {
 		return nil, err
 	} else if node != nil {
 		if relDomain == nil {
@@ -929,7 +929,7 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	}
 
 	// 与命令 5/6 找「现有关联」用的是同一个入口（fieldComodelDomain），两边看到同一组。
-	if node, err := fieldComodelDomain(field, ds); err != nil {
+	if node, err := fieldComodelDomain(field); err != nil {
 		return nil, err
 	} else if node != nil {
 		if domainNode == nil {
@@ -996,8 +996,22 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	//Many2many('res.lang', 'website_lang_rel', 'website_id', 'lang_id')
 	//SELECT {rel}.{id1}, {rel}.{id2} FROM {rel}, {from_c} WHERE {where_c} AND {rel}.{id1} IN %s AND {rel}.{id2} = {tbl}.id {order_by} {limit} OFFSET {offset}
 
+	// 有 domain（字段上声明的 + 调用方给的）就必须 JOIN 对端表去筛，**不论是不是经典读**。
+	//
+	// 此前只有经典读这一支套 domain，非经典读直接查关系表：同一个字段、同一条记录，表单
+	// （经典读）看到 2 个标签，普通读 / 导出 / 直接调 ManyToMany 的代码（非经典读）看到 3 个；
+	// 而写命令 5/6 只动 domain 之内的（fieldComodelDomain），读出来的「现值」与写入认的
+	// 「现值」不是同一组。上游 Odoo 19 Many2many.read 一律 `comodel._search(domain)` 再 JOIN
+	// 关系表，读值只有 domain 之内的那部分。
+	//
+	// 没有 domain 的非经典读仍走下面那条只查关系表的 SQL，一字不改——那是 vectors 的
+	// recordrule / user_groups 等热路径，多一次 JOIN 没有任何收益。有 domain 时非经典读
+	// 取的列仍只是关系表的两列（契约不变，直接消费数据集的调用方按 srcKey/relKey 读行），
+	// 只是 domain 外的那几行不在了。
+	filtered := domainNode != nil && domainNode.Count() > 0
+
 	/* 经典模式返回关联表数据 */
-	if ctx.ClassicRead {
+	if ctx.ClassicRead || filtered {
 		sess.Model(relModelName)
 		wquery, err := sess.Statement.where_calc(domainNode, false, nil)
 		if err != nil {
@@ -1010,9 +1024,13 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			where_c = "1=1"
 		}
 
+		columns := midTableName + ".*," + relTableName + ".*"
+		if !ctx.ClassicRead {
+			columns = midTableName + "." + relFieldName + "," + midTableName + "." + midFieldName
+		}
 		query = JoinClause(
 			"SELECT",
-			midTableName+".*,"+relTableName+".*",
+			columns,
 			"FROM",
 			midTableName+","+from_c,
 			"WHERE",

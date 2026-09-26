@@ -562,7 +562,7 @@ func o2mChildIds(comodel IModel, inverse string, parentId any, field IField) ([]
 
 	dom := domain.New(inverse, "=", parentId)
 	// 每次现解析一棵新树：Read 会就地改调用方传进去的 domain（见 fieldComodelDomain）。
-	fieldDom, err := fieldComodelDomain(field, nil)
+	fieldDom, err := fieldComodelDomain(field)
 	if err != nil {
 		return nil, err
 	}
@@ -606,21 +606,29 @@ func o2mChildIds(comodel IModel, inverse string, parentId any, field IField) ([]
 }
 
 // fieldComodelDomain 把关系字段上声明的 domain 解析成对端模型上的条件；字段没有
-// domain（或解析出来是空树）时返回 nil。
+// domain、解析出来是空树、或 domain 引用了记录上的值时返回 nil（＝不加条件）。
 //
-// **读写两条路共用这一个入口**：o2m/m2m 的读取（TModel.OneToMany / ManyToMany）按它过滤，
-// 命令 5/6 找"现有的那一组"也按它过滤——两边看到的必须是同一组，否则"清空这一栏"会清掉
-// 这一栏里根本看不见的行。
+// **读写两条路共用这一个入口**：o2m/m2m 的读取（TModel.OneToMany / ManyToMany，经典与
+// 非经典两支）按它过滤，命令 5/6 找"现有的那一组"也按它过滤——两边看到的必须是同一组，
+// 否则"清空这一栏"会清掉这一栏里根本看不见的行，或者读出来的现值与写入认的现值对不上。
 //
-// context 是 domain 里裸标识符（不带引号的 `company_id`）取值用的数据集，与
-// domain.String2Domain 的语义相同。读取路径传父记录的数据集；写入路径没有完整的父记录
-// 可传，给 nil——引用父记录字段的 domain 在写入侧会解析成字面串、筛不出东西，于是 5/6
-// **少解绑而不是多删**。这类 domain 本来就不该写在模型字段上（服务端读取也会被它错误
-// 过滤），写在视图的 `<field domain=...>` 上。
+// ★ **引用记录字段的 domain 不在服务端套**，对齐上游 Odoo 19 的 Field.get_comodel_domain：
+// `if not domain or isinstance(domain, str): return Domain.TRUE`——"domain=str is used only
+// for the client-side"。Odoo 里 domain 一旦要引用记录上的值（`attribute_id`、`uid`、
+// `parent.x`）就只能写成字符串，于是服务端读写都当它不存在，它只给前端挑候选用
+// （vertex 的 fieldDomainSource 从 fields_get 拿去求值）。本仓的 tag / Builder 里 domain
+// 一律是字符串，区分不了两种写法，只能按内容分：带变量（domain.FreeVariables）的就是
+// 前端那种。硬套的后果都见过——
+//   - 写入侧（命令 5/6）没有父记录可代入，变量名被当成字面串：`grp_id = 'grp_id'`，
+//     sqlite 上一条不中（5/6 静默什么都不解绑），PG 上 bigint 列直接 22P02 报错；
+//   - 读取侧批量读时每行各自一个值，表达不了；单行读时代进去的是已被经典读展开成
+//     {id,name} 的 map（pro.tmpl.attr.item.value_ids 真机撞过，整列读空、零报错）。
+//
+// 目前全仓只有 pro.tmpl.attr.exclusion.value_ids 是这个形状。
 //
 // 每次调用都返回一棵新树：TModel.Read 会就地改写传进去的 domain，缓存一棵共用的树会被
 // 第一次读取改坏。
-func fieldComodelDomain(field IField, context *dataset.TDataSet) (*domain.TDomainNode, error) {
+func fieldComodelDomain(field IField) (*domain.TDomainNode, error) {
 	if field == nil {
 		return nil, nil
 	}
@@ -628,7 +636,10 @@ func fieldComodelDomain(field IField, context *dataset.TDataSet) (*domain.TDomai
 	if expr == "" {
 		return nil, nil
 	}
-	node, err := domain.String2Domain(expr, context)
+	if len(domain.FreeVariables(expr)) > 0 {
+		return nil, nil
+	}
+	node, err := domain.String2Domain(expr, nil)
 	if err != nil {
 		return nil, fmt.Errorf("field <%s@%s> domain %q: %w", field.Name(), field.ModelName(), expr, err)
 	}
@@ -1305,8 +1316,9 @@ func (self *TMany2ManyField) OnRead(ctx *TFieldContext) error {
 	// 只改输出构造、不动 SQL：ManyToMany 还有若干直接消费其数据集的调用方
 	// （vectors 的 recordrule / user_groups / config_settings_group 都按
 	// srcKey/relKey 读 junction 行），改列名会连带改掉那个契约。代价是经典读、
-	// 无子规格时仍会 JOIN 出一批用不上的对端列——那次 JOIN 同时也是字段 domain
-	// 唯一生效的地方（见 ManyToMany 的两个分支），不能顺手砍掉。
+	// 无子规格时仍会 JOIN 出一批用不上的对端列——字段 domain 靠的就是这次 JOIN
+	// （非经典读有 domain 时也走同一条 JOIN，只取关系表两列，见 ManyToMany），
+	// 不能顺手砍掉。
 	relateModel, err := ctx.Model.Orm().GetModel(field.RelatedModelName())
 	if err != nil {
 		return err
@@ -1557,7 +1569,7 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 // 关系表上一定有 UNIQUE（早年建出来的关系表未必有，ON CONFLICT DO NOTHING 就挡不住重复）。
 func (self *TMany2ManyField) setWithinDomain(ctx *TFieldContext, wanted []any) (handled bool, err error) {
 	field := ctx.Field
-	probe, err := fieldComodelDomain(field, nil)
+	probe, err := fieldComodelDomain(field)
 	if err != nil {
 		return true, err
 	}
@@ -1616,7 +1628,7 @@ func (self *TMany2ManyField) setWithinDomain(ctx *TFieldContext, wanted []any) (
 		var visible []any
 		if len(linked) > 0 {
 			dom := domain.New(idField, "in", linked...)
-			fieldDom, err := fieldComodelDomain(field, nil) // 新树：Read 会就地改写 domain
+			fieldDom, err := fieldComodelDomain(field) // 新树：Read 会就地改写 domain
 			if err != nil {
 				return true, err
 			}

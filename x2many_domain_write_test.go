@@ -40,6 +40,12 @@ type (
 		// 同一张关系表，按 kind 切出一个带 domain 的 m2m 字段。
 		InTagIds  []any `field:"many2many(x2m_w_tag,x2m_w_box_tag_rel,box_id,tag_id) domain([('kind','=','in')])"`
 		AllTagIds []any `field:"many2many(x2m_w_tag,x2m_w_box_tag_rel,box_id,tag_id)"`
+		// 引用记录字段（不带引号的 grp_id）的 domain：Odoo 里它只能写成字符串，而
+		// get_comodel_domain 对字符串 domain 回 Domain.TRUE——只给前端挑候选用，服务端
+		// 读写都不套。pro.tmpl.attr.exclusion.value_ids 就是这个形状。
+		GrpId      int64 `field:"int()"`
+		GrpTagIds  []any `field:"many2many(x2m_w_tag,x2m_w_box_grp_rel,box_id,tag_id) domain('[(''grp_id'', ''='', grp_id)]')"`
+		GrpItemIds []any `field:"one2many(x2m_w_item,box_id) domain('[(''grp_id'', ''='', grp_id)]')"`
 	}
 
 	X2mWItem struct {
@@ -47,6 +53,7 @@ type (
 		Id     int64  `field:"pk autoincr title('ID')"`
 		Name   string `field:"varchar() size(64)"`
 		Kind   string `field:"varchar() size(16)"`
+		GrpId  int64  `field:"int()"`
 		BoxId  int64  `field:"many2one(x2m_w_box)"`
 	}
 
@@ -63,6 +70,7 @@ type (
 		Id     int64  `field:"pk autoincr title('ID')"`
 		Name   string `field:"varchar() size(64)"`
 		Kind   string `field:"varchar() size(16)"`
+		GrpId  int64  `field:"int()"`
 	}
 )
 
@@ -101,7 +109,7 @@ func setupX2mWrite(t *testing.T, ds *TDataSource) *x2mWFixture {
 	t.Cleanup(func() { o.Close() })
 	if ds.DbType == "postgres" {
 		drop := func() {
-			for _, tb := range []string{"x2m_w_box_tag_rel", "x2m_w_item", "x2m_w_req_item", "x2m_w_tag", "x2m_w_box"} {
+			for _, tb := range []string{"x2m_w_box_tag_rel", "x2m_w_box_grp_rel", "x2m_w_item", "x2m_w_req_item", "x2m_w_tag", "x2m_w_box"} {
 				o.Exec("DROP TABLE IF EXISTS " + tb + " CASCADE")
 			}
 		}
@@ -120,11 +128,15 @@ func setupX2mWrite(t *testing.T, ds *TDataSource) *x2mWFixture {
 		}
 		return ids[0]
 	}
-	f.boxId = firstId(t, []any{mk("x2m.w.box", map[string]any{"name": "box"})})
+	f.boxId = firstId(t, []any{mk("x2m.w.box", map[string]any{"name": "box", "grp_id": 1})})
 	f.other = firstId(t, []any{mk("x2m.w.box", map[string]any{"name": "other"})})
 
-	for _, it := range []struct{ name, kind string }{{"i1", "in"}, {"i2", "in"}, {"o1", "out"}} {
-		f.item[it.name] = mk("x2m.w.item", map[string]any{"name": it.name, "kind": it.kind, "box_id": f.boxId})
+	// grp_id：i1 与 box 同组（1），i2、o1 不同组（2）。
+	for _, it := range []struct {
+		name, kind string
+		grp        int
+	}{{"i1", "in", 1}, {"i2", "in", 2}, {"o1", "out", 2}} {
+		f.item[it.name] = mk("x2m.w.item", map[string]any{"name": it.name, "kind": it.kind, "grp_id": it.grp, "box_id": f.boxId})
 	}
 	f.item["x1"] = mk("x2m.w.item", map[string]any{"name": "x1", "kind": "in", "box_id": f.other})
 
@@ -134,8 +146,12 @@ func setupX2mWrite(t *testing.T, ds *TDataSource) *x2mWFixture {
 	}
 	f.req["r_other"] = mk("x2m.w.req.item", map[string]any{"name": "r_other", "kind": "in", "box_id": f.other})
 
-	for _, it := range []struct{ name, kind string }{{"t_in1", "in"}, {"t_in2", "in"}, {"t_in3", "in"}, {"t_out", "out"}} {
-		f.tag[it.name] = mk("x2m.w.tag", map[string]any{"name": it.name, "kind": it.kind})
+	// grp_id：t_in1、t_in2 与 box 同组（1），t_in3、t_out 不同组（2）。
+	for _, it := range []struct {
+		name, kind string
+		grp        int
+	}{{"t_in1", "in", 1}, {"t_in2", "in", 1}, {"t_in3", "in", 2}, {"t_out", "out", 2}} {
+		f.tag[it.name] = mk("x2m.w.tag", map[string]any{"name": it.name, "kind": it.kind, "grp_id": it.grp})
 	}
 	// box 挂 t_in1/t_in2/t_out；other 挂 t_in1。t_in3 先不挂，给 (6) 用。
 	for _, pair := range [][2]any{
@@ -144,6 +160,12 @@ func setupX2mWrite(t *testing.T, ds *TDataSource) *x2mWFixture {
 	} {
 		if _, err := o.Exec("INSERT INTO x2m_w_box_tag_rel (box_id, tag_id) VALUES (?, ?)", pair[0], pair[1]); err != nil {
 			t.Fatalf("seed rel: %v", err)
+		}
+	}
+	// grp 关系表：box 挂 t_in1（同组）与 t_out（异组）。
+	for _, tag := range []any{f.tag["t_in1"], f.tag["t_out"]} {
+		if _, err := o.Exec("INSERT INTO x2m_w_box_grp_rel (box_id, tag_id) VALUES (?, ?)", f.boxId, tag); err != nil {
+			t.Fatalf("seed grp rel: %v", err)
 		}
 	}
 	return f
@@ -197,7 +219,12 @@ func (f *x2mWFixture) allRows(t *testing.T, table string) string {
 // tagsOf 返回关系表里 parent 挂着的 tag 名。
 func (f *x2mWFixture) tagsOf(t *testing.T, parent int64) string {
 	t.Helper()
-	ds, err := f.o.Query("SELECT t.name AS name FROM x2m_w_box_tag_rel r JOIN x2m_w_tag t ON t.id = r.tag_id WHERE r.box_id = ? ORDER BY t.name", parent)
+	return f.relTagsOf(t, "x2m_w_box_tag_rel", parent)
+}
+
+func (f *x2mWFixture) relTagsOf(t *testing.T, rel string, parent int64) string {
+	t.Helper()
+	ds, err := f.o.Query("SELECT t.name AS name FROM "+rel+" r JOIN x2m_w_tag t ON t.id = r.tag_id WHERE r.box_id = ? ORDER BY t.name", parent)
 	if err != nil {
 		t.Fatalf("query rel: %v", err)
 	}
@@ -345,5 +372,27 @@ func TestM2MWrite_SingleElementClear(t *testing.T) {
 		expect(t, "box 的 tag", f.tagsOf(t, f.boxId), "t_in3")
 		f.write(t, "in_tag_ids", []any{5}, []any{4, f.tag["t_in1"]})
 		expect(t, "box 的 tag（带 domain）", f.tagsOf(t, f.boxId), "t_in1")
+	})
+}
+
+// ---- 引用记录字段的 domain：服务端不套（Odoo 的字符串 domain 语义）----
+//
+// 74b69a3 把字段 domain 用到 5/6 上时，写入侧没有父记录可代入，`grp_id` 被当成字面串：
+// sqlite 上 `grp_id = 'grp_id'` 一条不中（5/6 什么都不解绑），PG 上 bigint 列对字符串
+// 直接 22P02。pro.tmpl.attr.exclusion.value_ids 就是这个形状。
+
+func TestM2MWrite_VariableDomainIsClientSideOnly(t *testing.T) {
+	eachX2mBackend(t, func(t *testing.T, f *x2mWFixture) {
+		f.write(t, "grp_tag_ids", []any{6, 0, []any{f.tag["t_in2"], f.tag["t_out"]}})
+		expect(t, "(6) 后 box 的 grp tag", f.relTagsOf(t, "x2m_w_box_grp_rel", f.boxId), "t_in2,t_out")
+		f.write(t, "grp_tag_ids", []any{5})
+		expect(t, "(5) 后 box 的 grp tag", f.relTagsOf(t, "x2m_w_box_grp_rel", f.boxId), "")
+	})
+}
+
+func TestO2MWrite_VariableDomainIsClientSideOnly(t *testing.T) {
+	eachX2mBackend(t, func(t *testing.T, f *x2mWFixture) {
+		f.write(t, "grp_item_ids", []any{6, 0, []any{f.item["i2"]}})
+		expect(t, "(6) 后 box 的子行", f.children(t, "x2m_w_item", f.boxId), "i2")
 	})
 }
