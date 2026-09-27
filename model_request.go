@@ -919,6 +919,12 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		return nil, fmt.Errorf("could not call model func ManyToMany(%v,%v) from a not ManyToMany field %v@%v!", ids, field.Name(), field.IsRelated(), field.TypeName())
 	}
 
+	// 计算型 m2m（store(false)）没有关联表，关系模型也没注册——下面的 HasModel 会报
+	// "models are not correctable"。没有 getter 时它从前读的也是一张恒空的表，回空不改语义。
+	if !m2mHasRelationTable(field) {
+		return nil, nil
+	}
+
 	var err error
 	var domainNode *domain.TDomainNode
 	if ctx.Domain != "" {

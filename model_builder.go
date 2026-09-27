@@ -494,6 +494,7 @@ func (self *fieldStatment) Title(value string) *fieldStatment {
 
 func (self *fieldStatment) Store(value bool) *fieldStatment {
 	self.field.Base().store = value
+	self.field.Base().storeDeclared = true
 	return self
 }
 

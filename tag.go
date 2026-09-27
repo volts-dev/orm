@@ -691,6 +691,7 @@ func tag_store(ctx *TTagContext) error {
 	} else {
 		field.store = true
 	}
+	field.storeDeclared = true
 	return nil
 }
 

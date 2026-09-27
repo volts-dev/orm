@@ -258,6 +258,11 @@ type (
 
 		name  string // 字段在数据库中的列名
 		store bool   // 是否将字段值持久化到数据库
+		// storeDeclared 记录 store 是否被**显式声明**过（`store(...)` 标签或 builder 的
+		// `.Store(...)`）。单看 store 分不出来：m2m 的 Init 无条件把 store 置 false（它
+		// 本来就没有列），于是"普通 m2m"和"声明了 store(false) 的计算 m2m"在 store 上
+		// 一模一样。后者没有关联表，见 m2mHasRelationTable。
+		storeDeclared bool
 		// noCopy 为真时，复制记录（Duplicate）不带上这个字段的值——对应 Odoo 的
 		// `copy=False`。存成"否"而不是"是"，图的是零值即默认：字段默认可复制，
 		// 而 TField 是在十几处被直接构造/浅拷贝的，没有一个统一的构造函数能把

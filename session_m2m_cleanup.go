@@ -86,6 +86,11 @@ func (self *TOsv) buildM2MRefIndex() *map[string][]m2mRelationRef {
 			if field == nil || field.TypeName() != TYPE_M2M {
 				continue
 			}
+			// 计算型 m2m 没有关联表，不必进索引。（进了也只是在 relationColumnUsable
+			// 那一步被探测筛掉，这里是省掉那次探测。）
+			if !m2mHasRelationTable(field) {
+				continue
+			}
 			// 源端按**声明该字段的模型**记（field.ModelName() 就是注册名），不按
 			// 遍历到的 obj 记：模型对象在 inherits/合并下是共享的，拿宿主模型的名字
 			// 配上别人的关联列，会用 B 的 id 去删 A 的关系行。

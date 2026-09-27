@@ -1151,6 +1151,22 @@ func (self *TMany2ManyField) Init(ctx *TTagContext) {
 	ctx.Orm.osv.middleModel.Store(field.joinModelName, true)
 }
 
+// m2mHasRelationTable 报告一个 many2many 字段有没有物理关联表。
+//
+// 只有显式声明了 store(false) 的才没有：它是计算字段，值由 getter 现算
+// （Odoo 的 compute 非存储 m2m）。普通 m2m 的 store 同样是 false（Init 无条件置的，
+// 因为主表上没有列），所以判据必须是 storeDeclared，不能是 Store()。
+//
+// 没有关联表意味着：UpdateDb 不建表、不注册关系模型；ManyToMany 回空；OnWrite 只交
+// setter（没有就忽略）；删除时不清关联；domain 叶子只能走 Searcher。
+func m2mHasRelationTable(field IField) bool {
+	if field == nil || field.TypeName() != TYPE_M2M {
+		return false
+	}
+	base := field.Base()
+	return !(base.storeDeclared && !base.store)
+}
+
 // 创建关联表
 // model, columns
 //
@@ -1165,6 +1181,13 @@ func (self *TMany2ManyField) Init(ctx *TTagContext) {
 func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	orm := ctx.Orm
 	field := ctx.Field
+
+	// 声明了 store(false) 的 m2m 是计算字段：值由 getter 现算，关联表永远不会有
+	// 一行数据。此前照建不误——全库 20 多张这样的表（×每个 schema）恒为 0 行。
+	// 关系模型也不注册：读、写、删、搜索四条路都已按 m2mHasRelationTable 绕开它。
+	if !m2mHasRelationTable(field) {
+		return
+	}
 
 	// 同步会话携带目标 schema；注册期(RegisterModel)无会话 → 默认 schema。
 	schema := ""
@@ -1462,6 +1485,15 @@ func parseX2MCommands(vSlice []any) (commands [][]any, isAllCommands bool) {
 func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 	/* 空值不处理 */
 	if ctx.Value == nil {
+		return nil
+	}
+
+	// 计算型 m2m 没有关联表可写：有 setter（inverse）就交给它，没有就与 Odoo 的
+	// "无 inverse 的 compute 字段"一样忽略写入。
+	if !m2mHasRelationTable(self) {
+		if self.hasSetter {
+			return self.SetterFunc(ctx)
+		}
 		return nil
 	}
 

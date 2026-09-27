@@ -782,7 +782,15 @@ func (self *TExpression) parse(context map[string]any) error {
 			ex_leaf.leaf = idInLeaf(model.idField, model.idField, table_ids)
 			self.push(ex_leaf)
 
-		} else if isX2many(field) {
+		} else if field.TypeName() == TYPE_M2M && !m2mHasRelationTable(field) && field.Searcher() == nil {
+			// 计算型 m2m（store(false)）没有关联表可查，只能靠 Searcher 把自己翻译成
+			// 存储列上的条件（有 Searcher 的落到下面那条 `!field.Store()` 分支）。没有就
+			// 报错点名——从前这里查的是一张恒空的表，`in` 恒不中、`= False` 恒全中，
+			// 两种都是"看着正常"的错数据。
+			return fmt.Errorf("non-stored many2many field %s@%s cannot be searched: it has no relation table and no Searcher",
+				field.Name(), field.ModelName())
+
+		} else if isX2many(field) && (field.TypeName() != TYPE_M2M || m2mHasRelationTable(field)) {
 			// 直接（或点号路径的）x2many 叶子：翻译成主键条件。
 			//
 			// ★ 这条分支必须排在 `!field.Store()` **之前**：o2m/m2m 的 store 都是
