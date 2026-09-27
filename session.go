@@ -293,8 +293,21 @@ func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []s
 			if handledTables[m.Table()] {
 				continue
 			}
+			// ★ 登记在 region "" 下（原型区，同 TOrm._reverse），**不是** region（正在同步的
+			// 那个模块）。这张表的 Go 模型不归这个模块：要么是别的进程的，要么是本进程里**还没
+			// 轮到 Setup** 的模块的。后一种情况下，记在本模块名下就与稍后登记的真模型形成两个
+			// 具名 region，pickModelRegion 按名字取小的 —— 名字排在前面的这个反查原型赢了，
+			// GetModel 回的是不带 Api_* 方法的裸 TModel，vectors 按它建路由，模型的 RPC 端点一个
+			// 都没有，调用方只看到 "rpc status NotFound: server returned no detail"。
+			//
+			// 只有 S 系统级模型会撞上：T 模型的表在 public，启动时 _reverse 已按原型登记过，
+			// HasModel 为真走不到这里；S 模型的表只在 system schema，启动时没被反查。第一次
+			// 启动（表还不存在）正常，此后每次启动看模块 Setup 的顺序（2026-09-28 social 仓的
+			// social.platform.usage / quota：social 先同步 system schema，"social" <
+			// "social_platform"，平台控制台读这两张表恒 404）。原型登记在 "" 下，真模型登记时
+			// RegisterModel 会把 "" 那一份删掉，pickModelRegion 也只在没有真模型时才选它。
 			if !self.orm.osv.HasModel(m.String()) {
-				if err = self.orm.osv.RegisterModel(region, m.(*TModel), self); err != nil {
+				if err = self.orm.osv.RegisterModel("", m.(*TModel), self); err != nil {
 					return nil, err
 				}
 			}
