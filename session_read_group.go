@@ -168,6 +168,8 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 	selectCols := make([]string, 0, len(groupBy)+len(measures)+1)
 	groupCols := make([]string, 0, len(groupBy))
 	grouped := make(map[string]bool, len(groupBy))
+	// m2m 分组键要 LEFT JOIN 关系表（见下面 TYPE_M2M 那一支）。
+	var m2mJoins []string
 
 	for _, spec := range groupBy {
 		name, granularity := SplitGroupBy(spec)
@@ -175,6 +177,27 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		field := model.GetFieldByName(name)
 		if field == nil {
 			return nil, fmt.Errorf("ReadGroup: groupby field %q not found on model %s", name, model.String())
+		}
+		// many2many（有关系表的）：一条记录按它的**每一个**对端各进一组，一个都没有的
+		// 进「空」组（对齐 Odoo 的 read_group：发票行按「税格」分组，挂两个格子的行两组
+		// 里都有）。必须在下面的 Store() 判断之前 —— m2m 在本表里没有列，Store() 为假。
+		if field.TypeName() == TYPE_M2M && m2mHasRelationTable(field) {
+			if granularity != "" {
+				return nil, fmt.Errorf("ReadGroup: granularity %q is not valid on many2many field %q", granularity, name)
+			}
+			join, expr, err := self.m2mGroupJoin(model, field, tableAlias)
+			if err != nil {
+				return nil, err
+			}
+			alias, err := quoter.QuoteIdent(name)
+			if err != nil {
+				return nil, err
+			}
+			m2mJoins = append(m2mJoins, join)
+			selectCols = append(selectCols, expr+" AS "+alias)
+			groupCols = append(groupCols, expr)
+			grouped[name] = true
+			continue
 		}
 		// 非存储字段（getter 计算出来的）在表里没有列，SQL 分不了组。明确报错而不是
 		// 静默忽略：忽略会把「按 A 分组」悄悄变成「按全表一组」，读的人看不出差别。
@@ -303,6 +326,17 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		whereClause = "WHERE " + whereClause
 	}
 
+	// 有 m2m 分组键时，先把过滤好的本表行包成子查询、再 LEFT JOIN 关系表。
+	// 不能直接在 fromClause 后面接 JOIN：domain 命中关系字段时 where_calc 给的是逗号
+	// 分隔的多表 FROM，`a, b LEFT JOIN rel ON rel.x = a.id` 里 JOIN 只绑 b，PG 报
+	// "invalid reference to FROM-clause entry"。子查询保留本表名作别名，上面按
+	// tableAlias 限定的列不用改。
+	if len(m2mJoins) > 0 {
+		fromClause = "(SELECT " + tableAlias + ".* FROM " + fromClause + " " + whereClause + ") AS " +
+			tableAlias + " " + strings.Join(m2mJoins, " ")
+		whereClause = ""
+	}
+
 	// 分组结果按分组键排序，保证同一份数据每次返回的组顺序一致（图表 X 轴、
 	// pivot 行序都直接取这个顺序）。模型的默认 _order 是记录级的，对分组无意义。
 	// 无分组键时既不能 GROUP BY 也不能 ORDER BY——整表只出一行合计。
@@ -335,4 +369,43 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 	)
 
 	return self._query(sqlStr, whereParams...)
+}
+
+// m2mGroupJoin 按 m2m 字段分组要接的 LEFT JOIN 与分组表达式（关系表里指向对端的那一列）。
+func (self *TSession) m2mGroupJoin(model IModel, field IField, tableAlias string) (join, expr string, err error) {
+	quoter := self.orm.dialect.Quoter()
+	relTable := fmtTableName(field.JoinModelName())
+	own, other := field.JoinSourceKey(), field.RelatedKeyName()
+	if relTable == "" || own == "" || other == "" {
+		return "", "", fmt.Errorf("ReadGroup: incomplete relation metadata for many2many %s@%s (table=%q owner=%q key=%q)",
+			field.Name(), field.ModelName(), relTable, own, other)
+	}
+	relQ, err := quoter.QuoteIdent(relTable)
+	if err != nil {
+		return "", "", err
+	}
+	// 与 TExpression.qualify 同一规则：会话/ORM 带 schema 就补上（搜索路径之外再保险一层）。
+	if self.Schema != "" {
+		relQ = self.Schema + "." + relQ
+	} else if self.orm != nil && self.orm.Schema != "" {
+		relQ = self.orm.Schema + "." + relQ
+	}
+	aliasQ, err := quoter.QuoteIdent("rg_" + field.Name())
+	if err != nil {
+		return "", "", err
+	}
+	ownQ, err := quoter.QuoteIdent(own)
+	if err != nil {
+		return "", "", err
+	}
+	otherQ, err := quoter.QuoteIdent(other)
+	if err != nil {
+		return "", "", err
+	}
+	idQ, err := quoter.QuoteIdent(model.IdField())
+	if err != nil {
+		return "", "", err
+	}
+	join = fmt.Sprintf("LEFT JOIN %s AS %s ON %s.%s = %s.%s", relQ, aliasQ, aliasQ, ownQ, tableAlias, idQ)
+	return join, aliasQ + "." + otherQ, nil
 }
