@@ -360,7 +360,7 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 		}
 
 		// 根据字段计算数据值
-		datas, multiSql, err := self._todoCompute(data, nil, newTodo)
+		datas, multiSql, err := self._todoCompute(data, nil, newTodo, explicitKeys)
 		if err != nil {
 			return ids, err
 		}
@@ -566,7 +566,7 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 		}
 
 		/*  根据 Ids 创建 M2M 关联记录 */
-		if _, _, err = self._todoCompute(data, recIds, newTodo); err != nil {
+		if _, _, err = self._todoCompute(data, recIds, newTodo, explicitKeys); err != nil {
 			return ids, err
 		}
 
@@ -738,7 +738,7 @@ func (self *TSession) _write(src any) (int64, error) {
 	}
 
 	// 根据字段计算数据值
-	datas, multiSql, err := self._todoCompute(data, ids, newTodo)
+	datas, multiSql, err := self._todoCompute(data, ids, newTodo, explicitKeys)
 	if err != nil {
 		return 0, err
 	}
@@ -1386,7 +1386,8 @@ func (self *TSession) _validateValues(values any) (*dataset.TDataSet, error) {
 	return NormalizeValues(values, self.Statement.Model)
 }
 
-func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []IField) (map[string][]any, int, error) {
+// explicitKeys 是调用方逐个写下的键（见 explicitKeysOf），用来分「没给」和「显式给了空值」。
+func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []IField, explicitKeys map[string]bool) (map[string][]any, int, error) {
 	// 根据字段计算数据值
 	var multiSql = 1
 	var name string
@@ -1406,13 +1407,26 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 		}
 
 		if utils.IsBlank(value) {
-			if defaultFunc := field.DefaultFunc(); defaultFunc != nil {
-				//if utils.IsBlank(value) && !field.IsDefaultEmpty() {
+			// 默认值只在**新建**（ids 为空的那一趟）、且调用方**没给**这一键时才用。
+			//   - 更新时给空值是「清空」，Odoo 的 write 从不套默认值。此前这里不分新建更新：
+			//     带默认值函数的多对一（价格表的 company_id: default_company）清空后又被
+			//     填回当前公司。
+			//   - 新建时显式给空值（false / 0）是要一条「没有值」的记录（共享价格表）。
+			//     必填字段例外：空值本来就存不进去，补默认值比报错有用。
+			useDefault := len(ids) == 0 && (!explicitKeys[name] || field.Required())
+			if defaultFunc := field.DefaultFunc(); defaultFunc != nil && useDefault {
 				if err := defaultFunc(ctx); err != nil {
 					return nil, multiSql, err
 				}
 
 				datas[name] = []any{ctx.values}
+				continue
+			}
+			// 不用默认值，而这个多对一又有默认值：直接照存空值（NULL）。往下走 OnWrite 的话，
+			// 它见空就套默认值（静态的、再是默认值函数），等于把上面的判断又推翻一次。
+			if !useDefault && field.Store() && (field.TypeName() == TYPE_M2O || field.TypeName() == TYPE_O2O) &&
+				(field.DefaultFunc() != nil || field.Default() != nil) {
+				datas[name] = []any{nil}
 				continue
 			}
 		}
@@ -1627,6 +1641,10 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 		// 关系字段不自动转换类型！将由字段独自处理
 		if field.IsRelated() {
 			if setted {
+				upd_todo = append(upd_todo, field)
+			} else if !isIncludedIds && field.Store() && field.DefaultFunc() != nil {
+				// 新建时没给、而字段有默认值函数（如 default_company）：交给 _todoCompute
+				// 求默认值。此前关系字段没给值就直接跳过，默认值函数一次也不会被调。
 				upd_todo = append(upd_todo, field)
 			} else if isIncludedIds && field.Store() && (explicitNil || (nullableFields != nil && nullableFields[name])) {
 				// 显式写了 nil（explicitNil），或事先 Nullable() 声明过的关系字段，

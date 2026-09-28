@@ -820,7 +820,7 @@ func TestSeparateValues_OneToOne(t *testing.T) {
 		t.Error("expected NO id in relVals since partner_id was not provided")
 	}
 
-	datas, _, err := session._todoCompute(data, nil, newTodo)
+	datas, _, err := session._todoCompute(data, nil, newTodo, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

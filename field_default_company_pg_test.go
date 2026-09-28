@@ -14,6 +14,10 @@ type dcProbe struct {
 	CompanyId int64  `field:"int(64) default_company title('Company')"`
 	// 对照：没有 tag 的共享字段，新建时谁也不替它填。
 	OwnerCompanyId int64 `field:"int(64) title('Owner Company')"`
+	// 真实形态：many2one。关系字段在 orm 里走另一条写路径（_todoCompute / OnWrite）。
+	RefCompanyId int64 `field:"many2one(dc.probe) default_company title('Ref Company')"`
+	// 必填的多对一：显式给空也补默认值（空值本来就存不进去）。
+	ReqCompanyId int64 `field:"many2one(dc.probe) default_company title('Required Company')"`
 }
 
 func setupDefaultCompanyOrm(t *testing.T) (*TOrm, string) {
@@ -59,6 +63,18 @@ func TestDefaultCompany_Postgres_Create(t *testing.T) {
 		}
 		return ds.FieldByName("company_id").AsInteger(), ds.FieldByName("owner_company_id").AsInteger()
 	}
+	ref := func(ctx context.Context, vals map[string]any) int64 {
+		t.Helper()
+		ids, err := o.Model(m).WithContext(ctx).Create(vals)
+		if err != nil {
+			t.Fatalf("create %v: %v", vals, err)
+		}
+		ds, err := o.Query(`SELECT COALESCE(ref_company_id, 0) AS v FROM dc_probe WHERE id = ?`, ids[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ds.FieldByName("v").AsInteger()
+	}
 	in5 := WithCompanyId(context.Background(), 5)
 
 	if c, owner := create(in5, map[string]any{"name": "absent"}); c != 5 || owner != 0 {
@@ -78,6 +94,19 @@ func TestDefaultCompany_Postgres_Create(t *testing.T) {
 	}
 	if c, _ := create(context.Background(), map[string]any{"name": "nobody"}); c > 0 {
 		t.Fatalf("没有当前公司时不该填，实得 %d", c)
+	}
+	// many2one 同样的四条
+	if v := ref(in5, map[string]any{"name": "m2o-absent"}); v != 5 {
+		t.Fatalf("many2one 没给：应为当前公司 5，实得 %d", v)
+	}
+	if v := ref(in5, map[string]any{"name": "m2o-false", "ref_company_id": false}); v > 0 {
+		t.Fatalf("many2one 显式给 false 是要共享记录，不该被填成 %d", v)
+	}
+	if v := ref(in5, map[string]any{"name": "m2o-zero", "ref_company_id": int64(0)}); v > 0 {
+		t.Fatalf("many2one 显式给 0 是要共享记录，不该被填成 %d", v)
+	}
+	if v := ref(in5, map[string]any{"name": "m2o-given", "ref_company_id": int64(7)}); v != 7 {
+		t.Fatalf("many2one 显式给 7，应为 7，实得 %d", v)
 	}
 	lookup := WithCompanyLookup(context.Background(), func() int64 { return 9 })
 	if c, _ := create(lookup, map[string]any{"name": "lookup"}); c != 9 {
@@ -148,5 +177,70 @@ func TestDefaultCompany_Postgres_NoColumnDefaultAndResyncs(t *testing.T) {
 	defer again.Close()
 	if _, err := again.SyncModel("test", new(dcProbe)); err != nil {
 		t.Fatalf("表已存在时再同步一次（即重启）报错: %v", err)
+	}
+}
+
+// 更新时清空一个带默认值函数的多对一：照存空值，不许被默认值填回去（Odoo 的 write 从不套默认值）。
+// 真实场景：把价格表的公司清空、改成所有公司共用，保存后又变回当前公司。
+func TestDefaultCompany_Postgres_ClearOnUpdateStaysEmpty(t *testing.T) {
+	o, m := setupDefaultCompanyOrm(t)
+	in5 := WithCompanyId(context.Background(), 5)
+	ids, err := o.Model(m).WithContext(in5).Create(map[string]any{"name": "u", "ref_company_id": int64(7)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() int64 {
+		ds, err := o.Query(`SELECT COALESCE(ref_company_id, 0) AS v FROM dc_probe WHERE id = ?`, ids[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ds.FieldByName("v").AsInteger()
+	}
+	for _, blank := range []any{int64(0), false} {
+		if _, err := o.Model(m).WithContext(in5).Ids(ids...).Write(map[string]any{"ref_company_id": int64(7)}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := o.Model(m).WithContext(in5).Ids(ids...).Write(map[string]any{"ref_company_id": blank}); err != nil {
+			t.Fatalf("clear with %v: %v", blank, err)
+		}
+		if v := read(); v > 0 {
+			t.Fatalf("更新时用 %v 清空，却被默认值填成了 %d", blank, v)
+		}
+	}
+}
+
+// 必填字段显式给空：补默认值。
+func TestDefaultCompany_Postgres_RequiredBlankGetsDefault(t *testing.T) {
+	type dcReq struct {
+		TModel       `table:"name('dc_req')"`
+		Id           int64  `field:"pk autoincr"`
+		Name         string `field:"varchar(32)"`
+		ReqCompanyId int64  `field:"many2one(dc.req) default_company required title('Company')"`
+	}
+	cleaner, err := New(WithDataSource(bfSource()))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	cleaner.Exec(`DROP TABLE IF EXISTS public.dc_req CASCADE`)
+	cleaner.Close()
+	o, err := New(WithDataSource(bfSource()))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	defer o.Close()
+	names, err := o.SyncModel("test", new(dcReq))
+	if err != nil || len(names) != 1 {
+		t.Fatalf("SyncModel: %v %v", names, err)
+	}
+	if err := o.Freeze(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := o.Model(names[0]).WithContext(WithCompanyId(context.Background(), 5)).Create(map[string]any{"name": "r", "req_company_id": int64(0)})
+	if err != nil {
+		t.Fatalf("必填字段显式给空应补默认值而不是报错: %v", err)
+	}
+	ds, _ := o.Query(`SELECT COALESCE(req_company_id, 0) AS v FROM dc_req WHERE id = ?`, ids[0])
+	if v := ds.FieldByName("v").AsInteger(); v != 5 {
+		t.Fatalf("必填字段显式给空应补当前公司 5，实得 %d", v)
 	}
 }
