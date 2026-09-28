@@ -26,8 +26,8 @@ import (
 // 字段的 SqlType 仍是值的逻辑类型（多对一是 BIGINT），值转换都照它走；只有建列时
 // 方言把存储类型换成 JSONB（postgres.GetSqlType）。只支持 postgres。
 //
-// 当前公司从会话的 context 里来（WithCompanyId）：宿主在每个请求建模型会话时放进去，
-// Records() / Db() / Tx() 建出的会话都带着它。
+// 当前公司从会话的 context 里来（WithCompanyId，或惰性的 WithCompanyLookup）：宿主在每个
+// 请求建模型会话时放进去，Records() / Db() / Tx() 建出的会话都带着它。
 //
 // 公司 id 以**整数字面量**拼进 SQL，不走参数：SELECT 列和 ORDER BY 没有参数通道；
 // 字面量还让「按 SQL 原文 + 参数」做键的查询缓存天然按公司分开。
@@ -42,16 +42,35 @@ func WithCompanyId(ctx context.Context, id int64) context.Context {
 	return context.WithValue(ctx, companyIdKey{}, id)
 }
 
-// CompanyIdFrom 取 context 里的当前公司；没有时为 0。
+type companyLookupKey struct{}
+
+// WithCompanyLookup 返回带「当前公司来源」的 context：没有显式的当前公司（WithCompanyId）时，
+// **第一次真正用到**按公司区分的字段才调 fn 取。
+//
+// 宿主用它回落到用户自己的默认公司（Odoo：没有指定公司时 env.company 是用户的默认公司，
+// 不是「不分公司」）。取默认公司要查库，所以做成惰性的：绝大多数读写根本不碰这类字段。
+// fn 可能被调用多次，由宿主自己缓存（例如 sync.OnceValue）。
+func WithCompanyLookup(ctx context.Context, fn func() int64) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, companyLookupKey{}, fn)
+}
+
+// CompanyIdFrom 取 context 里的当前公司：先看 WithCompanyId，没有再问 WithCompanyLookup；都没有为 0。
 func CompanyIdFrom(ctx context.Context) int64 {
 	if ctx == nil {
 		return 0
 	}
-	id, _ := ctx.Value(companyIdKey{}).(int64)
-	if id < 0 {
-		return 0
+	if id, _ := ctx.Value(companyIdKey{}).(int64); id > 0 {
+		return id
 	}
-	return id
+	if fn, _ := ctx.Value(companyLookupKey{}).(func() int64); fn != nil {
+		if id := fn(); id > 0 {
+			return id
+		}
+	}
+	return 0
 }
 
 // CompanyId 是这个会话的当前公司（见 WithCompanyId）；0 = 没有。
