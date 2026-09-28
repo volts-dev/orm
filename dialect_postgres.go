@@ -885,6 +885,15 @@ func (db *postgres) SyncToSqlType(ctx *TTagContext) {
 }
 
 func (db *postgres) GetSqlType(field IField) string {
+	if field.Base().companyDependent {
+		return Jsonb // 按公司分开存：{"<公司 id>": 值}（见 field_company.go）
+	}
+	return db.valueSqlType(field)
+}
+
+// valueSqlType 是字段**值**的 SQL 类型。普通字段就是它的列类型；按公司区分的字段列是 jsonb，
+// 取出某个公司那一格之后要 cast 回这个类型。
+func (db *postgres) valueSqlType(field IField) string {
 	var res string
 	c := field.Base()
 	switch t := c.SqlType.Name; t {

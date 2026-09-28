@@ -277,6 +277,18 @@ func (self *TQuery) addJoinsForTable(lhs string, from_clause *[]string, from_par
 func (self *TQuery) qualify(field IField, model IModel) string {
 	dialect := self.session.orm.dialect
 	fieldName := dialect.Quoter().Quote(field.Name())
+	if IsCompanyDependent(field) {
+		// 取当前公司那一格，别名回字段名：按列名把值交给字段的转换器（见 field_company.go）。
+		ref := fieldName
+		if model != nil {
+			ref = self.inherits_join_calc(field.Name(), model)
+		}
+		if expr, err := companyValueExpr(dialect, ref, field, self.session.CompanyId()); err == nil {
+			return fmt.Sprintf(`%s as %s`, expr, fieldName)
+		} else {
+			log.Err(err)
+		}
+	}
 	if model != nil {
 		res := self.inherits_join_calc(field.Name(), model)
 		/*

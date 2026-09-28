@@ -116,12 +116,18 @@ func (self *TSession) Sum(fieldName string) (float64, error) {
 	}
 
 	// 校验字段并引用，防止注入
-	if self.Statement.Model.GetFieldByName(fieldName) == nil {
+	sumField := self.Statement.Model.GetFieldByName(fieldName)
+	if sumField == nil {
 		return 0, fmt.Errorf("Sum: field %s not found on model %s", fieldName, self.Statement.Model.String())
 	}
 	col, err := self.orm.dialect.Quoter().QuoteIdent(fieldName)
 	if err != nil {
 		return 0, fmt.Errorf("Sum: invalid field %s: %w", fieldName, err)
+	}
+	if IsCompanyDependent(sumField) {
+		if col, err = companyValueExpr(self.orm.dialect, col, sumField, self.CompanyId()); err != nil {
+			return 0, fmt.Errorf("Sum: %w", err)
+		}
 	}
 
 	// 复用 where_calc 生成 from/where（与 Count 路径一致），构造真实的 SUM 查询

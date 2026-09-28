@@ -213,6 +213,13 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		if err != nil {
 			return nil, fmt.Errorf("ReadGroup: invalid groupby field %q: %w", name, err)
 		}
+		cdGroup := IsCompanyDependent(field)
+		if cdGroup {
+			// 按当前公司那一格分组，不是按整列 jsonb（见 field_company.go）。
+			if qualified, err = companyValueExpr(self.orm.dialect, qualified, field, self.CompanyId()); err != nil {
+				return nil, fmt.Errorf("ReadGroup: groupby field %q: %w", name, err)
+			}
+		}
 
 		expr := qualified
 		if granularity != "" {
@@ -229,6 +236,13 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 			// 别名保持为字段原名（不带 `:粒度`）：_scanRows 按列名回查字段拿转换器，
 			// 带冒号的别名既查不到字段、也不是合法标识符。
 			expr = fmt.Sprintf("date_trunc('%s',%s)", granularity, qualified)
+			alias, err := quoter.QuoteIdent(name)
+			if err != nil {
+				return nil, err
+			}
+			selectCols = append(selectCols, expr+" AS "+alias)
+		} else if cdGroup {
+			// 表达式没有列名，要显式起别名：_scanRows 按列名回查字段拿转换器。
 			alias, err := quoter.QuoteIdent(name)
 			if err != nil {
 				return nil, err
@@ -289,6 +303,11 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		qualified, err := qualify(name)
 		if err != nil {
 			return nil, fmt.Errorf("ReadGroup: invalid measure field %q: %w", name, err)
+		}
+		if IsCompanyDependent(field) {
+			if qualified, err = companyValueExpr(self.orm.dialect, qualified, field, self.CompanyId()); err != nil {
+				return nil, fmt.Errorf("ReadGroup: measure field %q: %w", name, err)
+			}
 		}
 		alias, err := quoter.QuoteIdent(name)
 		if err != nil {

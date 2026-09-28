@@ -126,31 +126,32 @@ func init() {
 
 		// #attr
 		//tag_ctrl[TAG_IGNORE] = "-" // 忽略某些继承者成员
-		"readonly":         tag_read_only,
-		"writeonly":        tag_write_only,
-		TAG_READ_ONLY:      tag_read_only,
-		TAG_WRITE_ONLY:     tag_write_only,
-		TAG_NAME:           tag_name,
-		TAG_OLD_NANE:       tag_old_name,
-		TAG_ID:             tag_id,
-		TAG_RECNAME:        tag_recname,
-		TAG_PK:             tag_pk,
-		TAG_AUTO:           tag_auto,
-		TAG_TYPE:           tag_type,
-		TAG_SIZE:           tag_size,
-		TAG_DIGITS:         tag_digits,
-		TAG_MIN_DIGITS:     tag_min_display_digits,
-		TAG_TITLE:          tag_title,
-		TAG_HELP:           tag_help,
-		TAG_CREATED:        tag_created,
-		TAG_UPDATED:        tag_updated,
-		TAG_REQUIRED:       tag_required,
-		TAG_NAMED:          tag_named,
-		TAG_DEFAULT:        tag_default,
-		TAG_IDX:            tag_index,
-		TAG_UNIQUE:         tag_unique,
-		TAG_GROUP_OPERATOR: tag_group_operator,
-		TAG_AS:             tag_as,
+		"readonly":          tag_read_only,
+		"company_dependent": tag_company_dependent,
+		"writeonly":         tag_write_only,
+		TAG_READ_ONLY:       tag_read_only,
+		TAG_WRITE_ONLY:      tag_write_only,
+		TAG_NAME:            tag_name,
+		TAG_OLD_NANE:        tag_old_name,
+		TAG_ID:              tag_id,
+		TAG_RECNAME:         tag_recname,
+		TAG_PK:              tag_pk,
+		TAG_AUTO:            tag_auto,
+		TAG_TYPE:            tag_type,
+		TAG_SIZE:            tag_size,
+		TAG_DIGITS:          tag_digits,
+		TAG_MIN_DIGITS:      tag_min_display_digits,
+		TAG_TITLE:           tag_title,
+		TAG_HELP:            tag_help,
+		TAG_CREATED:         tag_created,
+		TAG_UPDATED:         tag_updated,
+		TAG_REQUIRED:        tag_required,
+		TAG_NAMED:           tag_named,
+		TAG_DEFAULT:         tag_default,
+		TAG_IDX:             tag_index,
+		TAG_UNIQUE:          tag_unique,
+		TAG_GROUP_OPERATOR:  tag_group_operator,
+		TAG_AS:              tag_as,
 		//TAG_STATES:tag_s
 		//TAG_PRIORITY] = "priority"     // TODO
 		TAG_ON_DELETE: tag_ondelete,
@@ -445,10 +446,10 @@ func tag_old_name(ctx *TTagContext) error {
 	return nil
 }
 
-// unquoteTagString 去掉 tag 字符串参数外面的**一对**单引号，再把 '' 还原成 '。
+// unquoteTagString 去掉 tag 字符串参数外面的**一对**单引号，再把 ” 还原成 '。
 //
 // 曾经用 strings.Trim(s, "'")：它剥的是首尾**所有**单引号，于是以撇号结尾的文本
-// （title('Sales ''Order''')）丢掉最后那个撇号，变成 Sales 'Order。结构体上手写的
+// （title('Sales ”Order”')）丢掉最后那个撇号，变成 Sales 'Order。结构体上手写的
 // 标题很少这样结尾，但扩展字段的标题是从声明里原样拼进 tag 的。
 func unquoteTagString(s string) string {
 	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {

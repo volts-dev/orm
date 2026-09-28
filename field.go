@@ -238,6 +238,12 @@ type (
 		// AddField 靠这个标记认出它、按声明重建，而不是把它当成「已经声明过了」。
 		introspected bool
 
+		// companyDependent：值按公司分开存（Odoo company_dependent）。库里这一列是 jsonb
+		// {"<公司 id>": 值}，读、条件、排序取会话当前公司那一格，写只改那一格。
+		// SqlType 仍是**逻辑类型**（多对一是 BIGINT），值转换照它走；建列时的存储类型
+		// 由方言换成 JSONB。见 field_company.go。
+		companyDependent bool
+
 		SqlType         SQLType
 		MapType         FieldAccessMode
 		IsJSON          bool

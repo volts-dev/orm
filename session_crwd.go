@@ -453,6 +453,17 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 					id = v
 				}
 
+				if f := self.Statement.Model.GetFieldByName(k); IsCompanyDependent(f) {
+					js, ok, err := companyInsertValue(f, self.CompanyId(), v)
+					if err != nil {
+						return ids, err
+					}
+					if !ok {
+						continue
+					}
+					v = js
+				}
+
 				fields = append(fields, k)
 				params = append(params, v)
 			}
@@ -469,12 +480,22 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 					}
 				}
 
-				fields = append(fields, k)
+				v := vs[0]
 				if len(vs) > 1 {
-					params = append(params, vs[idx])
-				} else {
-					params = append(params, vs[0])
+					v = vs[idx]
 				}
+				if IsCompanyDependent(field) {
+					js, ok, err := companyInsertValue(field, self.CompanyId(), v)
+					if err != nil {
+						return ids, err
+					}
+					if !ok {
+						continue
+					}
+					v = js
+				}
+				fields = append(fields, k)
+				params = append(params, v)
 			}
 
 			OnConflictValues := make([]any, 0)
@@ -486,6 +507,11 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 						if field_name == self.Statement.Model.IdField() {
 							continue
 						}
+						// 冲突时整列覆盖会抹掉别的公司的值（见 field_company.go）；
+						// 宁可报错也不要静默丢数据。
+						if IsCompanyDependent(self.Statement.Model.GetFieldByName(field_name)) {
+							return ids, fmt.Errorf("orm: upsert cannot update company_dependent field %s", field_name)
+						}
 
 						if utils.IndexOf(field_name, self.Statement.OnConflict.Fields...) == -1 {
 							self.Statement.OnConflict.DoUpdates = append(self.Statement.OnConflict.DoUpdates, field_name)
@@ -494,6 +520,9 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 					}
 				} else if len(self.Statement.OnConflict.DoUpdates) > 0 {
 					for _, field_name := range self.Statement.OnConflict.DoUpdates {
+						if IsCompanyDependent(self.Statement.Model.GetFieldByName(field_name)) {
+							return ids, fmt.Errorf("orm: upsert cannot update company_dependent field %s", field_name)
+						}
 						if v, ok := newValues[field_name]; ok {
 							OnConflictValues = append(OnConflictValues, v)
 						}
@@ -743,18 +772,30 @@ func (self *TSession) _write(src any) (int64, error) {
 			sqlLen := sql.Len()
 			comma := false
 			for k, v := range newVals {
-				if comma {
-					sql.WriteString(",")
-				}
-
-				// 避免计算字段重复
+				// 避免计算字段重复。必须在写逗号之前判断：原来逗号写在前面，
+				// 同一个键两张表里都有时会拼出 `,,`。
 				if _, has := datas[k]; has {
 					continue
+				}
+
+				if comma {
+					sql.WriteString(",")
 				}
 
 				// 更新里不予许多条唯一记录
 				if field = self.Statement.Model.GetFieldByName(k); field != nil && field.IsUnique() && multiSql > 1 {
 					return 0, fmt.Errorf("Create record over than exspect %d rows!", multiSql)
+				}
+
+				if IsCompanyDependent(field) {
+					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), v)
+					if err != nil {
+						return 0, err
+					}
+					sql.WriteString(clause)
+					params = append(params, ps...)
+					comma = true
+					continue
 				}
 
 				sql.WriteString(quoter(k))
@@ -779,13 +820,24 @@ func (self *TSession) _write(src any) (int64, error) {
 					return 0, fmt.Errorf("Create record over than exspect %d rows!", multiSql)
 				}
 
+				v := vs[0]
+				if len(vs) > 1 {
+					v = vs[idx]
+				}
+				if IsCompanyDependent(field) {
+					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), v)
+					if err != nil {
+						return 0, err
+					}
+					sql.WriteString(clause)
+					params = append(params, ps...)
+					comma = true
+					continue
+				}
+
 				sql.WriteString(quoter(k))
 				sql.WriteString("=?")
-				if len(vs) > 1 {
-					params = append(params, vs[idx])
-				} else {
-					params = append(params, vs[0])
-				}
+				params = append(params, v)
 
 				comma = true
 			}

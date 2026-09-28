@@ -867,6 +867,14 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 					// TODO: generate_m2o_order_by (track via seen to avoid cycles)
 				} else if field.Store() && field.SQLType().Name != "" {
 					qualifield_name := query.inherits_join_calc(fieldName, self.Model)
+					if IsCompanyDependent(field) {
+						expr, err := companyValueExpr(self.session.orm.dialect, qualifield_name, field, self.session.CompanyId())
+						if err != nil {
+							log.Warnf("Sorting field %s ignored: %v", fieldName, err)
+							continue
+						}
+						qualifield_name = expr
+					}
 					if field.TypeName() == "boolean" {
 						qualifield_name = fmt.Sprintf(`COALESCE(%s, false)`, qualifield_name)
 					}

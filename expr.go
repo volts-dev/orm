@@ -1345,6 +1345,19 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 		}
 		return q, p, res_arg
 
+	} else if cdField := model.GetFieldByName(left.String()); !leaf.IsTrueLeaf() && !leaf.IsFalseLeaf() && IsCompanyDependent(cdField) {
+		// 按公司区分：比的是当前公司那一格的值，不是整列 jsonb（见 field_company.go）。
+		var cid int64
+		if self.session != nil {
+			cid = self.session.CompanyId()
+		}
+		q, p, err := companyLeafToSql(self.orm.dialect, aliasTable, cdField, cid, operator.String(), vals)
+		if err != nil {
+			log.Errf("%s in domain term %s", err.Error(), leaf.String())
+			return "0 = 1", res_params, res_arg
+		}
+		return q, p, res_arg
+
 	} else if leaf.IsTrueLeaf() {
 		res_query = "TRUE"
 		res_params = nil
