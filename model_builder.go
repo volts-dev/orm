@@ -240,6 +240,7 @@ func (self *ModelBuilder) Extend(name string) *fieldStatment {
 	if field == nil {
 		log.Fatalf("orm: Extend(%q) on model %s: 字段未声明——先在结构体 tag 或 Field() 里声明", name, self.model.name)
 	}
+	field.Base().introspected = false // Builder 认领了它（见 TField.introspected）
 	return &fieldStatment{
 		builder: self,
 		field:   field,

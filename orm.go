@@ -841,6 +841,7 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 
 			// 添加字段进Table
 			if field.TypeName() != "" && field.Name() != "" {
+				field.Base().introspected = false // 结构体声明认领了它
 				res_model.obj.SetField(field)
 
 				// Phase 2: populate DeletedField; reject models with multiple deleted tags
@@ -908,6 +909,9 @@ func (self *TOrm) _modelMetas(session *TSession, model IModel) (IModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, f := range fields {
+		f.Base().introspected = true // 见 TField.introspected
+	}
 
 	// TODO 充实model pk id 等选项
 	for _, name := range colSeq {
@@ -962,6 +966,7 @@ func (self *TOrm) _buildModelMeta(model IModel, colSeq []string, fields map[stri
 	for _, name := range colSeq {
 		if field, has := fields[name]; has {
 			field.Base().modelName = modelName
+			field.Base().introspected = true // 见 TField.introspected（批量反查走这里）
 			if !field.IsCompositeKey() && field.IsPrimaryKey() && field.Required() && (field.IsUnique() || field.IsAutoIncrement()) {
 				model.IdField(field.Name())
 				model.Obj().uidFieldName = field.Name()

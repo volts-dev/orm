@@ -66,6 +66,8 @@ func parseFieldTag(modelName, fieldName, rawTag, tagStr string, isTableTag bool)
 // # 幂等与并发
 //
 //   - 同名同类型的字段已在模型上：返回 (false, nil)，什么也不做。
+//   - 同名字段只是从库里反查出来的（上一次运行补过这一列，这次重启反查到了）：
+//     按声明重建并替换它，返回 (true, nil)。列已存在，不发 DDL。
 //   - 同名不同类型：返回错误，不替换。替换一个正在被读写的字段对象不安全，改类型要走迁移。
 //   - 多个进程同时补同一列：先查后加，加失败时再查一次，列已在就按成功处理。
 //
@@ -88,7 +90,9 @@ func (self *TOrm) AddField(modelName, fieldName, tag string) (added bool, err er
 		return false, fmt.Errorf("orm: AddField %s.%s: tag %q names no field type", modelName, fieldName, tag)
 	}
 
-	if existing := model.GetFieldByName(fieldName); existing != nil {
+	// 反查得来、没有声明认领的同名字段不算「已声明」：那是上一次运行补的列，重启后被反查
+	// 成了只有 SQL 类型的样子（见 TField.introspected），这里按声明重建它。
+	if existing := model.GetFieldByName(fieldName); existing != nil && !existing.Base().introspected {
 		// 比的是 Init 之后的类型名：数值、布尔、json 这几类在 Init 里会改写成 SQL 类型名
 		// （bool → BOOL、json → jsonb），拿 tag 上的原文去比，同一个声明补第二次会被当成换类型。
 		// 这里只跑 Init，不跑其余 tag —— index / default 这类 tag 会往共享模型上登记东西。

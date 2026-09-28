@@ -117,3 +117,82 @@ func TestAddField_Postgres_AllSchemasIndexAndM2M(t *testing.T) {
 		t.Fatal("many2many 的关联表没有建出来")
 	}
 }
+
+type addfieldRestartProbe struct {
+	TModel `table:"name('addfield_restart_probe')"`
+	Id     int64  `field:"pk autoincr"`
+	Name   string `field:"varchar(32)"`
+}
+
+// 重启之后再补同一批字段：列已经在库里，New() 的反查把它们带进了模型（只有 SQL 类型，
+// 没有标题，多对一退化成 BIGINT）。AddField 必须按声明重建它们，而不是当成「已声明」。
+//
+// 真栈 2026-09-28 撞到：kylin 重启后 res.partner.sale_warn_msg 的标题变成空串 ——
+// AddField 看到同名同类型的反查字段就返回了 no-op。多对一更糟：反查出来是 BIGINT，
+// AddField 会当成「换类型」拒绝，字段从此是一个裸整数。
+func TestAddField_Postgres_RedeclaresIntrospectedColumnsAfterRestart(t *testing.T) {
+	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	cleaner, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	if _, err := cleaner.Exec(`DROP TABLE IF EXISTS public.addfield_restart_probe CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+
+	decl := map[string]string{
+		"warn_msg":  "text() title('Warning Message')",
+		"parent_id": "many2one(addfield.restart.probe) title('Parent')",
+	}
+
+	// 第一次运行：建表、补字段（列落库）。
+	first, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := first.SyncModel("test", new(addfieldRestartProbe))
+	if err != nil || len(names) != 1 {
+		t.Fatalf("SyncModel: %v %v", names, err)
+	}
+	modelName := names[0]
+	if err := first.Freeze(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for f, tag := range decl {
+		if _, err := first.AddField(modelName, f, tag); err != nil {
+			t.Fatalf("first run AddField %s: %v", f, err)
+		}
+	}
+
+	// 「重启」：新的 TOrm 反查到带着 warn_msg / parent_id 两列的表。
+	second, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.SyncModel("test", new(addfieldRestartProbe)); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Freeze(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for f, tag := range decl {
+		added, err := second.AddField(modelName, f, tag)
+		if err != nil {
+			t.Fatalf("after restart AddField %s: %v", f, err)
+		}
+		if !added {
+			t.Fatalf("after restart AddField %s 返回 added=false：反查来的字段被当成了已声明", f)
+		}
+	}
+	m := second.Model(modelName).Statement.Model
+	if got := m.GetFieldByName("warn_msg").Label(); got != "Warning Message" {
+		t.Fatalf("重启后 warn_msg 的标题 = %q", got)
+	}
+	if got := m.GetFieldByName("parent_id").TypeName(); got != TYPE_M2O {
+		t.Fatalf("重启后 parent_id 的类型 = %q，应为 many2one", got)
+	}
+	// 结构体上声明过的字段不受影响：仍然拒绝改类型。
+	if _, err := second.AddField(modelName, "name", "int()"); err == nil {
+		t.Fatal("结构体字段 name 被 AddField 改了类型")
+	}
+}

@@ -229,6 +229,15 @@ type (
 		hasGetter       bool // 是否注册了自定义读取函数
 		hasSetter       bool // 是否注册了自定义写入函数
 
+		// introspected：字段是从库里**反查**出来的（New() 的 _reverse / SyncModel 的 dbMetas），
+		// 还没有任何声明认领它。结构体映射、Builder 认领时清掉。
+		//
+		// 为什么要记：反查出来的模型对象与随后注册的结构体模型共用同一个 TModelObject，
+		// 于是库里存在、代码里没声明的列（例如上一次运行时 AddField 补的那一列）重启后
+		// 会以「只有 SQL 类型、没有标题、多对一退化成 BIGINT」的样子留在模型上。
+		// AddField 靠这个标记认出它、按声明重建，而不是把它当成「已经声明过了」。
+		introspected bool
+
 		SqlType         SQLType
 		MapType         FieldAccessMode
 		IsJSON          bool
