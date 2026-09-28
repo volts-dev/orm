@@ -41,6 +41,10 @@ type m2oRef struct {
 	policy string // 规范化后的策略：cascade / restrict / set null
 	// required 为真时 set null 会撞 NOT NULL，执行前降级为告警跳过。
 	required bool
+	// companyDependent：这一列是按公司区分的 jsonb（{"<公司>": id, ...}），每一格都可能
+	// 指向被删的记录。「指向」按每一格的文本值比（数字与字符串两种写法都有：前端的雪花号
+	// 走字符串），set null 是删掉那几格而不是整列置空（别的公司的值不相干）。
+	companyDependent bool
 }
 
 const (
@@ -134,12 +138,19 @@ func (self *TOsv) buildM2ORefIndex() *map[string][]m2oRef {
 				continue
 			}
 			ref := m2oRef{
-				model:    owner,
-				table:    fmtTableName(owner),
-				column:   field.Name(),
-				idCol:    idCol,
-				policy:   policy,
-				required: field.Required(),
+				model:            owner,
+				table:            fmtTableName(owner),
+				column:           field.Name(),
+				idCol:            idCol,
+				policy:           policy,
+				required:         field.Required(),
+				companyDependent: IsCompanyDependent(field),
+			}
+			if ref.companyDependent && ref.policy == onDeleteCascade {
+				// 某家公司的价格表被删了，就把整个客户删掉？不可能是本意。按 set null 处理
+				// （只删掉指向它的那几格），并点名让声明改掉。
+				log.Warnf("ondelete: %s.%s is company_dependent; 'cascade' makes no sense there, treating it as 'set null'", owner, field.Name())
+				ref.policy = onDeleteSetNull
 			}
 			dup := false
 			for _, exist := range index[target] {
@@ -263,12 +274,18 @@ func (self *TSession) applyOnDeleteWrites(modelName string, ids []any, depth int
 				continue
 			}
 			for _, batch := range batchIds(fresh) {
-				sql := fmt.Sprintf(`UPDATE %s SET %s = NULL WHERE %s IN (%s)`,
-					quoter.QuoteTable(self.Schema, ref.table),
-					quoter.QuoteIdentMust(ref.column),
-					quoter.QuoteIdentMust(ref.column),
-					idsToSqlHolder(batch...))
-				if _, err := self._exec(sql, batch...); err != nil {
+				where, args := self.refPredicate(ref, batch)
+				set := quoter.QuoteIdentMust(ref.column) + " = NULL"
+				if ref.companyDependent {
+					// 只删掉值是这批 id 的那几格；jsonb - text[] 删多个键。
+					col := quoter.QuoteIdentMust(ref.column)
+					set = fmt.Sprintf(`%s = %s - ARRAY(SELECT e.key FROM jsonb_each(%s) AS e WHERE (e.value #>> '{}') IN (%s))`,
+						col, col, col, idsToSqlHolder(args...))
+					args = append(append([]any{}, args...), args...)
+				}
+				sql := fmt.Sprintf(`UPDATE %s SET %s WHERE %s`,
+					quoter.QuoteTable(self.Schema, ref.table), set, where)
+				if _, err := self._exec(sql, args...); err != nil {
 					return nil, fmt.Errorf("delete %s: ondelete('set null') on %s.%s failed: %w", modelName, ref.model, ref.column, err)
 				}
 			}
@@ -319,15 +336,15 @@ func (self *TSession) referencingIds(ref m2oRef, ids []any, limit int) ([]any, e
 	quoter := self.orm.dialect.Quoter()
 	var out []any
 	for _, batch := range batchIds(ids) {
-		sql := fmt.Sprintf(`SELECT %s FROM %s WHERE %s IN (%s)`,
+		where, args := self.refPredicate(ref, batch)
+		sql := fmt.Sprintf(`SELECT %s FROM %s WHERE %s`,
 			quoter.QuoteIdentMust(ref.idCol),
 			quoter.QuoteTable(self.Schema, ref.table),
-			quoter.QuoteIdentMust(ref.column),
-			idsToSqlHolder(batch...))
+			where)
 		if limit > 0 {
 			sql += fmt.Sprintf(" LIMIT %d", limit)
 		}
-		ds, err := self._query(sql, batch...)
+		ds, err := self._query(sql, args...)
 		if err != nil {
 			return nil, fmt.Errorf("ondelete: scan %s.%s failed: %w", ref.table, ref.column, err)
 		}
@@ -379,4 +396,19 @@ func batchIds(ids []any) [][]any {
 		out = append(out, ids[start:end])
 	}
 	return out
+}
+
+// refPredicate 是「ref 这一列指向 batch 里某个 id」的 WHERE 条件与它的参数。
+// 按公司区分的列是 jsonb：任何一格指向它就算。
+func (self *TSession) refPredicate(ref m2oRef, batch []any) (string, []any) {
+	col := self.orm.dialect.Quoter().QuoteIdentMust(ref.column)
+	if !ref.companyDependent {
+		return fmt.Sprintf(`%s IN (%s)`, col, idsToSqlHolder(batch...)), batch
+	}
+	strs := make([]any, len(batch))
+	for i, id := range batch {
+		strs[i] = fmt.Sprint(id)
+	}
+	return fmt.Sprintf(`EXISTS (SELECT 1 FROM jsonb_each(%s) AS e WHERE (e.value #>> '{}') IN (%s))`,
+		col, idsToSqlHolder(strs...)), strs
 }

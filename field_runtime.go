@@ -72,7 +72,20 @@ func parseFieldTag(modelName, fieldName, rawTag, tagStr string, isTableTag bool)
 //   - 多个进程同时补同一列：先查后加，加失败时再查一次，列已在就按成功处理。
 //
 // DisableSchemaSync 时不发任何 DDL（契约是库结构已由部署期迁移就位），只挂字段。
-func (self *TOrm) AddField(modelName, fieldName, tag string) (added bool, err error) {
+//
+// # 一次性回填（WithBackfill）
+//
+// 字段搬家时（值原来存在别处，现在改成这张表上的一列），列建出来的**那一刻**要把旧值
+// 拷过来。WithBackfill 给的函数与建列在**同一个事务**里执行：拷贝失败，列也不建，下次
+// 再补时重来；列已经在了（上一次建过、或别的进程抢先建了）就不再执行 —— 于是它在每个
+// schema 里恰好成功执行一次，不需要另记「迁过没有」。many2many 同理，时机是关联表建出来
+// 的那一刻。
+func (self *TOrm) AddField(modelName, fieldName, tag string, opts ...AddFieldOption) (added bool, err error) {
+	var o addFieldOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	m, err := self.osv.GetModel(modelName)
 	if err != nil {
 		return false, err
@@ -115,7 +128,7 @@ func (self *TOrm) AddField(modelName, fieldName, tag string) (added bool, err er
 
 	if !self.config.DisableSchemaSync {
 		for _, schema := range self.schemasWithTable(model.Table()) {
-			if err := self.materializeField(schema, model, field); err != nil {
+			if err := self.materializeField(schema, model, field, &o); err != nil {
 				return false, fmt.Errorf("orm: AddField %s.%s (schema %q): %w", modelName, fieldName, schema, err)
 			}
 		}
@@ -125,7 +138,27 @@ func (self *TOrm) AddField(modelName, fieldName, tag string) (added bool, err er
 		return false, err
 	}
 	model.obj.SetField(field)
+	// 删除时「谁指向我」的两份索引是按模型集合建的缓存：不作废的话，运行期补上来的
+	// many2one / many2many 带着 ondelete 声明也没人执行（目标记录删了，这一列还指着它）。
+	self.osv.invalidateM2ORefIndex()
+	self.osv.invalidateM2MRefIndex()
 	return true, nil
+}
+
+// AddFieldOption 是 AddField 的可选项。
+type AddFieldOption func(*addFieldOptions)
+
+type addFieldOptions struct {
+	backfill func(s *TSession) error
+}
+
+// WithBackfill 在这一列（many2many 是关联表）**第一次建出来的那个事务里**执行 fn，见 AddField。
+//
+// fn 拿到的会话已经在事务里、Schema 是这一次建列所在的 schema，裸 SQL 的表名按
+// search_path 落在这个 schema（再回落 public）。fn 返回错误则整个事务回滚、列不建，
+// AddField 返回这个错误。
+func WithBackfill(fn func(s *TSession) error) AddFieldOption {
+	return func(o *addFieldOptions) { o.backfill = fn }
 }
 
 // buildField 按 tag 建一个**游离**的字段对象：初始化与 tag 处理都做完，但还没挂到模型上。
@@ -185,7 +218,7 @@ func (self *TOrm) schemasWithTable(table string) []string {
 }
 
 // materializeField 在一个 schema 里把字段落到库上：列、它的索引、many2many 关联表。
-func (self *TOrm) materializeField(schema string, model *TModel, field IField) error {
+func (self *TOrm) materializeField(schema string, model *TModel, field IField, o *addFieldOptions) error {
 	ctx := self.context
 	if ctx == nil {
 		ctx = context.Background()
@@ -198,11 +231,8 @@ func (self *TOrm) materializeField(schema string, model *TModel, field IField) e
 			return err
 		}
 		if !exists {
-			if _, err := self.Exec(self.dialect.GenAddColumnSQL(schema, table, field)); err != nil {
-				// 另一个进程抢先补上了：列在就算成功。
-				if again, _ := self.dialect.IsColumnExist(ctx, schema, table, field.Name()); !again {
-					return err
-				}
+			if err := self.addColumn(ctx, schema, table, field, o); err != nil {
+				return err
 			}
 		}
 	}
@@ -222,7 +252,79 @@ func (self *TOrm) materializeField(schema string, model *TModel, field IField) e
 	}
 
 	if field.IsRelated() {
+		if field.TypeName() == TYPE_M2M && o != nil && o.backfill != nil {
+			return self.addRelationTable(schema, model, field, o)
+		}
 		field.UpdateDb(&TTagContext{Orm: self, Field: field, Model: model, Session: session})
+	}
+	return nil
+}
+
+// addColumn 建列；带回填时建列与回填在同一个事务里（见 WithBackfill）。
+func (self *TOrm) addColumn(ctx context.Context, schema, table string, field IField, o *addFieldOptions) error {
+	ddl := self.dialect.GenAddColumnSQL(schema, table, field)
+	if o == nil || o.backfill == nil {
+		if _, err := self.Exec(ddl); err != nil {
+			// 另一个进程抢先补上了：列在就算成功。
+			if again, _ := self.dialect.IsColumnExist(ctx, schema, table, field.Name()); !again {
+				return err
+			}
+		}
+		return nil
+	}
+
+	s := self.NewSession()
+	defer s.Close()
+	s.Schema = schema
+	if err := s.Begin(); err != nil {
+		return err
+	}
+	if _, err := s.Exec(ddl); err != nil {
+		s.Rollback(err)
+		// 别的进程抢先建了（连同它的回填一起提交了）：列在就算成功，回填不再做。
+		if again, _ := self.dialect.IsColumnExist(ctx, schema, table, field.Name()); again {
+			return nil
+		}
+		return err
+	}
+	if err := o.backfill(s); err != nil {
+		s.Rollback(err)
+		return fmt.Errorf("backfill: %w", err)
+	}
+	return s.Commit()
+}
+
+// addRelationTable 建 many2many 关联表；关联表是这一次才建出来的，就在同一个事务里回填。
+func (self *TOrm) addRelationTable(schema string, model *TModel, field IField, o *addFieldOptions) error {
+	rel := strings.Replace(field.JoinModelName(), ".", "_", -1)
+	s := self.NewSession()
+	defer s.Close()
+	s.Schema = schema
+	if err := s.Begin(); err != nil {
+		return err
+	}
+	sql, args := self.dialect.TableCheckSql(schema, rel)
+	ds, err := s._query(sql, args...)
+	if err != nil {
+		s.Rollback(err)
+		return err
+	}
+	existed := ds.Count() > 0
+
+	s.Model(model.String())
+	field.UpdateDb(&TTagContext{Orm: self, Field: field, Model: model, Session: s})
+	if !existed {
+		if err := o.backfill(s); err != nil {
+			s.Rollback(err)
+			// UpdateDb 按 (schema, 表) 记了「这个进程建过」；事务回滚了，要让下一次补字段重建。
+			self.osv.middleModelDDL.Delete(schema + "|" + rel)
+			return fmt.Errorf("backfill: %w", err)
+		}
+	}
+	// UpdateDb 的 DDL 出错只记日志不返回；在事务里出过错，提交这一步才报出来。
+	if err := s.Commit(); err != nil {
+		self.osv.middleModelDDL.Delete(schema + "|" + rel)
+		return err
 	}
 	return nil
 }
