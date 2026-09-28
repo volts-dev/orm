@@ -445,14 +445,24 @@ func tag_old_name(ctx *TTagContext) error {
 	return nil
 }
 
+// unquoteTagString 去掉 tag 字符串参数外面的**一对**单引号，再把 '' 还原成 '。
+//
+// 曾经用 strings.Trim(s, "'")：它剥的是首尾**所有**单引号，于是以撇号结尾的文本
+// （title('Sales ''Order''')）丢掉最后那个撇号，变成 Sales 'Order。结构体上手写的
+// 标题很少这样结尾，但扩展字段的标题是从声明里原样拼进 tag 的。
+func unquoteTagString(s string) string {
+	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
+		s = s[1 : len(s)-1]
+	}
+	return strings.Replace(s, "''", "'", -1)
+}
+
 func tag_title(ctx *TTagContext) error {
 	field := ctx.Field.Base()
 	params := ctx.Params
 
 	if len(params) > 0 {
-		title := strings.Trim(params[0], "'")
-		title = strings.Replace(title, "''", "'", -1)
-		field.label = title
+		field.label = unquoteTagString(params[0])
 	}
 	return nil
 }
@@ -462,9 +472,7 @@ func tag_help(ctx *TTagContext) error {
 	params := ctx.Params
 
 	if len(params) > 0 {
-		help := strings.Trim(params[0], "'")
-		help = strings.Replace(help, "''", "'", -1)
-		field.description = help
+		field.description = unquoteTagString(params[0])
 	}
 	return nil
 }

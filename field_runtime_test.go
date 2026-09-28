@@ -128,3 +128,19 @@ func TestAddField_BadInputIsAnErrorNotAFatal(t *testing.T) {
 		t.Fatal("没有字段类型的 tag 应当报错")
 	}
 }
+
+// 标题、说明里的括号与撇号原样保留 —— 扩展字段的标题是从声明原文拼进 tag 的，
+// 结尾是撇号的文本曾被剥掉最后那个撇号。
+func TestAddField_TitleAndHelpKeepParensAndApostrophes(t *testing.T) {
+	o := setupIntegrationOrm(t)
+	if _, err := o.AddField("bench.model", "x_msg", `text() title('Message (for) Sales ''Order''') help('Shown when (x) happens')`); err != nil {
+		t.Fatalf("AddField: %v", err)
+	}
+	f := o.Model("bench.model").Statement.Model.GetFieldByName("x_msg")
+	if f.Label() != "Message (for) Sales 'Order'" {
+		t.Fatalf("title = %q", f.Label())
+	}
+	if f.Base().description != "Shown when (x) happens" {
+		t.Fatalf("help = %q", f.Base().description)
+	}
+}
