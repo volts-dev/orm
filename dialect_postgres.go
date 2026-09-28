@@ -1192,7 +1192,8 @@ func (db *postgres) DropColumnDefaultSql(schema, tableName string, col IField) s
 	quoter := db.dialect.Quoter()
 	tbl := quoter.QuoteTable(db.schemaOr(schema), tableName)
 	name := quoter.Quote(col.Name())
-	if col.IsDefaultEmpty() {
+	// 同 ColumnString：只看静态默认值，默认值函数不是列默认值。
+	if col.Default() == nil {
 		return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT", tbl, name)
 	}
 

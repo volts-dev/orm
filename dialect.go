@@ -508,7 +508,10 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 	// (BIGSERIAL / AUTO_INCREMENT / AUTOINCREMENT). Emitting an explicit
 	// DEFAULT alongside it makes Postgres reject the column definition with
 	// "multiple default values specified".
-	if !field.IsAutoIncrement() && !field.IsDefaultEmpty() {
+	// 只有**静态**默认值落成列默认值。默认值函数（DefaultFunc、default_company）在应用层
+	// 新建时求值，库里没有它的对应物；拿 IsDefaultEmpty 判的话它们也会被当成「有默认值」，
+	// 落成一个毫无意义的 DEFAULT 0 / DEFAULT ''（company_id bigint DEFAULT 0）。
+	if !field.IsAutoIncrement() && field.Default() != nil {
 		if _, err := bd.WriteString(" DEFAULT "); err != nil {
 			return "", err
 		}

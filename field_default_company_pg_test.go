@@ -125,3 +125,28 @@ func TestDefaultCompany_RejectsNonRelationalField(t *testing.T) {
 		t.Fatal("default_company 写在 varchar 上应报错")
 	}
 }
+
+// 默认值函数不是列默认值：建表不许带 DEFAULT，重启再同步一次也不许报错。
+// 曾经：IsDefaultEmpty 把默认值函数也算作「有默认值」，建表落成 `company_id bigint DEFAULT 0`；
+// 下一次启动同步时静态默认值（nil）与库里的 "0" 对不上，生成 `SET DEFAULT `（空值）→ 语法错，
+// 这个模型的同步整个失败。
+func TestDefaultCompany_Postgres_NoColumnDefaultAndResyncs(t *testing.T) {
+	o, _ := setupDefaultCompanyOrm(t)
+	ds, err := o.Query(`SELECT COALESCE(column_default, '') AS d FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'dc_probe' AND column_name = 'company_id'`)
+	if err != nil || ds.Count() != 1 {
+		t.Fatalf("query column default: %v", err)
+	}
+	if d := ds.FieldByName("d").AsString(); d != "" {
+		t.Fatalf("company_id 不该有列默认值（默认值函数在应用层求值），实得 %q", d)
+	}
+
+	src := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	again, err := New(WithDataSource(src))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	defer again.Close()
+	if _, err := again.SyncModel("test", new(dcProbe)); err != nil {
+		t.Fatalf("表已存在时再同步一次（即重启）报错: %v", err)
+	}
+}
