@@ -451,6 +451,7 @@ func (self *TOsv) RegisterModel(region string, model *TModel, session ...*TSessi
 				if newBase.defaultFunc == nil && oldBase.defaultFunc != nil {
 					newBase.defaultFunc = oldBase.defaultFunc
 					newBase.defaultCompany = oldBase.defaultCompany
+					newBase.defaultCompanyRequired = oldBase.defaultCompanyRequired
 				}
 			}
 			obj.fields.Store(key, newField)

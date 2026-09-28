@@ -244,3 +244,50 @@ func TestDefaultCompany_Postgres_RequiredBlankGetsDefault(t *testing.T) {
 		t.Fatalf("必填字段显式给空应补当前公司 5，实得 %d", v)
 	}
 }
+
+// default_company(required)：Odoo 上必填、本仓存量有空值加不了 NOT NULL 的 company_id。
+// 新建时显式给空也补当前公司；库上不加约束（存量的空值不受影响）。
+func TestDefaultCompany_Postgres_RequiredParam(t *testing.T) {
+	type dcSoft struct {
+		TModel    `table:"name('dc_soft')"`
+		Id        int64  `field:"pk autoincr"`
+		Name      string `field:"varchar(32)"`
+		CompanyId int64  `field:"many2one(dc.soft) default_company(required) title('Company')"`
+		Level     int64  `field:"int(64) default_company(required) title('Level')"`
+	}
+	cleaner, err := New(WithDataSource(bfSource()))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	cleaner.Exec(`DROP TABLE IF EXISTS public.dc_soft CASCADE`)
+	cleaner.Close()
+	o, err := New(WithDataSource(bfSource()))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	defer o.Close()
+	names, err := o.SyncModel("test", new(dcSoft))
+	if err != nil || len(names) != 1 {
+		t.Fatalf("SyncModel: %v %v", names, err)
+	}
+	if err := o.Freeze(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := o.GetModel(names[0])
+	f := m.GetFieldByName("company_id")
+	if !IsCompanyRequired(f) || f.Required() {
+		t.Fatal("default_company(required) 应只标记公司必填语义，不让字段本身 required（那会 SET NOT NULL）")
+	}
+	ids, err := o.Model(names[0]).WithContext(WithCompanyId(context.Background(), 5)).Create(map[string]any{"name": "s", "company_id": false, "level": int64(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := o.Query(`SELECT COALESCE(company_id, 0) AS c, COALESCE(level, 0) AS l FROM dc_soft WHERE id = ?`, ids[0])
+	if c, l := ds.FieldByName("c").AsInteger(), ds.FieldByName("l").AsInteger(); c != 5 || l != 5 {
+		t.Fatalf("显式给空也应补当前公司 5，实得 many2one=%d int=%d", c, l)
+	}
+	nn, _ := o.Query(`SELECT is_nullable AS n FROM information_schema.columns WHERE table_name = 'dc_soft' AND column_name = 'company_id'`)
+	if n := nn.FieldByName("n").AsString(); n != "YES" {
+		t.Fatalf("不该加 NOT NULL（存量有空值），is_nullable=%s", n)
+	}
+}

@@ -88,6 +88,11 @@ func IsDefaultCompany(f IField) bool {
 	return f != nil && f.Base() != nil && f.Base().defaultCompany
 }
 
+// IsCompanyRequired 报告字段是否写成 default_company(required)：新建时显式给空也补当前公司。
+func IsCompanyRequired(f IField) bool {
+	return f != nil && f.Base() != nil && f.Base().defaultCompanyRequired
+}
+
 // tag_default_company：新建时没给值就用当前公司，对标 Odoo 的
 // `company_id = fields.Many2one('res.company', default=lambda self: self.env.company)`。
 //
@@ -110,6 +115,14 @@ func tag_default_company(ctx *TTagContext) error {
 	b := f.Base()
 	b.defaultCompany = true
 	b.defaultFunc = defaultCompanyValue
+	switch {
+	case len(ctx.Params) == 0:
+	case len(ctx.Params) == 1 && strings.Trim(ctx.Params[0], "' ") == "required":
+		// Odoo 上必填、本仓存量有空值加不了 NOT NULL 的那几个：新建时显式给空也补。
+		b.defaultCompanyRequired = true
+	default:
+		return fmt.Errorf("orm: %s.%s: default_company takes no argument or 'required', got %v", ctx.Model.String(), f.Name(), ctx.Params)
+	}
 	return nil
 }
 

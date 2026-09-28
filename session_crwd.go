@@ -1413,7 +1413,7 @@ func (self *TSession) _todoCompute(data *dataset.TDataSet, ids []any, newTodo []
 			//     填回当前公司。
 			//   - 新建时显式给空值（false / 0）是要一条「没有值」的记录（共享价格表）。
 			//     必填字段例外：空值本来就存不进去，补默认值比报错有用。
-			useDefault := len(ids) == 0 && (!explicitKeys[name] || field.Required())
+			useDefault := len(ids) == 0 && (!explicitKeys[name] || field.Required() || IsCompanyRequired(field))
 			if defaultFunc := field.DefaultFunc(); defaultFunc != nil && useDefault {
 				if err := defaultFunc(ctx); err != nil {
 					return nil, multiSql, err
@@ -1716,7 +1716,8 @@ func (self *TSession) _separateValues(data *dataset.TDataSet, mustFields []strin
 			// 判据用 setted 而非 present：新建时显式写 nil 仍应由默认值来填
 			// （"没值"与 NULL 在新建语义上是一回事），只有显式的**零值**才越过默认值。
 			// Select() 点名的字段一律不填默认——点名即"就写我给的这个值"。
-			if !(present && setted) && !(writeScope != nil && writeScope[name]) && !field.IsDefaultEmpty() {
+			// default_company(required)：显式给空也补（见 IsCompanyRequired）。
+			if (!(present && setted) || IsCompanyRequired(field)) && !(writeScope != nil && writeScope[name]) && !field.IsDefaultEmpty() {
 				if field.DefaultFunc() != nil {
 					ctx := &TFieldContext{
 						Session: self,

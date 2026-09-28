@@ -248,6 +248,10 @@ type (
 		// `default=lambda self: self.env.company`）。显式给了空值（false / 0）不填——那是
 		// 调用方要一条不属于任何公司的共享记录。见 field_company.go 的 tag_default_company。
 		defaultCompany bool
+		// defaultCompanyRequired：tag 写成 default_company(required)。Odoo 上这个 company_id 是
+		// 必填的（税组、仓库、作业类型……），而本仓存量数据里有空值、加不了 NOT NULL：新建时
+		// 显式给空也补当前公司，库上不加约束。
+		defaultCompanyRequired bool
 
 		SqlType         SQLType
 		MapType         FieldAccessMode
