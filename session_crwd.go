@@ -509,7 +509,15 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 						}
 						// 冲突时整列覆盖会抹掉别的公司的值（见 field_company.go）；
 						// 宁可报错也不要静默丢数据。
+						//
+						// 但只对**调用方给了的**列报错：newValues 里还有默认值和布尔零值补位，
+						// 那些列本来就不该被一次 upsert 改掉。此前它们也算进来，于是 purchase 给
+						// res.partner 加了按公司区分的字段之后，registry 种子数据对 partner_root 的
+						// upsert 整笔被拒，新租户一个都建不出来（2026-09-29）。
 						if IsCompanyDependent(self.Statement.Model.GetFieldByName(field_name)) {
+							if explicitKeys != nil && !explicitKeys[field_name] {
+								continue
+							}
 							return ids, fmt.Errorf("orm: upsert cannot update company_dependent field %s", field_name)
 						}
 
