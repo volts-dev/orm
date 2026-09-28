@@ -3,6 +3,7 @@ package orm
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -249,5 +250,76 @@ func TestAddField_Postgres_OnDeleteCompanyDependent(t *testing.T) {
 	}
 	if _, err := o.Model(target).Delete(t2...); err == nil {
 		t.Fatal("lock_id 在公司 1 里指着 t2（restrict），删除应被拒绝")
+	}
+}
+
+// 别的进程的模型上、指向本进程模型的列（ForeignRef）：本进程删目标记录时照样执行 ondelete。
+// 真实形态：sale 给 res.partner（kylin）加的列指向 pro.pricelist（salesvc）；salesvc 删价格表，
+// 本进程的索引里没有 res.partner，只能靠宿主告诉它。表在同一个库里，SQL 直接能跑。
+func TestOnDelete_Postgres_ForeignRefs(t *testing.T) {
+	o, _, target := bfOrm(t, true)
+	if _, err := o.Exec(`DROP TABLE IF EXISTS bf_foreign, bf_foreign_rel`); err != nil {
+		t.Fatal(err)
+	}
+	o.SetForeignRefs(func(to string) []ForeignRef {
+		if to != target {
+			return nil
+		}
+		return []ForeignRef{
+			{Model: "bf.foreign", Column: "pref_id", OnDelete: "set null"},
+			{Model: "bf.foreign", Column: "lock_id", OnDelete: "restrict"},
+			{Model: "bf.foreign", Column: "cpref_id", OnDelete: "set null", CompanyDependent: true},
+			{Model: "bf.foreign", Column: "target_id", RelationTable: "bf_foreign_rel"},
+		}
+	})
+	// 先删一次，让本 orm 的库结构快照建出来（此刻 bf_foreign 还不存在）。
+	warm, _ := o.Model(target).Create(map[string]any{"name": "warm"})
+	if _, err := o.Model(target).Delete(warm...); err != nil {
+		t.Fatal(err)
+	}
+	// bf_foreign 不是本 orm 注册的模型：模拟另一个进程的属主表。由**另一个** orm 建 ——
+	// 另一个进程运行期补的列，本进程的库结构快照里没有，列存不存在要直接问库。
+	other, err := New(WithDataSource(bfSource()))
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	for _, q := range []string{
+		`DROP TABLE IF EXISTS bf_foreign, bf_foreign_rel`,
+		`CREATE TABLE bf_foreign (id bigint primary key, pref_id bigint, lock_id bigint, cpref_id jsonb)`,
+		`CREATE TABLE bf_foreign_rel (foreign_id bigint, target_id bigint)`,
+	} {
+		if _, err := other.Exec(q); err != nil {
+			other.Close()
+			t.Fatal(err)
+		}
+	}
+	other.Close()
+	t1, _ := o.Model(target).Create(map[string]any{"name": "t1"})
+	t2, _ := o.Model(target).Create(map[string]any{"name": "t2"})
+	if _, err := o.Exec(`INSERT INTO bf_foreign (id, pref_id, cpref_id) VALUES (1, ?, jsonb_build_object('1', ?::bigint, '2', ?::bigint))`, t1[0], t1[0], t2[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Exec(`INSERT INTO bf_foreign_rel VALUES (1, ?), (1, ?)`, t1[0], t2[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Model(target).Delete(t1...); err != nil {
+		t.Fatalf("删 t1: %v", err)
+	}
+	ds, _ := o.Query(`SELECT COALESCE(pref_id, 0) AS p, cpref_id::text AS c FROM bf_foreign WHERE id = 1`)
+	if p := ds.FieldByName("p").AsInteger(); p != 0 {
+		t.Fatalf("别的进程的列指向被删的 t1，set null 没执行：%d", p)
+	}
+	if c := ds.FieldByName("c").AsString(); strings.Contains(c, `"1"`) || !strings.Contains(c, `"2"`) {
+		t.Fatalf("按公司区分的列应只删掉指向 t1 的那一格：%s", c)
+	}
+	rel, _ := o.Query(`SELECT count(*) AS n FROM bf_foreign_rel WHERE target_id = ?`, t1[0])
+	if n := rel.FieldByName("n").AsInteger(); n != 0 {
+		t.Fatalf("别的进程的多对多关联表里指向 t1 的行没删：%d", n)
+	}
+	if _, err := o.Exec(`UPDATE bf_foreign SET lock_id = ? WHERE id = 1`, t2[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Model(target).Delete(t2...); err == nil {
+		t.Fatal("别的进程的列 restrict 指着 t2，删除应被拒绝")
 	}
 }

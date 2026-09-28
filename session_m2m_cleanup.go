@@ -117,12 +117,26 @@ func (self *TSession) cleanupM2MRelations(modelName string, ids []any) {
 	}
 
 	refs := self.orm.osv.m2mRefsOf(modelName)
-	if len(refs) == 0 {
+	foreign := self.orm.osv.foreignRelationRefsOf(modelName)
+	if len(refs) == 0 && len(foreign) == 0 {
 		return
 	}
 
 	quoter := self.orm.dialect.Quoter()
 	holder := idsToSqlHolder(ids...)
+	// 别的进程的 many2many 关联表（见 ForeignRef）：列存不存在直接问库，那张表可能是
+	// 运行期才建的，启动时的库结构快照里没有。
+	for _, r := range foreign {
+		ref := m2oRef{table: r.RelationTable, foreign: true}
+		if !self.refUsable(ref, r.Column) {
+			continue
+		}
+		sql := fmt.Sprintf(`DELETE FROM %s WHERE %s IN (%s)`,
+			quoter.QuoteTable(self.Schema, r.RelationTable), quoter.QuoteIdentMust(r.Column), holder)
+		if _, err := self._exec(sql, ids...); err != nil {
+			log.Warnf("delete %s: clean up relation table %s.%s failed: %v", modelName, r.RelationTable, r.Column, err)
+		}
+	}
 	for _, ref := range refs {
 		table := strings.Replace(ref.joinModel, ".", "_", -1)
 		if !self.relationColumnUsable(table, ref.column) {

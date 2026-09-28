@@ -81,6 +81,9 @@ type (
 		// 见 session_m2m_cleanup.go。
 		m2mRefIndex atomic.Pointer[map[string][]m2mRelationRef]
 
+		// foreignRefs 由宿主提供：别的进程的模型上、指向本进程模型的多对一列（见 SetForeignRefs）。
+		foreignRefs atomic.Pointer[func(target string) []ForeignRef]
+
 		// m2oRefIndex 缓存「模型名 → 声明了 ondelete 且指向它的 many2one 列」，
 		// 供删除时执行 cascade / restrict / set null。作废时机同上。
 		// 见 session_ondelete.go。

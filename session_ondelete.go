@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -41,6 +42,9 @@ type m2oRef struct {
 	policy string // 规范化后的策略：cascade / restrict / set null
 	// required 为真时 set null 会撞 NOT NULL，执行前降级为告警跳过。
 	required bool
+	// foreign：这一列在**别的进程**的模型上（宿主经 SetForeignRefs 告诉我们的），不在本进程
+	// 的模型集合里 —— 列存不存在要直接问库，不能看启动时的库结构快照（它可能是运行期才补的）。
+	foreign bool
 	// companyDependent：这一列是按公司区分的 jsonb（{"<公司>": id, ...}），每一格都可能
 	// 指向被删的记录。「指向」按每一格的文本值比（数字与字符串两种写法都有：前端的雪花号
 	// 走字符串），set null 是删掉那几格而不是整列置空（别的公司的值不相干）。
@@ -93,13 +97,86 @@ func (self *TOsv) m2oRefsOf(modelName string) []m2oRef {
 		return nil
 	}
 
-	if refs := (*index)[modelName]; len(refs) > 0 {
-		return refs
+	refs := (*index)[modelName]
+	if len(refs) == 0 {
+		if formatted := fmtModelName(modelName); formatted != modelName {
+			refs = (*index)[formatted]
+		}
 	}
-	if formatted := fmtModelName(modelName); formatted != modelName {
-		return (*index)[formatted]
+	return append(refs[:len(refs):len(refs)], self.foreignRefsOf(modelName)...)
+}
+
+// ForeignRef 是一条「别的进程的模型上、指向本进程某个模型的多对一列」。
+//
+// 三进程拓扑下，指向本模型的列可能在别的进程的模型上（vectors 的扩展字段：sale 给
+// res.partner 加的列指向 pro.pricelist，res.partner 在 kylin、pro.pricelist 在 salesvc）。
+// 本进程的索引只看得见自己注册的模型，于是删一张价格表，指向它的那一列没人管。
+// 而数据按租户分片、同一租户的表都在同一个库里，这些列的 ondelete 本进程照样能直接执行。
+type ForeignRef struct {
+	Model            string // 声明这一列的模型（它的表名按 fmtTableName 推）
+	Column           string
+	OnDelete         string // "set null" / "restrict" / "cascade"
+	Required         bool
+	CompanyDependent bool
+
+	// RelationTable 非空时这是一个 many2many：Column 是这张关联表里指向 target 的列。
+	// 删掉 target 的记录就删掉关联表里指向它们的行（同本进程 m2m 的清理，见
+	// session_m2m_cleanup.go），与 OnDelete 无关。
+	RelationTable string
+}
+
+// SetForeignRefs 装上「别的进程的模型上、指向 target 的多对一列」的来源，删除时与本进程
+// 的索引一并执行 ondelete。fn 每次删除都会被调，由宿主自己缓存。
+func (self *TOrm) SetForeignRefs(fn func(target string) []ForeignRef) {
+	if fn == nil {
+		self.osv.foreignRefs.Store(nil)
+		return
 	}
-	return nil
+	self.osv.foreignRefs.Store(&fn)
+}
+
+func (self *TOsv) foreignRefsOf(target string) []m2oRef {
+	p := self.foreignRefs.Load()
+	if p == nil {
+		return nil
+	}
+	var out []m2oRef
+	for _, r := range (*p)(target) {
+		if r.RelationTable != "" {
+			continue // many2many，见 foreignRelationRefsOf
+		}
+		// 本进程自己**声明**了这一列：它已经在本进程的索引里了，别重复执行。只看模型在不在
+		// 不够 —— New() 会把库里已有的表反查成模型，那种模型上的列是反查来的（没有
+		// ondelete），跳过它就谁也不管了。
+		if declaredLocally(self, r.Model, r.Column) {
+			continue
+		}
+		policy := normalizeOnDelete(r.OnDelete)
+		if policy == "" || r.Model == "" || r.Column == "" {
+			continue
+		}
+		if r.CompanyDependent && policy == onDeleteCascade {
+			policy = onDeleteSetNull
+		}
+		out = append(out, m2oRef{
+			model: r.Model, table: fmtTableName(r.Model), column: r.Column, idCol: "id",
+			policy: policy, required: r.Required, companyDependent: r.CompanyDependent, foreign: true,
+		})
+	}
+	return out
+}
+
+// refUsable 判断这条引用的列（与子表主键列）此刻在库里可用。
+func (self *TSession) refUsable(ref m2oRef, column string) bool {
+	if !ref.foreign {
+		return self.relationColumnUsable(ref.table, column)
+	}
+	ctx := self.context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ok, err := self.orm.dialect.IsColumnExist(ctx, self.Schema, ref.table, column)
+	return err == nil && ok
 }
 
 // buildM2ORefIndex 扫一遍已注册模型，建立「被指向的模型名 → 指向它的列」索引。
@@ -210,7 +287,7 @@ func (self *TSession) checkOnDeleteRestrict(modelName string, ids []any, depth i
 	}
 
 	for _, ref := range self.orm.osv.m2oRefsOf(modelName) {
-		if !self.relationColumnUsable(ref.table, ref.column) {
+		if !self.refUsable(ref, ref.column) {
 			continue
 		}
 		switch ref.policy {
@@ -262,7 +339,7 @@ func (self *TSession) applyOnDeleteWrites(modelName string, ids []any, depth int
 
 	quoter := self.orm.dialect.Quoter()
 	for _, ref := range self.orm.osv.m2oRefsOf(modelName) {
-		if !self.relationColumnUsable(ref.table, ref.column) {
+		if !self.refUsable(ref, ref.column) {
 			continue
 		}
 		switch ref.policy {
@@ -327,7 +404,7 @@ func (self *TSession) applyOnDeleteWrites(modelName string, ids []any, depth int
 // referencingIds 取出「指向这批 id」的子行主键。limit>0 时只取那么多（restrict 只需要
 // 知道有没有）。
 func (self *TSession) referencingIds(ref m2oRef, ids []any, limit int) ([]any, error) {
-	if !self.relationColumnUsable(ref.table, ref.idCol) {
+	if !self.refUsable(ref, ref.idCol) {
 		// 主键列名对不上（inherits 共享 obj 时可能推错），宁可什么都不做
 		log.Warnf("ondelete: %s has no usable id column %q, skip %s", ref.table, ref.idCol, ref.policy)
 		return nil, nil
@@ -411,4 +488,35 @@ func (self *TSession) refPredicate(ref m2oRef, batch []any) (string, []any) {
 	}
 	return fmt.Sprintf(`EXISTS (SELECT 1 FROM jsonb_each(%s) AS e WHERE (e.value #>> '{}') IN (%s))`,
 		col, idsToSqlHolder(strs...)), strs
+}
+
+// foreignRelationRefsOf 是别的进程的 many2many 关联表里指向 target 的列（ForeignRef.RelationTable）。
+func (self *TOsv) foreignRelationRefsOf(target string) []ForeignRef {
+	p := self.foreignRefs.Load()
+	if p == nil {
+		return nil
+	}
+	var out []ForeignRef
+	for _, r := range (*p)(target) {
+		if r.RelationTable == "" || r.Column == "" {
+			continue
+		}
+		// 不去重：本进程的 m2m 索引若也管着这张关联表，同一条 DELETE 执行两遍，无害。
+		out = append(out, r)
+	}
+	return out
+}
+
+// declaredLocally 报告本进程的模型 model 上是否有**声明**（不是从库里反查来）的字段 column。
+func declaredLocally(osv *TOsv, model, column string) bool {
+	v, ok := osv.models.Load(model)
+	if !ok {
+		return false
+	}
+	obj, ok := v.(*TModelObject)
+	if !ok {
+		return false
+	}
+	f := obj.GetFieldByName(column)
+	return f != nil && f.Base() != nil && !f.Base().introspected
 }
