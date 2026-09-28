@@ -695,10 +695,6 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 				continue
 			}
 		} else {
-			// 识别拆分Tag字符串
-			tagMaps = make(map[string][]string)
-			tagsOrder = make([]string, 0)
-
 			var is_table_tag bool
 			tag_str := lookup(string(field_tag), self.config.FieldIdentifier)
 			if tag_str == "" {
@@ -706,41 +702,10 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 				is_table_tag = true
 			}
 
-			// 识别分割Tag各属性
-			tags := splitTag(tag_str)
-
-			// 排序Tag并_确保优先执行字段类型属性
-			var type_name string
-			var attrs []string
-			for _, key := range tags {
-				//****************************************
-				//NOTE 以下代码是为了避免解析不规则字符串为字段名提醒使用者规范Tag数据格式应该注意不用空格
-				attrs = parseTag(key)
-
-				// 验证
-				if len(attrs) == 0 {
-					return nil, fmt.Errorf("Tag parse failed: Model:%s Field:%s Tag:%s Key:%s Result:%v", model_name, field_name, field_tag, key, attrs)
-				}
-				type_name = strings.ToLower(attrs[0])
-				tag_str = strings.Replace(key, type_name, "", 1) // 去掉Tag Item
-				tag_str = strings.TrimLeft(tag_str, "(")
-				tag_str = strings.TrimRight(tag_str, ")")
-				ln := len(tag_str)
-				if ln > 0 {
-					if strings.Contains(tag_str, " ") {
-						if !strings.HasPrefix(tag_str, "'") &&
-							!strings.HasSuffix(tag_str, "'") {
-							return nil, fmt.Errorf("Model %s's %s tags could no including space ' ' in brackets value whicth it not 'String' type.", model_name, strings.ToUpper(field_name))
-						}
-					}
-				}
-				//****************************************
-				tagMaps[type_name] = attrs[1:] //
-				tagsOrder = append(tagsOrder, type_name)
-
-				if !is_table_tag && IsFieldType(type_name) {
-					field_type_name = type_name
-				}
+			// 识别分割Tag各属性（与运行期补字段 AddField 共用同一份解析）
+			tagMaps, tagsOrder, field_type_name, err = parseFieldTag(model_name, field_name, field_tag, tag_str, is_table_tag)
+			if err != nil {
+				return nil, err
 			}
 		}
 
