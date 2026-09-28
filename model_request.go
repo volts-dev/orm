@@ -1308,6 +1308,9 @@ func (self *TModel) DefaultGet(fields ...string) (map[string]any, error) {
 				Model: mdl,
 				//Dataset: data,
 				Field: field,
+				// 本实例的 context（带着请求的当前公司，见 WithCompanyId）。mdl 可能是
+				// 原型实例，它的 context 里没有这次请求的东西。
+				Context: self.Options().Context,
 				//Value:   value,
 				//Ids:     ids,
 			}

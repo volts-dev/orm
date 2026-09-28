@@ -83,6 +83,61 @@ func IsCompanyDependent(f IField) bool {
 	return f != nil && f.Base() != nil && f.Base().companyDependent
 }
 
+// IsDefaultCompany 报告字段是否带 tag default_company（新建时缺省为当前公司）。
+func IsDefaultCompany(f IField) bool {
+	return f != nil && f.Base() != nil && f.Base().defaultCompany
+}
+
+// tag_default_company：新建时没给值就用当前公司，对标 Odoo 的
+// `company_id = fields.Many2one('res.company', default=lambda self: self.env.company)`。
+//
+// 不是所有 company_id 都该这样：Odoo 里联系人、产品模板、付款条款这类共享主数据的
+// company_id **没有默认值**，新建出来就是所有公司共用；给它们补当前公司，在 A 公司建的
+// 客户到 B 公司就选不到了。所以这是逐个字段声明的，不是「凡是 company_id 都补」。
+//
+// 语义就是普通默认值（defaultFunc），于是和别的默认值走同一套规矩：
+//   - 调用方没给这一键（或给了 nil）→ 当前公司；
+//   - 显式给了空值（false / 0）→ 原样保留，那是要一条共享记录；
+//   - 表单打开新记录时（DefaultGet）同样带出当前公司。
+//
+// 当前公司取法同按公司区分的字段：WithCompanyId，没有就问 WithCompanyLookup；都没有时
+// 不给值（和没有这个 tag 一样）。
+func tag_default_company(ctx *TTagContext) error {
+	f := ctx.Field
+	if t := f.TypeName(); t != TYPE_M2O && !f.SQLType().IsNumeric() {
+		return fmt.Errorf("orm: %s.%s: default_company needs a many2one or integer field, got %s", ctx.Model.String(), f.Name(), t)
+	}
+	b := f.Base()
+	b.defaultCompany = true
+	b.defaultFunc = defaultCompanyValue
+	return nil
+}
+
+// defaultCompanyValue 是 default_company 字段的默认值函数。context 依次看 TFieldContext 上
+// 显式给的、会话的、模型实例的：新建走会话，DefaultGet 走显式给的那个。
+func defaultCompanyValue(ctx *TFieldContext) error {
+	for _, c := range []context.Context{ctx.Context, sessionContext(ctx.Session), modelContext(ctx.Model)} {
+		if id := CompanyIdFrom(c); id > 0 {
+			return ctx.SetValue(id)
+		}
+	}
+	return nil
+}
+
+func sessionContext(s *TSession) context.Context {
+	if s == nil {
+		return nil
+	}
+	return s.context
+}
+
+func modelContext(m IModel) context.Context {
+	if m == nil {
+		return nil
+	}
+	return m.Options().Context
+}
+
 func tag_company_dependent(ctx *TTagContext) error {
 	f := ctx.Field
 	switch f.TypeName() {

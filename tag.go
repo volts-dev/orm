@@ -128,6 +128,7 @@ func init() {
 		//tag_ctrl[TAG_IGNORE] = "-" // 忽略某些继承者成员
 		"readonly":          tag_read_only,
 		"company_dependent": tag_company_dependent,
+		"default_company":   tag_default_company,
 		"writeonly":         tag_write_only,
 		TAG_READ_ONLY:       tag_read_only,
 		TAG_WRITE_ONLY:      tag_write_only,
