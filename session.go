@@ -714,7 +714,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 				// 因转换代码被注释掉而一直是 string),直接用 any 的 != 比较对数值型
 				// 字段恒为 true。统一转成字符串再比较,和 DropColumnDefaultSql 生成
 				// SQL 时的 utils.ToString 口径保持一致。
-				if utils.ToString(field.Default()) != utils.ToString(cur_field.Default()) {
+				if utils.ToString(columnDefault(field)) != utils.ToString(cur_field.Default()) {
 					if sql := orm.dialect.DropColumnDefaultSql(self.Schema, tableName, field); sql != "" {
 						if _, err := self.Exec(sql); err != nil {
 							return err

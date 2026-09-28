@@ -180,10 +180,53 @@ func companyValueExpr(d IDialect, ref string, field IField, cid int64) (string, 
 	if err != nil {
 		return "", err
 	}
+	fallback := ""
+	if lit, ok := companyFallbackLiteral(field); ok {
+		fallback = ", " + lit
+	}
 	if cid > 0 {
-		return fmt.Sprintf(`(COALESCE(%s->>'%d', %s->>'0'))::%s`, ref, cid, ref, typ), nil
+		return fmt.Sprintf(`(COALESCE(%s->>'%d', %s->>'0'%s))::%s`, ref, cid, ref, fallback, typ), nil
+	}
+	if fallback != "" {
+		return fmt.Sprintf(`(COALESCE(%s->>'0'%s))::%s`, ref, fallback, typ), nil
 	}
 	return fmt.Sprintf(`(%s->>'0')::%s`, ref, typ), nil
+}
+
+// companyFallbackLiteral 是按公司区分字段的**静态默认值**，渲染成 SQL 文本字面量，给
+// companyValueExpr 当最后一格兜底：当前公司没设、"0" 那一格也没设时读到它。
+//
+// 对标 Odoo 18 起的 company_dependent：默认值（ir.default）不落进任何一格，是读的时候兜底，
+// 改了默认值所有没设过的记录一起变。所以这类字段**没有列默认值**（见 columnDefault）——
+// 列是 jsonb，`DEFAULT 1` 连建都建不出来；建列时已有的行也不用回填，读出来就是默认值。
+//
+// 多对一不兜底：一个写死的记录 id 不是默认值（换个租户就不存在了）。
+func companyFallbackLiteral(field IField) (string, bool) {
+	if field.TypeName() == TYPE_M2O {
+		return "", false
+	}
+	v := field.Default()
+	if v == nil {
+		return "", false
+	}
+	s := utils.ToString(v)
+	if s == "" {
+		// 空串只对文本有意义；数值 / 布尔的空默认值就是没有默认值
+		if !field.SQLType().IsText() {
+			return "", false
+		}
+	}
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'", true
+}
+
+// columnDefault 是字段落到库上的列默认值：静态默认值，按公司区分的字段没有（见
+// companyFallbackLiteral）。建列（ColumnString）、改列默认值（DropColumnDefaultSql）和
+// 同步时比对库上现状都用它，三处口径一致，否则同步每次都会再改一遍。
+func columnDefault(field IField) any {
+	if IsCompanyDependent(field) {
+		return nil
+	}
+	return field.Default()
 }
 
 func companySlot(cid int64) string {

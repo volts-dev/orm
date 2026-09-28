@@ -1193,11 +1193,11 @@ func (db *postgres) DropColumnDefaultSql(schema, tableName string, col IField) s
 	tbl := quoter.QuoteTable(db.schemaOr(schema), tableName)
 	name := quoter.Quote(col.Name())
 	// 同 ColumnString：只看静态默认值，默认值函数不是列默认值。
-	if col.Default() == nil {
+	if columnDefault(col) == nil {
 		return fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT", tbl, name)
 	}
 
-	dv := utils.ToString(col.Default())
+	dv := utils.ToString(columnDefault(col))
 	if col.SQLType().IsText() {
 		dv = "'" + dv + "'"
 	}

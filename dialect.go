@@ -511,12 +511,12 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 	// 只有**静态**默认值落成列默认值。默认值函数（DefaultFunc、default_company）在应用层
 	// 新建时求值，库里没有它的对应物；拿 IsDefaultEmpty 判的话它们也会被当成「有默认值」，
 	// 落成一个毫无意义的 DEFAULT 0 / DEFAULT ''（company_id bigint DEFAULT 0）。
-	if !field.IsAutoIncrement() && field.Default() != nil {
+	if dv := columnDefault(field); !field.IsAutoIncrement() && dv != nil {
 		if _, err := bd.WriteString(" DEFAULT "); err != nil {
 			return "", err
 		}
 
-		dvStr := utils.ToString(field.Default())
+		dvStr := utils.ToString(dv)
 		if dvStr == "" {
 			if field.SQLType().IsNumeric() {
 				if _, err := bd.WriteString("0"); err != nil {
