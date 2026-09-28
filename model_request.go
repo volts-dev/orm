@@ -448,6 +448,14 @@ func (self *TModel) Delete(req *DeleteRequest) (int64, error) {
 		defer session.Close()
 	}
 
+	// Domain 必须进会话：session.Delete 没给 id 时按会话上的条件选行来删。此前这里只传了
+	// Ids、Domain 一个字都没读，于是「按条件删」＝删掉这个租户在这张表里的**所有行**
+	// （会话上只剩租户过滤），不报错。POS 的侧表清理、会话关联行清理、documents 的几处
+	// 都这么写。Update 那边一直是认 Domain 的。
+	if req.Domain != nil && req.Domain != "" {
+		session.Domain(req.Domain)
+	}
+
 	effectCount, err := session.Delete(req.Ids...)
 	if err != nil {
 		return 0, err
