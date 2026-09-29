@@ -174,10 +174,12 @@ func parseAny(data any, context *dataset.TDataSet) (*TDomainNode, error) {
 					node := NewDomainNode()
 					node.nodeType = LEAF_NODE
 
-					// Recursively parse parts.
-					fNode, _ := parseAny(v[0], context)
+					// Recursively parse parts. 字段与值是字面量：值恰好是 "OR" / "and" / "not" /
+					// "|" 这样的字符串（美国俄勒冈州的代码就是 'OR'）也不能被认成逻辑运算，
+					// 否则 leaf 只剩两个孩子，执行时 invalid domain leaf: expected 3 elements。
+					fNode, _ := parseLeafPart(v[0], context)
 					oNode, _ := parseAny(v[1], context)
-					vNode, _ := parseAny(v[2], context)
+					vNode, _ := parseLeafPart(v[2], context)
 
 					node.Push(fNode)
 					node.Push(oNode)
@@ -239,6 +241,18 @@ func parseAny(data any, context *dataset.TDataSet) (*TDomainNode, error) {
 		// Literal basic types
 		return NewDomainNode(v), nil
 	}
+}
+
+// parseLeafPart 解析 leaf 的字段或值：看着像逻辑运算的字符串（"|"、"&"、"!"、and / or / not，
+// 不分大小写）按字面量落下，其余照 parseAny（上下文变量替换、整数字面量）。
+func parseLeafPart(x any, context *dataset.TDataSet) (*TDomainNode, error) {
+	if s, ok := x.(string); ok {
+		low := strings.ToLower(s)
+		if utils.IndexOf(s, DOMAIN_OPERATORS...) != -1 || low == "and" || low == "or" || low == "not" {
+			return NewDomainNode(s), nil
+		}
+	}
+	return parseAny(x, context)
 }
 
 // transfer the domain object to string
@@ -390,7 +404,11 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 
 		case lexer.IDENT, lexer.HOLDER, lexer.STRING, lexer.NUMBER, lexer.FLOAT:
 			value := strings.ToLower(item.Val)
-			if value == "is" {
+			// is / is not / and / or 这几个**词**只在不带引号时是运算：带引号的 'OR'（美国俄勒冈州
+			// 的代码）、'and' 是值。此前不看引号，`[('code','=','OR')]` 被拆成
+			// ["|",["code","="],""]，registry 的演示用户文件因此整份导入失败。
+			word := item.Type == lexer.IDENT
+			if word && value == "is" {
 				parser.ConsumeWhitespace()
 				parser.Next()
 				nitem := parser.Item()
@@ -402,7 +420,7 @@ func parseQuery(parser *TDomainParser, level int, context *dataset.TDataSet) (*T
 				}
 				// break exits the switch case, not the outer for loop — intentional
 				break //nolint:staticcheck // SA4011: break exits switch, not outer for; intentional
-			} else if utils.IndexOf(value, "and", "or") != -1 {
+			} else if word && utils.IndexOf(value, "and", "or") != -1 {
 				if value == "and" {
 					result.Insert(0, AND_OPERATOR)
 				} else if value == "or" {
