@@ -868,7 +868,7 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 				} else if field.Store() && field.SQLType().Name != "" {
 					qualifield_name := query.inherits_join_calc(fieldName, self.Model)
 					if IsCompanyDependent(field) {
-						expr, err := companyValueExpr(self.session.orm.dialect, qualifield_name, field, self.session.CompanyId())
+						expr, err := self.session.companyExpr(qualifield_name, field)
 						if err != nil {
 							log.Warnf("Sorting field %s ignored: %v", fieldName, err)
 							continue

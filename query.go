@@ -283,7 +283,7 @@ func (self *TQuery) qualify(field IField, model IModel) string {
 		if model != nil {
 			ref = self.inherits_join_calc(field.Name(), model)
 		}
-		if expr, err := companyValueExpr(dialect, ref, field, self.session.CompanyId()); err == nil {
+		if expr, err := self.session.companyExpr(ref, field); err == nil {
 			return fmt.Sprintf(`%s as %s`, expr, fieldName)
 		} else {
 			log.Err(err)

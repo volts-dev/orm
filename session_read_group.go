@@ -216,7 +216,7 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 		cdGroup := IsCompanyDependent(field)
 		if cdGroup {
 			// 按当前公司那一格分组，不是按整列 jsonb（见 field_company.go）。
-			if qualified, err = companyValueExpr(self.orm.dialect, qualified, field, self.CompanyId()); err != nil {
+			if qualified, err = self.companyExpr(qualified, field); err != nil {
 				return nil, fmt.Errorf("ReadGroup: groupby field %q: %w", name, err)
 			}
 		}
@@ -305,7 +305,7 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 			return nil, fmt.Errorf("ReadGroup: invalid measure field %q: %w", name, err)
 		}
 		if IsCompanyDependent(field) {
-			if qualified, err = companyValueExpr(self.orm.dialect, qualified, field, self.CompanyId()); err != nil {
+			if qualified, err = self.companyExpr(qualified, field); err != nil {
 				return nil, fmt.Errorf("ReadGroup: measure field %q: %w", name, err)
 			}
 		}

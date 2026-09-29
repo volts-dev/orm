@@ -125,7 +125,7 @@ func (self *TSession) Sum(fieldName string) (float64, error) {
 		return 0, fmt.Errorf("Sum: invalid field %s: %w", fieldName, err)
 	}
 	if IsCompanyDependent(sumField) {
-		if col, err = companyValueExpr(self.orm.dialect, col, sumField, self.CompanyId()); err != nil {
+		if col, err = self.companyExpr(col, sumField); err != nil {
 			return 0, fmt.Errorf("Sum: %w", err)
 		}
 	}

@@ -78,6 +78,72 @@ func (self *TSession) CompanyId() int64 {
 	return CompanyIdFrom(self.context)
 }
 
+// CompanyFallback 给按公司区分的字段提供**宿主侧的默认值**：当前公司那一格、"0" 那一格都没值时
+// 读到它。对标 Odoo 18 起 company_dependent 的 ir.default —— 默认值不落进任何一格，读、条件、
+// 排序、分组都按「没值就是默认值」算，改了默认值所有没设过的记录一起变。
+//
+// 返回值的**文本形式**（与 jsonb ->> 取出来的一样：多对一是 id 的十进制串、布尔是 true/false）；
+// ok=false 表示这个字段在这家公司没有默认值。model 是字段所属模型名，cid 是当前公司（0 = 没有）。
+//
+// 与字段的静态默认值（tag default(...)）的分工：静态的写在代码里、所有租户一样；这个由宿主按
+// 租户查（多对一的默认值只能这样给 —— 一个写死的记录 id 换个租户就不存在了）。两者都有时它在前。
+type CompanyFallback func(model, field string, cid int64) (text string, ok bool)
+
+type companyFallbackKey struct{}
+
+// WithCompanyFallback 返回带「按公司区分字段的默认值来源」的 context（见 CompanyFallback）。
+// 宿主在建模型会话时挂上；orm 拼 SQL 时每个字段问一次，所以 fn 要自己缓存。
+func WithCompanyFallback(ctx context.Context, fn CompanyFallback) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, companyFallbackKey{}, fn)
+}
+
+// companyDynamicFallback 取宿主给的默认值并渲染成 SQL 文本字面量；没有、或值与字段类型对不上
+// （cast 会让整条查询报错）时返回 ""。
+func companyDynamicFallback(ctx context.Context, field IField, cid int64) string {
+	if ctx == nil || field == nil {
+		return ""
+	}
+	fn, _ := ctx.Value(companyFallbackKey{}).(CompanyFallback)
+	if fn == nil {
+		return ""
+	}
+	text, ok := fn(field.ModelName(), field.Name(), cid)
+	if !ok {
+		return ""
+	}
+	if !companyFallbackTextFits(field, text) {
+		log.Warnf("orm: %s.%s: 默认值 %q 与字段类型 %s 对不上，不用它兜底", field.ModelName(), field.Name(), text, field.TypeName())
+		return ""
+	}
+	return "'" + strings.ReplaceAll(text, "'", "''") + "'"
+}
+
+// companyFallbackTextFits 按字段在 SQL 里被 cast 成的类型校验默认值的文本：数值、多对一必须是数，
+// 布尔必须认得出来；文本类什么都行。
+func companyFallbackTextFits(field IField, text string) bool {
+	switch {
+	case field.TypeName() == TYPE_M2O:
+		_, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+		return err == nil
+	case field.TypeName() == Bool || field.TypeName() == "boolean":
+		_, err := strconv.ParseBool(strings.TrimSpace(text))
+		return err == nil
+	case field.SQLType().IsNumeric():
+		_, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+		return err == nil
+	}
+	return true
+}
+
+// companyExpr 是这个会话里「ref 这一列在当前公司的值」（见 companyValueExpr）。
+func (self *TSession) companyExpr(ref string, field IField) (string, error) {
+	cid := self.CompanyId()
+	return companyValueExpr(self.orm.dialect, ref, field, cid, companyDynamicFallback(self.context, field, cid))
+}
+
 // IsCompanyDependent 报告字段是否按公司区分（tag company_dependent）。
 func IsCompanyDependent(f IField) bool {
 	return f != nil && f.Base() != nil && f.Base().companyDependent
@@ -175,14 +241,19 @@ func companyValueType(d IDialect, field IField) (string, error) {
 }
 
 // companyValueExpr 渲染「ref 这一列在公司 cid 里的值」。ref 是已经引用好的列（"t"."col"）。
-func companyValueExpr(d IDialect, ref string, field IField, cid int64) (string, error) {
+// 依次取：公司 cid 那一格 → "0" 那一格 → dyn（宿主给的默认值，已渲染好的字面量，见
+// companyDynamicFallback）→ 字段的静态默认值。
+func companyValueExpr(d IDialect, ref string, field IField, cid int64, dyn string) (string, error) {
 	typ, err := companyValueType(d, field)
 	if err != nil {
 		return "", err
 	}
 	fallback := ""
+	if dyn != "" {
+		fallback = ", " + dyn
+	}
 	if lit, ok := companyFallbackLiteral(field); ok {
-		fallback = ", " + lit
+		fallback += ", " + lit
 	}
 	if cid > 0 {
 		return fmt.Sprintf(`(COALESCE(%s->>'%d', %s->>'0'%s))::%s`, ref, cid, ref, fallback, typ), nil
@@ -314,9 +385,9 @@ func companyInsertValue(field IField, cid int64, v any) (string, bool, error) {
 
 // companyLeafToSql 编译一枚以按公司区分字段为左值的条件。语义与普通列一致：
 // = False 是「没有值」，!= / not in 包含没有值的行，like/ilike 自动包 %。
-func companyLeafToSql(d IDialect, aliasTable string, field IField, cid int64, operator string, vals []any) (string, []any, error) {
+func companyLeafToSql(d IDialect, aliasTable string, field IField, cid int64, dyn string, operator string, vals []any) (string, []any, error) {
 	col := aliasTable + "." + d.Quoter().Quote(field.Name())
-	expr, err := companyValueExpr(d, col, field, cid)
+	expr, err := companyValueExpr(d, col, field, cid, dyn)
 	if err != nil {
 		return "", nil, err
 	}
