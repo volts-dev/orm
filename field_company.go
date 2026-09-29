@@ -100,6 +100,48 @@ func WithCompanyFallback(ctx context.Context, fn CompanyFallback) context.Contex
 	return context.WithValue(ctx, companyFallbackKey{}, fn)
 }
 
+// companyStoreValue 是写进公司 cid 那一格之前的最后一道：值与宿主给的默认值相同时当作「没有值」
+// —— Odoo 19 写 company_dependent 时把等于兜底值的格子剔掉（models.py 写入里 JOIN
+// _get_field_column_fallbacks 那段）。存下来就等于把默认值钉死在这条记录上：之后改了默认值，
+// 它不跟着变。新建表单的 default_get 会把默认值带出来，用户不动它就保存，走的正是这条路。
+func (self *TSession) companyStoreValue(field IField, cid int64, v any) any {
+	if companyValueUnset(field, v) {
+		return v
+	}
+	fn, _ := self.context.Value(companyFallbackKey{}).(CompanyFallback)
+	if fn == nil {
+		return v
+	}
+	text, ok := fn(field.ModelName(), field.Name(), cid)
+	if !ok || !companyFallbackTextFits(field, text) {
+		return v
+	}
+	if companyValueEqualsText(field, v, text) {
+		return nil
+	}
+	return v
+}
+
+// companyValueEqualsText 判断要写的值与默认值的文本形式是不是同一个值。
+func companyValueEqualsText(field IField, v any, text string) bool {
+	text = strings.TrimSpace(text)
+	switch {
+	case field.TypeName() == TYPE_M2O:
+		if x, ok := v.([]any); ok && len(x) > 0 {
+			v = x[0]
+		}
+		want, err := strconv.ParseInt(text, 10, 64)
+		return err == nil && utils.ToInt64(v) == want
+	case field.TypeName() == Bool || field.TypeName() == "boolean":
+		want, err := strconv.ParseBool(text)
+		return err == nil && utils.ToBool(v) == want
+	case field.SQLType().IsNumeric():
+		want, err := strconv.ParseFloat(text, 64)
+		return err == nil && utils.ToFloat64(v) == want
+	}
+	return utils.ToString(v) == text
+}
+
 // companyDynamicFallback 取宿主给的默认值并渲染成 SQL 文本字面量；没有、或值与字段类型对不上
 // （cast 会让整条查询报错）时返回 ""。
 func companyDynamicFallback(ctx context.Context, field IField, cid int64) string {

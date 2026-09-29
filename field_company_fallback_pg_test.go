@@ -130,6 +130,47 @@ func TestCompanyDependent_Postgres_HostFallback(t *testing.T) {
 	if g := got(in(1, false), `[('carrier','=',False)]`); g != "a,b" {
 		t.Fatalf("没挂宿主来源时 a,b 是空的：%s", g)
 	}
+	// 写入等于兜底值：那一格不存（Odoo 19 写 company_dependent 时剔掉等于兜底值的格子）
+	rawOf := func(name string) string {
+		t.Helper()
+		ds, err := o.Query(`SELECT COALESCE(carrier::text, '') AS c FROM cd_fb_probe WHERE name = ?`, name)
+		if err != nil || ds.Count() != 1 {
+			t.Fatalf("raw %s: %v", name, err)
+		}
+		return ds.FieldByName("c").AsString()
+	}
+	bIds, err := in(1, true).Domain(`[('name','=','b')]`).Read()
+	if err != nil || bIds.Count() != 1 {
+		t.Fatal(err)
+	}
+	bId := bIds.FieldByName("id").AsInteger()
+	if _, err := in(1, true).Ids(bId).Write(map[string]any{"carrier": 5}); err != nil {
+		t.Fatal(err)
+	}
+	if r := rawOf("b"); !strings.Contains(r, `"1": 5`) {
+		t.Fatalf("写 5 应存进公司 1 那一格：%s", r)
+	}
+	if _, err := in(1, true).Ids(bId).Write(map[string]any{"carrier": 77}); err != nil {
+		t.Fatal(err)
+	}
+	if r := rawOf("b"); strings.Contains(r, `"1"`) {
+		t.Fatalf("写回等于默认值的 77：公司 1 那一格应剔掉，实得 %s", r)
+	}
+	if c, _ := read(in(1, true), "b"); c != 77 {
+		t.Fatalf("剔掉之后读到的仍是默认值 77，实得 %d", c)
+	}
+	if _, err := in(2, true).Ids(bId).Write(map[string]any{"carrier": 77}); err != nil {
+		t.Fatal(err)
+	}
+	if r := rawOf("b"); !strings.Contains(r, `"2": 77`) {
+		t.Fatalf("公司 2 的默认值是 70，写 77 是一个真值，应存下：%s", r)
+	}
+	if _, err := in(1, true).Create(map[string]any{"name": "new", "carrier": 77}); err != nil {
+		t.Fatal(err)
+	}
+	if r := rawOf("new"); r != "" {
+		t.Fatalf("新建时给的就是默认值：这一列不该存，实得 %s", r)
+	}
 	if !strings.Contains(strings.Join(asked, " "), "cd.fb.probe.carrier") && !strings.Contains(strings.Join(asked, " "), "carrier") {
 		t.Fatalf("宿主来源没被问到模型名.字段名：%v", asked)
 	}

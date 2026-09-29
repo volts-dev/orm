@@ -454,7 +454,7 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 				}
 
 				if f := self.Statement.Model.GetFieldByName(k); IsCompanyDependent(f) {
-					js, ok, err := companyInsertValue(f, self.CompanyId(), v)
+					js, ok, err := companyInsertValue(f, self.CompanyId(), self.companyStoreValue(f, self.CompanyId(), v))
 					if err != nil {
 						return ids, err
 					}
@@ -485,7 +485,7 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 					v = vs[idx]
 				}
 				if IsCompanyDependent(field) {
-					js, ok, err := companyInsertValue(field, self.CompanyId(), v)
+					js, ok, err := companyInsertValue(field, self.CompanyId(), self.companyStoreValue(field, self.CompanyId(), v))
 					if err != nil {
 						return ids, err
 					}
@@ -796,7 +796,7 @@ func (self *TSession) _write(src any) (int64, error) {
 				}
 
 				if IsCompanyDependent(field) {
-					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), v)
+					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), self.companyStoreValue(field, self.CompanyId(), v))
 					if err != nil {
 						return 0, err
 					}
@@ -833,7 +833,7 @@ func (self *TSession) _write(src any) (int64, error) {
 					v = vs[idx]
 				}
 				if IsCompanyDependent(field) {
-					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), v)
+					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), self.companyStoreValue(field, self.CompanyId(), v))
 					if err != nil {
 						return 0, err
 					}
