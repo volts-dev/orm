@@ -3,6 +3,8 @@ package orm
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -35,7 +37,7 @@ func bfOrm(t *testing.T, reset bool) (*TOrm, string, string) {
 			t.Skipf("postgres unavailable: %v", err)
 		}
 		for _, q := range []string{
-			`DROP TABLE IF EXISTS bf_owner, bf_target, bf_side, bf_side_tags, bf_owner_target_rel CASCADE`,
+			`DROP TABLE IF EXISTS bf_owner, bf_target, bf_side, bf_side_tags, bf_owner_target_rel, bf_owner_optional_rel CASCADE`,
 			`CREATE TABLE bf_side (owner_id bigint, note varchar(64))`,
 			`CREATE TABLE bf_side_tags (owner_id bigint, target_id bigint)`,
 		} {
@@ -172,6 +174,44 @@ func TestAddField_Postgres_BackfillM2MRelation(t *testing.T) {
 	}
 	if n := ds.FieldByName("n").AsInteger(); n != 2 {
 		t.Fatalf("关联表应回填 2 行，实得 %d", n)
+	}
+}
+
+// 冻结之后补上来的 many2many 要读得出来：关联表对应的关系模型得注册上。
+//
+// 真栈 2026-09-29 撞到：sale 的 pro.tmpl.optional_product_ids（扩展字段，属主 kylin 在模型冻结
+// 之后补）写得进、按它过滤也对，读出来这个键整个不在 —— 每次读都在日志里报
+// "the models are not correctable for ManyToMany"，请求照样成功。RegisterModel 冻结后一律拒绝
+// 新模型，关联表建了、关系模型没注册。重启之后反查会把那张表当模型带进来，于是只在补字段的
+// 那一次运行里坏。自关联、两列显式给名字，同 Odoo 的 product_optional_rel(src_id, dest_id)。
+func TestAddField_Postgres_FrozenM2MIsReadable(t *testing.T) {
+	o, owner, _ := bfOrm(t, true)
+	tag := "many2many(" + owner + ",bf_owner_optional_rel,src_id,dest_id) title('Optional')"
+	if added, err := o.AddField(owner, "optional_ids", tag); err != nil || !added {
+		t.Fatalf("AddField m2m: added=%v err=%v", added, err)
+	}
+	a, _ := o.Model(owner).Create(map[string]any{"name": "a"})
+	b, _ := o.Model(owner).Create(map[string]any{"name": "b"})
+	c, _ := o.Model(owner).Create(map[string]any{"name": "c"})
+	if _, err := o.Model(owner).Ids(a[0]).Write(map[string]any{"optional_ids": []any{[]any{6, 0, []any{b[0], c[0]}}}}); err != nil {
+		t.Fatal(err)
+	}
+	ds, err := o.Model(owner).Ids(a[0]).Select("id", "optional_ids").Read()
+	if err != nil || ds.Count() != 1 {
+		t.Fatalf("read: %v (%d rows)", err, ds.Count())
+	}
+	raw, has := ds.Record().AsMap()["optional_ids"]
+	if !has {
+		t.Fatal("读回来的记录里没有 optional_ids 这个键：关系模型没注册，OnRead 报错被吞")
+	}
+	got := map[string]bool{}
+	list, _ := raw.([]any)
+	for _, v := range list {
+		got[fmt.Sprint(v)] = true
+	}
+	want := map[string]bool{fmt.Sprint(b[0]): true, fmt.Sprint(c[0]): true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("optional_ids 读回 %v，应为 %v", raw, want)
 	}
 }
 

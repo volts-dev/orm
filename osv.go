@@ -376,7 +376,13 @@ func (self *TOsv) RegisterModel(region string, model *TModel, session ...*TSessi
 			}
 			return nil
 		}
-		return ErrOsvFrozen
+		// many2many 字段声明的关联表（Init 里登记在 middleModel）不属于冻结要锁住的模型图：
+		// 它只有两列外键，没有要解析的引用。AddField 在冻结之后补的 many2many 靠它读值 ——
+		// 拒绝的话关联表建了、关系模型没注册，写和按它过滤照常，读出来这个键整个不在
+		// （ManyToMany 报 "models are not correctable"，被 OnRead 的调用方吞成一行日志）。
+		if _, mid := self.middleModel.Load(model.name); !mid {
+			return ErrOsvFrozen
+		}
 	}
 	/* 初始化ModelObject */
 	//获得Object 检查是否存在，不存在则创建
