@@ -31,7 +31,12 @@ import (
 // （`365d` 这种不带符号的不认，避免把普通字符串误当日期）。月和年按 relativedelta
 // 的口径处理月末：1月31日减一个月是 12月31日，加一个月是 2月28/29日，而不是 Go
 // AddDate 规范化出来的 3月2日。
-var reRelativeDate = regexp.MustCompile(`(?i)^\s*(?:today\s*)?([+-])\s*(\d+)\s*([dwmy])\s*$`)
+//
+// 另有三个**时刻**单位 H/M/S = 时/分/秒（Odoo 同，**大小写敏感**：小写 m 是月、大写 M 是分钟）。
+// 网站访客的「Connected」过滤器写的是 `('last_connection_datetime', '>', '-5M')` —— 最近 5 分钟。
+// 此前正则整体不分大小写、没有时刻单位，`-5M` 被当成 5 个**月**：「在线访客」列出的是近五个月
+// 来过的所有人。时刻单位不截到零点（截了就不是「5 分钟前」了）；d/w/y 大写照旧当日/周/年（没有歧义）。
+var reRelativeDate = regexp.MustCompile(`^\s*(?:(?i:today|now)\s*)?([+-])\s*(\d+)\s*([dwmyDWYHMS])\s*$`)
 
 // resolveRelativeDate 就地把 leaf 右值里的相对日期字面量换成绝对日期。
 //
@@ -87,6 +92,7 @@ func RelativeDateToAbsolute(raw string, withTime bool, now time.Time) (string, b
 	}
 
 	var d time.Time
+	keepTime := false
 	if strings.EqualFold(s, "today") {
 		d = now
 	} else {
@@ -101,20 +107,29 @@ func RelativeDateToAbsolute(raw string, withTime bool, now time.Time) (string, b
 		if m[1] == "-" {
 			n = -n
 		}
-		switch strings.ToLower(m[3]) {
-		case "d":
+		switch m[3] {
+		case "d", "D":
 			d = now.AddDate(0, 0, n)
-		case "w":
+		case "w", "W":
 			d = now.AddDate(0, 0, n*7)
 		case "m":
 			d = addMonthsClamped(now, n)
-		case "y":
+		case "y", "Y":
 			d = addMonthsClamped(now, n*12)
+		case "H":
+			d, keepTime = now.Add(time.Duration(n)*time.Hour), true
+		case "M":
+			d, keepTime = now.Add(time.Duration(n)*time.Minute), true
+		case "S":
+			d, keepTime = now.Add(time.Duration(n)*time.Second), true
 		default:
 			return "", false
 		}
 	}
 
+	if withTime && keepTime {
+		return d.Format("2006-01-02 15:04:05"), true
+	}
 	if withTime {
 		return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, d.Location()).
 			Format("2006-01-02 15:04:05"), true

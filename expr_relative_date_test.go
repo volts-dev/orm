@@ -174,6 +174,14 @@ func TestRelativeDateToAbsolute_Forms(t *testing.T) {
 		{"+1m", false, day(2026, 4, 30), true},   // clamp：4月没有31号
 		{"-1y", false, day(2025, 3, 31), true},
 		{"-1d", true, day(2026, 3, 30) + " 00:00:00", true},
+		// 时刻单位（Odoo 同，大小写敏感）：M 是分钟、m 是月。网站访客「Connected」写的是 '-5M'，
+		// 当成月就把近五个月来过的人全算成在线。时刻单位在 datetime 上保留时分秒。
+		{"-5M", true, day(2026, 3, 31) + " 14:00:06", true},
+		{"-5m", true, day(2025, 10, 31) + " 00:00:00", true},
+		{"-2H", true, day(2026, 3, 31) + " 12:05:06", true},
+		{"+30S", true, day(2026, 3, 31) + " 14:05:36", true},
+		{"-15H", false, day(2026, 3, 30), true}, // date 字段上只取日期
+		{"-1Y", false, day(2025, 3, 31), true},
 		// 不是相对日期的一律原样放行，绝不能悄悄换成零值日期
 		{"2026-01-01", false, "", false},
 		{"365d", false, "", false}, // 不带符号不认
