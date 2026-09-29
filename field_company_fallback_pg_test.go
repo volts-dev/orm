@@ -171,6 +171,39 @@ func TestCompanyDependent_Postgres_HostFallback(t *testing.T) {
 	if r := rawOf("new"); r != "" {
 		t.Fatalf("新建时给的就是默认值：这一列不该存，实得 %s", r)
 	}
+	// 显式清空：有默认值时存 JSON null，读出来是空、不回落（Odoo 同）；条件 = False 命中它
+	if _, err := in(1, true).Ids(bId).Write(map[string]any{"carrier": false}); err != nil {
+		t.Fatal(err)
+	}
+	if r := rawOf("b"); !strings.Contains(r, `"1": null`) {
+		t.Fatalf("有默认值时清空应存 JSON null：%s", r)
+	}
+	if c, _ := read(in(1, true), "b"); c != 0 {
+		t.Fatalf("公司 1 明确清空了，不该回落到默认值 77，实得 %d", c)
+	}
+	if c, _ := read(in(2, true), "b"); c != 77 {
+		t.Fatalf("公司 2 那一格不受影响，实得 %d", c)
+	}
+	if g := got(in(1, true), `[('carrier','=',False)]`); g != "b" {
+		t.Fatalf("公司 1 carrier = False 应只命中明确清空的 b：%s", g)
+	}
+	// 再写回默认值：null 那一格剔掉，回到「没设过」
+	if _, err := in(1, true).Ids(bId).Write(map[string]any{"carrier": 77}); err != nil {
+		t.Fatal(err)
+	}
+	if r := rawOf("b"); strings.Contains(r, `"1"`) {
+		t.Fatalf("写回默认值：公司 1 那一格应剔掉，实得 %s", r)
+	}
+	// 没有默认值的来源：清空照旧删掉那一格
+	if _, err := in(1, false).Ids(bId).Write(map[string]any{"carrier": 5}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in(1, false).Ids(bId).Write(map[string]any{"carrier": false}); err != nil {
+		t.Fatal(err)
+	}
+	if r := rawOf("b"); strings.Contains(r, `"1"`) {
+		t.Fatalf("没有默认值时清空应删掉那一格，实得 %s", r)
+	}
 	if !strings.Contains(strings.Join(asked, " "), "cd.fb.probe.carrier") && !strings.Contains(strings.Join(asked, " "), "carrier") {
 		t.Fatalf("宿主来源没被问到模型名.字段名：%v", asked)
 	}

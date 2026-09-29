@@ -100,26 +100,30 @@ func WithCompanyFallback(ctx context.Context, fn CompanyFallback) context.Contex
 	return context.WithValue(ctx, companyFallbackKey{}, fn)
 }
 
-// companyStoreValue 是写进公司 cid 那一格之前的最后一道：值与宿主给的默认值相同时当作「没有值」
-// —— Odoo 19 写 company_dependent 时把等于兜底值的格子剔掉（models.py 写入里 JOIN
-// _get_field_column_fallbacks 那段）。存下来就等于把默认值钉死在这条记录上：之后改了默认值，
-// 它不跟着变。新建表单的 default_get 会把默认值带出来，用户不动它就保存，走的正是这条路。
-func (self *TSession) companyStoreValue(field IField, cid int64, v any) any {
-	if companyValueUnset(field, v) {
-		return v
-	}
+// companyWriteValue 是写进公司 cid 那一格之前的最后一道，对标 Odoo 19 写 company_dependent：
+//
+//   - 值与宿主给的默认值相同：当作「没有值」，那一格不存（models.py 写入里 JOIN
+//     _get_field_column_fallbacks 剔掉等于兜底值的格子）。存下来就等于把默认值钉死在这条记录上，
+//     之后改默认值它不跟着变；新建表单的 default_get 把默认值带出来、用户不动就保存，走的是这条路。
+//   - 显式清空、而这个字段在这家公司有宿主默认值：存 JSON null（explicitNull）。它是「这家公司
+//     明确没有」，读的时候不回落到默认值；不这样的话，有默认值的字段用户永远清不掉。
+//     没有默认值时清空照旧删掉那一格（两种读出来都是空）。
+func (self *TSession) companyWriteValue(field IField, cid int64, v any) (val any, explicitNull bool) {
 	fn, _ := self.context.Value(companyFallbackKey{}).(CompanyFallback)
 	if fn == nil {
-		return v
+		return v, false
 	}
 	text, ok := fn(field.ModelName(), field.Name(), cid)
 	if !ok || !companyFallbackTextFits(field, text) {
-		return v
+		return v, false
+	}
+	if companyValueUnset(field, v) {
+		return nil, true
 	}
 	if companyValueEqualsText(field, v, text) {
-		return nil
+		return nil, false
 	}
-	return v
+	return v, false
 }
 
 // companyValueEqualsText 判断要写的值与默认值的文本形式是不是同一个值。
@@ -290,12 +294,26 @@ func companyValueExpr(d IDialect, ref string, field IField, cid int64, dyn strin
 	if err != nil {
 		return "", err
 	}
-	fallback := ""
 	if dyn != "" {
-		fallback = ", " + dyn
+		// 有宿主默认值时按「格子在不在」判断，不按值是不是 NULL：显式清空存的是 JSON null
+		// （见 companyWriteValue），它是「这家公司明确没有」，不能再回落到默认值 —— Odoo 同样
+		// 用 col -> 'cid'（jsonb）做 COALESCE，JSON null 挡住兜底。
+		lit, hasLit := companyFallbackLiteral(field)
+		tail := dyn
+		if hasLit {
+			tail = "COALESCE(" + dyn + ", " + lit + ")"
+		}
+		if cid > 0 {
+			// 判「格子在不在」用 col->'k' IS NOT NULL（JSON null 的格子也为真），不用 jsonb 的 ?
+			// 运算符：它会被当成参数占位符。
+			return fmt.Sprintf(`(CASE WHEN %[1]s->'%[2]d' IS NOT NULL THEN %[1]s->>'%[2]d' WHEN %[1]s->'0' IS NOT NULL THEN %[1]s->>'0' ELSE %[3]s END)::%[4]s`,
+				ref, cid, tail, typ), nil
+		}
+		return fmt.Sprintf(`(CASE WHEN %[1]s->'0' IS NOT NULL THEN %[1]s->>'0' ELSE %[2]s END)::%[3]s`, ref, tail, typ), nil
 	}
+	fallback := ""
 	if lit, ok := companyFallbackLiteral(field); ok {
-		fallback += ", " + lit
+		fallback = ", " + lit
 	}
 	if cid > 0 {
 		return fmt.Sprintf(`(COALESCE(%s->>'%d', %s->>'0'%s))::%s`, ref, cid, ref, fallback, typ), nil
@@ -399,8 +417,11 @@ func companyJSONValue(v any) (json.RawMessage, error) {
 
 // companySetClause 渲染 UPDATE 里这一列的 SET：只改当前公司那一格。
 // col 是已经引用好的列名。返回的片段里至多一个 ? 占位符。
-func companySetClause(col string, field IField, cid int64, v any) (string, []any, error) {
+func companySetClause(col string, field IField, cid int64, v any, explicitNull bool) (string, []any, error) {
 	slot := companySlot(cid)
+	if explicitNull {
+		return fmt.Sprintf(`%s = jsonb_set(COALESCE(%s, '{}'::jsonb), '{%s}', 'null'::jsonb)`, col, col, slot), nil, nil
+	}
 	if companyValueUnset(field, v) {
 		return fmt.Sprintf(`%s = COALESCE(%s, '{}'::jsonb) - '%s'`, col, col, slot), nil, nil
 	}
@@ -413,7 +434,11 @@ func companySetClause(col string, field IField, cid int64, v any) (string, []any
 
 // companyInsertValue 是新建时这一列的值：{"<当前公司>": 值}。值为空时返回 ok=false，
 // 调用方不写这一列（列保持 NULL，读出来就是空）。
-func companyInsertValue(field IField, cid int64, v any) (string, bool, error) {
+func companyInsertValue(field IField, cid int64, v any, explicitNull bool) (string, bool, error) {
+	if explicitNull {
+		b, _ := json.Marshal(map[string]any{companySlot(cid): nil})
+		return string(b), true, nil
+	}
 	if companyValueUnset(field, v) {
 		return "", false, nil
 	}
