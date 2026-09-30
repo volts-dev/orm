@@ -1184,6 +1184,44 @@ func isEmptyRight(v any) bool {
 	return ok && s == ""
 }
 
+// isTruthyRight 判右值在 Odoo 语义下是不是"真"：nil / false / 空串 / 0 都不是。
+// 否定操作符只在右值为真时把 NULL 行算进来（不等于 0、不等于空串问的是"有值"）。
+func isTruthyRight(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case string:
+		return x != ""
+	case int:
+		return x != 0
+	case int8:
+		return x != 0
+	case int16:
+		return x != 0
+	case int32:
+		return x != 0
+	case int64:
+		return x != 0
+	case uint:
+		return x != 0
+	case uint8:
+		return x != 0
+	case uint16:
+		return x != 0
+	case uint32:
+		return x != 0
+	case uint64:
+		return x != 0
+	case float32:
+		return x != 0
+	case float64:
+		return x != 0
+	}
+	return true
+}
+
 // emptyRightIsNullish 判"右值为空"在这个列类型上该不该按 IS NULL 语义处理。
 //
 // 只对**非文本**列成立 —— 文本列的 `= ”` 是合法比较，通用分支已经处理对了。
@@ -1577,7 +1615,21 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 		// TODO 字段值格式化
 		// 是否需要添加“%%”
 		need_wildcard := operator.ValueIn("like", "ilike", "not like", "not ilike")
-		add_null := right.String() == ""
+		// 何时补 `OR x IS NULL`，照 Odoo expression.py 的两条：
+		//
+		//	右值为空 且 不是 `!=`   `= ''` / `like ''` 把 NULL 行算进来
+		//	否定操作符 且 右值为真   `!=` / `not like` / `not ilike` 把 NULL 行算进来
+		//
+		// 第二条此前没有：SQL 里 `NULL != 'x'` 是 NULL（不匹配），于是
+		// `('privacy','!=','private')` 把没设隐私的会议全排除了 —— 挂在记录规则上
+		// 就是"这些行谁也改不了"（calendar 2026-09-29）。`not in` 两个分支早就补了，
+		// 只有 `!=` 和 `not like` 漏着。
+		//
+		// `!= ''` 反过来**不该**补：它问的是"有值"，补了 NULL 就成了"有值或没值"。
+		add_null := right.String() == "" && operator.String() != "!="
+		if operator.ValueIn("!=", "not like", "not ilike") && len(vals) > 0 && isTruthyRight(vals[0]) {
+			add_null = true
+		}
 
 		// 兼容 =like 和 =ilike
 		sql_operator := operator.String()

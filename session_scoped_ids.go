@@ -79,6 +79,7 @@ func (self *TSession) scopeIdsByDomain(ids []any) ([]any, error) {
 		return nil, err
 	}
 	if ds == nil || ds.Count() == 0 {
+		self.warnScopedOut(ids, 0)
 		return nil, nil
 	}
 
@@ -87,5 +88,27 @@ func (self *TSession) scopeIdsByDomain(ids []any) ([]any, error) {
 		out = append(out, rec.GetByField(idKey))
 		return nil
 	})
+	self.warnScopedOut(ids, len(out))
 	return out, nil
+}
+
+// warnScopedOut 在点名的 id 被收窄时留一行日志。
+//
+// 收窄本身是对的（见上），但它**不出声**：调用方拿到"影响 N 行"甚至 0 行、没有错误，
+// 业务代码里直接 `Records().Ids(...).Write()` 的那些路径（不经 vectors 的写前校验）
+// 被行级权限挡住时，现场只有"保存成功、刷新变回去"。这一行是它们唯一的痕迹。
+func (self *TSession) warnScopedOut(ids []any, kept int) {
+	named := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		named[fmt.Sprint(id)] = struct{}{}
+	}
+	if kept >= len(named) {
+		return
+	}
+	verb := "写"
+	if self.Op == OpDelete {
+		verb = "删"
+	}
+	log.Warnf("%s: 按 id %s %d 行，会话条件收窄后剩 %d 行 —— 其余行不存在，或在租户/公司/行级权限范围之外，未被改动",
+		self.Statement.Model.String(), verb, len(named), kept)
 }
