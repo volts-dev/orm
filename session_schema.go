@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/volts-dev/dataset"
+	"github.com/volts-dev/orm/core"
 )
 
 // 让**裸 SQL** 也落在会话指定的 schema 上。
@@ -70,24 +71,20 @@ func (self *TSession) applyTxSettings() error {
 // **同一条连接**上——办法是包一个隐式事务。stmt 是 settingsSql() 拼出来的
 // search_path 与行范围。
 //
-// 代价是三次额外往返（BEGIN / SET / COMMIT），只发生在设了非默认 schema、或者
-// Enforce 下带行范围的会话上。正确性优先：一条打错 schema 的 DELETE 不报错，比多
+// 代价是两次额外往返（"BEGIN; SET LOCAL …" 合成一次，见 core.ScopedConn；再加
+// COMMIT），只发生在设了非默认 schema、或者 Enforce 下带行范围的会话上。正确性优先：一条打错 schema 的 DELETE 不报错，比多
 // 几次往返贵得多。
 func (self *TSession) execInSchemaScope(stmt string, query string, args ...any) (sql.Result, error) {
-	tx, err := self.db.BeginTx(self.context, nil)
+	c, err := self.db.BeginScoped(self.context, stmt)
 	if err != nil {
 		return nil, self.orm.dialect.MapError(err)
 	}
-	if _, err := tx.ExecContext(self.context, stmt); err != nil {
-		tx.Rollback()
-		return nil, self.orm.dialect.MapError(err)
-	}
-	res, err := tx.ExecContext(self.context, query, args...)
+	res, err := c.ExecContext(self.context, query, args...)
 	if err != nil {
-		tx.Rollback()
+		c.Rollback()
 		return nil, self.orm.dialect.MapError(err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := c.Commit(); err != nil {
 		return nil, self.orm.dialect.MapError(err)
 	}
 	return res, nil
@@ -98,25 +95,21 @@ func (self *TSession) execInSchemaScope(stmt string, query string, args ...any) 
 // 结果必须在 Commit **之前**读完：_scanRows 会把整个结果集物化成 dataset，
 // 所以提交后再返回是安全的；换成流式游标就不成立了。
 func (self *TSession) queryInSchemaScope(stmt string, query string, args ...any) (*dataset.TDataSet, error) {
-	tx, err := self.db.BeginTx(self.context, nil)
+	c, err := self.db.BeginScoped(self.context, stmt)
 	if err != nil {
 		return nil, self.orm.dialect.MapError(err)
 	}
-	if _, err := tx.ExecContext(self.context, stmt); err != nil {
-		tx.Rollback()
+	rows, err := c.QueryContext(self.context, query, args...)
+	if err != nil {
+		c.Rollback()
 		return nil, self.orm.dialect.MapError(err)
 	}
-	rows, err := tx.QueryContext(self.context, query, args...)
+	ds, err := self._scanRows(&core.Rows{Rows: rows})
 	if err != nil {
-		tx.Rollback()
-		return nil, self.orm.dialect.MapError(err)
-	}
-	ds, err := self._scanRows(rows)
-	if err != nil {
-		tx.Rollback()
+		c.Rollback()
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := c.Commit(); err != nil {
 		return nil, self.orm.dialect.MapError(err)
 	}
 	return ds, nil

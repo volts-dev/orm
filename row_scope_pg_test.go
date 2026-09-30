@@ -465,3 +465,26 @@ func TestPG_RowScope_DelegatedParentInheritsScope(t *testing.T) {
 		}
 	}
 }
+
+// 包事务的那一条语句失败：连接回滚后干净地回到池里（不带着开着的事务、不带着范围），
+// 槽位也还了——池只有一条连接，下一条语句拿得到、看到的是干净的连接。
+func TestPG_RowScope_FailedWrappedStatementLeavesCleanConn(t *testing.T) {
+	o := pgPoolOrm(t, nil, WithRowScope(rowScopeSetting, RowScopeEnforce),
+		WithMaxOpenConns(1), WithAcquireTimeout(3*time.Second))
+	s := o.NewSession().SetRowScope(9)
+	defer s.Close()
+	if _, err := s.Query("SELECT * FROM no_such_table_row_scope"); err == nil {
+		t.Fatal("应当报表不存在")
+	}
+	if _, err := s.Exec("INSERT INTO no_such_table_row_scope VALUES (1)"); err == nil {
+		t.Fatal("应当报表不存在")
+	}
+	bare := o.NewSession()
+	defer bare.Close()
+	if got := pgScalar(t, bare, "SELECT coalesce(current_setting('app.tenant_id', true), '') || '|' || (now() = statement_timestamp())::text AS v"); got != "|true" {
+		t.Fatalf("失败之后的连接不干净（范围|是否不在事务里）：%q", got)
+	}
+	if got := currentScope(t, s); got != "9" {
+		t.Fatalf("失败之后再用：%q", got)
+	}
+}
