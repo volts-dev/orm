@@ -91,7 +91,8 @@ func (self *TOrm) VacuumTransients(ctx context.Context) (map[string]int64, error
 		if !model.IsTransient() {
 			continue
 		}
-		sess := self.NewSession().WithContext(ctx)
+		// 按创建时间清全部租户的过期行：天生跨范围，走特权会话（见 privileged.go）。
+		sess := self.NewPrivilegedSession().WithContext(ctx)
 		n, err := sess.Model(name).VacuumTransient()
 		sess.Close()
 		if err != nil {
