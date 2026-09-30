@@ -52,7 +52,8 @@ type (
 		config    *Config
 		dialect   IDialect
 		db        *core.DB
-		osv       *TOsv // 对象管理
+		privDB    *core.DB // 特权连接池，没配时为 nil（见 privileged.go）
+		osv       *TOsv    // 对象管理
 		nameIndex map[string]*TModel
 		connected bool
 		Schema    string // Schema namespace
@@ -104,6 +105,10 @@ func New(opt ...Option) (*TOrm, error) {
 		return nil, fmt.Errorf("Unsupported dialect type: %v", cfg.DataSource.DbType)
 	}
 
+	if err := validateRowScopeSetting(cfg.RowScopeSetting); err != nil {
+		return nil, err
+	}
+
 	dsStr, err := cfg.DataSource.toString()
 	if err != nil {
 		return nil, err
@@ -117,6 +122,12 @@ func New(opt ...Option) (*TOrm, error) {
 	// 池参数在第一次查库之前套上：下面的反查（_reverse）已经在用这个池了。
 	applyPoolConfig(db, cfg)
 
+	privDB, err := openPrivileged(cfg)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	if err = dialect.Init(db, cfg.DataSource); err != nil {
 		return nil, err
 	}
@@ -127,6 +138,7 @@ func New(opt ...Option) (*TOrm, error) {
 		context:   context.Background(),
 		config:    cfg,
 		db:        db,
+		privDB:    privDB,
 		dialect:   dialect,
 		nameIndex: make(map[string]*TModel),
 	}
@@ -190,6 +202,9 @@ func (self *TOrm) Ping() error {
 // close the entire orm engine
 func (self *TOrm) Close() error {
 	// TODO more
+	if self.privDB != nil {
+		self.privDB.Close()
+	}
 	return self.db.Close()
 }
 
@@ -199,6 +214,9 @@ func (self *TOrm) Close() error {
 // 开关）取舍要在 Hook 自己的 BeforeProcess/AfterProcess 里读 ContextHook.Ctx 的值来做。
 func (self *TOrm) AddHook(h ...core.Hook) {
 	self.db.AddHook(h...)
+	if self.privDB != nil {
+		self.privDB.AddHook(h...)
+	}
 }
 
 // TZTime change one time to time location
@@ -260,7 +278,8 @@ func (self *TOrm) SyncModel(region string, models ...IModel) (modelNames []strin
 		return
 	}
 
-	session := NewSession(self)
+	// 结构同步连同它顺带的回填是特权活：改表要表的属主，回填跨全部租户（见 privileged.go）。
+	session := self.NewPrivilegedSession()
 	defer session.Close()
 	// Begin 失败后会话仍是自动提交：往下走的话每条 DDL 各自提交，中途出错留下半截结构。
 	if err = session.Begin(); err != nil {

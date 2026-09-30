@@ -28,6 +28,13 @@ var (
 	// 的是那条 SQL，后者要查的是谁占着连接不放、或者上限定小了。也与 ErrConnection
 	// 分开：库是好的，是本进程自己的池满了。
 	ErrPoolTimeout = errors.New("orm: timed out waiting for a free database connection")
+	// ErrRowScopeMissing 一条语句没设行范围就碰了开着行级安全的表（见 row_scope.go）。
+	// 库报的原文是 unrecognized configuration parameter "app.tenant_id"，或者——这条
+	// 连接上以前设过、事务结束后留下一个空值——invalid input syntax for type bigint: ""，
+	// 两句都看不出是"忘了设租户"，所以 ORM 在知道会话没设范围时把它们换成这一个。
+	ErrRowScopeMissing = errors.New("orm: statement ran without a row scope; row-level security rejected it")
+	// ErrRowScopeViolation 写入的行不在当前行范围里：行级安全策略的 WITH CHECK 拒了。
+	ErrRowScopeViolation = errors.New("orm: row is outside the current row scope")
 	// ErrTransaction 事务相关错误
 	ErrTransaction = errors.New("orm: transaction error")
 	// ErrUnsafe 危险操作被默认守护拒绝（Phase 2 启用）

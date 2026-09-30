@@ -54,6 +54,15 @@ type (
 		// AcquireTimeout 是等一条空闲连接的上限，超了返回 core.ErrPoolTimeout。
 		// 不设的话池满时会无限期地等。
 		AcquireTimeout time.Duration
+
+		// 行范围（见 row_scope.go）。RowScopeSetting 为空时整个机制关闭。
+		RowScopeSetting string
+		RowScopeMode    RowScopeMode
+		OnRowScopeEvent func(RowScopeEvent)
+
+		// 特权连接池（见 privileged.go）。为 nil 时特权会话走主池。
+		PrivilegedDataSource   *TDataSource
+		PrivilegedMaxOpenConns int
 	}
 )
 

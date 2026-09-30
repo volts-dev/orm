@@ -89,6 +89,9 @@ type (
 		//（语句超时与等锁超时；事务结束自动还原）。不支持的方言返回空串。
 		// 见 TSession.RelaxTimeouts。
 		StatementTimeoutSql(relax bool) string
+		// RowScopeSql 生成一条把当前**事务**的行范围设成 value 的语句（见 row_scope.go）；
+		// 方言没有事务级自定义设置时返回空串，行范围在那里是空操作。
+		RowScopeSql(setting string, value int64) string
 		GenInsertSql(model string, fields, uniqueFields []string, idField string, onConflict *OnConflict) (sql string)
 		GenAddColumnSQL(schema, tableName string, field IField) string
 		IsColumnExist(ctx context.Context, schema, tableName string, colName string) (bool, error)
@@ -389,6 +392,11 @@ func (db *TDialect) CreateTableSql(session *TSession, model IModel, storeEngine,
 
 // StatementTimeoutSql 默认无操作：只有 postgres 实现了事务级的超时开关。
 func (db *TDialect) StatementTimeoutSql(relax bool) string {
+	return ""
+}
+
+// RowScopeSql 默认无操作：只有 postgres 有事务级的自定义设置（也只有它有行级安全）。
+func (db *TDialect) RowScopeSql(setting string, value int64) string {
 	return ""
 }
 

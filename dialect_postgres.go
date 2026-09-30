@@ -1809,6 +1809,34 @@ func (db *postgres) SetSearchPathSql(schema string) string {
 	return fmt.Sprintf("SET LOCAL search_path TO %s, public", db.dialect.Quoter().Quote(schema))
 }
 
+// RowScopeSql 设置当前事务的行范围：行级安全策略里的 current_setting(setting) 读到的
+// 就是它。SET LOCAL，理由同 search_path。setting 在 New() 里校验过只含标识符字符与
+// 一个点；value 是整数，按十进制写进字面量——两者都不是调用方能塞任意字符串的地方。
+func (db *postgres) RowScopeSql(setting string, value int64) string {
+	if setting == "" {
+		return ""
+	}
+	return fmt.Sprintf("SET LOCAL %s = '%d'", setting, value)
+}
+
+// rowScopeMissing 判断 err 是不是"行级安全策略读 current_setting(setting) 没读到值"。
+// 两种原文：这条连接上从没设过（42704 unrecognized configuration parameter），或者
+// 以前设过、事务结束后留下空值，于是空串转 bigint 失败（22P02 …: ""）。后一种单看原文
+// 分不出是不是别的空串转换，调用方只在确知会话没设范围时才问这里。
+func (db *postgres) rowScopeMissing(err error, setting string) bool {
+	var pe *pq.Error
+	if !stdErrors.As(err, &pe) {
+		return false
+	}
+	switch pe.Code {
+	case "42704":
+		return strings.Contains(pe.Message, `"`+setting+`"`)
+	case "22P02":
+		return strings.HasSuffix(pe.Message, `: ""`)
+	}
+	return false
+}
+
 // StatementTimeoutSql 放开 / 还原当前事务的 statement_timeout 与 lock_timeout。
 //
 // 同样用 SET **LOCAL**：只管到事务结束，不会留在池化的连接上。还原写 TO DEFAULT
@@ -1852,6 +1880,12 @@ func (db *postgres) MapError(err error) error {
 			return ormerr.New(ormerr.ErrConflict, err)
 		case "08006", "08003", "08001": // connection_failure / connection_does_not_exist / sqlclient_unable_to_establish_sqlconnection
 			return ormerr.New(ormerr.ErrConnection, err)
+		case "42501": // insufficient_privilege
+			// 行级安全的 WITH CHECK 拒了这一行：写进了别的范围。其余的 42501（真的没权限）
+			// 照原样往下走。
+			if strings.Contains(pe.Message, "row-level security") {
+				return ormerr.New(ormerr.ErrRowScopeViolation, err)
+			}
 		case "57014", "25P03": // query_canceled / idle_in_transaction_session_timeout
 			// 57014：库的 statement_timeout 到点收掉了这条语句（用户主动取消也是它）。
 			// 25P03：事务开着却空闲过久，库把连接掐了。两者都是"库这边的超时"，

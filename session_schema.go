@@ -3,6 +3,7 @@ package orm
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 
 	"github.com/volts-dev/dataset"
 )
@@ -48,23 +49,30 @@ func (self *TSession) searchPathSql() string {
 	return self.orm.dialect.SetSearchPathSql(self.Schema)
 }
 
-// applySearchPath 在**已开启的事务**上设置 search_path。Begin 之后调用。
-func (self *TSession) applySearchPath() error {
-	stmt := self.searchPathSql()
+// applyTxSettings 在**刚开启的事务**上设置 search_path 与行范围（见 row_scope.go）。
+// Begin 之后调用。
+func (self *TSession) applyTxSettings() error {
+	stmt := self.settingsSql()
 	if stmt == "" || self.tx == nil {
 		return nil
 	}
 	if _, err := self.tx.ExecContext(self.context, stmt); err != nil {
 		return self.orm.dialect.MapError(err)
 	}
+	if self.txs != nil && self.sendsRowScope() {
+		v, _ := self.RowScope()
+		self.txs.rowScope = strconv.FormatInt(v, 10)
+	}
 	return nil
 }
 
 // execInSchemaScope 在自动提交会话上执行一条语句，并保证它与 SET LOCAL 落在
-// **同一条连接**上——办法是包一个隐式事务。
+// **同一条连接**上——办法是包一个隐式事务。stmt 是 settingsSql() 拼出来的
+// search_path 与行范围。
 //
-// 代价是两次额外往返，只发生在设了非默认 schema 的会话上。正确性优先：一条
-// 打错 schema 的 DELETE 不报错，比多两次往返贵得多。
+// 代价是三次额外往返（BEGIN / SET / COMMIT），只发生在设了非默认 schema、或者
+// Enforce 下带行范围的会话上。正确性优先：一条打错 schema 的 DELETE 不报错，比多
+// 几次往返贵得多。
 func (self *TSession) execInSchemaScope(stmt string, query string, args ...any) (sql.Result, error) {
 	tx, err := self.db.BeginTx(self.context, nil)
 	if err != nil {

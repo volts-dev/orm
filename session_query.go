@@ -284,21 +284,26 @@ func (self *TSession) _query(sql string, paramStr ...any) (*dataset.TDataSet, er
 	// 记录的是 Fmter 处理后、真正发给驱动的那条语句。
 	self.lastSQL, self.lastSQLArgs = sql, paramStr
 
-	return self.orm._logQuerySql(sql, paramStr, func() (*dataset.TDataSet, error) {
+	self.syncBorrowedTx()
+	self.auditRowScope(sql)
+
+	ds, err := self.orm._logQuerySql(sql, paramStr, func() (*dataset.TDataSet, error) {
 		if self.IsAutoCommit {
 			return self._queryWithOrg(sql, paramStr...)
 		}
 		return self._queryWithTx(sql, paramStr...)
 	})
+	return ds, self.explainRowScope(err)
 }
 
 func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TDataSet, error) {
 	var rows *core.Rows
 	var err error
 
-	// 会话带 schema：SET LOCAL 与语句必须落在同一条连接上，所以包一个隐式事务。
-	// 这里**绕开 Prepared**——预编译语句同样在池上，绑不住那条连接；正确性优先。
-	if stmt := self.searchPathSql(); stmt != "" {
+	// 会话带 schema 或（Enforce 下）行范围：SET LOCAL 与语句必须落在同一条连接上，
+	// 所以包一个隐式事务。这里**绕开 Prepared**——预编译语句同样在池上，绑不住那条
+	// 连接；正确性优先。
+	if stmt := self.settingsSql(); stmt != "" {
 		return self.queryInSchemaScope(stmt, sql_str, args...)
 	}
 
@@ -324,6 +329,9 @@ func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TData
 }
 
 func (self *TSession) _queryWithTx(query string, params ...any) (*dataset.TDataSet, error) {
+	if err := self.ensureTxRowScope(); err != nil {
+		return nil, err
+	}
 	rows, err := self.tx.QueryContext(self.context, query, params...)
 	if err != nil {
 		return nil, self.orm.dialect.MapError(err)
@@ -343,6 +351,9 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 	}
 
 	self.lastSQL, self.lastSQLArgs = sql_str, args
+
+	self.syncBorrowedTx()
+	self.auditRowScope(sql_str)
 
 	// 任何改动库结构的语句都要让 DBMetas 反查缓存失效(见 TOrm.metaCache)。
 	// 在执行前就判定关键字,执行成功后再递增 epoch;失败/回滚也递增属过度失效,
@@ -381,7 +392,7 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 		self.orm.metaEpoch.Add(1)
 	}
 
-	return res, err
+	return res, self.explainRowScope(err)
 }
 
 // isDDL 粗判一条语句是否会改动库结构(据以让 DBMetas 缓存失效)。只看首个
@@ -412,8 +423,8 @@ func isDDL(sql_str string) bool {
 
 // Execute sql
 func (self *TSession) _execWithOrg(query string, args ...any) (sql.Result, error) {
-	// 同 _queryWithOrg：带 schema 的自动提交会话包一个隐式事务，让 SET LOCAL 生效。
-	if stmt := self.searchPathSql(); stmt != "" {
+	// 同 _queryWithOrg：带 schema / 行范围的自动提交会话包一个隐式事务，让 SET LOCAL 生效。
+	if stmt := self.settingsSql(); stmt != "" {
 		return self.execInSchemaScope(stmt, query, args...)
 	}
 
@@ -439,6 +450,9 @@ func (self *TSession) _execWithOrg(query string, args ...any) (sql.Result, error
 }
 
 func (self *TSession) _execWithTx(sql string, args ...any) (sql.Result, error) {
+	if err := self.ensureTxRowScope(); err != nil {
+		return nil, err
+	}
 	res, err := self.tx.ExecContext(self.context, sql, args...)
 	if err != nil {
 		return nil, self.orm.dialect.MapError(err)

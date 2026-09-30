@@ -1244,7 +1244,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 				_, err := ctx.Session.Exec(q)
 				return err
 			}
-			_, err := orm.Exec(q)
+			_, err := orm.privilegedExec(q)
 			return err
 		}
 		for _, q := range stmts {

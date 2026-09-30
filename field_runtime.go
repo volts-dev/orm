@@ -237,7 +237,8 @@ func (self *TOrm) materializeField(schema string, model *TModel, field IField, o
 		}
 	}
 
-	session := self.NewSession()
+	// 补列、建索引、建关联表连同回填都是特权活（见 privileged.go）。
+	session := self.NewPrivilegedSession()
 	defer session.Close()
 	session.Schema = schema
 	session.Model(model.String())
@@ -264,7 +265,7 @@ func (self *TOrm) materializeField(schema string, model *TModel, field IField, o
 func (self *TOrm) addColumn(ctx context.Context, schema, table string, field IField, o *addFieldOptions) error {
 	ddl := self.dialect.GenAddColumnSQL(schema, table, field)
 	if o == nil || o.backfill == nil {
-		if _, err := self.Exec(ddl); err != nil {
+		if _, err := self.privilegedExec(ddl); err != nil {
 			// 另一个进程抢先补上了：列在就算成功。
 			if again, _ := self.dialect.IsColumnExist(ctx, schema, table, field.Name()); !again {
 				return err
@@ -273,7 +274,7 @@ func (self *TOrm) addColumn(ctx context.Context, schema, table string, field IFi
 		return nil
 	}
 
-	s := self.NewSession()
+	s := self.NewPrivilegedSession()
 	defer s.Close()
 	s.Schema = schema
 	if err := s.Begin(); err != nil {
@@ -297,7 +298,7 @@ func (self *TOrm) addColumn(ctx context.Context, schema, table string, field IFi
 // addRelationTable 建 many2many 关联表；关联表是这一次才建出来的，就在同一个事务里回填。
 func (self *TOrm) addRelationTable(schema string, model *TModel, field IField, o *addFieldOptions) error {
 	rel := strings.Replace(field.JoinModelName(), ".", "_", -1)
-	s := self.NewSession()
+	s := self.NewPrivilegedSession()
 	defer s.Close()
 	s.Schema = schema
 	if err := s.Begin(); err != nil {

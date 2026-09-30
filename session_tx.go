@@ -13,6 +13,7 @@ import (
 //			Rollback()
 //	}
 func (self *TSession) Begin() error {
+	self.syncBorrowedTx()
 	// 当第一次调用时才修改Tx
 	if self.IsAutoCommit {
 		tx, err := self.db.BeginTx(self.context, nil)
@@ -23,14 +24,18 @@ func (self *TSession) Begin() error {
 		self.IsAutoCommit = false
 		self.IsCommitedOrRollbacked = false
 		self.tx = tx
+		self.txs = &txState{}
+		self.borrowedTx = false
 
 		// 会话带 schema 时，让**裸 SQL** 也落在这个 schema 上（SET LOCAL search_path，
 		// 事务级、提交即还原）。SetSchema 从前只影响 ORM 自己拼的 SQL，Exec/Query 里
-		// 的表名一直落 public——详见 session_schema.go。
-		if err := self.applySearchPath(); err != nil {
+		// 的表名一直落 public——详见 session_schema.go。行范围已经定了的话一并设上，
+		// 同一次往返（见 row_scope.go）；之后才定的由 ensureTxRowScope 在下一条语句前补。
+		if err := self.applyTxSettings(); err != nil {
 			tx.Rollback()
 			self.IsAutoCommit = true
 			self.tx = nil
+			self.txs = nil
 			return err
 		}
 	}
@@ -39,8 +44,15 @@ func (self *TSession) Begin() error {
 }
 
 func (self *TSession) Commit() error {
+	// 借来的事务不归这里提交（见 Clone）：借用者的 Commit 是空操作，它的写随拥有者
+	// 的提交一起生效。
+	if self.borrowedTx {
+		self.syncBorrowedTx()
+		return nil
+	}
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
 		self.IsCommitedOrRollbacked = true
+		self.markTxDone()
 
 		if self.tx != nil {
 			if err := self.tx.Commit(); err != nil {
@@ -52,14 +64,23 @@ func (self *TSession) Commit() error {
 	/* 关闭事务 */
 	self.IsAutoCommit = true
 	self.tx = nil
+	self.txs = nil
 	return nil
 }
 
 // Rollback when using transaction, you can rollback if any error
 // e: the error witch trigger this Rollback
+//
+// 借来的事务不归这里回滚（见 Clone）：只把错误原样带回去。失败的那条语句已经让
+// postgres 把整个事务打成 aborted，拥有者提交时会报出来。
 func (self *TSession) Rollback(e error) error {
+	if self.borrowedTx {
+		self.syncBorrowedTx()
+		return newSessionError("", e)
+	}
 	if !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
 		self.IsCommitedOrRollbacked = true
+		self.markTxDone()
 		if self.tx != nil {
 			err := self.tx.Rollback()
 			if err != nil {
@@ -70,7 +91,15 @@ func (self *TSession) Rollback(e error) error {
 
 	self.IsAutoCommit = true
 	self.tx = nil
+	self.txs = nil
 	return newSessionError("", e)
+}
+
+// markTxDone 告诉借用者：事务结束了。
+func (self *TSession) markTxDone() {
+	if self.txs != nil {
+		self.txs.done.Store(true)
+	}
 }
 
 // IsInTx if current session is in a transaction
@@ -92,6 +121,7 @@ func (self *TSession) AfterCommit(fn func()) {
 	if fn == nil {
 		return
 	}
+	self.syncBorrowedTx()
 	if self.IsAutoCommit || self.IsCommitedOrRollbacked || self.tx == nil {
 		fn()
 		return

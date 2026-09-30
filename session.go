@@ -56,6 +56,17 @@ type (
 		// 一路传下去（见 expr_x2many.go 的 subSession 与 field_searcher.go 的 Origin）。
 		// 只有派生会话上才有值；普通会话为 nil。
 		searchOrigin IModel
+
+		// txs 是当前事务的共享状态，拥有者与借用者（Clone）手里是同一个指针。
+		txs *txState
+		// borrowedTx：tx 是从别的会话借来的（Clone 时对方在事务里）。借用者的
+		// Commit / Rollback / Close 不结束那个事务——结束它是拥有者的事。
+		borrowedTx bool
+
+		// 行范围与特权身份，见 row_scope.go / privileged.go。
+		rowScope    int64
+		hasRowScope bool
+		privileged  bool
 	}
 )
 
@@ -95,17 +106,52 @@ func (self *TSession) init() error {
 
 func (self *TSession) New() *TSession {
 	session := NewSession(self.orm)
+	session.inheritIdentity(self)
 	session.IsClassic = true
 	return session.Model(self.Statement.Model.String())
 }
 
+// inheritIdentity 让派生会话与来源会话用同一个池、同一个身份、同一个行范围。
+// 漏了哪一样，派生出来的读写就换了身份：特权会话派生出普通会话，开了 RLS 后读空；
+// 普通会话丢了范围，要么被库拒、要么（Audit 下）被报成没设范围。
+func (self *TSession) inheritIdentity(from *TSession) {
+	if from.db != nil {
+		self.db = from.db
+	}
+	if from.context != nil {
+		self.context = from.context // 范围也可能在 context 里（ContextWithRowScope）
+	}
+	self.privileged = from.privileged
+	self.rowScope, self.hasRowScope = from.rowScope, from.hasRowScope
+}
+
+// Clone 派生一个新会话：新的 Statement，同一个 schema、身份、行范围——以及，来源在
+// 事务里时，**同一个事务**。
+//
+// # 借用的事务
+//
+// 从前 Clone 复制了 tx 指针却没复制 IsAutoCommit：克隆出来的会话手里攥着事务，语句
+// 却走普通连接——看着在事务里，其实不在，读不到同一事务里刚写的值，还多占一条连接。
+// 只把那一行注释放开也不行：克隆一旦认为自己在事务里，它的 Close() 就会把**来源的**
+// 事务回滚掉（Close 对没提交的事务一律回滚）。
+//
+// 现在克隆是事务的**借用者**：语句走同一个事务；它的 Begin 是空操作（已经在事务里），
+// Commit / Rollback / Close 都不结束这个事务，结束它是拥有者的事。拥有者提交或回滚
+// 之后，借用者再用就退回自动提交（见 syncBorrowedTx）。
+//
+// 借用者的一条语句失败，postgres 会把整个事务打成 aborted——与在拥有者会话上直接
+// 执行同一条语句一样。"先试一种写法、失败了再换一种"的代码不能在借来的事务上跑。
 func (self *TSession) Clone() *TSession {
 	session := NewSession(self.orm)
-	session.tx = self.tx
-	//session.IsAutoCommit = self.IsAutoCommit // 默认情况下单个SQL是不用事务自动
+	session.inheritIdentity(self)
+	if self.tx != nil && !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
+		session.tx = self.tx
+		session.txs = self.txs
+		session.IsAutoCommit = false
+		session.borrowedTx = true
+	}
 	session.IsAutoClose = self.IsAutoClose
 	session.AutoResetStatement = self.AutoResetStatement
-	session.IsCommitedOrRollbacked = self.IsCommitedOrRollbacked
 	session.Prepared = self.Prepared
 	session.CacheNameIds = self.CacheNameIds
 	// schema 必须随克隆传播：克隆出的会话常用于同一请求内的派生读写(如 m2o 名称
@@ -129,13 +175,27 @@ func (self *TSession) Close() {
 	if self.db != nil {
 		// When Close be called, if session is a transaction and do not call
 		// Commit or Rollback, then call Rollback.
-		if self.tx != nil && !self.IsCommitedOrRollbacked {
+		// 借来的事务不归这里结束（见 Clone）。
+		if self.tx != nil && !self.IsCommitedOrRollbacked && !self.borrowedTx {
 			self.Rollback(nil)
 		}
 
 		self.db = nil
 		self.tx = nil
+		self.txs = nil
+		self.borrowedTx = false
 		self.init()
+	}
+}
+
+// syncBorrowedTx：借来的事务已经被拥有者结束时，本会话退回自动提交。
+func (self *TSession) syncBorrowedTx() {
+	if self.borrowedTx && self.txs != nil && self.txs.done.Load() {
+		self.tx = nil
+		self.txs = nil
+		self.borrowedTx = false
+		self.IsAutoCommit = true
+		self.IsCommitedOrRollbacked = false
 	}
 }
 
@@ -151,6 +211,15 @@ func (self *TSession) Ping() error {
 
 // synchronize structs to database tables
 func (self *TSession) SyncModel(region string, models ...IModel) (modelNames []string, err error) {
+	// 结构同步是特权活（改表要表的属主，顺带的回填跨全部租户）：普通会话上调用时换到
+	// 同 schema 的特权会话上跑。在事务里的不换——那是调用方要把结构变更放进自己的
+	// 事务，换了连接就不在同一个事务里了；普通身份没有权限时会在这里报出来。
+	if !self.privileged && self.IsAutoCommit && self.orm != nil {
+		ps := self.privilegedCopy()
+		defer ps.Close()
+		return ps.SyncModel(region, models...)
+	}
+
 	// 去重
 	models = unique(models)
 
