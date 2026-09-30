@@ -170,6 +170,12 @@ func (self *TSession) RowScope() (int64, bool) {
 	return 0, false
 }
 
+// ExplicitRowScope 只返回会话上显式设的范围（SetRowScope），不看 context。
+// 宿主据此判断"调用方是不是已经明确说了替谁跑"。
+func (self *TSession) ExplicitRowScope() (int64, bool) {
+	return self.rowScope, self.hasRowScope
+}
+
 type rowScopeCtxKey struct{}
 
 // ContextWithRowScope 让范围跟着 context 走。
