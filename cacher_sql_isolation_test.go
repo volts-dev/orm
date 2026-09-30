@@ -98,3 +98,30 @@ func TestSqlCacheNotPollutedByProducer(t *testing.T) {
 		t.Fatalf("生产侧改动泄漏进缓存: age = %d, want 30", got)
 	}
 }
+
+// 行级安全下同一条 SQL 替不同的租户跑结果不同：缓存的键要带上范围与身份，否则租户 B
+// 会拿到替租户 A 算好的结果。
+func TestSqlCacheKeyCarriesRowScope(t *testing.T) {
+	o := newCacheOrm(t)
+	const q = "SELECT id FROM cache_model WHERE age > ?"
+	p := []any{10}
+	a := o.NewSession().SetRowScope(1)
+	b := o.NewSession().SetRowScope(2)
+	bare := o.NewSession()
+	priv := o.NewPrivilegedSession()
+
+	ds, err := a.Query(q, p...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Cacher.PutBySql("cache_model", q, a.cacheArg(p), ds)
+
+	if o.Cacher.GetBySql("cache_model", q, a.cacheArg(p)) == nil {
+		t.Fatal("同一范围应当命中")
+	}
+	for name, s := range map[string]*TSession{"别的范围": b, "没设范围": bare, "特权会话": priv} {
+		if o.Cacher.GetBySql("cache_model", q, s.cacheArg(p)) != nil {
+			t.Fatalf("%s命中了范围 1 的缓存", name)
+		}
+	}
+}

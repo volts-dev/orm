@@ -312,3 +312,18 @@ func (self *TSession) auditRowScope(query string) {
 		cfg.OnRowScopeEvent(RowScopeEvent{Kind: RowScopeUnscoped, SQL: query, InTx: inTx})
 	}
 }
+
+// cacheArg 给 SQL 结果缓存的键加上身份与行范围。
+//
+// 缓存的键原来是"表名 + SQL + 参数"。行级安全下同一条 SQL、同一组参数，替不同的租户
+// 跑结果不同（库把别的租户的行滤掉了）；键里不带范围，租户 B 就会拿到替租户 A 算好的
+// 结果——那正是第二道门要防的事。特权会话（不受行级安全约束）也单独一格。
+func (self *TSession) cacheArg(params []any) any {
+	if self.privileged {
+		return append(append(make([]any, 0, len(params)+1), params...), "\x00privileged")
+	}
+	if v, ok := self.RowScope(); ok {
+		return append(append(make([]any, 0, len(params)+2), params...), "\x00rowscope", v)
+	}
+	return params
+}

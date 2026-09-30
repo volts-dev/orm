@@ -1303,7 +1303,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 
 	if !locking {
 		// 从缓存里获得数据
-		res_ds = self.orm.Cacher.GetBySql(self.Statement.Model.Table(), res_sql, where_clause_params)
+		res_ds = self.orm.Cacher.GetBySql(self.Statement.Model.Table(), res_sql, self.cacheArg(where_clause_params))
 		if res_ds != nil {
 			res_ds.First()
 			return res_ds, res_sql, nil
@@ -1320,7 +1320,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 
 	if !locking {
 		//# 添加进入缓存
-		self.orm.Cacher.PutBySql(self.Statement.Model.Table(), res_sql, where_clause_params, res_ds)
+		self.orm.Cacher.PutBySql(self.Statement.Model.Table(), res_sql, self.cacheArg(where_clause_params), res_ds)
 	}
 
 	//# 必须是合法位置上
