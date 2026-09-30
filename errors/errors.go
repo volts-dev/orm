@@ -22,6 +22,12 @@ var (
 	ErrTimeout = errors.New("orm: operation timeout")
 	// ErrConnection 连接失败 / 断开
 	ErrConnection = errors.New("orm: connection failed")
+	// ErrPoolTimeout 连接池满、等一条空闲连接等过了上限（core/pool.go）。
+	//
+	// 与 ErrTimeout 分开：那是"这条语句跑得太久"，这是"根本没轮到它跑"——前者要查
+	// 的是那条 SQL，后者要查的是谁占着连接不放、或者上限定小了。也与 ErrConnection
+	// 分开：库是好的，是本进程自己的池满了。
+	ErrPoolTimeout = errors.New("orm: timed out waiting for a free database connection")
 	// ErrTransaction 事务相关错误
 	ErrTransaction = errors.New("orm: transaction error")
 	// ErrUnsafe 危险操作被默认守护拒绝（Phase 2 启用）

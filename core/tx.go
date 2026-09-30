@@ -27,6 +27,9 @@ type Tx struct {
 	// 它们手里还是这个 Tx——此时再登记的回调要按终态处理（见 AfterCommit），
 	// 否则会挂在一个再也不会提交的事务上，永远不执行、也不报错。
 	state txState
+
+	// 这个事务占着的池槽位，Commit / Rollback 真正发出之后归还（见 pool.go）。
+	slot poolSlot
 }
 
 type txState int
@@ -44,12 +47,25 @@ func (db *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	tx, err := db.DB.BeginTx(ctx, opts)
+	// 事务从 Begin 到 Commit/Rollback 一直占着一条连接，槽位也占这么久。
+	var tx *sql.Tx
+	gate, err := db.acquire(ctx)
+	if err == nil {
+		tx, err = db.DB.BeginTx(ctx, opts)
+	}
 	hookCtx.End(ctx, nil, err)
 	if err := db.afterProcess(hookCtx); err != nil {
+		// 事务开成了、钩子却报错：调用方拿不到 Tx，没人会去结束它——这里收掉，
+		// 否则这条连接就永远占着。
+		if tx != nil {
+			tx.Rollback()
+		}
+		if gate != nil {
+			gate.put()
+		}
 		return nil, err
 	}
-	return &Tx{Tx: tx, db: db, ctx: ctx}, nil
+	return &Tx{Tx: tx, db: db, ctx: ctx, slot: poolSlot{gate: gate}}, nil
 }
 
 // Begin begins a transaction
@@ -65,6 +81,7 @@ func (tx *Tx) Commit() error {
 		return err
 	}
 	err = tx.Tx.Commit()
+	tx.slot.release() // 提交无论成败，database/sql 都已把连接还回池
 	hookCtx.End(ctx, nil, err)
 	// afterProcess 先交回提交本身的错误（Hooks.AfterProcess 以 c.Err 打底），
 	// 再是钩子的。任何一种都算"没确认提交成功"：宁可不做，也不在一个可能没提交的
@@ -138,6 +155,7 @@ func (tx *Tx) Rollback() error {
 		return err
 	}
 	err = tx.Tx.Rollback()
+	tx.slot.release()
 	hookCtx.End(ctx, nil, err)
 	return tx.db.afterProcess(hookCtx)
 }
@@ -238,7 +256,7 @@ func (tx *Tx) QueryContext(ctx context.Context, query string, args ...any) (*Row
 		}
 		return nil, err
 	}
-	return &Rows{rows, tx.db}, nil
+	return &Rows{Rows: rows, db: tx.db}, nil
 }
 
 // Query query with args

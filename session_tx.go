@@ -1,5 +1,10 @@
 package orm
 
+import (
+	"database/sql"
+	"fmt"
+)
+
 // Begin a transaction
 //
 //	Begin()
@@ -92,4 +97,48 @@ func (self *TSession) AfterCommit(fn func()) {
 		return
 	}
 	self.tx.AfterCommit(fn)
+}
+
+// RelaxTimeouts 在当前事务里放开库侧的语句超时与等锁超时，直到事务结束或
+// RestoreTimeouts。
+//
+// 库（或角色）上配的 statement_timeout 是给请求流量兜底的：一条语句跑过了头、一把锁
+// 等过了头，收掉它比让它占着连接好。但有两类事**本来就该**久：
+//
+//   - 等一把别人要持很久的锁（同一租户的模块安装排队，前一个事务一持就是几分钟）；
+//   - 部署期的结构同步与数据迁移（大表上建索引、整表回填）。
+//
+// 它们在自己的事务里调这个方法声明"我知道我慢"。只对事务有效——自动提交的会话
+// 上 SET LOCAL 在语句结束就没了，那时直接报错，而不是让调用方以为自己被放开了。
+// 不支持的方言（没有这类超时）是空操作。
+func (self *TSession) RelaxTimeouts() error {
+	return self.setTimeouts(true)
+}
+
+// RestoreTimeouts 把 RelaxTimeouts 放开的超时还原成库上配的默认值。
+// 用在"只有中间那一步该久"的地方：放开 → 等锁 → 还原，事务里其余的语句照常受约束。
+func (self *TSession) RestoreTimeouts() error {
+	return self.setTimeouts(false)
+}
+
+func (self *TSession) setTimeouts(relax bool) error {
+	if self.orm == nil || self.orm.dialect == nil {
+		return nil
+	}
+	stmt := self.orm.dialect.StatementTimeoutSql(relax)
+	if stmt == "" {
+		return nil
+	}
+	if self.IsAutoCommit || self.tx == nil {
+		return fmt.Errorf("orm: RelaxTimeouts/RestoreTimeouts requires an explicit transaction; call Begin() first")
+	}
+	// 直接走事务而不是 Exec()：Exec 会顺带重置会话上正在拼的 Statement，而这个方法
+	// 可能夹在链式调用中间。日志照打——"这个事务放开过超时"是排查时要看得见的事。
+	_, err := self.orm._logExecSql(stmt, nil, func() (sql.Result, error) {
+		return self.tx.ExecContext(self.context, stmt)
+	})
+	if err != nil {
+		return self.orm.dialect.MapError(err)
+	}
+	return nil
 }

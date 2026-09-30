@@ -473,7 +473,9 @@ func (self *TModel) Load(field []string, records ...any) ([]any, error) {
 	}
 
 	session := model.Tx()
-	session.Begin()
+	if err := session.Begin(); err != nil {
+		return nil, err
+	}
 
 	ids, err := model.Create(&CreateRequest{Data: records})
 	if err != nil {
@@ -543,7 +545,9 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 
 				//tx2 := model.Tx(session.Clone())
 				tx2 := model.Tx()
-				tx2.Begin()
+				if err := tx2.Begin(); err != nil {
+					return 0, err
+				}
 
 				ids, err = model.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
 				if err != nil {
@@ -560,7 +564,9 @@ func (self *TModel) Upload(req *UploadRequest) (int64, error) {
 					return 0, err
 				}
 				tx2 := model2.Tx()
-				tx2.Begin()
+				if err := tx2.Begin(); err != nil {
+					return 0, err
+				}
 				ids, err = model2.Create(&CreateRequest{Data: utils.MapToAnyList(datas...)})
 				if err != nil {
 					return 0, tx2.Rollback(err)

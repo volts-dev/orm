@@ -1809,6 +1809,19 @@ func (db *postgres) SetSearchPathSql(schema string) string {
 	return fmt.Sprintf("SET LOCAL search_path TO %s, public", db.dialect.Quoter().Quote(schema))
 }
 
+// StatementTimeoutSql 放开 / 还原当前事务的 statement_timeout 与 lock_timeout。
+//
+// 同样用 SET **LOCAL**：只管到事务结束，不会留在池化的连接上。还原写 TO DEFAULT
+// 而不是某个数——默认值是库或角色上配的那个（ALTER DATABASE/ROLE … SET），这里不该
+// 知道它是多少。两条语句写在一个字符串里、不带参数：lib/pq 对无参语句走简单查询
+// 协议，一次往返。
+func (db *postgres) StatementTimeoutSql(relax bool) string {
+	if relax {
+		return "SET LOCAL statement_timeout = 0; SET LOCAL lock_timeout = 0"
+	}
+	return "SET LOCAL statement_timeout TO DEFAULT; SET LOCAL lock_timeout TO DEFAULT"
+}
+
 // MapError 把 PostgreSQL driver 错误翻译为 ormerr sentinel
 func (db *postgres) MapError(err error) error {
 	if err == nil {
@@ -1839,6 +1852,11 @@ func (db *postgres) MapError(err error) error {
 			return ormerr.New(ormerr.ErrConflict, err)
 		case "08006", "08003", "08001": // connection_failure / connection_does_not_exist / sqlclient_unable_to_establish_sqlconnection
 			return ormerr.New(ormerr.ErrConnection, err)
+		case "57014", "25P03": // query_canceled / idle_in_transaction_session_timeout
+			// 57014：库的 statement_timeout 到点收掉了这条语句（用户主动取消也是它）。
+			// 25P03：事务开着却空闲过久，库把连接掐了。两者都是"库这边的超时"，
+			// 与 ctx 到期归同一类，调用方不必分辨超时是哪一侧给的。
+			return ormerr.New(ormerr.ErrTimeout, err)
 		}
 	}
 

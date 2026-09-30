@@ -120,7 +120,7 @@ func (s *Stmt) QueryContext(ctx context.Context, args ...any) (*Rows, error) {
 		return nil, err
 	}
 
-	return &Rows{rows, s.db}, nil
+	return &Rows{Rows: rows, db: s.db}, nil
 }
 
 // Query query with args

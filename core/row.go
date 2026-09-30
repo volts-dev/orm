@@ -12,6 +12,26 @@ import (
 type Rows struct {
 	*sql.Rows
 	db *DB
+
+	// 自动提交查询占着的池槽位（事务里与预编译语句上的 Rows 没有，release 是空操作）。
+	slot poolSlot
+}
+
+// Close 关闭结果集并归还池槽位。
+func (rs *Rows) Close() error {
+	err := rs.Rows.Close()
+	rs.slot.release()
+	return err
+}
+
+// Next 读到头时顺手归还池槽位：标准库此刻已把连接还回池，调用方没调 Close 也不该
+// 让槽位跟着泄漏。
+func (rs *Rows) Next() bool {
+	ok := rs.Rows.Next()
+	if !ok {
+		rs.slot.release()
+	}
+	return ok
 }
 
 // ToMapString returns all records

@@ -37,6 +37,23 @@ type (
 		// 会因缺表/缺列失败。需要跑一次同步时(如上线新版本),关掉本开关启动一次
 		// 或用专门的迁移入口。
 		DisableSchemaSync bool
+
+		// 连接池。全部是"0 = 不设"，New() 在打开连接后、第一次查库之前套上。
+		//
+		// MaxOpenConns 是本进程同时占用的连接数上限。不设的话 database/sql 永不排队，
+		// 负载多大就开多少条——所有进程加起来撞的是库的 max_connections，那时
+		// 报错的是**别的**进程。设了之后等连接会排队，排多久由 AcquireTimeout 管
+		//（见 core/pool.go）；两个要一起设。
+		MaxOpenConns int
+		// MaxIdleConns 是池里留着不关的空闲连接数。不设时是标准库默认的 2。
+		MaxIdleConns int
+		// ConnMaxLifetime / ConnMaxIdleTime 到点回收连接（前者按建立时刻，后者按空闲
+		// 时长）。中间有会掐空闲连接的设备（NAT、LB、连接池代理）时要设。
+		ConnMaxLifetime time.Duration
+		ConnMaxIdleTime time.Duration
+		// AcquireTimeout 是等一条空闲连接的上限，超了返回 core.ErrPoolTimeout。
+		// 不设的话池满时会无限期地等。
+		AcquireTimeout time.Duration
 	}
 )
 
@@ -120,5 +137,40 @@ func WithBigNumberToString(on bool) Option {
 func WithDisableSchemaSync(on bool) Option {
 	return func(cfg *Config) {
 		cfg.DisableSchemaSync = on
+	}
+}
+
+// WithMaxOpenConns 设置连接池上限。见 Config.MaxOpenConns。
+func WithMaxOpenConns(n int) Option {
+	return func(cfg *Config) {
+		cfg.MaxOpenConns = n
+	}
+}
+
+// WithMaxIdleConns 设置池里保留的空闲连接数。见 Config.MaxIdleConns。
+func WithMaxIdleConns(n int) Option {
+	return func(cfg *Config) {
+		cfg.MaxIdleConns = n
+	}
+}
+
+// WithConnMaxLifetime 设置一条连接最长能被复用多久。
+func WithConnMaxLifetime(d time.Duration) Option {
+	return func(cfg *Config) {
+		cfg.ConnMaxLifetime = d
+	}
+}
+
+// WithConnMaxIdleTime 设置一条连接最长能空闲多久。
+func WithConnMaxIdleTime(d time.Duration) Option {
+	return func(cfg *Config) {
+		cfg.ConnMaxIdleTime = d
+	}
+}
+
+// WithAcquireTimeout 设置等连接的上限。见 Config.AcquireTimeout。
+func WithAcquireTimeout(d time.Duration) Option {
+	return func(cfg *Config) {
+		cfg.AcquireTimeout = d
 	}
 }

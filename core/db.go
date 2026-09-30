@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sync/atomic"
 )
 
 var (
@@ -97,6 +98,10 @@ type DB struct {
 	*sql.DB
 	Mapper IMapper
 	hooks  Hooks
+
+	// 池前面的闸与等连接的上限，见 pool.go。
+	gate           atomic.Pointer[poolGate]
+	acquireTimeout atomic.Int64
 }
 
 // Open opens a database
@@ -142,16 +147,25 @@ func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*Row
 		return nil, err
 	}
 
-	rows, err := db.DB.QueryContext(ctx, query, args...)
+	// 先过闸再交给 database/sql：排队发生在闸上，有自己的上限（见 pool.go）。
+	// 放在钩子窗口之内——钩子量到的耗时一直包含等连接的那一段，保持不变。
+	var rows *sql.Rows
+	gate, err := db.acquire(ctx)
+	if err == nil {
+		rows, err = db.DB.QueryContext(ctx, query, args...)
+	}
 	hookCtx.End(ctx, nil, err)
 	if err := db.afterProcess(hookCtx); err != nil {
 		if rows != nil {
 			rows.Close()
 		}
+		if gate != nil {
+			gate.put()
+		}
 		return nil, err
 	}
 
-	return &Rows{rows, db}, nil
+	return &Rows{Rows: rows, db: db, slot: poolSlot{gate: gate}}, nil
 }
 
 // Query overwrites sql.DB.Query
@@ -273,7 +287,14 @@ func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.R
 		return nil, err
 	}
 
-	res, err := db.DB.ExecContext(ctx, query, args...)
+	var res sql.Result
+	gate, err := db.acquire(ctx)
+	if err == nil {
+		res, err = db.DB.ExecContext(ctx, query, args...)
+		if gate != nil {
+			gate.put()
+		}
+	}
 	hookCtx.End(ctx, res, err)
 	if err := db.afterProcess(hookCtx); err != nil {
 		return nil, err

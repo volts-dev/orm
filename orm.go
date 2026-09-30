@@ -114,6 +114,9 @@ func New(opt ...Option) (*TOrm, error) {
 		return nil, err
 	}
 
+	// 池参数在第一次查库之前套上：下面的反查（_reverse）已经在用这个池了。
+	applyPoolConfig(db, cfg)
+
 	if err = dialect.Init(db, cfg.DataSource); err != nil {
 		return nil, err
 	}
@@ -258,11 +261,19 @@ func (self *TOrm) SyncModel(region string, models ...IModel) (modelNames []strin
 	}
 
 	session := NewSession(self)
-	session.Begin()
+	defer session.Close()
+	// Begin 失败后会话仍是自动提交：往下走的话每条 DDL 各自提交，中途出错留下半截结构。
+	if err = session.Begin(); err != nil {
+		return nil, err
+	}
 	defer func() {
 		session.Rollback(err)
-		session.Close()
 	}()
+	// 结构同步是部署期的活：大表上建索引、补列可以合法地跑很久，不该被给请求流量
+	// 兜底的库侧语句超时收掉（收掉的后果是进程带着半截结构起来）。
+	if err = session.RelaxTimeouts(); err != nil {
+		return nil, err
+	}
 
 	modelNames, err = session.SyncModel(region, models...)
 	if err != nil {
@@ -302,9 +313,60 @@ func (self *TOrm) GetModels() []string {
 	return self.osv.GetModels()
 }
 
+// applyPoolConfig 把 Config 里设了的池参数套到连接池上；没设（零值）的保持标准库默认。
+func applyPoolConfig(db *core.DB, cfg *Config) {
+	if cfg.MaxOpenConns > 0 {
+		db.SetMaxOpenConns(cfg.MaxOpenConns)
+	}
+	if cfg.MaxIdleConns > 0 {
+		db.SetMaxIdleConns(cfg.MaxIdleConns)
+	}
+	if cfg.ConnMaxLifetime > 0 {
+		db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	}
+	if cfg.ConnMaxIdleTime > 0 {
+		db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
+	}
+	if cfg.AcquireTimeout > 0 {
+		db.SetAcquireTimeout(cfg.AcquireTimeout)
+	}
+}
+
+// SetMaxOpenConns sets the maximum number of open connections to the database.
+// n <= 0 means unlimited. 等连接的上限另由 SetAcquireTimeout 管，两个要一起设。
+func (self *TOrm) SetMaxOpenConns(n int) {
+	self.config.MaxOpenConns = n
+	self.db.SetMaxOpenConns(n)
+}
+
+// SetMaxIdleConns sets the maximum number of connections in the idle pool.
+func (self *TOrm) SetMaxIdleConns(n int) {
+	self.config.MaxIdleConns = n
+	self.db.SetMaxIdleConns(n)
+}
+
 // SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
 func (self *TOrm) SetConnMaxLifetime(d time.Duration) {
+	self.config.ConnMaxLifetime = d
 	self.db.SetConnMaxLifetime(d)
+}
+
+// SetConnMaxIdleTime sets the maximum amount of time a connection may be idle.
+func (self *TOrm) SetConnMaxIdleTime(d time.Duration) {
+	self.config.ConnMaxIdleTime = d
+	self.db.SetConnMaxIdleTime(d)
+}
+
+// SetAcquireTimeout 设置等一条空闲连接的上限；超了返回 core.ErrPoolTimeout。
+// d <= 0 表示不设（池满时无限期地等）。
+func (self *TOrm) SetAcquireTimeout(d time.Duration) {
+	self.config.AcquireTimeout = d
+	self.db.SetAcquireTimeout(d)
+}
+
+// PoolStats 返回连接池与池闸的计数（见 core.PoolStats）。
+func (self *TOrm) PoolStats() core.PoolStats {
+	return self.db.PoolStats()
 }
 
 // Import SQL DDL file

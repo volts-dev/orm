@@ -85,6 +85,10 @@ type (
 		// 是池化的，下一个借到它的请求会继承这个 schema —— 那是跨租户串数据，
 		// 比原来的 bug 严重得多。
 		SetSearchPathSql(schema string) string
+		// StatementTimeoutSql 生成放开 / 还原当前**事务**的库侧超时的语句
+		//（语句超时与等锁超时；事务结束自动还原）。不支持的方言返回空串。
+		// 见 TSession.RelaxTimeouts。
+		StatementTimeoutSql(relax bool) string
 		GenInsertSql(model string, fields, uniqueFields []string, idField string, onConflict *OnConflict) (sql string)
 		GenAddColumnSQL(schema, tableName string, field IField) string
 		IsColumnExist(ctx context.Context, schema, tableName string, colName string) (bool, error)
@@ -381,6 +385,11 @@ func (db *TDialect) CreateTableSql(session *TSession, model IModel, storeEngine,
 	}
 
 	return b.String()
+}
+
+// StatementTimeoutSql 默认无操作：只有 postgres 实现了事务级的超时开关。
+func (db *TDialect) StatementTimeoutSql(relax bool) string {
+	return ""
 }
 
 // SetSearchPathSql 默认无操作：只有 postgres 有 search_path。
