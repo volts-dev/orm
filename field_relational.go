@@ -1269,6 +1269,14 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 	if err != nil {
 		log.Err(err)
 	}
+	// 关系模型的字段是**反查**出来的，而反查只看会话默认 schema。关联表只建在某个 schema
+	// 里时（VectorsSystem 的 sys_user_sys_tenant_rel 只在 system），反查一列也拿不到，
+	// 关系模型上就没有这两个外键字段：按它们过滤报 Invalid field，读回永远是 0 行。
+	// 两列就是声明里那两个名字，照声明补上（类型同主键）。
+	if model != nil {
+		ensureRelationKeyFields(orm, model.GetBase(), ctx.Model.GetFieldByName(ctx.Model.IdField()),
+			field.RelatedKeyName(), field.JoinSourceKey())
+	}
 	// 注册model —— 带上本会话，让它自己的衍生 DDL 也留在同一个事务里（见上）。
 	if err = orm.osv.RegisterModel("", model.GetBase(), ctx.Session); err != nil {
 		log.Err(err)
@@ -1848,4 +1856,30 @@ func normalizeX2mIds(ctx *TFieldContext) {
 		return nil
 	})
 	ctx.Dataset.First()
+}
+
+// ensureRelationKeyFields 给关系模型补上反查没拿到的外键列字段（见 UpdateDb 里的说明）。
+func ensureRelationKeyFields(orm *TOrm, model *TModel, idField IField, keys ...string) {
+	if model == nil || model.obj == nil {
+		return
+	}
+	// 与 UpdateDb 建表时一致：两列的 SQL 类型取主键的（本仓一律 BIGINT 雪花 id）。
+	typeName := "bigint"
+	if idField != nil && IsFieldType(strings.ToLower(idField.SQLType().Name)) {
+		typeName = strings.ToLower(idField.SQLType().Name)
+	}
+	for _, key := range keys {
+		if key == "" || model.GetFieldByName(key) != nil {
+			continue
+		}
+		f, err := orm.buildField(model, key, typeName, map[string][]string{typeName: nil}, []string{typeName})
+		if err != nil {
+			log.Errf("m2m relation model %s: 补外键字段 %s 失败: %v", model.String(), key, err)
+			continue
+		}
+		f.Base().isDBColumn = true
+		f.Base().store = true
+		f.Base().required = true
+		model.obj.SetField(f)
+	}
 }
