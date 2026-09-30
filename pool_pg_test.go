@@ -15,7 +15,7 @@ import (
 // application_name、没有 statement_timeout，lib/pq 的连接串参数也轮不到它解析。
 // 连不上本机的测试库就跳过（与本包其它 *_pg_test.go 同一约定）。
 
-func pgPoolOrm(t *testing.T, tune func(*TDataSource), opts ...Option) *TOrm {
+func pgPoolOrm(t testing.TB, tune func(*TDataSource), opts ...Option) *TOrm {
 	t.Helper()
 	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
 	if tune != nil {
