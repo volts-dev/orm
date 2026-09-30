@@ -406,3 +406,62 @@ func TestPG_RowScope_ManyToManyInheritsScope(t *testing.T) {
 		t.Fatalf("关系读取另起的会话丢了调用方的范围：%+v", evs)
 	}
 }
+
+type RsDlgParent struct {
+	TModel `table:"name('rs_dlg_parent')"`
+	Id     int64  `field:"pk autoincr title('ID') index"`
+	Name   string `field:"varchar() required"`
+	City   string `field:"varchar()"`
+}
+
+type rsDlgChild struct {
+	TModel      `table:"name('rs_dlg_child')"`
+	RsDlgParent `field:"relate(ParentId)"`
+	ParentId    int64  `field:"one2one(rs_dlg_parent)"`
+	Id          int64  `field:"pk autoincr title('ID') index"`
+	Name        string `field:"varchar() required"`
+}
+
+// 委托继承建子记录时自动建的父记录走 _getModel 另起的会话：它要带上调用方的范围与事务。
+func TestPG_RowScope_DelegatedParentInheritsScope(t *testing.T) {
+	var log eventLog
+	o := pgPoolOrm(t, nil, WithRowScope(rowScopeSetting, RowScopeAudit), WithRowScopeHook(log.add))
+	drop := func() {
+		for _, tb := range []string{"rs_dlg_child", "rs_dlg_parent"} {
+			o.Exec("DROP TABLE IF EXISTS " + tb + " CASCADE")
+		}
+	}
+	drop()
+	t.Cleanup(drop)
+	if _, err := o.SyncModel("", new(RsDlgParent), new(rsDlgChild)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Freeze(context.Background()); err != nil { // 委托继承的字段在 Freeze 时才接上
+		t.Fatal(err)
+	}
+	log.take()
+
+	s := o.NewSession().SetRowScope(3)
+	defer s.Close()
+	if err := s.Begin(); err != nil {
+		t.Fatal(err)
+	}
+	child, err := o.GetModel("rs.dlg.child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := child.Tx(s).Create(map[string]any{"name": "C1", "city": "Hangzhou"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if n := pgScalar(t, s, "SELECT count(*) AS n FROM rs_dlg_parent WHERE city = 'Hangzhou'"); n != "1" {
+		t.Fatalf("父记录没建出来（用例没走到委托继承那条路）：%s", n)
+	}
+	for _, e := range log.take() {
+		if e.Kind == RowScopeUnscoped {
+			t.Fatalf("委托继承的父记录顶着没设范围的会话写：%s", e.SQL)
+		}
+	}
+}

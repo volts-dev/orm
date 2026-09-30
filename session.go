@@ -118,11 +118,18 @@ func (self *TSession) inheritIdentity(from *TSession) {
 	if from.db != nil {
 		self.db = from.db
 	}
-	if from.context != nil {
-		self.context = from.context // 范围也可能在 context 里（ContextWithRowScope）
+	// context 只在自己还是默认值时接过来：Records() 起的会话已经带着模型自己的 context
+	//（上面挂着登录会话），不能被调用方的换掉。
+	if from.context != nil && (self.context == nil || self.context == context.Background()) {
+		self.context = from.context
 	}
 	self.privileged = from.privileged
-	self.rowScope, self.hasRowScope = from.rowScope, from.hasRowScope
+	// 范围按"实际生效的那个"接：来源的范围可能只在它的 context 里。
+	if v, ok := from.RowScope(); ok {
+		self.SetRowScope(v)
+	} else {
+		self.ClearRowScope()
+	}
 }
 
 // Clone 派生一个新会话：新的 Statement，同一个 schema、身份、行范围——以及，来源在
@@ -1002,9 +1009,16 @@ func (self *TSession) _getModel(modelName string, options ...ModelOption) (model
 	if model != nil {
 		// 详情查看Begin()初始化流程
 		s := model.Records()
+		// 同一个池、身份、行范围（见 inheritIdentity）：委托继承自动建的父记录从前顶着一个
+		// 没设范围的会话写，开了行级安全就被库拒。
+		s.inheritIdentity(self)
 		s.IsAutoCommit = self.IsAutoCommit
 		s.IsCommitedOrRollbacked = self.IsCommitedOrRollbacked
 		s.tx = self.tx
+		if self.tx != nil && !self.IsAutoCommit {
+			s.txs = self.txs
+			s.borrowedTx = true // 事务归调用方，见 Clone
+		}
 		// schema 必须一起继承：Records() 起的是全新会话，Schema 为空即落到 search_path
 		// 的默认 schema(通常 public)。本函数的调用方是「顺带写/读另一张表」的路径——
 		// 委托继承(_inherits)自动建父记录、m2m 关联表回写——在专属 schema 的租户下
