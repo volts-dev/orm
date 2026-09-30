@@ -977,8 +977,14 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 
 	sess := NewSession(orm)
 	defer sess.Close()
+	if self.options.Context != nil {
+		sess.WithContext(self.options.Context) // 行范围可能在模型的 context 里
+	}
 	/* 复制必要字段 */
 	if ctx.Session != nil {
+		// 同一个池、同一个身份、同一个行范围（见 inheritIdentity）：关系表的裸查询从前
+		// 顶着一个什么都没设的新会话跑，开了行级安全就被库拒。
+		sess.inheritIdentity(ctx.Session)
 		ctx.Session.setsLock.RLock()
 		sess.Sets = ctx.Session.Sets
 		ctx.Session.setsLock.RUnlock()

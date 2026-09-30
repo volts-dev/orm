@@ -349,3 +349,60 @@ func TestPG_RowScope_RowLevelSecurityWithTwoRoles(t *testing.T) {
 		t.Fatalf("SyncModel 建的表属主是 %q，want %q（没走特权池）", got, owner)
 	}
 }
+
+type rsTag struct {
+	TModel `table:"name('rs_tag')"`
+	Id     int64  `field:"pk autoincr"`
+	Name   string `field:"varchar(32) recname()"`
+}
+
+type rsMain struct {
+	TModel `table:"name('rs_main')"`
+	Id     int64  `field:"pk autoincr"`
+	Name   string `field:"varchar(32) recname()"`
+	TagIds []any  `field:"many2many(rs_tag,rs_main_tag_rel,main_id,tag_id)"`
+}
+
+// 关系字段的读取在 ORM 内部另起会话查关联表：那个会话要带上调用方的范围，否则开了
+// 行级安全就被库拒（Audit 下表现为一条"没设范围"的事件）。
+func TestPG_RowScope_ManyToManyInheritsScope(t *testing.T) {
+	var log eventLog
+	o := pgPoolOrm(t, nil, WithRowScope(rowScopeSetting, RowScopeAudit), WithRowScopeHook(log.add))
+	for _, tb := range []string{"rs_main_tag_rel", "rs_main", "rs_tag"} {
+		o.Exec("DROP TABLE IF EXISTS " + tb + " CASCADE")
+	}
+	t.Cleanup(func() {
+		for _, tb := range []string{"rs_main_tag_rel", "rs_main", "rs_tag"} {
+			o.Exec("DROP TABLE IF EXISTS " + tb + " CASCADE")
+		}
+	})
+	if _, err := o.SyncModel("", new(rsTag), new(rsMain)); err != nil {
+		t.Fatal(err)
+	}
+	s := o.NewSession().SetRowScope(1)
+	defer s.Close()
+	t1, err := s.Model("rs.tag").Create(map[string]any{"name": "T1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := s.Model("rs.main").Create(map[string]any{"name": "M1", "tag_ids": []any{[]any{6, 0, []any{t1[0]}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log.take()
+
+	m, err := o.GetModel("rs.main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := m.ManyToMany(&TFieldContext{Model: m, Ids: ids, Field: m.GetFieldByName("tag_ids"), Session: s})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ds == nil || ds.Count() != 1 {
+		t.Fatalf("关联行没读出来：%v", ds)
+	}
+	if evs := log.take(); len(evs) != 0 {
+		t.Fatalf("关系读取另起的会话丢了调用方的范围：%+v", evs)
+	}
+}
