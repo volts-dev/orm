@@ -488,3 +488,54 @@ func TestPG_RowScope_FailedWrappedStatementLeavesCleanConn(t *testing.T) {
 		t.Fatalf("失败之后再用：%q", got)
 	}
 }
+
+type rsLine struct {
+	TModel `table:"name('rs_line')"`
+	Id     int64  `field:"pk autoincr"`
+	Name   string `field:"varchar(32) recname()"`
+	TagId  int64  `field:"many2one(rs_tag)"`
+}
+
+// many2one 的子读取（经典内嵌与 name_get 两条路）另起的会话也要带着调用方的范围。
+func TestPG_RowScope_ManyToOneInheritsScope(t *testing.T) {
+	var log eventLog
+	o := pgPoolOrm(t, nil, WithRowScope(rowScopeSetting, RowScopeAudit), WithRowScopeHook(log.add))
+	drop := func() {
+		for _, tb := range []string{"rs_line", "rs_tag"} {
+			o.Exec("DROP TABLE IF EXISTS " + tb + " CASCADE")
+		}
+	}
+	drop()
+	t.Cleanup(drop)
+	if _, err := o.SyncModel("", new(rsTag), new(rsLine)); err != nil {
+		t.Fatal(err)
+	}
+	s := o.NewSession().SetRowScope(5)
+	defer s.Close()
+	tag, err := s.Model("rs.tag").Create(map[string]any{"name": "T"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := s.Model("rs.line").Create(map[string]any{"name": "L", "tag_id": tag[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log.take()
+
+	m, err := o.GetModel("rs.line")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, classic := range []bool{true, false} {
+		if _, err := m.ManyToOne(&TFieldContext{Model: m, Ids: []any{tag[0]}, Field: m.GetFieldByName("tag_id"),
+			Session: s, ClassicRead: classic, UseNameGet: !classic}); err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range log.take() {
+			if e.Kind == RowScopeUnscoped {
+				t.Fatalf("many2one 子读取（classic=%v）丢了范围：%s", classic, e.SQL)
+			}
+		}
+	}
+	_ = ids
+}

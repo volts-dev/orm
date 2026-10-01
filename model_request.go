@@ -656,6 +656,9 @@ func (self *TModel) OneToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	if schema, ok := self.relSchema(ctx); ok {
 		rs.SetSchema(schema)
 	}
+	if src := self.relSource(ctx); src != nil {
+		rs.inheritIdentity(src)
+	}
 	rs = rs.Ids(ids)
 	if ctx.ClassicRead {
 		rs = rs.Classic()
@@ -694,6 +697,16 @@ func (self *TModel) relContext(ctx *TFieldContext) context.Context {
 		}
 	}
 	return self.Options().Context
+}
+
+// relSource 是关系字段子读取的"来源会话"：调用方传了 Session 就是它，否则回落到接收者
+// 自己的事务会话（同 relSchema）。子读取另起的会话要从它继承池、身份与行范围（见
+// TSession.inheritIdentity），否则开了行级安全就被库拒。
+func (self *TModel) relSource(ctx *TFieldContext) *TSession {
+	if ctx != nil && ctx.Session != nil {
+		return ctx.Session
+	}
+	return self.Transaction()
 }
 
 func (self *TModel) relSchema(ctx *TFieldContext) (string, bool) {
@@ -757,6 +770,9 @@ func (self *TModel) OneToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	// 会话,见 relSchema。
 	if schema, ok := self.relSchema(ctx); ok {
 		session.SetSchema(schema)
+	}
+	if src := self.relSource(ctx); src != nil {
+		session.inheritIdentity(src)
 	}
 	session.UseNameGet = ctx.UseNameGet /* 使用 */
 	if len(ctx.SubFields) > 0 {
@@ -865,6 +881,9 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			if schema, ok := self.relSchema(ctx); ok {
 				sub.SetSchema(schema)
 			}
+			if src := self.relSource(ctx); src != nil {
+				sub.inheritIdentity(src)
+			}
 			if len(ctx.Fields) > 0 {
 				// 限定 comodel 列范围(如仅 display_name)；id 必须带上以便按主键分组回填。
 				sub.Select(ensureFields(ctx.Fields, relateModel.IdField())...)
@@ -900,6 +919,17 @@ func (self *TModel) ManyToOne(ctx *TFieldContext) (*dataset.TDataSet, error) {
 			// 没有任何 API 能传进来。见 OneToMany 处的同一条注释。
 			group, err = sub.Ids(ids...).Limit(-1).Read()
 		} else if ctx.UseNameGet {
+			// NameGet 走 relateModel 自己的事务会话（Tx()→Records()），那是个什么都没设的
+			// 新会话：先给它一个带着来源身份与范围的。relateModel 是这一次现取的包装，
+			// 改它的事务会话不会串到别处。
+			if src := self.relSource(ctx); src != nil && relateModel.Transaction() == nil {
+				rs := relateModel.Records()
+				if schema, ok := self.relSchema(ctx); ok {
+					rs.SetSchema(schema)
+				}
+				rs.inheritIdentity(src)
+				relateModel.Tx(rs)
+			}
 			group, err = relateModel.NameGet(ids)
 		}
 		if err != nil {
