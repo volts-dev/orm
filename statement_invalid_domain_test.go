@@ -195,3 +195,22 @@ func TestIsBlankDomainString(t *testing.T) {
 		}
 	}
 }
+
+// Fail：钩子把一个错误挂到当前语句上，执行时原样交回（errors.Is 成立），执行完复位、不连累下一条。
+func TestSessionFailRejectsOnlyTheCurrentStatement(t *testing.T) {
+	o := setupIdm(t)
+	boom := stdErrors.New("池满")
+	s := o.NewSession()
+	defer s.Close()
+	_, err := s.Model("idm.item").Fail(boom).Read()
+	if !stdErrors.Is(err, boom) {
+		t.Fatalf("Fail 之后 Read 应当返回那个错误，实得 %v", err)
+	}
+	if _, err := s.Model("idm.item").Fail(boom).Count(); !stdErrors.Is(err, boom) {
+		t.Fatalf("Count 同理，实得 %v", err)
+	}
+	ds, err := s.Model("idm.item").Limit(-1).Read()
+	if err != nil || ds.Count() != 5 {
+		t.Fatalf("下一条语句不该受影响，实得 %v rows=%v", err, ds)
+	}
+}

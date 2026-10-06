@@ -235,6 +235,17 @@ func (self *TStatement) Err() error {
 	return self.err
 }
 
+// Fail 让当前这条语句在执行时以 err 失败（Read/Search/Count/Sum/Write/Delete/ReadGroup 执行前
+// 经 Err() 取出并拒绝执行），执行完随 Init() 复位，不影响会话上的下一条语句。
+//
+// 给 BeforeSession 一类钩子用：它们没有返回错误的位置，却可能在施加条件的途中发现「这次查询
+// 不能按原样跑」——行级权限要查的用户组、公司集在池满时取不到，退化成恒假条件的话，调用方
+// 收到的是一个看着正常的空结果，而不是 503。
+func (self *TSession) Fail(err error) *TSession {
+	self.Statement.fail(err)
+	return self
+}
+
 // fail 记录第一个错误，后来的不覆盖——第一个才是根因。
 func (self *TStatement) fail(err error) {
 	if err != nil && self.err == nil {
