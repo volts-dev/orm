@@ -84,3 +84,24 @@ func TestSplitGroupBy_NumberGranularities(t *testing.T) {
 		t.Fatalf("非法粒度应原样当字段名返回，got %q %q", f, g)
 	}
 }
+
+// 按粒度分组的 SQL：date 列不能直接进 date_trunc（会走 timestamptz 重载、按会话时区错一天），
+// datetime 列按调用方时区截断再换回 UTC。SQL 是 Postgres 的，sqlite 跑不了，这里钉住字符串。
+func TestGranularityExpr(t *testing.T) {
+	cases := []struct {
+		gran, tz string
+		isDate   bool
+		want     string
+	}{
+		{"month", "", true, `CAST(date_trunc('month',CAST(t.d AS timestamp)) AS date)`},
+		{"month", "Asia/Shanghai", true, `CAST(date_trunc('month',CAST(t.d AS timestamp)) AS date)`},
+		{"day", "Asia/Shanghai", false, `((date_trunc('day',((t.d AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Shanghai')) AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'UTC')`},
+		{"week", "", false, `date_trunc('week',t.d)`},
+		{"month_number", "", true, `CAST(EXTRACT(month FROM CAST(t.d AS timestamp)) AS INTEGER)`},
+	}
+	for _, c := range cases {
+		if got := granularityExpr("t.d", c.gran, c.isDate, c.tz); got != c.want {
+			t.Errorf("granularityExpr(%s, date=%v, tz=%q)\n got %s\nwant %s", c.gran, c.isDate, c.tz, got, c.want)
+		}
+	}
+}

@@ -299,21 +299,19 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 				return nil, fmt.Errorf("ReadGroup: groupby granularity (%q) is only supported on postgres, current dialect is %s",
 					granularity, dbType)
 			}
-			// datetime 按调用方时区截断（opts.tz，Odoo 按用户时区）：列里是 UTC 的无时区时间戳，
-			// 先转成那个时区的本地时间再截断。date 列没有时区，不转。
-			local := qualified
-			isDatetime := opts != nil && opts.tz != "" && !strings.EqualFold(field.SQLType().Name, "DATE")
-			if isDatetime {
+			isDate := strings.EqualFold(field.SQLType().Name, "DATE")
+			tz := ""
+			if opts != nil && opts.tz != "" && !isDate {
 				if !validTz(opts.tz) {
 					return nil, fmt.Errorf("ReadGroup: invalid time zone %q", opts.tz)
 				}
-				local = fmt.Sprintf("((%s AT TIME ZONE 'UTC') AT TIME ZONE '%s')", qualified, opts.tz)
+				tz = opts.tz
 			}
 			// 别名保持为字段原名（不带 `:粒度`）：_scanRows 按列名回查字段拿转换器，
 			// 带冒号的别名既查不到字段、也不是合法标识符。
-			if part, ok := numberGranularities[granularity]; ok {
+			if _, ok := numberGranularities[granularity]; ok {
 				// 「取一部分」：结果是整数，别名另起（`<字段>__<粒度>`），不套字段的时间转换器。
-				expr = fmt.Sprintf("CAST(EXTRACT(%s FROM %s) AS INTEGER)", part, local)
+				expr = granularityExpr(qualified, granularity, isDate, tz)
 				alias, err := quoter.QuoteIdent(GranularityAlias(name, granularity))
 				if err != nil {
 					return nil, err
@@ -323,11 +321,7 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 				grouped[name] = true
 				continue
 			}
-			expr = fmt.Sprintf("date_trunc('%s',%s)", granularity, local)
-			if isDatetime {
-				// 截断后的本地起点换回 UTC：下钻域与列里的值同一口径（UTC）。
-				expr = fmt.Sprintf("((%s AT TIME ZONE '%s') AT TIME ZONE 'UTC')", expr, opts.tz)
-			}
+			expr = granularityExpr(qualified, granularity, isDate, tz)
 			alias, err := quoter.QuoteIdent(name)
 			if err != nil {
 				return nil, err
@@ -615,4 +609,34 @@ func (self *TSession) aggregateColumns(model IModel, specs []string, qualify fun
 		out = append(out, expr+" AS "+alias)
 	}
 	return out, nil
+}
+
+// granularityExpr 是按粒度分组的那一列的 SQL（Postgres）。
+//
+//   - datetime（tz 非空）：列里是 UTC 的无时区时间戳，先转成那个时区的本地时间再截断，截断后的本地
+//     起点再换回 UTC —— 下钻域与列里的值同一口径（Odoo 按用户时区：上海的「10 月」从 9 月 30 日
+//     16:00 UTC 开始）。
+//   - date：没有时区，但 **date_trunc 没有 date 版本**：直接传 date 进去，Postgres 选的是
+//     timestamptz 那个重载，按会话时区把当天零点当成本地时刻 —— 会话时区在 UTC 以东时，3 月 1 日
+//     读回来是 2 月 28 日 16:00Z，透视表 / 图表的每个月整体错一档（2026-10-10 真栈：3 月 15 日的
+//     分录落进「2026 年 2 月」）。先转成无时区的 timestamp 再截断，结果再转回 date。
+//   - 「取一部分」（month_number、day_of_week…）：EXTRACT 出整数。
+func granularityExpr(qualified, granularity string, isDate bool, tz string) string {
+	local := qualified
+	if isDate {
+		local = fmt.Sprintf("CAST(%s AS timestamp)", qualified)
+	} else if tz != "" {
+		local = fmt.Sprintf("((%s AT TIME ZONE 'UTC') AT TIME ZONE '%s')", qualified, tz)
+	}
+	if part, ok := numberGranularities[granularity]; ok {
+		return fmt.Sprintf("CAST(EXTRACT(%s FROM %s) AS INTEGER)", part, local)
+	}
+	expr := fmt.Sprintf("date_trunc('%s',%s)", granularity, local)
+	switch {
+	case isDate:
+		expr = fmt.Sprintf("CAST(%s AS date)", expr)
+	case tz != "":
+		expr = fmt.Sprintf("((%s AT TIME ZONE '%s') AT TIME ZONE 'UTC')", expr, tz)
+	}
+	return expr
 }
