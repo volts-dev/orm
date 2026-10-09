@@ -19,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/cacher"
@@ -1206,6 +1207,35 @@ func (self *TOrm) _handleTags(fieldCtx *TTagContext, tags map[string][]string, o
 	return nil
 }
 
+// 日志里一条 SQL 最多记这么长、参数最多记这么多个。成批写入（一条多行 INSERT 带几万个参数）
+// 原样记下来一行就是几十万字节：千万行的导入能写出十几 GB 日志，而那一行谁也读不了。
+const (
+	maxLoggedSqlLen  = 2000
+	maxLoggedSqlArgs = 32
+)
+
+func logSql(d time.Duration, sql string, args []any) {
+	log.Info(formatSqlLog(float64(d.Microseconds())/1000, sql, args))
+}
+
+func formatSqlLog(ms float64, sql string, args []any) string {
+	text := sql
+	if len(text) > maxLoggedSqlLen {
+		cut := maxLoggedSqlLen
+		for cut > 0 && !utf8.RuneStart(sql[cut]) { // 别把一个多字节字符切成两半
+			cut--
+		}
+		text = fmt.Sprintf("%s …(+%d bytes)", sql[:cut], len(sql)-cut)
+	}
+	switch {
+	case len(args) == 0:
+		return fmt.Sprintf("[SQL][%.2f ms] %s", ms, text)
+	case len(args) > maxLoggedSqlArgs:
+		return fmt.Sprintf("[SQL][%.2f ms] %s [args] %v …(+%d args)", ms, text, args[:maxLoggedSqlArgs], len(args)-maxLoggedSqlArgs)
+	}
+	return fmt.Sprintf("[SQL][%.2f ms] %s [args] %v", ms, text, args)
+}
+
 func (self *TOrm) _logExecSql(sql string, args []any, executionBlock func() (sql.Result, error)) (sql.Result, error) {
 	if self.config.ShowSql {
 		b4ExecTime := time.Now()
@@ -1213,11 +1243,7 @@ func (self *TOrm) _logExecSql(sql string, args []any, executionBlock func() (sql
 		execDuration := time.Since(b4ExecTime)
 		// 值取微秒但按毫秒展示：曾直接打 Microseconds 配 "ms" 标签，0.5ms 的语句
 		// 显示成 "471 ms"，被当成性能问题追查过。
-		if len(args) > 0 {
-			log.Infof("[SQL][%.2f ms] %s [args] %v", float64(execDuration.Microseconds())/1000, sql, args)
-		} else {
-			log.Infof("[SQL][%.2f ms] %s", float64(execDuration.Microseconds())/1000, sql)
-		}
+		logSql(execDuration, sql, args)
 		return res, err
 	} else {
 		return executionBlock()
@@ -1229,11 +1255,7 @@ func (self *TOrm) _logQuerySql(sql string, args []any, executionBlock func() (*d
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
-		if len(args) > 0 {
-			log.Infof("[SQL][%.2f ms] %s [args] %v", float64(execDuration.Microseconds())/1000, sql, args)
-		} else {
-			log.Infof("[SQL][%.2f ms] %s", float64(execDuration.Microseconds())/1000, sql)
-		}
+		logSql(execDuration, sql, args)
 		return res, err
 	} else {
 		return executionBlock()
