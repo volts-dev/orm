@@ -2,7 +2,9 @@ package orm
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/volts-dev/dataset"
 )
@@ -24,6 +26,25 @@ var groupGranularities = map[string]bool{
 	"year":    true,
 }
 
+// numberGranularities 是 Odoo 17+ 的「取一部分」粒度：值是一个整数（几号、第几周、几月……），
+// 不是截断后的时间点。键是请求里的写法，值是 Postgres `EXTRACT(<part> FROM …)` 的 part。
+// 同样是白名单 —— part 会作为字面量拼进 SQL。
+var numberGranularities = map[string]string{
+	"day_of_month":    "day",
+	"day_of_week":     "dow",
+	"day_of_year":     "doy",
+	"iso_week_number": "week",
+	"month_number":    "month",
+	"quarter_number":  "quarter",
+	"year_number":     "year",
+	"hour_number":     "hour",
+	"minute_number":   "minute",
+	"second_number":   "second",
+}
+
+// IsNumberGranularity 报告粒度是不是「取一部分」那一类（结果是整数，见 numberGranularities）。
+func IsNumberGranularity(g string) bool { _, ok := numberGranularities[g]; return ok }
+
 // SplitGroupBy 拆分 `字段` 或 `字段:粒度` 两种分组写法。
 // 粒度非法时原样把整串当字段名返回，由调用方按「字段不存在」报错——比静默降级成
 // 按原始时间戳分组好：后者会画出一堆看不出错的、每个时刻自成一组的图。
@@ -33,7 +54,7 @@ func SplitGroupBy(spec string) (field, granularity string) {
 		return spec, ""
 	}
 	f, g := spec[:i], spec[i+1:]
-	if !groupGranularities[g] {
+	if !groupGranularities[g] && !IsNumberGranularity(g) {
 		return spec, ""
 	}
 	return f, g
@@ -58,6 +79,17 @@ type ReadGroupRequest struct {
 	// Offset/Limit 分的是**组**不是记录；0 表示不限制
 	Offset int64
 	Limit  int64
+
+	// Aggregates 是 Odoo 19 formatted_read_group 的度量写法：`字段:算子`（sum / avg / min / max /
+	// count / count_distinct / bool_and / bool_or / array_agg / array_agg_distinct / sum_currency）
+	// 或 `__count`。给了它就不再看 Fields：算子由**调用方**指定（透视表里用户选的），不取字段的
+	// group_operator。结果列名见 AggregateAlias（`amount_total:sum` → `amount_total__sum`）。
+	Aggregates []string
+
+	// Tz 是 datetime 字段按粒度分组时截断所在的时区（Odoo 按用户时区：上海的「10 月」从
+	// 10-01 00:00 +08 开始，不是 UTC 的零点）。空 = 按 UTC 截断（旧行为）。必须是合法的 IANA 名，
+	// 会作为字面量进 SQL，非法的直接报错。date 字段不受影响。
+	Tz string
 }
 
 // ReadGroup 是 ReadGroupRequest 的模型级入口，与 Read/Create 同款：克隆模型拿到
@@ -83,7 +115,37 @@ func (self *TModel) ReadGroup(req *ReadGroupRequest) (*dataset.TDataSet, error) 
 		session.Limit(req.Limit, req.Offset)
 	}
 
+	if len(req.Aggregates) > 0 || req.Tz != "" {
+		return session.readGroup(req.GroupBy, req.Fields, &readGroupOptions{aggregates: req.Aggregates, tz: req.Tz})
+	}
 	return session.ReadGroup(req.GroupBy, req.Fields)
+}
+
+// readGroupOptions 是 ReadGroupRequest 里 Odoo 19 那两项（Aggregates / Tz）。nil = 旧行为。
+type readGroupOptions struct {
+	aggregates []string
+	tz         string
+}
+
+// aggregateOps 是 Aggregates 允许的算子（白名单：会作为字面量进 SQL）。
+var aggregateOps = map[string]string{
+	"sum": "SUM", "avg": "AVG", "min": "MIN", "max": "MAX", "count": "COUNT",
+	"count_distinct": "COUNT(DISTINCT", "bool_and": "BOOL_AND", "bool_or": "BOOL_OR",
+	"array_agg": "ARRAY_AGG", "array_agg_distinct": "ARRAY_AGG(DISTINCT",
+	// Odoo 的 sum_currency 是「换算成公司币种再求和」。本仓没有按行汇率换算的列，
+	// 退化成同币种求和（前端只在字段带 currency_field 时才会要它，本仓的字段元数据不带）。
+	"sum_currency": "SUM",
+}
+
+var reTz = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+\-/]{0,63}$`)
+
+// validTz 时区名是否能安全地拼进 SQL：形状对，且 Go 认得（与 Postgres 同一份 IANA 库）。
+func validTz(tz string) bool {
+	if !reTz.MatchString(tz) {
+		return false
+	}
+	_, err := time.LoadLocation(tz)
+	return err == nil
 }
 
 // isAggregatableField 判断一个字段能不能被 SUM。
@@ -120,6 +182,10 @@ func isAggregatableField(model IModel, field IField) bool {
 // 目前的边界：粒度分组用 date_trunc 实现，**仅 Postgres 可用**，其余方言会明确报错
 // 而不是拼出一条跑不通的 SQL。
 func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.TDataSet, error) {
+	return self.readGroup(groupBy, measures, nil)
+}
+
+func (self *TSession) readGroup(groupBy []string, measures []string, opts *readGroupOptions) (*dataset.TDataSet, error) {
 	model := self.Statement.Model
 	if model == nil || len(model.String()) < 1 {
 		return nil, ErrTableNotFound
@@ -233,9 +299,35 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 				return nil, fmt.Errorf("ReadGroup: groupby granularity (%q) is only supported on postgres, current dialect is %s",
 					granularity, dbType)
 			}
+			// datetime 按调用方时区截断（opts.tz，Odoo 按用户时区）：列里是 UTC 的无时区时间戳，
+			// 先转成那个时区的本地时间再截断。date 列没有时区，不转。
+			local := qualified
+			isDatetime := opts != nil && opts.tz != "" && !strings.EqualFold(field.SQLType().Name, "DATE")
+			if isDatetime {
+				if !validTz(opts.tz) {
+					return nil, fmt.Errorf("ReadGroup: invalid time zone %q", opts.tz)
+				}
+				local = fmt.Sprintf("((%s AT TIME ZONE 'UTC') AT TIME ZONE '%s')", qualified, opts.tz)
+			}
 			// 别名保持为字段原名（不带 `:粒度`）：_scanRows 按列名回查字段拿转换器，
 			// 带冒号的别名既查不到字段、也不是合法标识符。
-			expr = fmt.Sprintf("date_trunc('%s',%s)", granularity, qualified)
+			if part, ok := numberGranularities[granularity]; ok {
+				// 「取一部分」：结果是整数，别名另起（`<字段>__<粒度>`），不套字段的时间转换器。
+				expr = fmt.Sprintf("CAST(EXTRACT(%s FROM %s) AS INTEGER)", part, local)
+				alias, err := quoter.QuoteIdent(GranularityAlias(name, granularity))
+				if err != nil {
+					return nil, err
+				}
+				selectCols = append(selectCols, expr+" AS "+alias)
+				groupCols = append(groupCols, expr)
+				grouped[name] = true
+				continue
+			}
+			expr = fmt.Sprintf("date_trunc('%s',%s)", granularity, local)
+			if isDatetime {
+				// 截断后的本地起点换回 UTC：下钻域与列里的值同一口径（UTC）。
+				expr = fmt.Sprintf("((%s AT TIME ZONE '%s') AT TIME ZONE 'UTC')", expr, opts.tz)
+			}
 			alias, err := quoter.QuoteIdent(name)
 			if err != nil {
 				return nil, err
@@ -265,6 +357,14 @@ func (self *TSession) ReadGroup(groupBy []string, measures []string) (*dataset.T
 	}
 	selectCols = append(selectCols, "COUNT(*) AS "+countAlias)
 
+	if opts != nil && len(opts.aggregates) > 0 {
+		cols, err := self.aggregateColumns(model, opts.aggregates, qualify)
+		if err != nil {
+			return nil, err
+		}
+		selectCols = append(selectCols, cols...)
+		measures = nil
+	}
 	for _, name := range measures {
 		if name == GroupCountField || grouped[name] {
 			// __count 已单独产出；分组字段本身不参与聚合（对齐 Odoo），
@@ -427,4 +527,92 @@ func (self *TSession) m2mGroupJoin(model IModel, field IField, tableAlias string
 	}
 	join = fmt.Sprintf("LEFT JOIN %s AS %s ON %s.%s = %s.%s", relQ, aliasQ, aliasQ, ownQ, tableAlias, idQ)
 	return join, aliasQ + "." + otherQ, nil
+}
+
+// AggregateAlias 是一项度量在结果集里的列名：`字段:算子` → `字段__算子`。
+//
+// 不直接用写法本身：冒号不是合法标识符（QuoteIdent 拒绝），而 _scanRows 按列名回查字段。
+// 调用方（vectors 的 formatted_read_group）按它取值，再把键换回 Odoo 的写法。
+func AggregateAlias(spec string) string { return strings.Replace(spec, ":", "__", 1) }
+
+// GranularityAlias 是「取一部分」粒度（numberGranularities）分组列的列名：`字段__粒度`。
+func GranularityAlias(field, granularity string) string { return field + "__" + granularity }
+
+// aggregateColumns 把 Odoo 19 的度量写法（`字段:算子`）拼成 SELECT 列，列名见 AggregateAlias。
+//
+// 规则对齐 Odoo 的 _read_group_select：
+//   - `__count` 已由 COUNT(*) 单独产出，这里跳过；
+//   - 算子不在白名单 → 报错（会进 SQL）；
+//   - 字段不存在或非存储 → 跳过并记日志（与 Fields 那条路同一规矩：透视表会把整份定义里的度量
+//     原样发来，一个没实现的字段不该让整张表打不开）；
+//   - sum / avg 只给数值列；count / count_distinct / array_agg 任何存储列（含 many2one）；
+//     min / max 数值与时间；bool_and / bool_or 布尔。不合的跳过并记日志。
+func (self *TSession) aggregateColumns(model IModel, specs []string, qualify func(string) (string, error)) ([]string, error) {
+	quoter := self.orm.dialect.Quoter()
+	out := make([]string, 0, len(specs))
+	seen := map[string]bool{}
+	for _, spec := range specs {
+		if spec == GroupCountField || seen[spec] {
+			continue
+		}
+		seen[spec] = true
+		i := strings.LastIndexByte(spec, ':')
+		if i <= 0 {
+			return nil, fmt.Errorf("ReadGroup: aggregate %q must be written as field:operator", spec)
+		}
+		name, op := spec[:i], spec[i+1:]
+		fn, ok := aggregateOps[op]
+		if !ok {
+			return nil, fmt.Errorf("ReadGroup: invalid aggregate operator %q in %q", op, spec)
+		}
+		field := model.GetFieldByName(name)
+		if field == nil || !field.Store() {
+			log.Warnf("ReadGroup: aggregate %q on model %s skipped (no such stored field)", spec, model.String())
+			continue
+		}
+		sqlKind := SqlTypes[strings.ToUpper(field.SQLType().Name)]
+		switch op {
+		case "sum", "avg", "sum_currency":
+			if !isAggregatableField(model, field) {
+				log.Warnf("ReadGroup: aggregate %q on model %s skipped (not numeric)", spec, model.String())
+				continue
+			}
+		case "min", "max":
+			if sqlKind != NUMERIC_TYPE && sqlKind != TIME_TYPE {
+				log.Warnf("ReadGroup: aggregate %q on model %s skipped (not numeric/time)", spec, model.String())
+				continue
+			}
+		case "bool_and", "bool_or":
+			if t := strings.ToUpper(field.SQLType().Name); t != "BOOL" && t != "BOOLEAN" {
+				log.Warnf("ReadGroup: aggregate %q on model %s skipped (not boolean)", spec, model.String())
+				continue
+			}
+		}
+		qualified, err := qualify(name)
+		if err != nil {
+			return nil, fmt.Errorf("ReadGroup: invalid aggregate field %q: %w", name, err)
+		}
+		if IsCompanyDependent(field) {
+			if qualified, err = self.companyExpr(qualified, field); err != nil {
+				return nil, fmt.Errorf("ReadGroup: aggregate field %q: %w", name, err)
+			}
+		}
+		alias, err := quoter.QuoteIdent(AggregateAlias(spec))
+		if err != nil {
+			return nil, err
+		}
+		var expr string
+		switch {
+		case strings.HasSuffix(fn, "(DISTINCT"):
+			expr = fmt.Sprintf("%s %s)", fn, qualified)
+		case fn == "SUM" || fn == "AVG":
+			// COALESCE 同 Fields 那条路：全 NULL 的组回 0，而不是 null（「无数据」与「合计为 0」在
+			// 前端分不出来时，0 更不误导）。MIN / MAX 不套，理由同那里。
+			expr = fmt.Sprintf("COALESCE(%s(%s),0)", fn, qualified)
+		default:
+			expr = fmt.Sprintf("%s(%s)", fn, qualified)
+		}
+		out = append(out, expr+" AS "+alias)
+	}
+	return out, nil
 }
