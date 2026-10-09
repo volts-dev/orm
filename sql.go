@@ -1,7 +1,7 @@
 package orm
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -41,15 +41,28 @@ func (i *IdFmter) Do(sql string, dialect IDialect, model IModel) string {
 	return sql
 }
 
+// Do 把 `?` 依次换成 `$1`、`$2`…。
+//
+// 从前是 `res += …` 逐段拼接：平方级。成批写入的一条多行 INSERT 有几万个占位符、几十万字节，
+// 每拼一段都把前面整串复制一遍——器件库导入每批 2000 行在这里耗掉约 0.7 秒，比执行 SQL 本身还久。
 func (s *HolderFmter) Do(sql string, dialect IDialect, model IModel) string {
-	segs := strings.Split(sql, "?")
-	size := len(segs)
-	res := ""
-	for i, c := range segs {
-		if i < size-1 {
-			res += c + fmt.Sprintf("%s%v", s.Prefix, i+s.Start)
-		}
+	n := strings.Count(sql, "?")
+	if n == 0 {
+		return sql
 	}
-	res += segs[size-1]
-	return res
+	var b strings.Builder
+	b.Grow(len(sql) + n*(len(s.Prefix)+6))
+	i := s.Start
+	for {
+		j := strings.IndexByte(sql, '?')
+		if j < 0 {
+			b.WriteString(sql)
+			return b.String()
+		}
+		b.WriteString(sql[:j])
+		b.WriteString(s.Prefix)
+		b.WriteString(strconv.Itoa(i))
+		i++
+		sql = sql[j+1:]
+	}
 }
