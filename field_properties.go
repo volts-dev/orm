@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/utils"
@@ -241,6 +242,13 @@ func (self *TPropertiesField) OnRead(ctx *TFieldContext) error {
 		return fmt.Errorf("the properties field %s@%s: %q is not a relational field",
 			fieldName, model.String(), self.definitionRecord)
 	}
+	if !self.containerIsLocal(model, containerModelName) {
+		ds.Range(func(pos int, rec *dataset.TRecordSet) error {
+			rec.SetByField(fieldName, []map[string]any{})
+			return nil
+		})
+		return nil
+	}
 
 	// 1. 每条记录的容器 id
 	containerByRecord, err := self.readContainerIds(ctx, ds, idField)
@@ -405,6 +413,35 @@ func addPropertyDisplayNames(model IModel, session *TSession, list []map[string]
 			item[key] = out
 		}
 	}
+}
+
+// containerAbsentWarned 记下告过警的「值字段 → 容器模型」，每个进程每对只告一次。
+var containerAbsentWarned sync.Map
+
+// containerIsLocal 报告容器模型在不在本进程的 orm 里。
+//
+// 不在是按进程拆开部署时的常态：vectors 的 split 档里 crm 单独一个进程，
+// crm.lead.lead_properties 的定义在 sales_team 那边的 crm.team 上。orm 没有跨进程读
+// 别的模型的通路，这时把它当成「没有属性项」——读回空列表、新建不补默认值——并告警
+// 一次。报错的话，这一列跟着表单、看板、列表的每一次读取，整个模型都打不开，为一个
+// 多半是空的附加区块不值。
+//
+// 改定义（writeDefinition）不走这里，照旧报错：用户刚加的属性项保存后凭空消失，
+// 不能静默。
+//
+// 先按原样查、再按 fmtModelName 规整后查，与 TOsv.GetModel 同一个次序。
+func (self *TPropertiesField) containerIsLocal(model IModel, containerModelName string) bool {
+	o := model.Orm()
+	if o.HasModel(containerModelName) || o.HasModel(fmtModelName(containerModelName)) {
+		return true
+	}
+	key := self.ModelName() + "." + self.Name() + " -> " + containerModelName
+	if _, warned := containerAbsentWarned.LoadOrStore(key, true); !warned {
+		log.Warnf("properties: %s@%s takes its definition from %s, which is not in this process — "+
+			"read as having no properties (deploy the two modules in one process to use them)",
+			self.Name(), self.ModelName(), containerModelName)
+	}
+	return false
 }
 
 // readContainerIds 返回 记录id(字符串) -> 容器id。
@@ -593,6 +630,16 @@ func (self *TPropertiesField) writeDefinition(ctx *TFieldContext, list []map[str
 // 返回的每一项都是副本：定义那份 map 来自容器的读取结果，下游会往里塞 value，
 // 就地改写的话同一次请求里建的多条记录会互相串味。
 func (self *TPropertiesField) defaultsFromContainer(ctx *TFieldContext) ([]map[string]any, error) {
+	model := ctx.Model
+	containerField := model.GetFieldByName(self.definitionRecord)
+	if containerField == nil {
+		return nil, fmt.Errorf("%s@%s points at an unknown definition record field %q",
+			ctx.Field.Name(), model.String(), self.definitionRecord)
+	}
+	if !self.containerIsLocal(model, containerField.RelatedModelName()) {
+		return nil, nil
+	}
+
 	containerId, err := self.resolveContainerId(ctx)
 	if err != nil {
 		return nil, err
@@ -601,12 +648,6 @@ func (self *TPropertiesField) defaultsFromContainer(ctx *TFieldContext) ([]map[s
 		return nil, nil
 	}
 
-	model := ctx.Model
-	containerField := model.GetFieldByName(self.definitionRecord)
-	if containerField == nil {
-		return nil, fmt.Errorf("%s@%s points at an unknown definition record field %q",
-			ctx.Field.Name(), model.String(), self.definitionRecord)
-	}
 	containerModel, err := model.Orm().GetModel(containerField.RelatedModelName(), WithContext(model.Options().Context))
 	if err != nil {
 		return nil, err

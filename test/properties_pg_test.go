@@ -379,3 +379,55 @@ func containsFold(s, sub string) bool {
 		return false
 	})()
 }
+
+// 容器模型不在本进程。按进程拆开部署时这是常态：vectors 的 split 档里 crm 单独一个进程，
+// crm.lead.lead_properties 的定义在 sales_team 那边的 crm.team 上，crm 进程的 orm 里
+// 根本没有 crm.team。
+//
+// 读与新建都不许因此失败——这一列跟着表单、看板、列表的每一次读取，报错就是整个模型
+// 打不开。当成「没有属性项」：读回空列表（不是库里的瘦字典，前端不认那个形状）。
+type propRemoteChildModel struct {
+	orm.TModel `table:"name('prop_remote_child_model')"`
+	Id         int64  `field:"pk autoincr"`
+	Name       string `field:"varchar()"`
+	TeamId     int64  `field:"many2one(prop_remote_container)"`
+	Props      string `field:"properties('team_id.props_definition') title('Specs')"`
+}
+
+func TestPropertiesPg_ContainerModelNotInThisProcess(t *testing.T) {
+	newPropOrm(t) // 只为库不可达时按同一口径跳过
+
+	o, err := orm.New(orm.WithDataSource(defaultPostgresSource()))
+	if err != nil {
+		t.Fatalf("连接数据库: %v", err)
+	}
+	t.Cleanup(func() { o.Close() })
+	if _, err := o.SyncModel("public", new(propRemoteChildModel)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	if o.HasModel("prop.remote.container") || o.HasModel("prop_remote_container") {
+		t.Fatal("前提不成立：容器模型不该在这个 orm 里")
+	}
+	child, err := o.GetModel("prop_remote_child_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := uniqueSuffix()
+	ids, err := child.Records().Create(map[string]any{
+		"name":    fmt.Sprintf("remote-%d", suffix),
+		"team_id": 42,
+	})
+	if err != nil {
+		t.Fatalf("新建（容器不在本进程时不该去取默认值）: %v", err)
+	}
+
+	ds, err := child.Records().Ids(ids[0]).Read()
+	if err != nil {
+		t.Fatalf("读取（容器不在本进程时整条读不出来）: %v", err)
+	}
+	items, ok := ds.FieldByName("props").AsInterface().([]map[string]any)
+	if !ok || len(items) != 0 {
+		t.Errorf("props = %#v, want 空列表", ds.FieldByName("props").AsInterface())
+	}
+}
