@@ -6,13 +6,16 @@ type (
 	Option func(*Config)
 
 	Config struct {
-		DataSource         *TDataSource
-		TimeZone           *time.Location
-		ModelTemplate      *ModelTemplate
-		FieldIdentifier    string // 字段 tag 标记
-		TableIdentifier    string // 表 tag 标记
-		ShowSql            bool
-		ShowSqlTime        bool
+		DataSource      *TDataSource
+		TimeZone        *time.Location
+		ModelTemplate   *ModelTemplate
+		FieldIdentifier string // 字段 tag 标记
+		TableIdentifier string // 表 tag 标记
+		ShowSql         bool
+		ShowSqlTime     bool
+		// SlowSqlThreshold 不为 0 时，ShowSql 关着也把耗时达到它的语句以 Warn 记下来。
+		// 生产上关掉 ShowSql（每条一行，云上一天几 GB）又不想丢掉慢查询，靠的是它。
+		SlowSqlThreshold   time.Duration
 		AutoCreateDatabase bool
 
 		// RemoteResolver, when non-nil, lets Freeze resolve model references
@@ -98,6 +101,13 @@ func WithDataSource(ds *TDataSource) Option {
 func WithShowSql(on bool) Option {
 	return func(cfg *Config) {
 		cfg.ShowSql = on
+	}
+}
+
+// WithSlowSql 设慢查询阈值（见 Config.SlowSqlThreshold）；0 关闭。
+func WithSlowSql(threshold time.Duration) Option {
+	return func(cfg *Config) {
+		cfg.SlowSqlThreshold = threshold
 	}
 }
 

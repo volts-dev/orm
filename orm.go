@@ -1218,6 +1218,38 @@ func logSql(d time.Duration, sql string, args []any) {
 	log.Info(formatSqlLog(float64(d.Microseconds())/1000, sql, args))
 }
 
+// logSqlTimed 按配置记一条执行完的语句：ShowSql 开着每条都记（Info）；关着时只记
+// 达到 SlowSqlThreshold 的（Warn，行首 [SLOW]）。
+func (self *TOrm) logSqlTimed(d time.Duration, sql string, args []any) {
+	switch self.sqlLogKind(d) {
+	case sqlLogAll:
+		logSql(d, sql, args)
+	case sqlLogSlow:
+		log.Warn("[SLOW]" + formatSqlLog(float64(d.Microseconds())/1000, sql, args))
+	}
+}
+
+const (
+	sqlLogNone = iota
+	sqlLogAll
+	sqlLogSlow
+)
+
+// sqlLogKind 判一条耗时 d 的语句怎么记。
+func (self *TOrm) sqlLogKind(d time.Duration) int {
+	if self.config.ShowSql {
+		return sqlLogAll
+	}
+	if t := self.config.SlowSqlThreshold; t > 0 && d >= t {
+		return sqlLogSlow
+	}
+	return sqlLogNone
+}
+
+func (self *TOrm) timingSql() bool {
+	return self.config.ShowSql || self.config.SlowSqlThreshold > 0
+}
+
 func formatSqlLog(ms float64, sql string, args []any) string {
 	text := sql
 	if len(text) > maxLoggedSqlLen {
@@ -1237,13 +1269,13 @@ func formatSqlLog(ms float64, sql string, args []any) string {
 }
 
 func (self *TOrm) _logExecSql(sql string, args []any, executionBlock func() (sql.Result, error)) (sql.Result, error) {
-	if self.config.ShowSql {
+	if self.timingSql() {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
 		// 值取微秒但按毫秒展示：曾直接打 Microseconds 配 "ms" 标签，0.5ms 的语句
 		// 显示成 "471 ms"，被当成性能问题追查过。
-		logSql(execDuration, sql, args)
+		self.logSqlTimed(execDuration, sql, args)
 		return res, err
 	} else {
 		return executionBlock()
@@ -1251,11 +1283,11 @@ func (self *TOrm) _logExecSql(sql string, args []any, executionBlock func() (sql
 }
 
 func (self *TOrm) _logQuerySql(sql string, args []any, executionBlock func() (*dataset.TDataSet, error)) (*dataset.TDataSet, error) {
-	if self.config.ShowSql {
+	if self.timingSql() {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
-		logSql(execDuration, sql, args)
+		self.logSqlTimed(execDuration, sql, args)
 		return res, err
 	} else {
 		return executionBlock()
