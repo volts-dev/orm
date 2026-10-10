@@ -179,6 +179,22 @@ func TestTagGroupOperator_EmptyParams(t *testing.T) {
 	}
 }
 
+// group_operator 要随字段元数据下发（小写，同 Odoo 的 aggregator）：电子表格透视表按它合度量，
+// 不下发时评分这类 avg 列被当成求和（eLearning 看板「点评」显示 20/5）。没写 tag 就不带这个键。
+func TestFieldAttributes_GroupOperator(t *testing.T) {
+	f := &TField{}
+	f.name = "rating"
+	if err := tag_group_operator(&TTagContext{Field: f, Params: []string{"'avg'"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.attributes()["group_operator"]; got != "avg" {
+		t.Errorf("attributes()[group_operator] = %v，期望 avg", got)
+	}
+	if _, ok := (&TField{}).attributes()["group_operator"]; ok {
+		t.Error("没写 group_operator 时不该下发这个键")
+	}
+}
+
 // 部分索引（带 WHERE 谓词）不能当 ON CONFLICT 的目标：Postgres 只在语句里把同一个
 // 谓词重复一遍时才认它，光给列名报 42P10。
 //

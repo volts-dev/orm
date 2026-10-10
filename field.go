@@ -928,7 +928,7 @@ func (self *TField) Attributes(ctx *TTagContext) map[string]any {
 }
 
 func (self *TField) attributes() map[string]any {
-	return map[string]any{
+	attrs := map[string]any{
 		"name":       self.name,
 		"store":      self.store,
 		"manual":     self.manual,
@@ -955,6 +955,12 @@ func (self *TField) attributes() map[string]any {
 		"relationModelName": self.relatedModelName,
 		"relationKeyName":   self.relatedKeyName,
 	}
+	// group_operator 只在 tag 上写了时下发（空 = 按类型默认，前端按 sum 算）。分组聚合的前端
+	// （电子表格透视表、看板）靠它决定度量怎么合：评分、单价这类 avg 列不下发就被当成求和。
+	if self.groupOperator != "" {
+		attrs["group_operator"] = strings.ToLower(self.groupOperator)
+	}
+	return attrs
 }
 
 // SetAttributes is a placeholder for setting field attributes by name.
