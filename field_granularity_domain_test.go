@@ -50,3 +50,22 @@ func TestGranularityLeafToSql_InAndBadValues(t *testing.T) {
 		t.Error("like 不该被接受")
 	}
 }
+
+// 曾经按小写 "date" 比 TypeName，而它是大写常量 "DATE" —— 真栈上每一条 date.month_number 都被判成
+// 非法字段（0 = 1）。
+func TestIsDateLikeField(t *testing.T) {
+	for _, c := range []struct {
+		typ  string
+		want bool
+	}{{Date, true}, {DateTime, true}, {"TIMESTAMP", true}, {Varchar, false}, {Int, false}} {
+		f, _ := NewField("x", WithSQLType(SQLType{c.typ, 0, 0}))
+		if got := isDateLikeField(f); got != c.want {
+			t.Errorf("%s: got %v", c.typ, got)
+		}
+	}
+	f := new(TDateField)
+	f.Base().typeName = Date
+	if !isDateLikeField(f) {
+		t.Error("typeName = DATE 应该认")
+	}
+}

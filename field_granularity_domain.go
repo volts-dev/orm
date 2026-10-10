@@ -31,10 +31,22 @@ func resolveGranularityPath(model IModel, left string) (IField, string) {
 	if field == nil || !field.Store() {
 		return nil, ""
 	}
-	if t := field.TypeName(); t != "date" && t != "datetime" {
+	if !isDateLikeField(field) {
 		return nil, ""
 	}
 	return field, gran
+}
+
+// isDateLikeField：date / datetime 字段。typeName 是大写常量（Date = "DATE"），老字段可能只有 SQL 类型，
+// 两边都认、大小写无关。
+func isDateLikeField(field IField) bool {
+	for _, t := range []string{field.TypeName(), field.SQLType().Name} {
+		switch strings.ToUpper(t) {
+		case Date, DateTime, "TIMESTAMP", "TIMESTAMPZ", "TIMESTAMPTZ":
+			return true
+		}
+	}
+	return false
 }
 
 // granularityLeafToSql 生成单个粒度叶子的 SQL。只认比较与 in / not in；值必须是整数（或 false = 空）。
