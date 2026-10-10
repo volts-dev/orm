@@ -1297,6 +1297,8 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 	// `properties.<项名>` 这种带点的左值不是字段名，会被下面那道闸判成非法字段。
 	// 先在这里认出来：认得出就在取完值之后走 jsonb 分支，认不出就照旧当非法处理。
 	propField, propName := resolvePropertyPath(model, left.String())
+	// `date.month_number` 这种「取一部分」粒度的左值同理（见 field_granularity_domain.go）。
+	granField, granName := resolveGranularityPath(model, left.String())
 
 	// ★ 两处判据原来都是失效的：
 	//   - `left.ValueIn(TRUE_LEAF, FALSE_LEAF)` 拿**左值**("1"/"0")去和整条叶子的
@@ -1306,7 +1308,7 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 	//   合法字段能命中 GetFieldByName 所以没炸，但这道闸门实际只剩一个条件。
 	if !leaf.IsTrueLeaf() && !leaf.IsFalseLeaf() &&
 		model.GetFieldByName(left.String()) == nil &&
-		utils.IndexOf(left.String(), MAGIC_COLUMNS...) == -1 && propField == nil { //
+		utils.IndexOf(left.String(), MAGIC_COLUMNS...) == -1 && propField == nil && granField == nil { //
 		log.Errf(`Invalid field %s in domain term %s`, left.Strings(), leaf.String())
 		return "0 = 1", res_params, res_arg
 	}
@@ -1377,6 +1379,15 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 
 	if propField != nil {
 		q, p, err := propertyLeafToSql(self.orm.dialect, aliasTable, propField.Name(), propName, operator.String(), vals)
+		if err != nil {
+			log.Errf("%s in domain term %s", err.Error(), leaf.String())
+			return "0 = 1", res_params, res_arg
+		}
+		return q, p, res_arg
+
+	} else if granField != nil {
+		// datetime 按 UTC 取本地部分（调用方没有途径把时区带进来；date 字段不受影响）。
+		q, p, err := granularityLeafToSql(self.orm.dialect, aliasTable, granField, granName, operator.String(), vals, "")
 		if err != nil {
 			log.Errf("%s in domain term %s", err.Error(), leaf.String())
 			return "0 = 1", res_params, res_arg
