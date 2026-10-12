@@ -802,7 +802,14 @@ func (self *TOrm) _mapping(model any) (*TModel, error) {
 			ModelValue:     model_value,
 		}
 
-		if strings.Contains(strings.ToLower(member_name), "tmodel") {
+		// 只有**内嵌**的 TModel（`model.TModel` / `orm.TModel` …）是表级声明的载体。
+		//
+		// ★ 此前只看成员名小写后是否含 "tmodel"——于是普通字段 AliasParentModel
+		//（"aliasparen·tmodel"）、ObjectModel（"objec·tmodel"）也被当成了表声明：
+		// 字段整个不建（没列、不在元数据里），它的 varchar() / title(...) 被当成
+		// table_varchar / table_title 报 unknown tag。mail.alias.alias_parent_model 与
+		// fetchmail.server.object_model 两个表单上的格子因此从来存不住值，零报错。
+		if model_type.Field(i).Anonymous && strings.Contains(strings.ToLower(member_name), "tmodel") {
 			// 执行tag处理
 			err = self._handleTags(tagCtx, tagMaps, tagsOrder, "table")
 			if err != nil {
