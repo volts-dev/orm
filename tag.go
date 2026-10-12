@@ -74,6 +74,7 @@ const (
 	// 副本走的历史数据（审批记录、发送日志）声明它，否则复制要么撞唯一约束、
 	// 要么把上一条记录的过程数据一起抄进新记录。
 	TAG_COPY          = "copy"
+	TAG_AUTO_JOIN     = "auto_join"  // Odoo 的 auto_join=True（JOIN 代替子查询，纯性能提示）：认下不启用，见 tag_auto_join
 	TAG_SELECT        = "select"     // #select=True （在外键字段上创建了一个索引）
 	TAG_CLASSIC_READ  = "read"       // #经典模式
 	TAG_CLASSIC_WRITE = "write"      // #经典模式
@@ -158,6 +159,7 @@ func init() {
 		TAG_ON_DELETE: tag_ondelete,
 		TAG_TRANSLATE: tag_translate, // TODO
 		TAG_COPY:      tag_copy,
+		TAG_AUTO_JOIN: tag_auto_join,
 		//TAG_SELECT] = "select"         // #select=True （在外键字段上创建了一个索引）
 		//TAG_CLASSIC_READ:  tag_read,
 		//TAG_CLASSIC_WRITE: tag_write,
@@ -677,6 +679,16 @@ func tag_copy(ctx *TTagContext) error {
 	} else {
 		field.Copy(true)
 	}
+	return nil
+}
+
+// tag_auto_join 认下 `auto_join` 而**不启用**它。
+//
+// 移植过来的模型照 Odoo 在 m2o 上写着它（product 一族的 product_template_id），不认的话每次
+// 注册模型都打一条 unknown tag 警告（真栈每个模型几百次）。不启用是因为 expr.go 里那条
+// IsAutoJoin 的 JOIN 分支从未跑过、也没有测试，而它只换来性能、不改变结果——默认的子查询
+// 路径已有回归测试兜着。要真启用，先给那条分支补测试再在这里置 field.autoJoin。
+func tag_auto_join(ctx *TTagContext) error {
 	return nil
 }
 

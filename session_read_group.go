@@ -60,6 +60,18 @@ func SplitGroupBy(spec string) (field, granularity string) {
 	return f, g
 }
 
+// SplitMeasure 拆 Fields（measures）里的一项：`字段` 或 `字段:后缀`。后缀转小写原样返回，
+// 由调用方判它是算子（aggregateOps，Odoo ≤16 read_group 的 `sale_price:sum`）还是分组粒度
+// （`date:month` —— 分组写法跟着混进了 fields，不是度量）。结果列名取字段名，与 Odoo 一致。
+func SplitMeasure(spec string) (name, op string) {
+	spec = strings.TrimSpace(spec)
+	i := strings.IndexByte(spec, ':')
+	if i < 0 {
+		return spec, ""
+	}
+	return spec[:i], strings.ToLower(spec[i+1:])
+}
+
 // ReadGroupRequest 是 ReadGroup 的模型级入参，字段命名与 ReadRequest 对齐。
 type ReadGroupRequest struct {
 	// Model 模型名
@@ -359,10 +371,23 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 		selectCols = append(selectCols, cols...)
 		measures = nil
 	}
-	for _, name := range measures {
-		if name == GroupCountField || grouped[name] {
+	measured := map[string]bool{}
+	for _, spec := range measures {
+		// `字段:后缀`：后缀是算子就按它聚合（列名仍是字段名）；是分组粒度就说明这是一条
+		// 分组写法混进了 fields，不是度量，静默跳过。见 SplitMeasure。
+		name, specOp := SplitMeasure(spec)
+		if specOp != "" {
+			if _, isAgg := aggregateOps[specOp]; !isAgg {
+				if !groupGranularities[specOp] && !IsNumberGranularity(specOp) {
+					log.Warnf("ReadGroup: measure %q on model %s has an unknown aggregate operator, ignored", spec, model.String())
+				}
+				continue
+			}
+		}
+		if name == GroupCountField || grouped[name] || measured[name] {
 			// __count 已单独产出；分组字段本身不参与聚合（对齐 Odoo），
 			// 否则 SELECT 会出现两列同名，取值方拿到哪一列全看解码顺序。
+			// 同一字段写了两次（`qty` 与 `qty:max`）只认第一次，理由同上。
 			continue
 		}
 		field := model.GetFieldByName(name)
@@ -390,9 +415,23 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 		// 聚合不了的字段**跳过而不是报错**，对齐 Odoo「没有 group_operator 的字段
 		// 不参与聚合」：kanban 视图按设计会把整张卡片的字段列表（字符/日期/关系
 		// 字段混在一起）原样当 measures 传过来，在这里报错会让每个分组看板直接打不开。
+		if specOp != "" {
+			// 调用方点了算子：与 Aggregates 那条路同一套类型规则与 SQL（aggregateColumn），
+			// 只是列名取字段名。
+			col, ok, err := self.aggregateColumn(model, field, name, specOp, name, qualify)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				selectCols = append(selectCols, col)
+				measured[name] = true
+			}
+			continue
+		}
 		if !field.Store() || !isAggregatableField(model, field) {
 			continue
 		}
+		measured[name] = true
 
 		qualified, err := qualify(name)
 		if err != nil {
@@ -542,7 +581,6 @@ func GranularityAlias(field, granularity string) string { return field + "__" + 
 //   - sum / avg 只给数值列；count / count_distinct / array_agg 任何存储列（含 many2one）；
 //     min / max 数值与时间；bool_and / bool_or 布尔。不合的跳过并记日志。
 func (self *TSession) aggregateColumns(model IModel, specs []string, qualify func(string) (string, error)) ([]string, error) {
-	quoter := self.orm.dialect.Quoter()
 	out := make([]string, 0, len(specs))
 	seen := map[string]bool{}
 	for _, spec := range specs {
@@ -555,60 +593,81 @@ func (self *TSession) aggregateColumns(model IModel, specs []string, qualify fun
 			return nil, fmt.Errorf("ReadGroup: aggregate %q must be written as field:operator", spec)
 		}
 		name, op := spec[:i], spec[i+1:]
-		fn, ok := aggregateOps[op]
-		if !ok {
+		if _, ok := aggregateOps[op]; !ok {
 			return nil, fmt.Errorf("ReadGroup: invalid aggregate operator %q in %q", op, spec)
 		}
 		field := model.GetFieldByName(name)
-		if field == nil || !field.Store() {
+		if field == nil {
 			log.Warnf("ReadGroup: aggregate %q on model %s skipped (no such stored field)", spec, model.String())
 			continue
 		}
-		sqlKind := SqlTypes[strings.ToUpper(field.SQLType().Name)]
-		switch op {
-		case "sum", "avg", "sum_currency":
-			if !isAggregatableField(model, field) {
-				log.Warnf("ReadGroup: aggregate %q on model %s skipped (not numeric)", spec, model.String())
-				continue
-			}
-		case "min", "max":
-			if sqlKind != NUMERIC_TYPE && sqlKind != TIME_TYPE {
-				log.Warnf("ReadGroup: aggregate %q on model %s skipped (not numeric/time)", spec, model.String())
-				continue
-			}
-		case "bool_and", "bool_or":
-			if t := strings.ToUpper(field.SQLType().Name); t != "BOOL" && t != "BOOLEAN" {
-				log.Warnf("ReadGroup: aggregate %q on model %s skipped (not boolean)", spec, model.String())
-				continue
-			}
-		}
-		qualified, err := qualify(name)
-		if err != nil {
-			return nil, fmt.Errorf("ReadGroup: invalid aggregate field %q: %w", name, err)
-		}
-		if IsCompanyDependent(field) {
-			if qualified, err = self.companyExpr(qualified, field); err != nil {
-				return nil, fmt.Errorf("ReadGroup: aggregate field %q: %w", name, err)
-			}
-		}
-		alias, err := quoter.QuoteIdent(AggregateAlias(spec))
+		col, ok, err := self.aggregateColumn(model, field, name, op, AggregateAlias(spec), qualify)
 		if err != nil {
 			return nil, err
 		}
-		var expr string
-		switch {
-		case strings.HasSuffix(fn, "(DISTINCT"):
-			expr = fmt.Sprintf("%s %s)", fn, qualified)
-		case fn == "SUM" || fn == "AVG":
-			// COALESCE 同 Fields 那条路：全 NULL 的组回 0，而不是 null（「无数据」与「合计为 0」在
-			// 前端分不出来时，0 更不误导）。MIN / MAX 不套，理由同那里。
-			expr = fmt.Sprintf("COALESCE(%s(%s),0)", fn, qualified)
-		default:
-			expr = fmt.Sprintf("%s(%s)", fn, qualified)
+		if ok {
+			out = append(out, col)
 		}
-		out = append(out, expr+" AS "+alias)
 	}
 	return out, nil
+}
+
+// aggregateColumn 拼一项「字段 + 算子」度量的 SELECT 列（`<expr> AS <alias>`）。字段聚合不了
+// （非存储、类型不合）时记日志并回 ok=false。op 必须已在 aggregateOps 白名单里。
+// Aggregates（列名 `字段__算子`）与 Fields 里的 `字段:算子`（列名就是字段名）共用这一份。
+func (self *TSession) aggregateColumn(model IModel, field IField, name, op, aliasName string, qualify func(string) (string, error)) (string, bool, error) {
+	spec := name + ":" + op
+	fn, ok := aggregateOps[op]
+	if !ok {
+		return "", false, fmt.Errorf("ReadGroup: invalid aggregate operator %q in %q", op, spec)
+	}
+	if !field.Store() {
+		log.Warnf("ReadGroup: aggregate %q on model %s skipped (no such stored field)", spec, model.String())
+		return "", false, nil
+	}
+	sqlKind := SqlTypes[strings.ToUpper(field.SQLType().Name)]
+	switch op {
+	case "sum", "avg", "sum_currency":
+		if !isAggregatableField(model, field) {
+			log.Warnf("ReadGroup: aggregate %q on model %s skipped (not numeric)", spec, model.String())
+			return "", false, nil
+		}
+	case "min", "max":
+		if sqlKind != NUMERIC_TYPE && sqlKind != TIME_TYPE {
+			log.Warnf("ReadGroup: aggregate %q on model %s skipped (not numeric/time)", spec, model.String())
+			return "", false, nil
+		}
+	case "bool_and", "bool_or":
+		if t := strings.ToUpper(field.SQLType().Name); t != "BOOL" && t != "BOOLEAN" {
+			log.Warnf("ReadGroup: aggregate %q on model %s skipped (not boolean)", spec, model.String())
+			return "", false, nil
+		}
+	}
+	qualified, err := qualify(name)
+	if err != nil {
+		return "", false, fmt.Errorf("ReadGroup: invalid aggregate field %q: %w", name, err)
+	}
+	if IsCompanyDependent(field) {
+		if qualified, err = self.companyExpr(qualified, field); err != nil {
+			return "", false, fmt.Errorf("ReadGroup: aggregate field %q: %w", name, err)
+		}
+	}
+	alias, err := self.orm.dialect.Quoter().QuoteIdent(aliasName)
+	if err != nil {
+		return "", false, err
+	}
+	var expr string
+	switch {
+	case strings.HasSuffix(fn, "(DISTINCT"):
+		expr = fmt.Sprintf("%s %s)", fn, qualified)
+	case fn == "SUM" || fn == "AVG":
+		// COALESCE 同 Fields 那条路：全 NULL 的组回 0，而不是 null（「无数据」与「合计为 0」在
+		// 前端分不出来时，0 更不误导）。MIN / MAX 不套，理由同那里。
+		expr = fmt.Sprintf("COALESCE(%s(%s),0)", fn, qualified)
+	default:
+		expr = fmt.Sprintf("%s(%s)", fn, qualified)
+	}
+	return expr + " AS " + alias, true, nil
 }
 
 // granularityExpr 是按粒度分组的那一列的 SQL（Postgres）。

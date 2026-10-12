@@ -857,12 +857,16 @@ func (self *TExpression) parse(context map[string]any) error {
 				//   `Non-stored field %!s(func() string=0x...)`——而这条日志是
 				//   "非存储字段进了 domain"（后果是筛选条件被静默丢掉、返回全表）
 				//   的唯一线索，不点名等于没有。
-				log.Errf("Non-stored field %s@%s cannot be searched, the leaf is DROPPED "+
+				log.Errf("Non-stored field %s@%s cannot be searched, the leaf is replaced by TRUE "+
 					"(the filter silently matches everything).", field.Name(), field.ModelName())
-				// if _log.isEnabledFor(logging.DEBUG):
-				//     _log.debug(''.join(traceback.format_stack()))
-				//# Ignore it: generate a dummy leaf.
-				node = domain.NewDomainNode()
+				// # Ignore it: generate a dummy leaf.
+				//
+				// ★ node 留 nil，由下面换成恒真叶子（同 Odoo push TRUE_LEAF）。原来这里给的是
+				//   一个**空节点**：下面按它的 Nodes() 逐个入栈，一个都没有，叶子就从树上消失了，
+				//   而它头上的前缀运算符仍按两个操作数记账——toSql 报 `operator "&" lacks
+				//   operands`，外层运算符绑错操作数（`A | (B & X)` 丢掉 X 成了 `A & B`）。
+				//   见 expr_dropped_leaf_test.go。
+				node = nil
 			} else {
 				//# Let the field generate a domain.
 				if len(path) > 1 {
@@ -1222,6 +1226,16 @@ func isTruthyRight(v any) bool {
 	return true
 }
 
+// emptyInItem 判 `in` / `not in` 值列表里的一项是不是「没值」的空串写法：只在**非文本**
+// 列上成立（文本列里空串是一个真值，`txt in (空串, 'x')` 是合法比较），判据同 emptyRightIsNullish。
+func emptyInItem(field IField, item any) bool {
+	if field == nil {
+		return false
+	}
+	s, ok := item.(string)
+	return ok && s == "" && emptyRightIsNullish(field.TypeName())
+}
+
 // emptyRightIsNullish 判"右值为空"在这个列类型上该不该按 IS NULL 语义处理。
 //
 // 只对**非文本**列成立 —— 文本列的 `= ”` 是合法比较，通用分支已经处理对了。
@@ -1445,6 +1459,12 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 					check_nulls = true
 					continue
 				}
+				// 非文本列上的空串同 false：它是「没值」的另一种写法（前端拿空的多对一
+				// 去读，ids 就是 [""]），绑进 bigint 列是 22P02。见 emptyInItem。
+				if emptyInItem(field, item) {
+					check_nulls = true
+					continue
+				}
 				res_params = append(res_params, item)
 			}
 
@@ -1491,6 +1511,25 @@ func (self *TExpression) leaf_to_sql(eleaf *TExtendedLeaf, params []any) (res_qu
 				res_query = "FALSE"
 			} else {
 				res_query = "TRUE"
+			}
+			res_params = nil
+
+		} else if emptyInItem(field, vals[0]) {
+			// 单元素 `('id','in',[''])`（解析器把单元素列表拆成了标量）：与上面列表分支里
+			// 空串的处理同一语义——in 是「为空」、not in 是「不为空」。
+			//
+			// 不拦的话落进最后那条单值分支，生成 `id = ''`：2026-10-11 真栈 account.move/read
+			// 带着 ids [""] 进来，`account_move."id" = $3 [... ""]` → 22P02，整次读取 500。
+			nullSql := fmt.Sprintf(`%s."%s" IS NULL`, aliasTable, left.String())
+			notNullSql := fmt.Sprintf(`%s."%s" IS NOT NULL`, aliasTable, left.String())
+			if field.TypeName() == TYPE_M2O || field.TypeName() == TYPE_O2O {
+				nullSql = isEmptyRelation(aliasTable, left.String())
+				notNullSql = isNotEmptyRelation(aliasTable, left.String())
+			}
+			if operator.String() == "in" {
+				res_query = "(" + nullSql + ")"
+			} else {
+				res_query = "(" + notNullSql + ")"
 			}
 			res_params = nil
 

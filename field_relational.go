@@ -309,7 +309,8 @@ func (self *TOne2ManyField) OnWrite(ctx *TFieldContext) error {
 		return nil
 	}
 
-	vSlice, ok := ctx.Value.([]any)
+	// Go 侧写的 [][]any{{0, 0, vals}} 此前断言不成 []any，整个写入被静默跳过。见 normalizeX2MValue。
+	vSlice, ok := normalizeX2MValue(ctx.Value).([]any)
 	if !ok || len(vSlice) == 0 {
 		return nil
 	}
@@ -1083,11 +1084,36 @@ func (self *TMany2OneField) OnWrite(ctx *TFieldContext) error {
 			}
 
 		}
+	case bool:
+		// true 不是任何 id 的写法，收下只会把一个真 bug 写成 id=1（false 在下面 default 分支里）。
+		if v {
+			return fmt.Errorf("many2one %s@%s cannot take the value true", ctx.Field.Name(), ctx.Model.String())
+		}
+		ctx.SetValue(nil)
 	case []any:
-		if len(v) > 0 {
+		// [id, 名称]（name_get 对）取 id；[] / [false, ...] 是空。
+		if len(v) == 0 || utils.IsBlank(v[0]) {
+			ctx.SetValue(nil)
+		} else {
 			ctx.SetValue(v[0])
 		}
 	default:
+		// false 是 Odoo「这个多对一没值」的写法（x2many 里的段落行 product_id: false、设置页
+		// 清空默认模板），必须落 SQL NULL。它是空值，上面已换成默认值（通常是 nil）才走到这里，
+		// 所以按**原值**判。此前原样 SetValue(false) 绑进 bigint 列：PG 上 22P02
+		// `invalid input syntax for type bigint: "false"` 整笔 500，sqlite 上静默存成 0。
+		// （显式的 0 不动：它照旧存 0，本仓的外键「空」是 NULL/0/-1 三态，见 isEmptyRelation。）
+		if utils.IsBlank(value) {
+			if b, isBool := ctx.Value.(bool); isBool && !b {
+				ctx.SetValue(nil)
+				break
+			}
+			// 空的多对一对 []（同上：空值先被换成了默认值才走到这里）。
+			if pair, isPair := ctx.Value.([]any); isPair && len(pair) == 0 {
+				ctx.SetValue(nil)
+				break
+			}
+		}
 		// 不修改
 		ctx.SetValue(ctx.Value)
 		//return fmt.Errorf("%s@%s OnWrite many2one failed with value:%v", field.Name(), ctx.Model.String(), v)
@@ -1453,6 +1479,57 @@ func isM2MCommandTuple(val any) ([]any, bool) {
 	return nil, false
 }
 
+// normalizeX2MValue 把 Go 代码里写 x2many 写入值的各种切片形态摊成 JSON 那条路的形状
+// （[]any 套 []any），命令的第三元素若是 id 切片也一并摊开：
+//
+//	[][]any{{6, 0, ids}}              →  []any{[]any{6, 0, ids}}
+//	[]any{[]any{6, 0, []int64{1, 2}}} →  []any{[]any{6, 0, []any{1, 2}}}
+//	[]int64{1, 2}                     →  []any{1, 2}
+//
+// 此前只认 []any：m2m 上 [][]any 落进最后的 default 分支报 `could not support this type of
+// value [[6 0 []]]`（2026-10-11 hr.expense/create 整笔失败）；o2m 上同一形态被**静默跳过**；
+// Set 的 []int64 被当成「一个 id」整个绑进 SQL。值本身不是切片（nil、map、标量）原样返回。
+// []byte 不当切片（它是标量值）。只摊两层：再往里是 (0, 0, vals) 的 vals，不是 id。
+func normalizeX2MValue(v any) any {
+	outer, ok := sliceToAny(v)
+	if !ok {
+		return v
+	}
+	for i, e := range outer {
+		cmd, ok := sliceToAny(e)
+		if !ok {
+			continue
+		}
+		if len(cmd) == 3 {
+			if ids, ok := sliceToAny(cmd[2]); ok {
+				cmd[2] = ids
+			}
+		}
+		outer[i] = cmd
+	}
+	return outer
+}
+
+// sliceToAny 把任意元素类型的切片/数组拷成 []any（[]any 本身也拷一份，免得改到调用方手里的值）。
+// 不是切片、或是 []byte 时 ok=false。typed nil 切片（[]int64(nil)）回空切片。
+func sliceToAny(v any) ([]any, bool) {
+	if v == nil {
+		return nil, false
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return nil, false
+	}
+	if rv.Type().Elem().Kind() == reflect.Uint8 {
+		return nil, false
+	}
+	out := make([]any, rv.Len())
+	for i := range out {
+		out[i] = rv.Index(i).Interface()
+	}
+	return out, true
+}
+
 // parseM2MCommands 尝试把切片整体解析成命令元组列表。
 // 仅当所有元素都是合法命令元组时 isAllCommands 才为 true;
 // 任一元素不是命令(如普通 id 列表 [1,2,3])则返回 false, 交由旧版逻辑处理。
@@ -1505,6 +1582,9 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 		return nil
 	}
 
+	// Go 侧的 [][]any / []int64 等写法先摊成 []any，见 normalizeX2MValue。
+	ctx.Value = normalizeX2MValue(ctx.Value)
+
 	// 支持 Odoo 风格的 Command Tuple
 	if vSlice, ok := ctx.Value.([]any); ok {
 		// 尝试作为 Command 列表解析
@@ -1532,8 +1612,8 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 					}
 				case 6: // Set (6, 0, ids)
 					var ids []any
-					if len(cmd) < 3 {
-						// 缺少第三元素的 Set 等价于 Clear
+					if len(cmd) < 3 || cmd[2] == nil {
+						// 缺少第三元素（或给了 nil）的 Set 等价于 Clear
 					} else if v, ok := cmd[2].([]any); ok {
 						ids = v
 					} else {

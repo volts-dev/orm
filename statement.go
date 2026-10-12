@@ -915,6 +915,18 @@ func (self *TStatement) generate_order_by_inner(alias, order_spec string, query 
 			// 方向白名单在 generate_order 内，非法值会被拒并告警，此处不必预筛。
 			order_direction = strings.ToUpper(order_split[1])
 		}
+		// `-date` = `date desc`（Django / 前端 orderBy 一系的写法，移植代码里反复漏进来）。
+		// 原来整个当字段名，查不到就跳过、兜底按主键**升序**——结果稳定、看着合理，只是方向
+		// 反了（FIFO 算成 LIFO、「最后一条」取到最早那条）。前缀后面又写了方向的以写明的为准。
+		if strings.HasPrefix(order_field, "-") && len(order_field) > 1 {
+			order_field = order_field[1:]
+			if order_direction == "" {
+				order_direction = "DESC"
+			} else {
+				log.Warnf("Sorting spec %q on model %s has both a '-' prefix and a direction, the direction wins",
+					strings.TrimSpace(order_part), self.Model.String())
+			}
+		}
 		generate_order([]string{order_field}, order_direction)
 	}
 
@@ -1162,7 +1174,7 @@ func (self *TStatement) appendIdTiebreaker(order_spec string) bool {
 	}
 
 	for _, part := range strings.Split(order_spec, ",") {
-		if fields := strings.Fields(part); len(fields) > 0 && fields[0] == self.IdKey {
+		if fields := strings.Fields(part); len(fields) > 0 && strings.TrimPrefix(fields[0], "-") == self.IdKey {
 			return false
 		}
 	}
