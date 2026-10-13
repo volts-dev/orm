@@ -53,9 +53,13 @@ var (
 	// `invalid domain leaf` / `Invalid field <id>` 之类文不对题的错误收场。
 	TERM_OPERATORS = []string{"=", "!=", "<=", "<", ">", ">=", "=?",
 		"=like", "=ilike", "like", "not like", "ilike", "not ilike", "in", "not in", "child_of", "parent_of", "inselect", "not inselect",
-		"=LIKE", "=ILIKE", "LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "IN", "NOT IN", "CHILD_OF", "PARENT_OF"}
+		// any / not any（Odoo 17+）：右值是对端模型上的子 domain，见 orm expr_any.go。
+		"any", "not any",
+		"=LIKE", "=ILIKE", "LIKE", "NOT LIKE", "ILIKE", "NOT ILIKE", "IN", "NOT IN", "CHILD_OF", "PARENT_OF", "ANY", "NOT ANY"}
 
 	TERM_OPERATORS_NEGATION = map[string]string{
+		"any":       "not any",
+		"not any":   "any",
 		"<":         ">=",
 		">":         "<=",
 		"<=":        ">",
@@ -76,7 +80,7 @@ var (
 		"NOT ILIKE": "ILIKE",
 	}
 
-	NEGATIVE_TERM_OPERATORS = []string{"!=", "not like", "not ilike", "not in"}
+	NEGATIVE_TERM_OPERATORS = []string{"!=", "not like", "not ilike", "not in", "not any"}
 
 	NODE_NAME = map[NodeType]string{
 		VALUE_NODE: "VALUE_NODE",

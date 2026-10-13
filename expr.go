@@ -651,6 +651,15 @@ func (self *TExpression) parse(context map[string]any) error {
 		} else if utils.IndexOf(path[0], MAGIC_COLUMNS...) != -1 {
 			self.push_result(ex_leaf)
 
+		} else if len(path) == 1 && field.TypeName() == TYPE_M2O && isAnyOperator(operator.String()) {
+			// (m2o, 'any', 子 domain)：对端里满足子 domain 的那些 → (m2o in ids)；not any → 不在其中。
+			leaf, aerr := self.resolveM2oAny(model, field, path[0], operator.String(), right)
+			if aerr != nil {
+				return aerr
+			}
+			ex_leaf.leaf = leaf
+			self.push(ex_leaf)
+
 		} else if len(path) > 1 && field.TypeName() == TYPE_M2O && field.IsAutoJoin() {
 			/* # ----------------------------------------
 			   # PATH SPOTTED

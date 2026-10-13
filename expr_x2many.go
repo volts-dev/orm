@@ -217,6 +217,15 @@ func idInLeaf(idField, column string, ids []any) *domain.TDomainNode {
 // 第二个返回值为 true 表示右值是 False —— 语义是"没有任何关联记录"，此时 id 集合无意义。
 func (self *TExpression) x2manyTargetIds(comodel IModel, path []string, op string,
 	right *domain.TDomainNode) ([]any, bool, error) {
+	// any / not any：右值就是对端上的子 domain（同一条对端记录要满足它的全部条件）。
+	if isAnyOperator(op) {
+		if len(path) > 1 {
+			return nil, false, fmt.Errorf("operator %q on the dotted x2many path %s is not supported", op, strings.Join(path, "."))
+		}
+		ids, err := self.searchComodel(comodel, right)
+		return ids, false, err
+	}
+
 	// 点号路径：按对端的某个字段搜。这里不做 False 判断——('tag_ids.name','=',False)
 	// 问的是"名字为空的标签"，是一次正常的对端查询。
 	if len(path) > 1 {
