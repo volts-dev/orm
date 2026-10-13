@@ -454,22 +454,41 @@ func (self *TExpression) to_ids(value *domain.TDomainNode, comodel *TModel, cont
 	}
 
 	/* 将分类出来名称查询并传回ID */
-	// ★ NameSearch 的 error 必须接住：原来是 `lRecords, _ :=` 然后直接
-	//   `lRecords.Data`，对端查询一旦失败(或本就没有 rec_name)就是**空指针崩溃**。
-	//   真栈实测 `[('id','child_of',1)]` 直接 SIGSEGV —— 也就是外部传进来的
-	//   domain 能把进程打崩。
-	_domain := domain.New(comodel.recName, "in", value.Flatten()...)
-	lRecords, err := comodel.NameSearch("", _domain, "ilike", limit, "", context)
-	if err != nil {
-		return nil, err
-	}
-
+	// 对齐 Odoo：每个名字各做一次 `name_search(name, operator='ilike')`，结果取并集。
+	//
+	// ★ 名字列要经 GetRecordName() 取，不能直接读 comodel.recName：没声明 recname()
+	//   的模型（res.partner 就是）这个字段是空串，拼出来的叶子是 `("", "in", "SO002")`，
+	//   整条查询报 Invalid field <> —— 销售订单列表按单号搜就是这么 500 的
+	//   （搜索视图里 partner_id 是 operator="child_of"）。
+	// ★ 原来还用 `in` 做精确匹配，而 Odoo 在这里是 ilike：输入半个名字就该命中。
 	result := domain.NewDomainNode()
-	if lRecords == nil {
+	recName := comodel.GetRecordName()
+	if recName == "" || recName == comodel.idField {
+		// 没有名字列可搜（rec_name 回落到主键）：按名字匹配不到任何记录。拿主键去 ilike
+		// 会撞 `operator does not exist: bigint ~~* unknown`。
+		log.Warnf("to_ids: %s 没有名字列，按名字 %v 匹配不到记录", comodel.String(), names)
 		return result, nil
 	}
-	for _, rec := range lRecords.Data {
-		result.Push(rec.FieldByName(comodel.idField).AsString()) //ODO: id 可能是Rec_id
+	seen := make(map[string]bool)
+	for _, name := range names {
+		// ★ NameSearch 的 error 必须接住：原来是 `lRecords, _ :=` 然后直接
+		//   `lRecords.Data`，对端查询一旦失败就是**空指针崩溃**。
+		//   真栈实测 `[('id','child_of',1)]` 直接 SIGSEGV —— 也就是外部传进来的
+		//   domain 能把进程打崩。
+		lRecords, err := comodel.NameSearch(name, nil, "ilike", limit, "", context)
+		if err != nil {
+			return nil, err
+		}
+		if lRecords == nil {
+			continue
+		}
+		for _, rec := range lRecords.Data {
+			id := rec.FieldByName(comodel.idField).AsString()
+			if !seen[id] {
+				seen[id] = true
+				result.Push(id)
+			}
+		}
 	}
 	return result, nil
 }

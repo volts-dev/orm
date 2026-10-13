@@ -404,3 +404,62 @@ func fmtDomain(format string, args ...any) string {
 func timeoutAfter() <-chan time.Time {
 	return time.After(10 * time.Second)
 }
+
+// ---------- 按名字给种子 ----------
+
+// hrDept 故意**不**声明 recname()：名字列要靠 GetRecordName() 回落到 name。
+// res.partner 就是这种模型 —— to_ids 直接读 recName（空串）时拼出
+// ("", "in", "SO002")，销售订单列表按单号一搜就 500。
+type hrDept struct {
+	TModel   `table:"name('hr_dept')"`
+	Id       int64  `field:"pk autoincr"`
+	Name     string `field:"varchar(64)"`
+	ParentId int64  `field:"many2one(hr_dept)"`
+}
+
+func TestHierarchy_ChildOfByNameWithoutDeclaredRecName(t *testing.T) {
+	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "dept.db")}
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatalf("orm.New: %v", err)
+	}
+	if _, err := o.SyncModel("", new(hrDept)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	ids := map[string]any{}
+	for _, d := range []struct{ name, parent string }{
+		{"sales", ""}, {"sales-east", "sales"}, {"sales-west", "sales"}, {"support", ""},
+	} {
+		vals := map[string]any{"name": d.name}
+		if d.parent != "" {
+			vals["parent_id"] = ids[d.parent]
+		}
+		got, err := o.Model("hr.dept").Create(vals)
+		if err != nil {
+			t.Fatalf("create %s: %v", d.name, err)
+		}
+		ids[d.name] = got[0]
+	}
+
+	read := func(dom string) []string {
+		t.Helper()
+		ds, err := o.Model("hr.dept").Domain(dom).Limit(-1).OrderBy("name").Read()
+		if err != nil {
+			t.Fatalf("domain %s: %v", dom, err)
+		}
+		var out []string
+		ds.First()
+		for !ds.Eof() {
+			out = append(out, ds.Record().FieldByName("name").AsString())
+			ds.Next()
+		}
+		return out
+	}
+
+	// sales 及其后代；support 不在里面。
+	assertNames(t, read(`[('id','child_of','sales')]`), "sales", "sales-east", "sales-west")
+	// ilike（对齐 Odoo 的 name_search）："east" 只命中 sales-east。
+	assertNames(t, read(`[('id','child_of','east')]`), "sales-east")
+	// 名字一个都对不上：空集合，不是整表、也不是报错。
+	assertNames(t, read(`[('id','child_of','SO002')]`))
+}
