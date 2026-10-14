@@ -1,6 +1,10 @@
 package orm
 
-import "context"
+import (
+	"context"
+
+	"github.com/volts-dev/orm/domain"
+)
 
 // 「关联标签读取」标记：多对一字段为了显示「这条关联记录叫什么」而对关联模型发起的子读取
 // （ManyToOne 的 classic / UseNameGet 两支）。
@@ -40,4 +44,18 @@ func (self *TSession) IsLabelRead() bool {
 // 返回副本，调用方改它不影响语句。
 func (self *TSession) SelectedFields() []string {
 	return append([]string(nil), self.Statement.Fields...)
+}
+
+// DomainSnapshot 返回本次语句上**已累积**的条件（Where()/Domain()/In() 都在里面）的一份副本；
+// 改它不影响语句。没有条件时返回空节点（Count()==0），不返回 nil。
+//
+// 给宿主在 BeforeSession 里**看**调用方按哪些列筛选用的，不是给它改条件的：比如只许
+// 按公开列筛选的回落读取（vectors 的 hr.employee 对非 HR 用户回落到公开字段，按私有列
+// 筛选等于把私有列当成查询预言机——条件不进结果，但"有没有这一行"就是答案）。
+// 按 id 点名的 Ids() 不在这里（那是 Statement.IdParam，读时才并进条件）。
+func (self *TSession) DomainSnapshot() *domain.TDomainNode {
+	if self.Statement.domain == nil {
+		return domain.NewDomainNode()
+	}
+	return self.Statement.domain.Clone()
 }
