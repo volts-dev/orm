@@ -94,3 +94,108 @@ func TestM2MWrite_GoSliceShapes(t *testing.T) {
 		})
 	}
 }
+
+// many2many 的 (0, 0, vals) / (1, id, vals) / (2, id)：此前落进 default 只记一行
+// 「M2M command 0 not fully supported yet」就丢掉——任务快速创建里的 `#新标签`（上游
+// Command.create）写入成功、标签却从来没链上（真栈 2026-10-13 project.task/create）。
+func TestM2MWrite_CreateUpdateDeleteCommands(t *testing.T) {
+	tagName := func(t *testing.T, fx *x2mFixture, id any) (string, bool) {
+		t.Helper()
+		ds, err := fx.orm.Query(`SELECT name FROM x2m_tag WHERE id = ?`, id)
+		if err != nil {
+			t.Fatalf("query tag: %v", err)
+		}
+		if ds.Count() == 0 {
+			return "", false
+		}
+		return ds.Record().FieldByName("name").AsString(), true
+	}
+	linkedIds := func(t *testing.T, fx *x2mFixture, post string) []int64 {
+		t.Helper()
+		model, _ := fx.orm.GetModel("x2m.post")
+		field := model.GetFieldByName("tag_ids")
+		mid := strings.ReplaceAll(field.JoinModelName(), ".", "_")
+		ds, err := fx.orm.Query(fmt.Sprintf(`SELECT "%s" AS tag FROM %s WHERE "%s" = ?`,
+			field.RelatedKeyName(), mid, field.JoinSourceKey()), fx.posts[post])
+		if err != nil {
+			t.Fatalf("query rel: %v", err)
+		}
+		var out []int64
+		ds.Range(func(_ int, rec *dataset.TRecordSet) error {
+			out = append(out, rec.FieldByName("tag").AsInteger())
+			return nil
+		})
+		return out
+	}
+
+	t.Run("(0,0,vals) 建出对端记录并链上", func(t *testing.T) {
+		fx := setupX2m(t)
+		if _, err := fx.orm.Model("x2m.post").Ids(fx.posts["post1"]).Write(map[string]any{
+			"tag_ids": []any{[]any{0, 0, map[string]any{"name": "tag_new"}}},
+		}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		ids := linkedIds(t, fx, "post1")
+		if len(ids) != 3 {
+			t.Fatalf("原有两个 + 新建一个，应当链着 3 个标签，得到 %v", ids)
+		}
+		found := false
+		for _, id := range ids {
+			if n, ok := tagName(t, fx, id); ok && n == "tag_new" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("新建的 tag_new 没有链到 post1 上：%v", ids)
+		}
+		if got := m2mTagNames(t, fx, "post2"); !sameStrings(got, []string{"tag_red"}) {
+			t.Fatalf("post2 被连带改了: %v", got)
+		}
+	})
+
+	t.Run("(1,id,vals) 改对端那一行、关联不动", func(t *testing.T) {
+		fx := setupX2m(t)
+		if _, err := fx.orm.Model("x2m.post").Ids(fx.posts["post1"]).Write(map[string]any{
+			"tag_ids": []any{[]any{1, fx.tags["tag_blue"], map[string]any{"name": "tag_navy"}}},
+		}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if n, _ := tagName(t, fx, fx.tags["tag_blue"]); n != "tag_navy" {
+			t.Fatalf("对端记录应改名为 tag_navy，得到 %q", n)
+		}
+		if ids := linkedIds(t, fx, "post1"); len(ids) != 2 {
+			t.Fatalf("改名不该动关联，得到 %v", ids)
+		}
+	})
+
+	t.Run("(2,id) 删掉对端记录与关联", func(t *testing.T) {
+		fx := setupX2m(t)
+		if _, err := fx.orm.Model("x2m.post").Ids(fx.posts["post1"]).Write(map[string]any{
+			"tag_ids": []any{[]any{2, fx.tags["tag_blue"]}},
+		}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, ok := tagName(t, fx, fx.tags["tag_blue"]); ok {
+			t.Fatal("(2,id) 是删除对端记录，tag_blue 应当不在了")
+		}
+		if got := m2mTagNames(t, fx, "post1"); !sameStrings(got, []string{"tag_red"}) {
+			t.Fatalf("post1 应只剩 tag_red，得到 %v", got)
+		}
+	})
+
+	t.Run("(1/2) 不带 id 拒绝", func(t *testing.T) {
+		fx := setupX2m(t)
+		for _, cmd := range [][]any{{1, nil, map[string]any{"name": "x"}}, {2, nil}, {2, 0}} {
+			if _, err := fx.orm.Model("x2m.post").Ids(fx.posts["post1"]).Write(map[string]any{
+				"tag_ids": []any{cmd},
+			}); err == nil {
+				t.Fatalf("命令 %v 不带 id 应当报错", cmd)
+			}
+		}
+		for _, n := range []string{"tag_red", "tag_blue", "tag_green"} {
+			if got, ok := tagName(t, fx, fx.tags[n]); !ok || got != n {
+				t.Fatalf("不带 id 的命令不许碰任何标签：%s → %q %v", n, got, ok)
+			}
+		}
+	})
+}

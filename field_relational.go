@@ -1591,7 +1591,60 @@ func (self *TMany2ManyField) OnWrite(ctx *TFieldContext) error {
 		if commands, isAllCommands := parseM2MCommands(vSlice); isAllCommands {
 			for _, cmd := range commands {
 				code := utils.ToInt64(cmd[0])
+				// 点名对端某一行的命令（1 改 / 2 删）必须真带着 id，理由同 one2many：id 列表
+				// 一空，Update / Delete 就退化成「按当前域」，改 / 删的是对端模型上可见的每一行。
+				if code == 1 || code == 2 {
+					if len(cmd) < 2 || cmd[1] == nil || utils.IsBlank(cmd[1]) {
+						return fmt.Errorf(
+							"many2many <%s@%s>: command %d carries no record id (%v) — refusing, an id-less update/delete touches every visible row",
+							ctx.Field.Name(), ctx.Field.ModelName(), code, cmd)
+					}
+				}
 				switch code {
+				case 0: // Create (0, 0, vals)：在对端建一条，再链到本记录上
+					// 此前落进 default 只记一行 Warn 就丢掉：任务快速创建里的 `#新标签`
+					// （上游 _extract_tags_and_users 发的就是 Command.create）、可编辑 m2m
+					// 列表里新加的行，写入成功、关联却从来没建出来。
+					vals, err := x2mCommandVals(cmd, ctx.Field)
+					if err != nil {
+						return err
+					}
+					comodel, err := ctx.Session._getModel(ctx.Field.RelatedModelName())
+					if err != nil {
+						return err
+					}
+					ids, err := comodel.Create(&CreateRequest{Context: ctx.Context, Data: []any{vals}})
+					if err != nil {
+						return err
+					}
+					if len(ids) > 0 {
+						if err := self.link(ctx, ids); err != nil {
+							return err
+						}
+					}
+				case 1: // Update (1, id, vals)：改对端那一行，关联不动
+					vals, err := x2mCommandVals(cmd, ctx.Field)
+					if err != nil {
+						return err
+					}
+					comodel, err := ctx.Session._getModel(ctx.Field.RelatedModelName())
+					if err != nil {
+						return err
+					}
+					if _, err := comodel.Update(&UpdateRequest{Context: ctx.Context, Ids: []any{cmd[1]}, Data: []any{vals}}); err != nil {
+						return err
+					}
+				case 2: // Delete (2, id)：Odoo 语义是把对端记录删掉（不只是解绑）
+					if err := self.unlink_all(ctx, []any{cmd[1]}); err != nil {
+						return err
+					}
+					comodel, err := ctx.Session._getModel(ctx.Field.RelatedModelName())
+					if err != nil {
+						return err
+					}
+					if _, err := comodel.Delete(&DeleteRequest{Context: ctx.Context, Ids: []any{cmd[1]}}); err != nil {
+						return err
+					}
 				case 3: // Unlink (3, id, 0)
 					if err := self.unlink_all(ctx, []any{cmd[1]}); err != nil {
 						return err
