@@ -258,16 +258,20 @@ func (self *TOsv) invalidateM2ORefIndex() {
 // 是"拒绝这次删除"，若边删边查，等发现拦路的那一行时前面的级联已经删掉了。
 //
 // modelName / ids 必须由调用方在主删除之前取好：_exec / _query 都会复位 Statement。
-func (self *TSession) applyOnDelete(modelName string, ids []any) error {
+//
+// 返回级联真正删掉的那几批（模型 → id），给删除观察者（见 session_delete_observer.go）：
+// 级联绕过子模型的 Delete 覆写直接发 SQL，观察者是它们唯一的"被删了"通知。
+func (self *TSession) applyOnDelete(modelName string, ids []any) ([]deletedGroup, error) {
 	if self.orm == nil || modelName == "" || len(ids) == 0 {
-		return nil
+		return nil, nil
 	}
 	visited := map[string]bool{}
 	if err := self.checkOnDeleteRestrict(modelName, ids, 0, visited); err != nil {
-		return err
+		return nil, err
 	}
-	_, err := self.applyOnDeleteWrites(modelName, ids, 0, map[string]bool{})
-	return err
+	var cascaded []deletedGroup
+	_, err := self.applyOnDeleteWrites(modelName, ids, 0, map[string]bool{}, &cascaded)
+	return cascaded, err
 }
 
 // checkOnDeleteRestrict 递归检查整棵级联树上的 restrict：任何一处还有行指向要被删掉的
@@ -324,7 +328,7 @@ func (self *TSession) checkOnDeleteRestrict(modelName string, ids []any, depth i
 // 返回的是这一层**真正接手处理**的那批 id（去掉了上层已经在处理的）。调用方只删这些：
 // 自引用成环时（A.parent=B、B.parent=A）查出来的"子行"可能正是上层要删的那一行，
 // 照单全删会把主删除的目标先删掉，主 DELETE 随后影响 0 行、打一条莫名其妙的警告。
-func (self *TSession) applyOnDeleteWrites(modelName string, ids []any, depth int, visited map[string]bool) ([]any, error) {
+func (self *TSession) applyOnDeleteWrites(modelName string, ids []any, depth int, visited map[string]bool, cascaded *[]deletedGroup) ([]any, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -375,7 +379,7 @@ func (self *TSession) applyOnDeleteWrites(modelName string, ids []any, depth int
 				continue
 			}
 			// 先处理孙辈，再删这一层；只删递归真正接手的那批（见函数头注释）
-			doomed, err := self.applyOnDeleteWrites(ref.model, childIds, depth+1, visited)
+			doomed, err := self.applyOnDeleteWrites(ref.model, childIds, depth+1, visited, cascaded)
 			if err != nil {
 				return nil, err
 			}
@@ -392,6 +396,9 @@ func (self *TSession) applyOnDeleteWrites(modelName string, ids []any, depth int
 				if _, err := self._exec(sql, batch...); err != nil {
 					return nil, fmt.Errorf("delete %s: ondelete('cascade') on %s.%s failed: %w", modelName, ref.model, ref.column, err)
 				}
+			}
+			if cascaded != nil {
+				*cascaded = append(*cascaded, deletedGroup{model: ref.model, table: ref.table, ids: doomed})
 			}
 			// 级联删除要留痕：从界面上看只删了一条，实际动了别的表。
 			log.Infof("delete %s: ondelete('cascade') removed %d row(s) from %s (via %s)",

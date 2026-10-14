@@ -84,6 +84,9 @@ type (
 		// foreignRefs 由宿主提供：别的进程的模型上、指向本进程模型的多对一列（见 SetForeignRefs）。
 		foreignRefs atomic.Pointer[func(target string) []ForeignRef]
 
+		// deleteObserver 由宿主提供：每真删掉一批记录就同步通知（见 SetDeleteObserver）。
+		deleteObserver atomic.Pointer[DeleteObserver]
+
 		// m2oRefIndex 缓存「模型名 → 声明了 ondelete 且指向它的 many2one 列」，
 		// 供删除时执行 cascade / restrict / set null。作废时机同上。
 		// 见 session_ondelete.go。

@@ -213,11 +213,13 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	quoter := self.orm.dialect.Quoter()
 	// 模型名要在主删除**之前**取：_exec 里 defer 了 _resetStatement。
 	model_name := self.Statement.Model.String()
+	table_name := self.Statement.Model.Table()
 
 	// ondelete 策略要在主删除**之前**跑：restrict 得来得及拦住这一次删除，cascade 得
 	// 趁父行还在时按外键找到子行。失败一律返回错误（主记录还没删，回滚是干净的）——
 	// 与下面 m2m 清理的"只告警"相反，那时记录已经删掉了。见 session_ondelete.go。
-	if err := self.applyOnDelete(model_name, ids); err != nil {
+	cascaded, err := self.applyOnDelete(model_name, ids)
+	if err != nil {
 		return 0, err
 	}
 
@@ -246,6 +248,13 @@ func (self *TSession) Delete(ids ...any) (res_effect int64, err error) {
 	// "菜单还在、组没了"的孤儿行会让那个菜单对所有人永久隐身。
 	// 放在行数校验之前：部分行本就不存在时，它们的关系行更是该清的孤儿。
 	self.cleanupM2MRelations(model_name, ids)
+
+	// 删除观察者（宿主挂的「记录没了」通知，见 session_delete_observer.go）：主记录与级联
+	// 删掉的子行各报一次。放在行数校验之前、与主删除同一个会话（同一个事务）——观察者
+	// 失败就整笔失败，调用方回滚，不留"记录删了、挂在它身上的东西还在"的半截状态。
+	if err := self.notifyDeleted(append(cascaded, deletedGroup{model: model_name, table: table_name, ids: ids})); err != nil {
+		return 0, err
+	}
 
 	/* check the row count */
 	if cnt != expectRowCount {
