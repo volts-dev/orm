@@ -1322,20 +1322,26 @@ func (db *postgres) IsColumnExist(ctx context.Context, schema, tableName, colNam
 	return rows.Next(), nil
 }
 
+// GetFields 反查一张表的列（GetAllFields 是整个 schema 的批量版）。两条 SQL 的共同约束：**每列只许出一行**。
+//
+// 主键 / 唯一必须用 EXISTS 判，不能 LEFT JOIN pg_constraint：一列参与几个约束就出几行，扫描循环
+// 按列名后写覆盖前写，同一 attnum 的几行之间又没有顺序。PostgreSQL 18 起 NOT NULL 也记进
+// pg_constraint（contype = 'n'），于是每个 id 都多出一行——阿里云 PG 18.6 实测 public 569 张表里
+// 563 张的 id 落在 'n' 那行上、丢了主键标记，按表反查出来的原型模型没有 IdKey，非属主进程读它
+// （connect_components 读 res.lang / sys.proxy / sys.tenant）报 "must have a Id key field"。
+// GetFields 另需 n.nspname：只按 relname 认表的话，别的 schema 里的同名表会掺进来。
 func (db *postgres) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
 	// FIXME: the schema should be replaced by user custom's
 	args := []any{model.Table(), db.getSchema(session)}
 	s := `SELECT column_name, column_default, is_nullable, CASE WHEN s.data_type = 'USER-DEFINED' THEN format_type(f.atttypid, f.atttypmod) ELSE s.data_type END AS data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
-    CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
-    CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
+    EXISTS (SELECT 1 FROM pg_constraint p WHERE p.conrelid = c.oid AND p.contype = 'p' AND f.attnum = ANY (p.conkey)) AS primarykey,
+    EXISTS (SELECT 1 FROM pg_constraint p WHERE p.conrelid = c.oid AND p.contype = 'u' AND f.attnum = ANY (p.conkey)) AS uniquekey
 FROM pg_attribute f
     JOIN pg_class c ON c.oid = f.attrelid JOIN pg_type t ON t.oid = f.atttypid
     LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = f.attnum
     LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
-    LEFT JOIN pg_constraint p ON p.conrelid = c.oid AND f.attnum = ANY (p.conkey)
-    LEFT JOIN pg_class AS g ON p.confrelid = g.oid
     LEFT JOIN INFORMATION_SCHEMA.COLUMNS s ON s.column_name=f.attname AND c.relname=s.table_name
-WHERE c.relkind = 'r'::char AND c.relname = $1 AND s.table_schema = $2 AND f.attnum > 0 ORDER BY f.attnum;`
+WHERE c.relkind = 'r'::char AND c.relname = $1 AND n.nspname = $2 AND s.table_schema = $2 AND f.attnum > 0 ORDER BY f.attnum;`
 	db.LogSQL(s, args)
 
 	rows, err := db.queryer.QueryContext(ctx, s, args...)
@@ -1569,14 +1575,12 @@ func (db *postgres) parsePgColumn(model IModel, colName string, colDefault *stri
 func (db *postgres) GetAllFields(ctx context.Context, session *TSession) (map[string][]string, map[string]map[string]IField, error) {
 	args := []any{db.getSchema(session)}
 	s := `SELECT c.relname AS table_name, column_name, column_default, is_nullable, CASE WHEN s.data_type = 'USER-DEFINED' THEN format_type(f.atttypid, f.atttypmod) ELSE s.data_type END AS data_type, character_maximum_length, numeric_precision,numeric_scale, numeric_precision_radix ,
-    CASE WHEN p.contype = 'p' THEN true ELSE false END AS primarykey,
-    CASE WHEN p.contype = 'u' THEN true ELSE false END AS uniquekey
+    EXISTS (SELECT 1 FROM pg_constraint p WHERE p.conrelid = c.oid AND p.contype = 'p' AND f.attnum = ANY (p.conkey)) AS primarykey,
+    EXISTS (SELECT 1 FROM pg_constraint p WHERE p.conrelid = c.oid AND p.contype = 'u' AND f.attnum = ANY (p.conkey)) AS uniquekey
 FROM pg_attribute f
     JOIN pg_class c ON c.oid = f.attrelid JOIN pg_type t ON t.oid = f.atttypid
     LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = f.attnum
     JOIN pg_namespace n ON n.oid = c.relnamespace
-    LEFT JOIN pg_constraint p ON p.conrelid = c.oid AND f.attnum = ANY (p.conkey)
-    LEFT JOIN pg_class AS g ON p.confrelid = g.oid
     LEFT JOIN INFORMATION_SCHEMA.COLUMNS s ON s.column_name=f.attname AND c.relname=s.table_name
 WHERE c.relkind = 'r'::char AND n.nspname = $1 AND s.table_schema = $1 AND f.attnum > 0 ORDER BY c.relname, f.attnum;`
 	db.LogSQL(s, args)
