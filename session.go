@@ -171,6 +171,16 @@ func (self *TSession) Clone() *TSession {
 	return session
 }
 
+// TxKey 是这条会话所在数据库事务的身份：同一个事务里的会话（包括 Clone 借出去的）回同一个值，
+// 不在事务里回 nil。只拿来比较「是不是同一个事务」—— 例如外层写覆写与它经 x2many 命令触发的子模型
+// 覆写之间约定「这批约束由外层在写完之后统一查一次」。不暴露底层 tx 本身。
+func (self *TSession) TxKey() any {
+	if self == nil || self.tx == nil || self.IsAutoCommit || self.IsCommitedOrRollbacked {
+		return nil
+	}
+	return self.tx
+}
+
 // Close release the connection from pool
 func (self *TSession) Close() {
 	defer func() {
