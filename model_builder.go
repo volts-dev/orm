@@ -41,6 +41,10 @@ func (self *ModelBuilder) fail(err error) {
 	self.model.Obj().failDeclaration(err)
 }
 
+// Model 返回本构建器正在构建的模型。只读用（取模型名、表名）：宿主在声明字段时要按模型登记
+// 一些东西（例如 vectors 的凭据列清单），而 OnBuildFields 里手上只有 Builder。
+func (self *ModelBuilder) Model() IModel { return self.model }
+
 // Err 返回本模型声明阶段记录的第一个错误（含此前其他 Builder 实例记下的）。
 func (self *ModelBuilder) Err() error {
 	return self.model.Obj().DeclarationError()
