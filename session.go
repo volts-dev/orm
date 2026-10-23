@@ -786,12 +786,22 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 				// 如果是同是字符串 则检查长度变化 for mysql
 				//if orm.dialect.DBType() == MYSQL {
 				if cur_field.Size() != field.Size() {
-					log.Warnf("Table <%s> column <%s> change size from %s(%d) to %s(%d)",
-						tableName, fieldName, cur_field.SQLType().Name, cur_field.Size(), field.SQLType().Name, field.Size())
-					_, err = self.Exec(orm.dialect.ModifyColumnSql(self.Schema, tableName, field))
-					if err != nil {
-						log.Err(err)
-						err = nil
+					// 见 ddl_column_width.go 的 isSizeWidening：放宽（含改成不限长）照旧自动改，
+					// 收窄只告警、给出语句，不在启动路径上动手。
+					from := sqlTypeWithSize(cur_field.SQLType().Name, cur_field.Size())
+					to := sqlTypeWithSize(field.SQLType().Name, field.Size())
+					if isSizeWidening(cur_field.Size(), field.Size()) {
+						log.Infof("Table <%s> column <%s> widen %s → %s", tableName, fieldName, from, to)
+						_, err = self.Exec(orm.dialect.ModifyColumnSql(self.Schema, tableName, field))
+						if err != nil {
+							log.Err(err)
+							err = nil
+						}
+					} else {
+						log.Warnf("Table <%s> column <%s>: 库里是 %s，模型声明的是 %s —— 模型更窄。"+
+							"ORM 不自动收窄（超长的行会让 ALTER 失败，成功也要重写整张表）；"+
+							"确认数据放得下后请择时手工执行：\n\t%s;",
+							tableName, fieldName, from, to, orm.dialect.ModifyColumnSql(self.Schema, tableName, field))
 					}
 				}
 				//}

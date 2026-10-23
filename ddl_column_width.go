@@ -1,6 +1,9 @@
 package orm
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // 列宽对账：库里那一列比模型声明的**窄**时的处置。
 //
@@ -57,4 +60,26 @@ func normalizeSqlTypeName(t string) string {
 		t = strings.TrimSpace(t[:i])
 	}
 	return t
+}
+
+// isSizeWidening 报告把列的长度从 cur 改成 want 是不是**放宽**。0 表示不限长
+// （`VARCHAR` 不带长度，selection / 没写 size 的字符串字段都是这样）。
+//
+// 2026-10-23 sys_tenant_archive 的 status 从 varchar(16) 改成 selection 字段，启动日志里是
+// 一条 Warn「change size from VARCHAR(16) to VARCHAR(0)」，进了日志中心像是要把列改成
+// 零长——其实是改成不限长，PG 上只改元数据、不重写表。放宽照旧自动做、降成 Info；
+// 收窄（含不限长 → 有长度）才是会失败或要重写整张表的那种，只告警给语句。
+func isSizeWidening(cur, want int) bool {
+	if want == 0 {
+		return true
+	}
+	return cur != 0 && want > cur
+}
+
+// sqlTypeWithSize 给日志用：`VARCHAR(16)`；不限长时写成 `VARCHAR（不限长）`，不写 `VARCHAR(0)`。
+func sqlTypeWithSize(name string, size int) string {
+	if size == 0 {
+		return name + "（不限长）"
+	}
+	return fmt.Sprintf("%s(%d)", name, size)
 }
