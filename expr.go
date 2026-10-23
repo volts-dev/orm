@@ -616,7 +616,12 @@ func (self *TExpression) parse(context map[string]any) error {
 			*/
 		} else if field == nil {
 			// FIELD NOT FOUND
-			return log.Errf("Invalid field <%s>@<%s> in leaf <%s>", left.String(), model.String(), domain.Domain2String(ex_leaf.leaf))
+			//
+			// 带 ErrInvalidDomain + 字段名交回：条件里写了模型上没有的字段，多半是调用方
+			// 照 Odoo 的名字写的（res.user 的 login、create_date……），出口据此回 400 并点名
+			// 字段，而不是一枚 500 的 ERR-xxxx。
+			cause := log.Errf("Invalid field <%s>@<%s> in leaf <%s>", left.String(), model.String(), domain.Domain2String(ex_leaf.leaf))
+			return ormerr.New(ormerr.ErrInvalidDomain, cause).WithField(left.String())
 
 		} else if field.IsInherited() {
 			// ----------------------------------------
