@@ -240,7 +240,7 @@ func (self *TOrm) materializeField(schema string, model *TModel, field IField, o
 	// 补列、建索引、建关联表连同回填都是特权活（见 privileged.go）。
 	session := self.NewPrivilegedSession()
 	defer session.Close()
-	session.Schema = schema
+	session.Schema = normalizeSchema(self.dialect, schema)
 	session.Model(model.String())
 
 	for name, index := range model.GetIndexes() {
@@ -276,7 +276,7 @@ func (self *TOrm) addColumn(ctx context.Context, schema, table string, field IFi
 
 	s := self.NewPrivilegedSession()
 	defer s.Close()
-	s.Schema = schema
+	s.Schema = normalizeSchema(self.dialect, schema)
 	if err := s.Begin(); err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func (self *TOrm) addRelationTable(schema string, model *TModel, field IField, o
 	rel := strings.Replace(field.JoinModelName(), ".", "_", -1)
 	s := self.NewPrivilegedSession()
 	defer s.Close()
-	s.Schema = schema
+	s.Schema = normalizeSchema(self.dialect, schema)
 	if err := s.Begin(); err != nil {
 		return err
 	}

@@ -348,7 +348,7 @@ func (db *mysql) CreateIndexUniqueSql(schema, tableName string, index *TIndex) s
 	}
 
 	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)", unique,
-		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName), strings.Join(parts, ","))
+		quoter.Quote(idxName), db.tableRef(schema, tableName), strings.Join(parts, ","))
 }
 
 var mysqlColAliases = map[string]string{
@@ -813,12 +813,47 @@ func (db *mysql) AutoIncrStr() string {
 	return "AUTO_INCREMENT"
 }
 
-// MySQL 语义：schema 即数据库名，空 schema 退回当前库（DbName）。
+// MySQL 语义：schema 即数据库名，空 schema 退回当前库（DbName）。PG 的 public 是「默认 schema」，在 MySQL
+// 上对应的就是当前库——上层显式传 "public"（与 PG 共用的代码）时同样落当前库，而不是去找一个叫 public 的库。
 func (db *mysql) schemaOr(schema string) string {
-	if schema != "" {
+	if schema != "" && schema != DefaultPostgresSchema {
 		return schema
 	}
 	return db.DbName
+}
+
+// getSchema：会话的 schema（SetSchema）优先，没有就是当前库。建表与反查都要经它——此前写死 DbName，
+// SetSchema("system") 的会话把 S 模型的表全建进了默认库，反查也只看默认库（探针去掉 SystemSchema 补丁后
+// 启动即 FATAL：system.sys_tenant doesn't exist）。
+func (db *mysql) getSchema(session *TSession) string {
+	if session != nil {
+		return db.schemaOr(session.Schema)
+	}
+	return db.DbName
+}
+
+// normalizeSchema（schemaNormalizer）：public 与当前库名都是「当前库」，归一成空串。
+func (db *mysql) normalizeSchema(schema string) string {
+	if schema == DefaultPostgresSchema || schema == db.DbName {
+		return ""
+	}
+	return schema
+}
+
+// tableRef：schema 参数版的 qualifiedTable（"public" 与空串都是当前库，见 schemaOr）。
+func (db *mysql) tableRef(schema, table string) string {
+	if sch := db.schemaOr(schema); sch != db.DbName {
+		return db.dialect.Quoter().QuoteTable(sch, table)
+	}
+	return db.dialect.Quoter().Quote(table)
+}
+
+// qualifiedTable：表在会话 schema 里的全名；就在当前库时不加限定（与此前的 DDL 逐字一致）。
+func (db *mysql) qualifiedTable(session *TSession, table string) string {
+	if sch := db.getSchema(session); sch != db.DbName {
+		return db.dialect.Quoter().QuoteTable(sch, table)
+	}
+	return db.dialect.Quoter().Quote(table)
 }
 
 func (db *mysql) IndexCheckSql(schema, tableName, idxName string) (string, []any) {
@@ -834,9 +869,8 @@ func (db *mysql) TableCheckSql(schema, tableName string) (string, []any) {
 }
 
 func (db *mysql) GenAddColumnSQL(schema, tableName string, field IField) string {
-	quoter := db.dialect.Quoter()
 	s, _ := ColumnString(db.dialect, field, true)
-	sql := fmt.Sprintf("ALTER TABLE %v ADD %v", quoter.QuoteTable(schema, tableName), s)
+	sql := fmt.Sprintf("ALTER TABLE %v ADD %v", db.tableRef(schema, tableName), s)
 	if len(field.Label()) > 0 {
 		sql += " COMMENT " + mysqlStringLiteral(field.Label())
 	}
@@ -905,7 +939,7 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 }
 
 func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel) ([]string, map[string]IField, error) {
-	args := []any{db.DbName, model.Table()}
+	args := []any{db.getSchema(session), model.Table()}
 	alreadyQuoted := "(INSTR(VERSION(), 'maria') > 0 && " +
 		"(SUBSTRING_INDEX(VERSION(), '.', 1) > 10 || " +
 		"(SUBSTRING_INDEX(VERSION(), '.', 1) = 10 && " +
@@ -1050,7 +1084,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 
 func (db *mysql) GetModels(ctx context.Context, session *TSession) ([]IModel, error) {
 	//func (db *mysql) GetTables(queryer Queryer, ctx context.Context) ([]*Table, error) {
-	args := []any{db.DbName}
+	args := []any{db.getSchema(session)}
 	s := "SELECT `TABLE_NAME`, `ENGINE`, `AUTO_INCREMENT`, `TABLE_COMMENT` from " +
 		"`INFORMATION_SCHEMA`.`TABLES` WHERE `TABLE_SCHEMA`=? AND (`ENGINE`='MyISAM' OR `ENGINE` = 'InnoDB' OR `ENGINE` = 'TokuDB')"
 
@@ -1087,7 +1121,7 @@ func (db *mysql) GetModels(ctx context.Context, session *TSession) ([]IModel, er
 }
 
 func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
-	args := []any{db.DbName, tableName}
+	args := []any{db.getSchema(session), tableName}
 	// functional key parts 在 STATISTICS 里 COLUMN_NAME 为 NULL、表达式在 EXPRESSION 列
 	//（8.0.13+ 才有这一列，老版本查它会直接报错）。
 	withExpr := db.supportsFunctionalIndex()
@@ -1156,14 +1190,14 @@ func (db *mysql) GetIndexes(ctx context.Context, session *TSession, tableName st
 	return indexes, nil
 }
 
-func (db *mysql) CreateTableSql(_ *TSession, model IModel, storeEngine, charset string) string {
+func (db *mysql) CreateTableSql(session *TSession, model IModel, storeEngine, charset string) string {
 
 	//func (db *mysql) CreateTableSQL(ctx context.Context, table *Table, tableName string) (string, bool, error) {
 
 	quoter := db.dialect.Quoter()
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
-	quoter.QuoteTo(&b, fmtTableName(model.String()))
+	b.WriteString(db.qualifiedTable(session, fmtTableName(model.String())))
 	b.WriteString(" (")
 
 	fields := model.GetFields()

@@ -443,8 +443,24 @@ func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) 
 
 // SetSchema sets current session schema namespace
 func (self *TSession) SetSchema(schema string) *TSession {
+	if self.orm != nil {
+		schema = normalizeSchema(self.orm.dialect, schema)
+	}
 	self.Schema = schema
 	return self
+}
+
+// schemaNormalizer：方言把与「默认」同义的 schema 名归一成空串（MySQL：public 与当前库名都是当前库）。
+// 归一放在入口：ORM 拼 SQL 的几十处直接拿 Session.Schema 加限定，逐处改会漏。
+type schemaNormalizer interface {
+	normalizeSchema(schema string) string
+}
+
+func normalizeSchema(d IDialect, schema string) string {
+	if n, ok := d.(schemaNormalizer); ok && schema != "" {
+		return n.normalizeSchema(schema)
+	}
+	return schema
 }
 
 // CreateTable create a table according a bean

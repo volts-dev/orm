@@ -146,7 +146,9 @@ type (
 	DialectFeatures struct {
 		Returning        bool // INSERT … RETURNING
 		TransactionalDDL bool // 建表 / 改表能随事务回滚（MySQL 的 DDL 隐式提交）
-		Schemas          bool // 同一连接里按 schema 限定表（PG 的 schema；MySQL 上要等 P4 定成「库」）
+		// Schemas：默认 schema 有一个能写进 SQL 的名字（PG 的 public）。MySQL 上 schema 就是库、照样按它限定表
+		// （SetSchema 有效，见 dialect_mysql.go getSchema），但默认的那个就是「当前库」，没有可写的名字——false。
+		Schemas bool
 		RowSecurity      bool // 库侧行级安全：RowScopeEnforce 发出的 SET LOCAL 有人认
 		PartialIndex     bool // CREATE INDEX … WHERE
 		FunctionalIndex  bool // 表达式索引
@@ -320,8 +322,7 @@ func (db *TDialect) SupportDropIfExists() bool {
 }
 
 func (db *TDialect) DropTableSql(schema, tableName string) string {
-	quoter := db.dialect.Quoter()
-	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoter.QuoteTable(schema, tableName))
+	return fmt.Sprintf("DROP TABLE IF EXISTS %s", refTable(db.dialect, schema, tableName))
 }
 
 func (db *TDialect) HasRecords(ctx context.Context, query string, args ...any) (bool, error) {
@@ -392,12 +393,25 @@ func (db *TDialect) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 	// 索引名从裸表名派生（不带 schema）——索引与表同 schema，名字里不掺限定符。
 	idxName = db.dialect.FitIdentifier(index.GetName(tableName))
 	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)%s", unique,
-		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName),
+		quoter.Quote(idxName), refTable(db.dialect, schema, tableName),
 		indexKeyParts(quoter, index), indexWhereClause(index))
 }
 
 // indexColumnChecker：要看列类型才判得了的索引限制（MySQL：JSON / TEXT / BLOB 列不能直接建索引）。
 // skip 为真＝这条非唯一索引在本方言上不建（只影响速度、不影响结果），由 planIndex 告警一次。
+// tableReferrer：方言自己决定 schema 参数怎么落到表名上（MySQL：schema 即库，"public" 与空串都是当前库）。
+type tableReferrer interface {
+	tableRef(schema, table string) string
+}
+
+// refTable 是 DDL 里 schema 限定的表名：方言实现了 tableReferrer 就交给它，否则 Quoter.QuoteTable。
+func refTable(d IDialect, schema, table string) string {
+	if r, ok := d.(tableReferrer); ok {
+		return r.tableRef(schema, table)
+	}
+	return d.Quoter().QuoteTable(schema, table)
+}
+
 // columnCharsetter：建列时类型后面要跟的字符集子句（MySQL 的 ascii 列，见 TAG_ASCII）。
 type columnCharsetter interface {
 	columnCharset(field IField) string
@@ -443,7 +457,7 @@ func (db *TDialect) DropIndexUniqueSql(schema, tableName string, index *TIndex) 
 	} else {
 		name = index.Name
 	}
-	return fmt.Sprintf("DROP INDEX %v ON %s", quoter.Quote(name), quoter.QuoteTable(schema, tableName))
+	return fmt.Sprintf("DROP INDEX %v ON %s", quoter.Quote(name), refTable(db.dialect, schema, tableName))
 }
 
 // DropColumnNotNullSql returns SQL to align a column's NOT NULL constraint
@@ -469,7 +483,7 @@ func (db *TDialect) ModifyColumnSql(schema, tableName string, col IField) string
 	if err != nil {
 		log.Warn(err)
 	}
-	return fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s", db.quoter.QuoteTable(schema, tableName), s)
+	return fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s", refTable(db.dialect, schema, tableName), s)
 }
 
 func (db *TDialect) CreateTableSql(session *TSession, model IModel, storeEngine, charset string) string {
