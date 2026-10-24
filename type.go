@@ -1,3 +1,6 @@
+// 本文件部分代码源自 xorm core（https://gitea.com/xorm/core），BSD 3-Clause 许可，
+// Copyright (c) 2013 - 2015 Lunny Xiao。许可全文见仓库根目录 LICENSE-xorm。
+
 package orm
 
 import (
