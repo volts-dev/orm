@@ -934,46 +934,47 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 			return nil, nil, err
 		}
 
-		fields := strings.Fields(colType)
-		if len(fields) == 2 && fields[1] == "unsigned" {
-			isUnsigned = true
+		// COLUMN_TYPE 形如 `int unsigned`、`varchar(255)`、`decimal(16,2) unsigned zerofill`、
+		// `set('Select','Insert',...)`。修饰词在最后一个右括号之后（没有括号时在第一个空格之后）；
+		// 括号里的整段是长度或选项。此前先按空格切：选项里带空格的 SET / ENUM（mysql 库里就有）把右括号
+		// 切掉，下标 -1 直接 panic；`unsigned zerofill` 也认不出无符号。
+		head, mods := strings.TrimSpace(colType), ""
+		if j := strings.LastIndexByte(head, ')'); j >= 0 {
+			head, mods = head[:j+1], head[j+1:]
+		} else if i := strings.IndexByte(head, ' '); i >= 0 {
+			head, mods = head[:i], head[i:]
 		}
-		colType = fields[0]
-		cts := strings.Split(colType, "(")
-		colName := cts[0]
+		isUnsigned = strings.Contains(strings.ToLower(mods), "unsigned")
+		colName, args, hasArgs := head, "", false
+		if i := strings.IndexByte(head, '('); i >= 0 && strings.HasSuffix(head, ")") {
+			colName, args, hasArgs = head[:i], head[i+1:len(head)-1], true
+		}
 		// Remove the /* mariadb-5.3 */ suffix from coltypes
 		colName = strings.TrimSuffix(colName, "/* mariadb-5.3 */")
-		colType = strings.ToUpper(colName)
+		colType = strings.ToUpper(strings.TrimSpace(colName))
 
 		enumOptions := make(map[string]int)
 		setOptions := make(map[string]int)
 		var len1, len2 int64
-		if len(cts) == 2 {
-			idx := strings.Index(cts[1], ")")
-			if colType == Enum && cts[1][0] == '\'' { // enum
-				options := strings.Split(cts[1][0:idx], ",")
-				for k, v := range options {
-					v = strings.TrimSpace(v)
-					v = strings.Trim(v, "'")
-					enumOptions[v] = k
+		if hasArgs {
+			if (colType == Enum || colType == Set) && strings.HasPrefix(args, "'") {
+				options := enumOptions
+				if colType == Set {
+					options = setOptions
 				}
-			} else if colType == Set && cts[1][0] == '\'' {
-				options := strings.Split(cts[1][0:idx], ",")
-				for k, v := range options {
-					v = strings.TrimSpace(v)
-					v = strings.Trim(v, "'")
-					setOptions[v] = k
+				for k, v := range strings.Split(args, ",") {
+					options[strings.Trim(strings.TrimSpace(v), "'")] = k
 				}
 			} else {
-				lens := strings.Split(cts[1][0:idx], ",")
+				lens := strings.Split(args, ",")
 				len1, err = strconv.ParseInt(strings.TrimSpace(lens[0]), 10, 64)
 				if err != nil {
-					return nil, nil, err
+					return nil, nil, fmt.Errorf("column %s.%s type %q: %w", model.Table(), columnName, colType, err)
 				}
 				if len(lens) == 2 {
-					len2, err = strconv.ParseInt(lens[1], 10, 64)
+					len2, err = strconv.ParseInt(strings.TrimSpace(lens[1]), 10, 64)
 					if err != nil {
-						return nil, nil, err
+						return nil, nil, fmt.Errorf("column %s.%s type %q: %w", model.Table(), columnName, colType, err)
 					}
 				}
 			}
@@ -985,7 +986,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 		}
 
 		if _, ok := SqlTypes[colType]; !ok {
-			return nil, nil, fmt.Errorf("unknown colType %v", colType)
+			return nil, nil, fmt.Errorf("unknown colType %v (%s.%s)", colType, model.Table(), columnName)
 		}
 
 		col, err := NewField(strings.Trim(columnName, `" `), WithSQLType(SQLType{Name: colType, DefaultLength: int(len1), DefaultLength2: int(len2)}), WithModel(model))

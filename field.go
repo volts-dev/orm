@@ -432,7 +432,8 @@ func NewField(name string, opts ...FieldOption) (IField, error) {
 		switch baseField.SQLType().Name {
 		case Bool, Boolean:
 			fieldType = "bool"
-		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial, BigInt, UnsignedBigInt, BigSerial:
+		case Bit, TinyInt, SmallInt, MediumInt, Int, Integer, Serial, BigInt, BigSerial,
+			UnsignedTinyInt, UnsignedSmallInt, UnsignedMediumInt, UnsignedInt, UnsignedBigInt:
 			fieldType = "int"
 		case Float, Real:
 			fieldType = "float"

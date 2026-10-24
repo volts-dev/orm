@@ -214,6 +214,14 @@ var (
 		Integer:   NUMERIC_TYPE,
 		BigInt:    NUMERIC_TYPE,
 
+		// MySQL 反查出来的无符号整数（GetFields 拼成 "UNSIGNED INT"）。此前只收了 TINYINT 一种：
+		// 库里有任何一张带 int unsigned 列的表（MySQL 自带的 mysql 库就有），New 反查即报
+		// unknown colType，整个 ORM 起不来。
+		UnsignedSmallInt:  NUMERIC_TYPE,
+		UnsignedMediumInt: NUMERIC_TYPE,
+		UnsignedInt:       NUMERIC_TYPE,
+		UnsignedBigInt:    NUMERIC_TYPE,
+
 		Decimal:    NUMERIC_TYPE,
 		Numeric:    NUMERIC_TYPE,
 		Real:       NUMERIC_TYPE,
