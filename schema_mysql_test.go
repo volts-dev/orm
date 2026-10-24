@@ -8,6 +8,14 @@ import (
 // 与反查写死 TABLE_SCHEMA = DbName——vectors 的 S 模型（system schema）全建进了默认库，去掉探针的
 // SystemSchema 补丁后 kylin 启动即 FATAL（system.sys_tenant doesn't exist）。
 // PG 的 public 是默认 schema，在 MySQL 上对应当前库：显式传 "public" 也落当前库。
+// 起了名字的索引（index('idx_x')，stock 的 barcode.nomenclature 就是）：库里的名字是加工过的
+// IDX_<表缩写>_idx_x。探针在已有的 system 库上重启时报 1061 Duplicate key name——反查没认出来又建一遍。
+type SchemaNamedIdx struct {
+	TModel    `table:"name('schema_named_idx')"`
+	Id        int64 `field:"pk autoincr"`
+	CompanyId int64 `field:"bigint() index('idx_schema_named_idx_company_id')"`
+}
+
 func TestMySQL_SchemaIsDatabase(t *testing.T) {
 	skipUnlessDialect(t, "mysql")
 	ds := testDataSource(t, "")
@@ -45,12 +53,12 @@ func TestMySQL_SchemaIsDatabase(t *testing.T) {
 		}
 		rec := &ddlRecorder{}
 		o.AddHook(rec)
-		if _, err := o.SyncModel("test", new(SchemaDdlPoc)); err != nil {
+		if _, err := o.SyncModel("test", new(SchemaDdlPoc), new(SchemaNamedIdx)); err != nil {
 			t.Fatalf("默认库 SyncModel: %v", err)
 		}
 		sess := o.NewSession()
 		sess.SetSchema(other)
-		if _, err := sess.SyncModel("test", new(SchemaDdlPoc)); err != nil {
+		if _, err := sess.SyncModel("test", new(SchemaDdlPoc), new(SchemaNamedIdx)); err != nil {
 			t.Fatalf("%s SyncModel: %v", other, err)
 		}
 		sess.Close()
@@ -102,5 +110,28 @@ func TestMySQL_SchemaIsDatabase(t *testing.T) {
 			}
 		}
 		o.Close()
+	}
+}
+
+// MySQL 建索引没有 IF NOT EXISTS：两路同时同步同一个模型，都先查「不在」再各自建，后到的报 1061。
+// 探针首启撞上过（kylin 启动 5 秒 FATAL：Duplicate key name 'IDX_bnomenclature_…'）。建索引的地方把它当成功。
+func TestMySQL_CreateIndexRaceIsNotFatal(t *testing.T) {
+	skipUnlessDialect(t, "mysql")
+	o, err := New(WithDataSource(testDataSource(t, "")))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	if _, err := o.SyncModel("test", new(SchemaNamedIdx)); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := o.GetModel("schema.named.idx")
+	s := o.NewSession()
+	defer s.Close()
+	for _, idx := range m.GetIndexes() {
+		// 「查过不在」之后别人已经建好了：直接再执行一遍建索引语句。
+		if err := s.execIndexDDL(o.dialect.CreateIndexUniqueSql("", "schema_named_idx", idx)); err != nil {
+			t.Fatalf("索引 %s 已在时再建应当成功，得 %v", idx.Name, err)
+		}
 	}
 }

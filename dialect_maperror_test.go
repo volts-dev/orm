@@ -264,6 +264,7 @@ func TestMySQLMapError_P2Codes(t *testing.T) {
 		{1265, "Data truncated for column 'state' at row 1", ormerr.ErrValidation, "state", false},
 		{1366, "Incorrect integer value: 'abc' for column 'qty' at row 1", ormerr.ErrValidation, "qty", false},
 		{1292, "Incorrect datetime value: 'x' for column 'seen' at row 1", ormerr.ErrValidation, "seen", false},
+		{1061, "Duplicate key name 'IDX_x_code'", ormerr.ErrIndexExists, "", false},
 		{3988, "Conversion from collation utf8mb4_0900_as_cs into ascii_bin impossible for parameter", ormerr.ErrValidation, "", false},
 		{3024, "Query execution was interrupted, maximum statement execution time exceeded", ormerr.ErrTimeout, "", false},
 		{1317, "Query execution was interrupted", ormerr.ErrTimeout, "", false},

@@ -9,6 +9,7 @@ import (
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/domain"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -534,7 +535,7 @@ func (self *TSession) CreateUniques(model string) error {
 		return err
 	}
 	for _, sql := range sqls {
-		if _, err := self._exec(sql); err != nil {
+		if err := self.execIndexDDL(sql); err != nil {
 			return err
 		}
 	}
@@ -561,7 +562,7 @@ func (self *TSession) createIndexesImpl(model string) error {
 	}
 
 	for _, sql := range sqls {
-		if _, err := self._exec(sql); err != nil {
+		if err := self.execIndexDDL(sql); err != nil {
 			return err
 		}
 	}
@@ -1131,9 +1132,15 @@ func (self *TSession) _addIndex(tableName, idxName string) error {
 	if skip, err := planIndex(self.orm.dialect, self.Statement.Model, tableName, index); err != nil || skip {
 		return err
 	}
-	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
-	_, err = self._exec(sql)
-	return err
+	return self.execIndexDDL(self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index))
+}
+
+// execIndexDDL 执行一条建索引语句；索引名已在（ErrIndexExists：别人刚建好）当成功，见 errors.ErrIndexExists。
+func (self *TSession) execIndexDDL(sql string) error {
+	if _, err := self._exec(sql); err != nil && !errors.Is(err, ormerr.ErrIndexExists) {
+		return err
+	}
+	return nil
 }
 
 func (self *TSession) _addUnique(tableName, uqeName string) error {
@@ -1159,9 +1166,7 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 	if skip, err := planIndex(self.orm.dialect, self.Statement.Model, tableName, index); err != nil || skip {
 		return err
 	}
-	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
-	_, err = self._exec(sql)
-	return err
+	return self.execIndexDDL(self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index))
 }
 
 // sameColumnDefault：模型声明的默认值与库里反查到的是否同一个。统一转成字符串比（两侧动态类型不一致：

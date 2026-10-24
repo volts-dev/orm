@@ -1,12 +1,14 @@
 package orm
 
 import (
+	stdErrors "errors"
 	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/domain"
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -1303,7 +1305,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 			return err
 		}
 		for _, q := range stmts {
-			if err := exec(q); err != nil {
+			if err := exec(q); err != nil && !stdErrors.Is(err, ormerr.ErrIndexExists) {
 				log.Errf("m2m create table '%s' failure : SQL:%s,\nError:%s", ctx.Field.RelatedModelName(), q, err.Error())
 			}
 		}

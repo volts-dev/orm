@@ -65,6 +65,9 @@ var (
 	// ErrIndexUnsupported：当前方言/版本表达不了这条索引（如 MySQL < 8.0.13 的
 	// 表达式索引、部分唯一索引）。拒绝而不是退化——退化会静默改变唯一性语义。
 	ErrIndexUnsupported = errors.New("orm: index definition not supported by this database")
+	// ErrIndexExists：要建的索引名已经在了。MySQL 建索引没有 IF NOT EXISTS：两路同时同步同一个模型时都先
+	// 查「不在」再各自 CREATE INDEX，后到的报 1061——建索引的地方遇到它当成功（PG 的 IF NOT EXISTS 同理）。
+	ErrIndexExists = errors.New("orm: index already exists")
 	// ErrNotTransient：对没有声明 transient 的模型调用 VacuumTransient。
 	ErrNotTransient = errors.New("orm: model is not transient")
 	// ErrRequired：写入缺了必填字段。
