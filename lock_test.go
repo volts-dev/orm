@@ -169,6 +169,7 @@ func TestForUpdate_OnAggregate_IsRejected(t *testing.T) {
 // sqlite 上加锁读要能正常跑完（降级为警告），且 SQL 里不能出现 FOR UPDATE
 // ——sqlite 不认这个语法，拼进去整条查询就废了。
 func TestForUpdate_SQLite_DegradesWithoutBreakingSQL(t *testing.T) {
+	skipUnlessDialect(t, "sqlite")
 	o := newLockOrm(t)
 
 	sess := o.NewSession()

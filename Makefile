@@ -18,10 +18,14 @@ test-db-down:
 test-sqlite:
 	@ORM_TEST_DB=sqlite $(GO) test . -count=1 -run '$(MATRIX)'
 
+# PG / MySQL 上还有已知失败（P2 / P3 在修），对着 test/baseline/<方言>.txt 比：只有新失败才算红。
+# 修好一批之后：make test-mysql BASELINE_UPDATE=--update
 test-postgres:
-	@ORM_TEST_DB=postgres $(GO) test . -count=1 -run '$(MATRIX)'
+	@ORM_TEST_DB=postgres $(GO) test . -count=1 -v -run '$(MATRIX)' > .matrix-postgres.log 2>&1; \
+	python3 test/matrix_check.py .matrix-postgres.log test/baseline/postgres.txt $(BASELINE_UPDATE)
 
 test-mysql:
-	@ORM_TEST_DB=mysql $(GO) test . -count=1 -run '$(MATRIX)'
+	@ORM_TEST_DB=mysql $(GO) test . -count=1 -v -run '$(MATRIX)' > .matrix-mysql.log 2>&1; \
+	python3 test/matrix_check.py .matrix-mysql.log test/baseline/mysql.txt $(BASELINE_UPDATE)
 
 test-matrix: test-sqlite test-postgres test-mysql

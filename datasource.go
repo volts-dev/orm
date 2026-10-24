@@ -102,16 +102,17 @@ func (self *TDataSource) toString() (string, error) {
 	switch strings.ToLower(self.DbType) {
 	case "mysql":
 		if self.Host[0] == '/' { // looks like a unix socket
-			s = fmt.Sprintf("%s:%s@unix(%s)/%s?charset=utf8&parseTime=true",
+			s = fmt.Sprintf("%s:%s@unix(%s)/%s?charset=utf8mb4&parseTime=true",
 				self.UserName, self.Password, self.Host, self.DbName)
 		} else {
-			s = fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8&parseTime=true",
-				self.UserName, self.Password, self.Host, self.DbName)
+			// utf8mb4：MySQL 的 utf8 是 utf8mb3，存不了 emoji 与部分生僻字（写入报 1366 或被截断）。
+			s = fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=true",
+				self.UserName, self.Password, self.hostWithPort(), self.DbName)
 		}
 
 	case "postgres":
 		s = fmt.Sprintf("postgres://%s:%s@%s/%s?%s",
-			url.QueryEscape(self.UserName), url.QueryEscape(self.Password), self.postgresHost(), self.DbName, self.postgresQuery())
+			url.QueryEscape(self.UserName), url.QueryEscape(self.Password), self.hostWithPort(), self.DbName, self.postgresQuery())
 	case "sqlite", "sqlite3":
 		s = self.DbName
 	default:
@@ -121,11 +122,12 @@ func (self *TDataSource) toString() (string, error) {
 	return s, nil
 }
 
-// postgresHost 返回连接串里的 host[:port]。
+// hostWithPort 返回连接串里的 host[:port]（postgres 与 mysql 共用）。
 //
 // Host 里已经带端口（本仓的配置一直写成 "localhost:5432"）就原样用；不带时补上 Port。
-// 此前 Port 字段被整个忽略——Host 不带端口时连的永远是 5432，改 Port 没有任何效果。
-func (self *TDataSource) postgresHost() string {
+// 此前 Port 字段被整个忽略——Host 不带端口时 PG 连的永远是 5432；MySQL 同样（2026-10-24：
+// 方言矩阵把测试库开在 33306，ORM 却连去了本机 3306 上另一个 MySQL）。
+func (self *TDataSource) hostWithPort() string {
 	host := self.Host
 	if host == "" || host[0] == '/' { // unix socket 目录：URL 形式表达不了端口，原样交出去
 		return host

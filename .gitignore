@@ -18,3 +18,4 @@ test/*.db-wal
 # Editor swap files
 *.swp
 *~
+.matrix-*.log

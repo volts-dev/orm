@@ -207,3 +207,28 @@ func TestRelaxTimeouts_DialectAndTransactionRules(t *testing.T) {
 		t.Fatalf("sqlite 上应当是空操作: %v", err)
 	}
 }
+
+// MySQL 连接串：Host 不带端口时补上 Port（此前被忽略，恒连 3306），字符集 utf8mb4。
+func TestDataSource_MySQLConnString(t *testing.T) {
+	cases := []struct {
+		name string
+		ds   TDataSource
+		want string
+	}{
+		{"host 不带端口时用 Port", TDataSource{DbType: "mysql", DbName: "t", Host: "127.0.0.1", Port: "33306", UserName: "root", Password: "x"},
+			"root:x@tcp(127.0.0.1:33306)/t?charset=utf8mb4&parseTime=true"},
+		{"host 自带端口原样用", TDataSource{DbType: "mysql", DbName: "t", Host: "db:3307", Port: "33306", UserName: "root"},
+			"root:@tcp(db:3307)/t?charset=utf8mb4&parseTime=true"},
+		{"Port 没给：补默认的 3306", TDataSource{DbType: "mysql", DbName: "t", Host: "db", UserName: "root"},
+			"root:@tcp(db:3306)/t?charset=utf8mb4&parseTime=true"},
+	}
+	for _, c := range cases {
+		got, err := c.ds.toString()
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s:\n got %s\nwant %s", c.name, got, c.want)
+		}
+	}
+}

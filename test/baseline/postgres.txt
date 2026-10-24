@@ -1,0 +1,7 @@
+# postgres 上方言矩阵的已知失败（MySQL 兼容 P0 基线，2026-10-24）。修好一个删一行；make test-postgres BASELINE_UPDATE=--update 重生成。
+TestAddField_TitleAndHelpKeepParensAndApostrophes
+TestDelete_QuotesTableAndFieldNames
+TestDelete_RoundtripAfterReservedWordTable
+TestGroupBy_InjectionFieldIgnored
+TestReadGroup_AggregatesUseCallerOperators
+TestStatementReset_GroupByAndSortDoNotLeak
