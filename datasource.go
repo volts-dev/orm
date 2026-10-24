@@ -120,10 +120,16 @@ func (self *TDataSource) toString() (string, error) {
 	return s, nil
 }
 
-// MySQLSqlMode 是 ORM 连 MySQL 时固定发的 sql_mode（MySQL 8.0 社区版的默认值）。显式写上是因为
-// 实例上的默认值靠不住——阿里云 RDS 的默认 sql_mode 与社区版不同，宽松模式下超长值被**截断**、
-// 非法日期落成 0000-00-00，都只是一条警告。Params["sql_mode"] 可以整个换掉它。
-const MySQLSqlMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+// MySQLSqlMode 是 ORM 连 MySQL 时固定发的 sql_mode：MySQL 8.0 社区版的默认值，加上 ANSI 模式里与 PG 对齐的两项。
+// 显式写上是因为实例上的默认值靠不住——阿里云 RDS 的默认 sql_mode 与社区版不同，宽松模式下超长值被**截断**、
+// 非法日期落成 0000-00-00，都只是一条警告。Params["sql_mode"] 可以整个换掉它（换的话这两项要自己带上）。
+//
+//   - ANSI_QUOTES：双引号按 SQL 标准是标识符（与 PG 一致）。orm 内部拼 SQL 以 `"表"."列"` 为约定，各模块
+//     手写的 SQL 也是这么写的；2026-10-25 定为**永久的连接约定**，不是过渡补丁（不开时 orm 的 MySQL 用例
+//     挂 145 条）。代价只是：绕开 orm、用默认模式手工执行这些 SQL 时要自己开。
+//   - PIPES_AS_CONCAT：`||` 是字符串拼接（与 PG 一致）。MySQL 默认把它当逻辑或——`'a' || 'b'` 不报错，
+//     悄悄得 0，照 PG 写的拼接全成了静默错值。
+const MySQLSqlMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ANSI_QUOTES,PIPES_AS_CONCAT"
 
 // mysqlQuery 拼 MySQL 连接串的查询部分（键按字典序，同一份配置逐字节稳定）。
 //
