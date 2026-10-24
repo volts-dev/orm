@@ -39,7 +39,7 @@ type idmItem struct {
 
 func setupIdm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "idm.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "idm.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

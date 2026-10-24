@@ -34,7 +34,7 @@ type CycleBModel struct {
 //
 // 实测查询数：2（顶层读 cycle_a + 一次子读 cycle_b），不随环长增加。
 func TestClassicReadOnCyclicRelationTerminates(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

@@ -87,7 +87,7 @@ func relGroupFullName(ctx *TFieldContext) error {
 // Select 的顺序就是 OnRead 的顺序（不点名时才走随机的 GetFields），所以两个顺序各跑
 // 一遍：一遍 getter 拿到裸外键，一遍拿到 many2one 归一后的 map。两遍必须给同一个答案。
 func TestGetterReadsM2OColumnAfterItsOwnOnRead(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
@@ -135,7 +135,7 @@ func TestGetterReadsM2OColumnAfterItsOwnOnRead(t *testing.T) {
 // TestManyToOneAcceptsClassicShapedIds 不经过 read，直接把经典形态喂给关系入口。
 // 上面那个用例依赖字段顺序，这个不依赖任何顺序，坏了一定红。
 func TestManyToOneAcceptsClassicShapedIds(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

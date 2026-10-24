@@ -39,7 +39,7 @@ type (
 // NULL，形态不对就测不到这个 bug。
 func setupIsNull(t *testing.T) (*TOrm, int64) {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "isnull.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "isnull.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

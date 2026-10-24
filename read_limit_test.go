@@ -43,7 +43,7 @@ type rlLine struct {
 // **其中 7 张单一行明细都没有**——不是末尾被截断，是整条记录的关系字段整个空掉，
 // 谁空取决于数据库返回顺序。无错误、无告警，调用方也没有任何办法传 limit 进去。
 func TestRead_O2MSubReadIsNotCapped(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "rl.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "rl.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
@@ -133,7 +133,7 @@ type rlRec struct {
 
 func newRlOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "rlrec.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "rlrec.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
@@ -220,7 +220,7 @@ func (self *rlHooked) BeforeSession(session *TSession) (*TSession, error) {
 }
 
 func TestRead_HookInjectedConditionCounts(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "rlhook.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "rlhook.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

@@ -56,7 +56,7 @@ type srchFixture struct {
 
 func setupSearcher(t *testing.T) *srchFixture {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "srch.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "srch.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

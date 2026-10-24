@@ -24,7 +24,7 @@ type TmnHost struct {
 }
 
 func TestMapping_MemberNameContainingTModelIsAField(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "tmn.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "tmn.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)

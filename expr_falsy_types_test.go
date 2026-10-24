@@ -69,7 +69,7 @@ type FalsyRow struct {
 // 落 NULL；界面清空文本框落 ”；数值控件清空落 0）。
 func setupFalsyTypes(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "falsy.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "falsy.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

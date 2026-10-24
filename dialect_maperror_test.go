@@ -198,7 +198,7 @@ func TestSqliteMapError_Nil(t *testing.T) {
 // session.Exec → _exec → dialect.MapError → ormerr.ErrDuplicate
 // 使用 raw SQL 直接插入重复主键，绕过 ORM 的 ID 自动生成逻辑
 func TestMapError_Duplicate_Integration(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New ORM: %v", err)

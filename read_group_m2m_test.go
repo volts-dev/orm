@@ -25,7 +25,7 @@ type rgmLine struct {
 }
 
 func TestReadGroup_ByMany2Many(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "rgm.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "rgm.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

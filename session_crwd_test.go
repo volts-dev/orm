@@ -959,7 +959,7 @@ func Test_validateValues_UnsupportedTypeReturnsError(t *testing.T) {
 
 func setupIntegrationOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

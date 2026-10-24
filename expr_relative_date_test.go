@@ -48,7 +48,7 @@ type RelDateRow struct {
 // 今天 / 10 天前（一年窗口内）/ 400 天前 / 3 年前（窗口外）。
 func setupRelDate(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "reldate.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "reldate.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

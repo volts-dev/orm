@@ -56,7 +56,7 @@ func TestDataSource_PostgresConnString(t *testing.T) {
 
 func newPooledOrm(t *testing.T, opts ...Option) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(append([]Option{WithDataSource(ds)}, opts...)...)
 	if err != nil {
 		t.Fatalf("New: %v", err)

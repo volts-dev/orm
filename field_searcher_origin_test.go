@@ -55,7 +55,7 @@ type OrgLine struct {
 }
 
 func TestSearcher_OriginSurvivesDottedPath(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "org.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "org.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

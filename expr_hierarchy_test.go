@@ -51,7 +51,7 @@ type hrFixture struct {
 
 func newHierarchyFixture(t *testing.T) *hrFixture {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "hier.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "hier.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
@@ -277,7 +277,7 @@ func TestHierarchy_CycleTerminates(t *testing.T) {
 
 // 父链接推断不出来时必须报错并说清原因，绝不静默返回全表。
 func TestHierarchy_AmbiguousParentIsRejected(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "amb.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "amb.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +310,7 @@ func TestHierarchy_AmbiguousParentIsRejected(t *testing.T) {
 // 整整打不开；同一条 `partner_id child_of` 规则在 kylin 的 /my/invoices 一切正常。
 // "别的页面好好的"正是这类 bug 的指纹。
 func TestHierarchy_ReflectedParentColumnWithoutRelationMeta(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "reflected.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "reflected.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +358,7 @@ type hrReflected struct {
 // 放宽只针对"没有关系元数据可参考"。relation 有值却指向**别的**模型时，
 // parent_id 就真的不是自引用 —— 那才是会产出错树的情形，必须照旧报错。
 func TestHierarchy_ParentIdPointingElsewhereIsStillRejected(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "foreignparent.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "foreignparent.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)
@@ -418,7 +418,7 @@ type hrDept struct {
 }
 
 func TestHierarchy_ChildOfByNameWithoutDeclaredRecName(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "dept.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "dept.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

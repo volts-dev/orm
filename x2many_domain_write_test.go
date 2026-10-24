@@ -87,7 +87,7 @@ type x2mWFixture struct {
 // 生产跑的是 PG，关系表查询走的是手拼 SQL，两种方言都要过。
 func eachX2mBackend(t *testing.T, run func(t *testing.T, f *x2mWFixture)) {
 	t.Run("sqlite", func(t *testing.T) {
-		run(t, setupX2mWrite(t, &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "x2mw.db")}))
+		run(t, setupX2mWrite(t, testDataSource(t, filepath.Join(t.TempDir(), "x2mw.db"))))
 	})
 	t.Run("postgres", func(t *testing.T) {
 		run(t, setupX2mWrite(t, &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432",

@@ -22,7 +22,7 @@ type ssItem struct {
 }
 
 func TestSessionSets_QueryableFiltersAndStamps(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "ss.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "ss.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)

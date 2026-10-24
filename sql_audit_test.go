@@ -19,7 +19,7 @@ type OrderAuditModel struct {
 }
 
 func TestDelete_QuotesTableAndFieldNames(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -53,7 +53,7 @@ func TestDelete_QuotesTableAndFieldNames(t *testing.T) {
 // when the table name is also a SQL reserved word ("order").
 // This exercises the quoting path end-to-end on an in-memory SQLite DB.
 func TestDelete_RoundtripAfterReservedWordTable(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)

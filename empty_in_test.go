@@ -37,7 +37,7 @@ type einItem struct {
 
 func setupEin(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "ein.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "ein.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

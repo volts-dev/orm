@@ -26,7 +26,7 @@ func (m *CreateHookModel) BeforeCreateValues(_ *TSession, rec *dataset.TRecordSe
 
 func setupCreateHookOrm(t *testing.T) *TOrm {
 	t.Helper()
-	o, err := New(WithDataSource(&TDataSource{DbType: "sqlite", DbName: ":memory:"}))
+	o, err := New(WithDataSource(testDataSource(t, ":memory:")))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
 	}

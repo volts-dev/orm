@@ -35,7 +35,7 @@ type (
 )
 
 func TestOneToMany_FieldDomainIsApplied(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "o2mdom.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "o2mdom.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

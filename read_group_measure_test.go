@@ -29,7 +29,7 @@ type (
 
 func setupReadGroup(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "rg.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "rg.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

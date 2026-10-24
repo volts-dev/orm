@@ -53,7 +53,7 @@ var sdModelName string // populated by first setupSoftDeleteOrm call
 
 func setupSoftDeleteOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -250,7 +250,7 @@ func TestSyncModel_MultipleDeletedFieldsRejected(t *testing.T) {
 		ExpiredAt time.Time `field:"datetime() deleted"` // second deleted tag
 	}
 
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)

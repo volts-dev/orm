@@ -1240,17 +1240,36 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 
 		// Run each DDL statement independently — SQLite/MySQL don't support
 		// multi-statement Exec, unnamed CREATE INDEX, or PG's COMMENT ON TABLE.
-		stmts := []string{
-			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s ("%s" %s NOT NULL, "%s" %s NOT NULL, UNIQUE("%s","%s"))`,
-				qualifiedMiddle, id1, sqlType, id2, sqlType, id1, id2),
-			fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON %s ("%s")`,
-				middle_model, id1, qualifiedMiddle, id1),
-			fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_%s_idx" ON %s ("%s")`,
-				middle_model, id2, qualifiedMiddle, id2),
+		createTable := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s ("%s" %s NOT NULL, "%s" %s NOT NULL, UNIQUE("%s","%s"))`,
+			qualifiedMiddle, id1, sqlType, id2, sqlType, id1, id2)
+		indexes := [][2]string{
+			{fmt.Sprintf("%s_%s_idx", middle_model, id1), id1},
+			{fmt.Sprintf("%s_%s_idx", middle_model, id2), id2},
 		}
+		createIndex := func(ix [2]string) string {
+			return fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s ("%s")`, ix[0], qualifiedMiddle, ix[1])
+		}
+		stmts := []string{createTable, createIndex(indexes[0]), createIndex(indexes[1])}
 		if strings.EqualFold(orm.dialect.DBType(), "postgres") {
 			stmts = append(stmts, fmt.Sprintf(`COMMENT ON TABLE %s IS '%s'`,
 				qualifiedMiddle, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model)))
+		}
+		// 表已在（进程重启后的每一次同步）就只补缺的索引，不再发整套 DDL：
+		// 「连续同步两次，第二次一条 DDL 都不发」（sync_resync_ddl_test.go）。IF NOT EXISTS
+		// 虽然幂等，MySQL 却根本没有 CREATE INDEX IF NOT EXISTS，每次启动都报一遍语法错。
+		// 缺索引照补，是为老库上当年没建索引的关联表（此前每次启动的 IF NOT EXISTS 顺手补上了）。
+		if ctx.Session != nil {
+			if q, args := orm.dialect.TableCheckSql(schema, middle_model); q != "" {
+				if ds, err := ctx.Session._query(q, args...); err == nil && ds.Count() > 0 {
+					stmts = stmts[:0]
+					for _, ix := range indexes {
+						iq, iargs := orm.dialect.IndexCheckSql(schema, middle_model, ix[0])
+						if ids, err := ctx.Session._query(iq, iargs...); err != nil || ids.Count() == 0 {
+							stmts = append(stmts, createIndex(ix))
+						}
+					}
+				}
+			}
 		}
 		// DDL 必须走**调用方那条会话**，不能另开连接。
 		//

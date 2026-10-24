@@ -30,7 +30,7 @@ type LockRec struct {
 
 func newLockOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "lock.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "lock.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

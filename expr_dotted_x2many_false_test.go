@@ -87,7 +87,7 @@ type (
 func setupDottedX2m(t *testing.T) *TOrm {
 	t.Helper()
 	// 不能用 :memory:，理由同 expr_x2many_test.go 的 setupX2m。
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "dx.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "dx.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

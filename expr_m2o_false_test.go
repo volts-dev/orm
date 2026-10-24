@@ -62,7 +62,7 @@ type (
 // 空的三种都要走裸 INSERT —— 经 ORM 建记录控制不了落哪一种。
 func setupM2OFalse(t *testing.T) (*TOrm, int64) {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "mfalse.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "mfalse.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

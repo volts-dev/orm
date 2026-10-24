@@ -17,7 +17,7 @@ type BenchModel struct {
 
 func setupBenchOrm(b *testing.B) *TOrm {
 	b.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(b, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		b.Fatalf("orm.New failed: %v", err)

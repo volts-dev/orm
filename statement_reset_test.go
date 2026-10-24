@@ -25,7 +25,7 @@ type srItem struct {
 
 func setupSr(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "sr.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "sr.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)

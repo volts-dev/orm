@@ -40,7 +40,7 @@ type NotDomRec struct {
 // newNotDomOrm 建三条数据：a/b/c，num 分别 1/1/2，kind 分别 x/x/y，flag 分别 真/真/假。
 func newNotDomOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "notdom.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "notdom.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

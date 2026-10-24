@@ -12,7 +12,7 @@ import (
 
 // TestCancelCtx_CreateOnCanceled: WithContext(已取消 ctx).Create() 应立即返回 context.Canceled
 func TestCancelCtx_CreateOnCanceled(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -42,7 +42,7 @@ func TestCancelCtx_CreateOnCanceled(t *testing.T) {
 
 // TestCancelCtx_ReadDeadline: WithContext(timeout ctx).Read() 应返回 DeadlineExceeded 或 ErrTimeout
 func TestCancelCtx_ReadDeadline(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -71,7 +71,7 @@ func TestCancelCtx_ReadDeadline(t *testing.T) {
 
 // TestCancelCtx_BeginDropsCtx: WithContext(已取消 ctx).Begin() 应传播 context，返回 context.Canceled
 func TestCancelCtx_BeginDropsCtx(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -98,7 +98,7 @@ func TestCancelCtx_BeginDropsCtx(t *testing.T) {
 
 // TestDefaultCtx_NoChange: 不调用 WithContext 时使用默认 Background，Create 正常
 func TestDefaultCtx_NoChange(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("New: %v", err)

@@ -47,7 +47,7 @@ func (self *trByBuilder) OnBuildFields() error {
 
 func setupTransient(t *testing.T) *TOrm {
 	t.Helper()
-	o, err := New(WithDataSource(&TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "tr.db")}))
+	o, err := New(WithDataSource(testDataSource(t, filepath.Join(t.TempDir(), "tr.db"))))
 	if err != nil {
 		t.Fatal(err)
 	}

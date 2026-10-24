@@ -28,7 +28,7 @@ type fwProbe struct {
 // ---------- 类型推导 ----------
 
 func TestFloatWidth_TagAndGoTypeTakeTheWider(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

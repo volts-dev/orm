@@ -61,7 +61,7 @@ func (self NsMain) OnBuildFields() error {
 
 func setupNonStoredM2M(t *testing.T) (*TOrm, int64) {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "ns.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "ns.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

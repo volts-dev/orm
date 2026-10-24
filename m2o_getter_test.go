@@ -62,7 +62,7 @@ func m2oGetterMirror(ctx *TFieldContext) error {
 }
 
 func TestNonStoredMany2oneGetterIsComputed(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
@@ -110,7 +110,7 @@ func TestNonStoredMany2oneGetterIsComputed(t *testing.T) {
 // （name）时行回来了，但 getter 拿不到 id，那一格静默为空（vectors 侧 pro.variant 的
 // name 是非存储 getter，`Fields: ["name"]` 读变体回 0 条，2026-09-19）。
 func TestGetterOnlyReadStillSelectsPrimaryKey(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: ":memory:"}
+	ds := testDataSource(t, ":memory:")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)

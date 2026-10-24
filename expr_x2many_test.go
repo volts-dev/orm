@@ -83,7 +83,7 @@ func setupX2m(t *testing.T) *x2mFixture {
 	t.Helper()
 	// 不能用 :memory: —— sqlite 的内存库是**每连接一个**，而 SyncModel 在事务里建表、
 	// m2m 关联表却走 orm.Exec 另开连接，两边落在不同的库上，表看着建了却查不到。
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "x2m.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "x2m.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
@@ -646,7 +646,7 @@ type (
 // 护栏也拦不住。当时之所以"通过"，靠的是 `::text` 在 sqlite 上报语法错、恰好落进
 // 本用例接受错误的那条分支；`::text` 改成按方言生成之后，这个假通过就露馅了。
 func TestM2O_NameOperand_ComodelWithoutNameColumn(t *testing.T) {
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "noname.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "noname.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)

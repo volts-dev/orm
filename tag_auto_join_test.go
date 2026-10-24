@@ -39,7 +39,7 @@ func TestTagAutoJoin_KnownAndInert(t *testing.T) {
 		t.Fatal("auto_join 没有标签处理器：每个写了它的字段注册时都会报 unknown tag")
 	}
 
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "aj.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "aj.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)

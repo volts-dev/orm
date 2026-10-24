@@ -24,7 +24,7 @@ type (
 
 func setupDeleteObserverOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "sqlite", DbName: filepath.Join(t.TempDir(), "dob.db")}
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "dob.db"))
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Fatal(err)
