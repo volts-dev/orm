@@ -628,6 +628,10 @@ func (db *mysql) GetSqlType(field IField) string {
 	case Uuid:
 		res = Varchar
 		c.size = 40
+	case Vector:
+		// MySQL 8.0 没有向量类型（9.0 才有 VECTOR）。先落 JSON：pgvector 的文本字面量 [a,b,c] 本身就是合法的
+		// JSON 数组，读写原样往返；向量检索（<=>、HNSW）在 MySQL 上不可用，归 MySQL 兼容 P6。
+		res = Json
 	case Json, Jsonb:
 		// MySQL 没有 jsonb，JSON 列本身已是解析后的二进制存储；
 		// 但它没有 GIN 这类通用倒排索引，`@>` 的下推能力在这里不存在。

@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -47,5 +48,47 @@ func TestVector_ReverseLookupCreatesField(t *testing.T) {
 	}
 	if _, ok := SqlTypes[Vector]; !ok {
 		t.Fatalf("SqlTypes lacks Vector: parsePgColumn would reject the column")
+	}
+}
+
+// MySQL 上向量列落 JSON（MySQL 8.0 没有向量类型）：读写原样往返、重启不发 DDL。PG 要 pgvector 扩展，
+// docker 里的测试 PG 没装，这里不跑。
+type VecRec struct {
+	TModel `table:"name('vec_rec')"`
+	Id     int64     `field:"pk autoincr"`
+	Emb    []float32 `field:"vector() size(3)"`
+}
+
+func TestVector_RoundTripWithoutPgvector(t *testing.T) {
+	skipUnlessDialect(t, "mysql", "sqlite")
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "vec.db"))
+	for round := 0; round < 2; round++ {
+		o, err := New(WithDataSource(ds))
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		rec := &ddlRecorder{}
+		o.AddHook(rec)
+		if _, err := o.SyncModel("", new(VecRec)); err != nil {
+			t.Fatalf("SyncModel: %v", err)
+		}
+		if round == 1 && len(rec.ddl) > 0 {
+			t.Errorf("重启后仍发 DDL：%q", rec.ddl)
+		}
+		if round == 0 {
+			ids, err := o.Model("vec.rec").Create(map[string]any{"emb": []float32{0.5, -1, 2.25}})
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			ds2, err := o.Model("vec.rec").Ids(ids...).Read()
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			got, ok := ds2.FieldByName("emb").AsInterface().([]float32)
+			if !ok || len(got) != 3 || got[0] != 0.5 || got[1] != -1 || got[2] != 2.25 {
+				t.Errorf("读回 %#v", ds2.FieldByName("emb").AsInterface())
+			}
+		}
+		o.Close()
 	}
 }
