@@ -190,6 +190,12 @@ func (self *TOrm) Config() *Config {
 	return self.config
 }
 
+// Dialect 是这个 ORM 连的库的方言。上层手写 SQL 时用它取方言相关的片段（Quoter、TextOf、Features……），
+// 不要比 DBType() 的字符串（MySQL 兼容，见 docs/mysql）。
+func (self *TOrm) Dialect() IDialect {
+	return self.dialect
+}
+
 // DriverName return the current sql driver's name
 func (self *TOrm) DriverName() string {
 	return self.dialect.DriverName()

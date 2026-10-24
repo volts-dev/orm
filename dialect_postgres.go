@@ -909,6 +909,9 @@ func (db *postgres) companyCast(e string, field IField) string {
 	return "(" + e + ")::" + db.valueSqlType(field)
 }
 func (db *postgres) companyAsText(expr string) string { return "(" + expr + ")::text" }
+
+// TextOf：PG 的 ::text 本身就是口径（布尔 'true' / 'false'）。
+func (db *postgres) TextOf(expr string, _ IField) string { return "(" + expr + ")::text" }
 func (db *postgres) companySetSlot(col, slot string, null bool) string {
 	v := "?::jsonb"
 	if null {

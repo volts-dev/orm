@@ -127,6 +127,11 @@ type (
 		// 这里截得与服务端一字不差，现有库里的名字照样对得上）；MySQL 64 字符（超了 1059，截短后拼 8 位
 		// 哈希，保证不撞）；SQLite 不限。所有把索引名写进 SQL / 拿去问库的地方都要过它。
 		FitIdentifier(name string) string
+		// TextOf 是 expr（一列或一个表达式）的文本形式，口径按 PG 的 `::text`：布尔是 'true' / 'false'，
+		// 整数是十进制，空值仍是 NULL。field 是 expr 那一列的字段（不知道时传 nil，按普通值转）；布尔要靠它认——
+		// MySQL / SQLite 的布尔列是整数，直接 CAST 出来是 '1' / '0'。日期时间、小数的文本格式各库不同，
+		// 别拿它们的文本去比。
+		TextOf(expr string, field IField) string
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用
@@ -239,6 +244,29 @@ func (db *TDialect) DropPrimaryKeySql(quotedTable, table string) string { return
 func (db *TDialect) BindTime(t time.Time) any { return t }
 
 func (db *TDialect) FitIdentifier(name string) string { return name }
+
+func (db *TDialect) TextOf(expr string, field IField) string {
+	if isBoolField(field) {
+		return boolText(expr)
+	}
+	return "CAST((" + expr + ") AS TEXT)"
+}
+
+func isBoolField(field IField) bool {
+	if field == nil {
+		return false
+	}
+	switch field.SQLType().Name {
+	case Bool, Boolean:
+		return true
+	}
+	return false
+}
+
+// boolText：整数存的布尔转成 'true' / 'false'（NULL 仍是 NULL）。
+func boolText(expr string) string {
+	return "(CASE WHEN (" + expr + ") IS NULL THEN NULL WHEN (" + expr + ") <> 0 THEN 'true' ELSE 'false' END)"
+}
 
 // fitIdentifierHashed：超过 max 个字符时截短并拼 "_" + 8 位 fnv32a 哈希（对整名求，不同长名不撞）。
 func fitIdentifierHashed(name string, max int) string {

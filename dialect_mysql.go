@@ -421,6 +421,14 @@ func (db *mysql) companyCast(e string, field IField) string {
 	return "(" + e + ")"
 }
 func (db *mysql) companyAsText(expr string) string { return "CAST((" + expr + ") AS CHAR)" }
+
+// TextOf：布尔列是 tinyint(1)，CAST 出来是 '1' / '0'，改写成 PG 的 'true' / 'false'。
+func (db *mysql) TextOf(expr string, field IField) string {
+	if isBoolField(field) {
+		return boolText(expr)
+	}
+	return "CAST((" + expr + ") AS CHAR)"
+}
 func (db *mysql) companySetSlot(col, slot string, null bool) string {
 	v := "CAST(? AS JSON)"
 	if null {
