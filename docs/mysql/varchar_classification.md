@@ -16,3 +16,20 @@ Odoo Char + 用途像长内容（末段是 url/link/domain/context/description/�
 其余 → 255。Odoo 定义来自 `odoo_fields.py`（AST 解析 odoo-19.0 与 saas-19.4 社区源码，展开 _inherit / _inherits）+ 企业版 fields_get 抓取（ai / knowledge / social）。
 
 重跑：`python3 odoo_fields.py odoo19.json <odoo>/odoo/addons <odoo>/addons <saas>/addons`，再按 classify.py 文件头准备 ours.tsv / mf.tsv / our_models.txt（SQL 见会话记录）。
+
+## 落地（2026-10-24）
+
+「TEXT」那一栏没有一律写成 `text()`：vectors 按 TypeName 下发字段类型，`text` 在前端是多行文本框，
+一百多个 Odoo 里的单行 Char（网址、令牌、domain……）会全变样。所以分两种：
+
+| 写法 | 字段数 | 含义 |
+|---|---|---|
+| `varchar() unbounded`（builder `.Unbounded()`，贡献字段 `FieldSpec.Unbounded`） | 116 | 字段类型仍是 char；PG / SQLite 是不带长度的 VARCHAR，MySQL 落 TEXT |
+| `text()` | 9 | Odoo 原本就是 Text，移植时标错——改回来，界面跟 Odoo 一样是多行框 |
+
+剔除 5 个：catalog.value.name（用户定改数据、留 255，catalog 8f0f30c）；三个 selection 字段
+（documents.document.access_via_link、sys.tenant.archive.reason、sys.tenant.restore.wizard.reason——按名字
+误判成长内容，取值最长 12）；mail.message.reaction.content（一个表情，最长 1 字符）。
+
+PG 上这些改动不发 DDL（orm 不改已有列的类型），现有库不受影响；只在 MySQL 新建表时生效。
+MySQL 的 TEXT 列默认值写成表达式 `DEFAULT ('…')`（dialect_mysql.go DefaultValueSql）。
