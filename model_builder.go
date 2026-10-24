@@ -441,6 +441,18 @@ func (self *fieldStatment) Size(v int) *fieldStatment {
 	return self
 }
 
+// Unbounded 同标签 unbounded：不限长的 char，MySQL 上落 TEXT，字段类型不变。只认 char 一族的字段。
+func (self *fieldStatment) Unbounded() *fieldStatment {
+	switch f := self.field.Base(); f.SQLType().Name {
+	case Varchar, NVarchar, Char:
+		f.unbounded = true
+		f.size = 0
+	default:
+		log.Errf("orm: %s: Unbounded() 只用在 char 字段上，这里是 %s", f.Name(), f.SQLType().Name)
+	}
+	return self
+}
+
 // 字段的帮助描述
 func (self *fieldStatment) Help(v string) *fieldStatment {
 	self.field.Base().description = v

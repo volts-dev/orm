@@ -177,3 +177,36 @@ func TestUnbounded_RejectsNonCharField(t *testing.T) {
 		t.Fatalf("int 字段写 unbounded 应报错，得 %v", err)
 	}
 }
+
+// builder 写法（b.VarcharField(x).Unbounded()）与标签同义。
+type UnboundedBuilt struct {
+	TModel `table:"name('unbounded_built')"`
+	Id     int64 `field:"pk autoincr"`
+}
+
+func (self UnboundedBuilt) OnBuildFields() error {
+	if err := self.TModel.OnBuildFields(); err != nil {
+		return err
+	}
+	self.Builder().VarcharField("hook_url").Unbounded()
+	return nil
+}
+
+func TestUnbounded_Builder(t *testing.T) {
+	o, err := New(WithDataSource(testDataSource(t, filepath.Join(t.TempDir(), "ubb.db"))))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	if _, err := o.SyncModel("", new(UnboundedBuilt)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	m, _ := o.GetModel("unbounded.built")
+	if f := m.GetFieldByName("hook_url"); f == nil || !f.Base().unbounded || f.TypeName() != Varchar {
+		t.Fatalf("builder 的 Unbounded() 没生效：%v", f)
+	}
+	long := strings.Repeat("h", 300)
+	if _, err := o.Model("unbounded.built").Create(map[string]any{"hook_url": long}); err != nil {
+		t.Fatalf("300 字符: %v", err)
+	}
+}
