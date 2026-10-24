@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/volts-dev/orm/core"
@@ -365,6 +366,34 @@ func (db *TDialect) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)%s", unique,
 		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName),
 		indexKeyParts(quoter, index), indexWhereClause(index))
+}
+
+// indexColumnChecker：要看列类型才判得了的索引限制（MySQL：JSON / TEXT / BLOB 列不能直接建索引）。
+// skip 为真＝这条非唯一索引在本方言上不建（只影响速度、不影响结果），由 planIndex 告警一次。
+type indexColumnChecker interface {
+	indexOnColumns(model IModel, index *TIndex) (skip bool, why string, err error)
+}
+
+var skippedIndexWarned sync.Map
+
+// planIndex 是建索引前的统一判定：方言表达不了就报错（ValidateIndex），只是建不了而不影响语义的
+// 非唯一索引就跳过（skip=true）。
+func planIndex(d IDialect, model IModel, tableName string, index *TIndex) (skip bool, err error) {
+	if err := d.ValidateIndex(index); err != nil {
+		return false, err
+	}
+	c, ok := d.(indexColumnChecker)
+	if !ok || model == nil {
+		return false, nil
+	}
+	skip, why, err := c.indexOnColumns(model, index)
+	if skip {
+		key := tableName + "." + index.GetName(tableName)
+		if _, dup := skippedIndexWarned.LoadOrStore(key, true); !dup {
+			log.Warnf("Table <%s> index %s 不建：%s（只影响查询速度，结果不变）", tableName, index.GetName(tableName), why)
+		}
+	}
+	return skip, err
 }
 
 // ValidateIndex 默认实现：表达式与部分索引都是标准 SQL，PG/SQLite 原生支持。

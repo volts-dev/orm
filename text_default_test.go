@@ -1,10 +1,12 @@
 package orm
 
 import (
+	stdErrors "errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	ormerr "github.com/volts-dev/orm/errors"
 	"github.com/volts-dev/utils"
 )
 
@@ -208,5 +210,63 @@ func TestUnbounded_Builder(t *testing.T) {
 	long := strings.Repeat("h", 300)
 	if _, err := o.Model("unbounded.built").Create(map[string]any{"hook_url": long}); err != nil {
 		t.Fatalf("300 字符: %v", err)
+	}
+}
+
+// MySQL 上 JSON / TEXT 列不能直接建索引（3152 / 1170）：非唯一的跳过（只影响速度），唯一的报错；
+// PG / SQLite 照建。kylin 在 MySQL 上卡在 pro.tmpl.product_properties 的索引（PG 上是 GIN）。
+type LobIndexRec struct {
+	TModel `table:"name('lob_index_rec')"`
+	Id     int64  `field:"pk autoincr"`
+	Props  string `field:"json() index"`
+	Note   string `field:"text() index"`
+	Name   string `field:"varchar() index"`
+}
+
+type LobUniqueRec struct {
+	TModel `table:"name('lob_unique_rec')"`
+	Id     int64  `field:"pk autoincr"`
+	Note   string `field:"text() unique"`
+}
+
+func TestIndexOnLobColumns(t *testing.T) {
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "lob.db"))
+	for round := 0; round < 2; round++ {
+		o, err := New(WithDataSource(ds))
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		rec := &ddlRecorder{}
+		o.AddHook(rec)
+		if _, err := o.SyncModel("", new(LobIndexRec)); err != nil {
+			t.Fatalf("第 %d 次 SyncModel: %v", round+1, err)
+		}
+		if round == 1 && len(rec.ddl) > 0 {
+			t.Errorf("重启后仍发 DDL：%q", rec.ddl)
+		}
+		s := o.NewSession()
+		idx, err := o.dialect.GetIndexes(s.context, s, "lob_index_rec")
+		s.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 3
+		if ds.DbType == "mysql" {
+			want = 1 // 只有 name 那条
+		}
+		if len(idx) != want {
+			t.Errorf("索引数 %d，想要 %d：%v", len(idx), want, idx)
+		}
+		o.Close()
+	}
+	if ds.DbType == "mysql" {
+		o, err := New(WithDataSource(ds))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer o.Close()
+		if _, err := o.SyncModel("", new(LobUniqueRec)); !stdErrors.Is(err, ormerr.ErrIndexUnsupported) {
+			t.Errorf("TEXT 列上的唯一索引应报 ErrIndexUnsupported，得 %v", err)
+		}
 	}
 }

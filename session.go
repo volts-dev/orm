@@ -1108,7 +1108,7 @@ func (self *TSession) _addIndex(tableName, idxName string) error {
 		return nil
 	}
 
-	if err := self.orm.dialect.ValidateIndex(index); err != nil {
+	if skip, err := planIndex(self.orm.dialect, self.Statement.Model, tableName, index); err != nil || skip {
 		return err
 	}
 	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
@@ -1136,7 +1136,7 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 		return nil
 	}
 
-	if err := self.orm.dialect.ValidateIndex(index); err != nil {
+	if skip, err := planIndex(self.orm.dialect, self.Statement.Model, tableName, index); err != nil || skip {
 		return err
 	}
 	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)

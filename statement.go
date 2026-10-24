@@ -498,8 +498,10 @@ func (self *TStatement) generate_unique() ([]string, error) {
 	var sqls = make([]string, 0, len(indexes))
 	for _, index := range indexes {
 		if index.Type == UniqueType {
-			if err := self.session.orm.dialect.ValidateIndex(index); err != nil {
+			if skip, err := planIndex(self.session.orm.dialect, self.Model, self.Model.Table(), index); err != nil {
 				return nil, err
+			} else if skip {
+				continue
 			}
 			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Schema, self.Model.Table(), index)
 			sqls = append(sqls, sql)
@@ -538,8 +540,10 @@ func (self *TStatement) generate_index() ([]string, error) {
 			}
 
 			// 方言表达不了（MySQL 老版本的表达式索引）就在这里拒绝，而不是拼一条语义不同的 DDL。
-			if err := self.session.orm.dialect.ValidateIndex(index); err != nil {
+			if skip, err := planIndex(self.session.orm.dialect, self.Model, tableName, index); err != nil {
 				return nil, err
+			} else if skip {
+				continue
 			}
 			sql := self.session.orm.dialect.CreateIndexUniqueSql(self.session.Schema, tableName, index)
 			sqls = append(sqls, sql)

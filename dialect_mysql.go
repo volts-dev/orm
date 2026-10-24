@@ -255,6 +255,26 @@ func (db *mysql) ValidateIndex(index *TIndex) error {
 	return nil
 }
 
+// indexOnColumns：JSON 列不能直接建索引（3152，只能对某个 JSON 路径建生成列索引）；TEXT / BLOB 列要前缀长度
+// （1170）。PG 上这类索引是 GIN（properties 的 @>）或普通 btree——MySQL 上非唯一的跳过，唯一的报错
+// （按前缀判唯一会改变语义）。
+func (db *mysql) indexOnColumns(model IModel, index *TIndex) (bool, string, error) {
+	for _, col := range index.Cols {
+		f := model.GetFieldByName(col)
+		if f == nil {
+			continue
+		}
+		if t := db.GetSqlType(f); mysqlLobType(t) {
+			if index.Type == UniqueType {
+				return false, "", ormerr.New(ormerr.ErrIndexUnsupported, fmt.Errorf(
+					"unique index %s on %s column %s: MySQL cannot index it without a prefix, and a prefix changes uniqueness", index.Name, t, col))
+			}
+			return true, fmt.Sprintf("列 %s 是 %s，MySQL 不能直接建索引", col, t), nil
+		}
+	}
+	return false, "", nil
+}
+
 // CreateIndexUniqueSql（MySQL）：
 //
 //   - 表达式键部分 → functional key part `((expr))`。
