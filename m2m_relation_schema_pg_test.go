@@ -26,14 +26,14 @@ type relSchemaTenant struct {
 // 按 sys_user_id 过滤报 Invalid field（平台用户列表的「租户数」恒为 0）；按 tenant_id 过滤
 // 碰巧能跑，只因为每个模型都有 tenant_id —— 看起来一半好一半坏。
 func TestM2MRelationModel_KeyFieldsWhenTableOnlyInOtherSchema(t *testing.T) {
-	bootstrap := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	bootstrap := pgDataSource(t, "test_orm")
 	boot, err := New(WithDataSource(bootstrap))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
 	// 独占一个库（同 field_runtime_pg_test.go）：建模型会反查整库，与别的用例共用 test_orm 会互相撞。
 	boot.Exec(`CREATE DATABASE test_orm_relschema`)
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_relschema", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_relschema")
 
 	cleaner, err := New(WithDataSource(ds))
 	if err != nil {

@@ -17,7 +17,7 @@ import (
 
 func pgPoolOrm(t testing.TB, tune func(*TDataSource), opts ...Option) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addfield")
 	if tune != nil {
 		tune(ds)
 	}

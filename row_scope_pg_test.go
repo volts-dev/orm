@@ -262,8 +262,11 @@ func TestPG_RowScope_RowLevelSecurityWithTwoRoles(t *testing.T) {
 		WithRowScopeHook(log.add),
 		// 一条连接：下面"设过又清空的连接"那一支拿到的必然是用过的那条。
 		WithMaxOpenConns(1), WithAcquireTimeout(5*time.Second),
-		WithPrivilegedDataSource(&TDataSource{DbType: "postgres", Host: "localhost", Port: "5432",
-			UserName: owner, Password: pass, DbName: "test_orm_addfield", SSLMode: "disable"}, 2))
+		WithPrivilegedDataSource(func() *TDataSource {
+			ds := pgDataSource(t, "test_orm_addfield")
+			ds.UserName, ds.Password = owner, pass
+			return ds
+		}(), 2))
 	if !o.HasPrivilegedPool() {
 		t.Fatal("没开出特权池")
 	}

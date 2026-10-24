@@ -23,8 +23,8 @@ type bfTarget struct {
 	Name   string `field:"varchar(32)"`
 }
 
-func bfSource() *TDataSource {
-	return &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+func bfSource(t testing.TB) *TDataSource {
+	return pgDataSource(t, "test_orm_addfield")
 }
 
 // bfOrm 起一个同步好 bf_owner / bf_target 的 orm（冻结后）。reset 为真时先清场 ——
@@ -32,7 +32,7 @@ func bfSource() *TDataSource {
 func bfOrm(t *testing.T, reset bool) (*TOrm, string, string) {
 	t.Helper()
 	if reset {
-		cleaner, err := New(WithDataSource(bfSource()))
+		cleaner, err := New(WithDataSource(bfSource(t)))
 		if err != nil {
 			t.Skipf("postgres unavailable: %v", err)
 		}
@@ -48,7 +48,7 @@ func bfOrm(t *testing.T, reset bool) (*TOrm, string, string) {
 		}
 		cleaner.Close()
 	}
-	o, err := New(WithDataSource(bfSource()))
+	o, err := New(WithDataSource(bfSource(t)))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestOnDelete_Postgres_ForeignRefs(t *testing.T) {
 	}
 	// bf_foreign 不是本 orm 注册的模型：模拟另一个进程的属主表。由**另一个** orm 建 ——
 	// 另一个进程运行期补的列，本进程的库结构快照里没有，列存不存在要直接问库。
-	other, err := New(WithDataSource(bfSource()))
+	other, err := New(WithDataSource(bfSource(t)))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -102,4 +103,73 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// pgDataSource 给只在 PG 上成立的用例用（行级安全、schema 隔离、jsonb 上的公司相关字段……）。
+//
+//	ORM_TEST_DB 没设：照旧连本机 localhost:5432 的共享测试库 legacyName——go test ./... 的老行为不变；
+//	ORM_TEST_DB=postgres：连 docker 里的测试 PG（ORM_TEST_PG），库名同 legacyName，进程内第一次用到时建；
+//	sqlite / mysql：跳过。
+//
+// 同一个 legacyName 多次调用拿到的是**同一个库**——这些用例常开两个 TOrm（一个清场、一个被测），
+// 清场靠用例自己的 DROP TABLE，和在本机共享库上时一样。
+func pgDataSource(t testing.TB, legacyName string) *TDataSource {
+	t.Helper()
+	host, port, user, pass := pgTarget(t)
+	if os.Getenv("ORM_TEST_DB") != "" {
+		ensurePgDatabase(t, legacyName)
+	}
+	return &TDataSource{DbType: "postgres", Host: host, Port: port, UserName: user, Password: pass, DbName: legacyName, SSLMode: "disable"}
+}
+
+// pgDSN 是同一个目标的 lib/pq 关键字连接串（给直接 sql.Open 的用例）。
+func pgDSN(t testing.TB, dbName string) string {
+	t.Helper()
+	host, port, user, pass := pgTarget(t)
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, pass, dbName)
+}
+
+func pgTarget(t testing.TB) (host, port, user, pass string) {
+	t.Helper()
+	switch testDBKind() {
+	case "postgres":
+		if os.Getenv("ORM_TEST_DB") != "" {
+			hp := envOr("ORM_TEST_PG", "127.0.0.1:54320")
+			host, port = hp, ""
+			if i := strings.LastIndex(hp, ":"); i > 0 {
+				host, port = hp[:i], hp[i+1:]
+			}
+			return host, port, "postgres", "test"
+		}
+	case "sqlite":
+		if os.Getenv("ORM_TEST_DB") == "" {
+			return "localhost", "5432", "postgres", "postgres" // 老行为：本机 PG
+		}
+	}
+	t.Skipf("PG 专属用例（本轮 ORM_TEST_DB=%s）", testDBKind())
+	return
+}
+
+var pgEnsured sync.Map // 库名 → struct{}
+
+func ensurePgDatabase(t testing.TB, name string) {
+	t.Helper()
+	if _, ok := pgEnsured.Load(name); ok {
+		return
+	}
+	admin, err := sql.Open("postgres", pgDSN(t, "postgres"))
+	if err != nil {
+		t.Fatalf("postgres 管理连接: %v", err)
+	}
+	defer admin.Close()
+	var n int
+	if err := admin.QueryRow(`SELECT count(*) FROM pg_database WHERE datname = $1`, name).Scan(&n); err != nil {
+		t.Fatalf("查测试库 %s: %v——容器起了吗？make test-db-up", name, err)
+	}
+	if n == 0 {
+		if _, err := admin.Exec("CREATE DATABASE " + name); err != nil && !strings.Contains(err.Error(), "already exists") {
+			t.Fatalf("建测试库 %s: %v", name, err)
+		}
+	}
+	pgEnsured.Store(name, struct{}{})
 }

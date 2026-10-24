@@ -20,7 +20,7 @@ type cdDefProbe struct {
 
 func cdDefOrm(t *testing.T, reset bool) (*TOrm, string) {
 	t.Helper()
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addfield")
 	if reset {
 		cleaner, err := New(WithDataSource(ds))
 		if err != nil {

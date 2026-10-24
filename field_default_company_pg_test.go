@@ -22,7 +22,7 @@ type dcProbe struct {
 
 func setupDefaultCompanyOrm(t *testing.T) (*TOrm, string) {
 	t.Helper()
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addfield")
 	cleaner, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -144,7 +144,7 @@ func TestDefaultCompany_RejectsNonRelationalField(t *testing.T) {
 		Id     int64  `field:"pk autoincr"`
 		Name   string `field:"varchar(32) default_company"`
 	}
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addfield")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -169,7 +169,7 @@ func TestDefaultCompany_Postgres_NoColumnDefaultAndResyncs(t *testing.T) {
 		t.Fatalf("company_id 不该有列默认值（默认值函数在应用层求值），实得 %q", d)
 	}
 
-	src := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	src := pgDataSource(t, "test_orm_addfield")
 	again, err := New(WithDataSource(src))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -217,13 +217,13 @@ func TestDefaultCompany_Postgres_RequiredBlankGetsDefault(t *testing.T) {
 		Name         string `field:"varchar(32)"`
 		ReqCompanyId int64  `field:"many2one(dc.req) default_company required title('Company')"`
 	}
-	cleaner, err := New(WithDataSource(bfSource()))
+	cleaner, err := New(WithDataSource(bfSource(t)))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
 	cleaner.Exec(`DROP TABLE IF EXISTS public.dc_req CASCADE`)
 	cleaner.Close()
-	o, err := New(WithDataSource(bfSource()))
+	o, err := New(WithDataSource(bfSource(t)))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
@@ -255,13 +255,13 @@ func TestDefaultCompany_Postgres_RequiredParam(t *testing.T) {
 		CompanyId int64  `field:"many2one(dc.soft) default_company(required) title('Company')"`
 		Level     int64  `field:"int(64) default_company(required) title('Level')"`
 	}
-	cleaner, err := New(WithDataSource(bfSource()))
+	cleaner, err := New(WithDataSource(bfSource(t)))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
 	cleaner.Exec(`DROP TABLE IF EXISTS public.dc_soft CASCADE`)
 	cleaner.Close()
-	o, err := New(WithDataSource(bfSource()))
+	o, err := New(WithDataSource(bfSource(t)))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}

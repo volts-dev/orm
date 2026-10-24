@@ -112,7 +112,7 @@ type SchemaDdlPoc struct {
 const itSchemaDDLDB = "orm_schema_ddl_it"
 
 func TestSchemaDDLIsolationPG(t *testing.T) {
-	maint, err := sql.Open("postgres", "host=localhost port=5432 user=postgres password=postgres dbname=postgres sslmode=disable")
+	maint, err := sql.Open("postgres", pgDSN(t, "postgres"))
 	if err != nil {
 		t.Skipf("cannot open postgres: %v", err)
 	}
@@ -126,10 +126,7 @@ func TestSchemaDDLIsolationPG(t *testing.T) {
 	}
 	defer func() { _, _ = maint.Exec("DROP DATABASE IF EXISTS " + itSchemaDDLDB) }()
 
-	o, err := New(WithDataSource(&TDataSource{
-		DbType: "postgres", DbName: itSchemaDDLDB, Host: "localhost",
-		UserName: "postgres", Password: "postgres", SSLMode: "disable",
-	}))
+	o, err := New(WithDataSource(pgDataSource(t, itSchemaDDLDB)))
 	if err != nil {
 		t.Fatalf("orm.New: %v", err)
 	}
@@ -151,7 +148,7 @@ func TestSchemaDDLIsolationPG(t *testing.T) {
 	}
 
 	// 3) 两 schema 各有一份表；索引也各在其位
-	verify, err := sql.Open("postgres", "host=localhost port=5432 user=postgres password=postgres dbname="+itSchemaDDLDB+" sslmode=disable")
+	verify, err := sql.Open("postgres", pgDSN(t, itSchemaDDLDB))
 	if err != nil {
 		t.Fatalf("open verify conn: %v", err)
 	}

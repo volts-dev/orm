@@ -22,7 +22,7 @@ type defChurnProbe struct {
 // _alterTable 每次启动重发 ALTER ... SET DEFAULT 的老毛病)。用 metaEpoch(每条 DDL +1)
 // 精确计数第二次同步发出的 DDL 条数。
 func TestDefaultRoundTripNoChurn(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

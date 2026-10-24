@@ -141,7 +141,7 @@ func TestNormalizeSqlTypeName(t *testing.T) {
 // 单精度约 7 位有效数字。12345.67 存进 REAL 再读出来是 12345.7——这条用例在修复前
 // 会失败，正是它要证明的那个"只有错的数"。
 func TestFloatWidth_PostgresKeepsPrecision(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

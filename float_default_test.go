@@ -26,7 +26,7 @@ type fracDefaultProbe struct {
 // 前端 fields 元数据里也是 0。全仓 139 个带默认值的浮点字段里有 136 个写的是
 // 0.0/1.0，截整后碰巧是对的，所以这条一直没露头。
 func TestFractionalDefaultsSurviveTagParsing(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -77,7 +77,7 @@ func TestFractionalDefaultsSurviveTagParsing(t *testing.T) {
 // 这条是上面那条修法的代价检查 —— 结构体侧变成 0.01 之后，库里内省回来的必须也是
 // 0.01，否则每次启动都会重发 ALTER ... SET DEFAULT（见 session.go 的默认值比对）。
 func TestFractionalDefaultsNoChurn(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

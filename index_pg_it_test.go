@@ -19,8 +19,7 @@ const pgITIndexDB = "orm_index_it"
 
 func newPgIndexOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432",
-		UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -154,8 +153,7 @@ func TestPGIndex_DefinitionChangeRebuilds(t *testing.T) {
 		t.Fatal("v1 应有唯一部分索引")
 	}
 
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432",
-		UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

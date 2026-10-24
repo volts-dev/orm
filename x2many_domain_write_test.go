@@ -90,8 +90,7 @@ func eachX2mBackend(t *testing.T, run func(t *testing.T, f *x2mWFixture)) {
 		run(t, setupX2mWrite(t, testDataSource(t, filepath.Join(t.TempDir(), "x2mw.db"))))
 	})
 	t.Run("postgres", func(t *testing.T) {
-		run(t, setupX2mWrite(t, &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432",
-			UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}))
+		run(t, setupX2mWrite(t, pgDataSource(t, "test_orm")))
 	})
 }
 

@@ -19,7 +19,7 @@ type cdFbProbe struct {
 }
 
 func TestCompanyDependent_Postgres_HostFallback(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addfield")
 	cleaner, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

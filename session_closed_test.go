@@ -35,7 +35,7 @@ type scMain struct {
 
 // m2m 写入不能把会话关掉。这条在修复前是 SIGSEGV，不是失败。
 func TestSession_M2MWriteOnAutoCloseSession(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

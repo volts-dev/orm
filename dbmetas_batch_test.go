@@ -28,15 +28,7 @@ type batchProbeB struct {
 
 func newProbeOrm(t *testing.T) *TOrm {
 	t.Helper()
-	ds := &TDataSource{
-		DbType:   "postgres",
-		Host:     "localhost",
-		Port:     "5432",
-		UserName: "postgres",
-		Password: "postgres",
-		DbName:   "test_orm",
-		SSLMode:  "disable",
-	}
+	ds := pgDataSource(t, "test_orm")
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable, skipping batch-introspect equivalence: %v", err)

@@ -1,11 +1,14 @@
-# 方言矩阵（MySQL 兼容 P0，2026-10-24）：同一套用例在 SQLite / PostgreSQL / MySQL 上各跑一遍。
+# 方言矩阵（MySQL 兼容 P0，2026-10-24）：同一个包的全部用例在 SQLite / PostgreSQL / MySQL 上各跑一遍。
 #   make test-db-up        起 docker 里的 MySQL 8.0 与 PG 16（test/docker-compose.test.yml，端口 33306 / 54320）
 #   make test-matrix       三个方言依次跑；也可以单跑 test-sqlite / test-postgres / test-mysql
-# 数据源见 testdb_test.go（ORM_TEST_DB、ORM_TEST_PG、ORM_TEST_MYSQL）。直连本机 PG 的老用例不在矩阵里
-# （test/matrix_tests.py 排除），照旧由 go test ./... 跑。
+# 数据源见 testdb_test.go：设了 ORM_TEST_DB 时**不碰本机 PG**——跨方言用例走 testDataSource（每次新建库），
+# PG 专属用例走 pgDataSource（docker 里同名共享库；SQLite / MySQL 轮次跳过）。不设 ORM_TEST_DB 的
+# go test ./... 是老行为（SQLite + 本机 localhost:5432 的共享测试库）。
+#
+# PG / MySQL 上还有已知失败（P2 / P3 在修），对着 test/baseline/<方言>.txt 比：只有新失败才算红。
+# 修好一批之后：make test-mysql BASELINE_UPDATE=--update
 GO      ?= go
 COMPOSE  = docker compose -f test/docker-compose.test.yml
-MATRIX   = $(shell python3 test/matrix_tests.py .)
 
 .PHONY: test-db-up test-db-down test-sqlite test-postgres test-mysql test-matrix
 
@@ -16,16 +19,15 @@ test-db-down:
 	$(COMPOSE) down
 
 test-sqlite:
-	@ORM_TEST_DB=sqlite $(GO) test . -count=1 -run '$(MATRIX)'
+	@ORM_TEST_DB=sqlite $(GO) test . -count=1 -v > .matrix-sqlite.log 2>&1; \
+	python3 test/matrix_check.py .matrix-sqlite.log test/baseline/sqlite.txt $(BASELINE_UPDATE)
 
-# PG / MySQL 上还有已知失败（P2 / P3 在修），对着 test/baseline/<方言>.txt 比：只有新失败才算红。
-# 修好一批之后：make test-mysql BASELINE_UPDATE=--update
 test-postgres:
-	@ORM_TEST_DB=postgres $(GO) test . -count=1 -v -run '$(MATRIX)' > .matrix-postgres.log 2>&1; \
+	@ORM_TEST_DB=postgres $(GO) test . -count=1 -v > .matrix-postgres.log 2>&1; \
 	python3 test/matrix_check.py .matrix-postgres.log test/baseline/postgres.txt $(BASELINE_UPDATE)
 
 test-mysql:
-	@ORM_TEST_DB=mysql $(GO) test . -count=1 -v -run '$(MATRIX)' > .matrix-mysql.log 2>&1; \
+	@ORM_TEST_DB=mysql $(GO) test . -count=1 -v > .matrix-mysql.log 2>&1; \
 	python3 test/matrix_check.py .matrix-mysql.log test/baseline/mysql.txt $(BASELINE_UPDATE)
 
 test-matrix: test-sqlite test-postgres test-mysql

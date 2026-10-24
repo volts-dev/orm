@@ -19,7 +19,7 @@ type addfieldPgProbe struct {
 // 多 schema 是真实形态：vectors 的 VectorsSystem 租户把模型物化进自己的 `system` schema。
 // 只补默认 schema 的话，那个租户读这个模型从此报 column does not exist。
 func TestAddField_Postgres_AllSchemasIndexAndM2M(t *testing.T) {
-	bootstrap := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	bootstrap := pgDataSource(t, "test_orm")
 	boot, err := New(WithDataSource(bootstrap))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -27,7 +27,7 @@ func TestAddField_Postgres_AllSchemasIndexAndM2M(t *testing.T) {
 	// 独占一个库，理由同 addcolumn_test.go（与别的包并行跑整库内省会互相撞）。
 	boot.Exec(`CREATE DATABASE test_orm_addfield`)
 
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addfield")
 
 	// 清场必须在**另一个** TOrm 上做、且早于建被测的那个：New() 会把库里已有的表反查进
 	// osv，上一轮留下的表带着 warn_msg，于是被测模型一注册就"已经有" warn_msg，
@@ -131,7 +131,7 @@ type addfieldRestartProbe struct {
 // AddField 看到同名同类型的反查字段就返回了 no-op。多对一更糟：反查出来是 BIGINT，
 // AddField 会当成「换类型」拒绝，字段从此是一个裸整数。
 func TestAddField_Postgres_RedeclaresIntrospectedColumnsAfterRestart(t *testing.T) {
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addfield", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addfield")
 	cleaner, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

@@ -197,6 +197,10 @@ func TestRelaxTimeouts_DialectAndTransactionRules(t *testing.T) {
 		}
 	}
 
+	// 下半段断言的是 SQLite 上的空操作；其余方言在事务外调用要报错，那是另一条规则。
+	if testDBKind() != "sqlite" {
+		return
+	}
 	o := newPooledOrm(t)
 	s := o.NewSession()
 	defer s.Close()

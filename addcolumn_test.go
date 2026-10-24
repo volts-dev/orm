@@ -31,7 +31,7 @@ func TestSyncModelAddsColumnToExistingTable(t *testing.T) {
 	// 跑 orm 与 orm/test 两个包，后者同时在 test_orm 上做整库内省——DROP 撞上内省
 	// 的 relation 扫描就是 `pq: could not open relation with OID ... (XX000)`，
 	// 表现为另一个包里毫不相干的用例偶发失败。
-	bootstrap := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm", SSLMode: "disable"}
+	bootstrap := pgDataSource(t, "test_orm")
 	boot, err := New(WithDataSource(bootstrap))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -39,7 +39,7 @@ func TestSyncModelAddsColumnToExistingTable(t *testing.T) {
 	// 已存在时报错，忽略即可（CREATE DATABASE 不支持 IF NOT EXISTS）。
 	boot.Exec(`CREATE DATABASE test_orm_addcol`)
 
-	ds := &TDataSource{DbType: "postgres", Host: "localhost", Port: "5432", UserName: "postgres", Password: "postgres", DbName: "test_orm_addcol", SSLMode: "disable"}
+	ds := pgDataSource(t, "test_orm_addcol")
 
 	o1, err := New(WithDataSource(ds))
 	if err != nil {
