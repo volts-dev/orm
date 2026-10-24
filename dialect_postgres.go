@@ -804,6 +804,16 @@ func (db *postgres) LikeClause(column, operator string) string {
 	return fmt.Sprintf("(%s::text %s ?)", column, strings.ToLower(strings.TrimSpace(operator)))
 }
 
+func (db *postgres) DropPrimaryKeySql(quotedTable, table string) string {
+	return fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s_pkey;", quotedTable, table)
+}
+
+func (db *postgres) Features() DialectFeatures {
+	return DialectFeatures{Returning: true, TransactionalDDL: true, Schemas: true, RowSecurity: true,
+		PartialIndex: true, FunctionalIndex: true, JSONOps: true, JSONIndex: true, Vector: true,
+		UnboundedVarchar: true, Sequences: true, XactAdvisoryLock: true, DateTrunc: true, TableComment: true}
+}
+
 func (db *postgres) SupportReturning() bool {
 	return true
 }

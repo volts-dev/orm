@@ -109,6 +109,9 @@ func New(opt ...Option) (*TOrm, error) {
 	if err := validateRowScopeSetting(cfg.RowScopeSetting); err != nil {
 		return nil, err
 	}
+	if err := checkDialectFeatures(dialect, cfg); err != nil {
+		return nil, err
+	}
 
 	dsStr, err := cfg.DataSource.toString()
 	if err != nil {
@@ -1085,9 +1088,6 @@ func (self *TOrm) _buildModelMeta(model IModel, colSeq []string, fields map[stri
 }
 
 func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time) (v any) {
-	if self.dialect.DBType() == ORACLE {
-		return t
-	}
 	if tz != nil {
 		t = self.FormatTimeZone(t)
 	}
@@ -1098,21 +1098,15 @@ func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time
 	case Date:
 		v = t.Format("2006-01-02")
 	case DateTime, TimeStamp:
-		if self.dialect.DBType() == "ql" {
-			v = t
-		} else if self.dialect.DBType() == "sqlite3" {
+		// "sqlite3" 是 sqlite 的注册别名，DBType() 回的是配置原文：写 sqlite3 时这里按 UTC 落、写 sqlite 时按本地时间。
+		// 时区语义整体在 MySQL 兼容 P2（差 8 小时那条）里重定，这里暂不动。
+		if self.dialect.DBType() == "sqlite3" {
 			v = t.UTC().Format("2006-01-02 15:04:05")
 		} else {
 			v = t.Format("2006-01-02 15:04:05")
 		}
 	case TimeStampz:
-		if self.dialect.DBType() == MSSQL {
-			v = t.Format("2006-01-02T15:04:05.9999999Z07:00")
-		} else if self.dialect.DriverName() == "mssql" {
-			v = t
-		} else {
-			v = t.Format(time.RFC3339Nano)
-		}
+		v = t.Format(time.RFC3339Nano)
 	case BigInt, Int:
 		v = t.Unix()
 	default:
@@ -1124,9 +1118,6 @@ func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time
 // TODO
 func (self *TOrm) _nowTime(sqlTypeName string) (res_val any, res_time time.Time) {
 	res_time = time.Now()
-	if self.dialect.DBType() == ORACLE {
-		return
-	}
 
 	if self.config.TimeZone != nil {
 		res_time = res_time.In(self.config.TimeZone)
@@ -1140,21 +1131,14 @@ func (self *TOrm) _nowTime(sqlTypeName string) (res_val any, res_time time.Time)
 	case Date:
 		res_val = res_time.Format("2006-01-02")
 	case DateTime, TimeStamp:
-		if self.dialect.DBType() == "ql" {
-			res_val = res_time
-		} else if self.dialect.DBType() == "sqlite3" {
+		// 同 _formatTime 里 sqlite3 那条的说明。
+		if self.dialect.DBType() == "sqlite3" {
 			res_val = res_time.UTC().Format("2006-01-02 15:04:05")
 		} else {
 			res_val = res_time.Format("2006-01-02 15:04:05")
 		}
 	case TimeStampz:
-		if self.dialect.DBType() == MSSQL {
-			res_val = res_time.Format("2006-01-02T15:04:05.9999999Z07:00")
-		} else if self.dialect.DriverName() == "mssql" {
-			res_val = res_time
-		} else {
-			res_val = res_time.Format(time.RFC3339Nano)
-		}
+		res_val = res_time.Format(time.RFC3339Nano)
 	case BigInt, Int:
 		res_val = res_time.Unix()
 	default:

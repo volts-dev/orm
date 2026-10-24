@@ -43,10 +43,10 @@ func resolvePropertyPath(model IModel, left string) (IField, string) {
 
 // propertyLeafToSql 生成单个规格项的 SQL 条件。
 func propertyLeafToSql(dialect IDialect, aliasTable, colName, propName, operator string, vals []any) (string, []any, error) {
-	if dialect.DBType() != POSTGRES {
+	if !dialect.Features().JSONOps {
 		// MySQL 的 `->>`、SQLite 的 json_extract 语法各不相同，且都没有 GIN。
-		// 与其发一条在别的库上语义漂移的 SQL，不如明确报错——本仓的目标库是 PG。
-		return "", nil, fmt.Errorf("filtering on properties is only implemented for postgres, got %s", dialect.DBType())
+		// 与其发一条在别的库上语义漂移的 SQL，不如明确报错；P3 给出别家写法后再打开能力位。
+		return "", nil, fmt.Errorf("filtering on properties needs Features.JSONOps (postgres jsonb), current dialect is %s", dialect.String())
 	}
 
 	quoter := dialect.Quoter()

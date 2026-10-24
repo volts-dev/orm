@@ -319,6 +319,16 @@ func (db *mysql) String() string {
 	return "mysql"
 }
 
+// Features：MySQL 8.0 社区版。部分唯一索引由 ORM 模拟（见 index 相关），不算原生 PartialIndex；
+// 表达式索引 8.0.13 起有。JSONOps / DateTrunc / Vector 要等 P3 / P6 给出 MySQL 写法才打开。
+func (db *mysql) DropPrimaryKeySql(quotedTable, table string) string {
+	return fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quotedTable)
+}
+
+func (db *mysql) Features() DialectFeatures {
+	return DialectFeatures{FunctionalIndex: true}
+}
+
 func (db *mysql) SupportReturning() bool {
 	return false
 }

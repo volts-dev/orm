@@ -362,26 +362,6 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 
 	res, err := self.orm._logExecSql(sql_str, args, func() (sql.Result, error) {
 		if self.IsAutoCommit {
-			// FIXME: oci8 can not auto commit (github.com/mattn/go-oci8)
-			if self.orm.dialect.DBType() == ORACLE {
-				if err := self.Begin(); err != nil {
-					return nil, err
-				}
-
-				r, err := self.tx.ExecContext(self.context, sql_str, args...)
-				if err != nil {
-					self.Rollback(err)
-					return nil, self.orm.dialect.MapError(err)
-				}
-
-				if err = self.Commit(); err != nil {
-					self.Rollback(err)
-					return nil, err
-				}
-
-				return r, err
-			}
-
 			return self._execWithOrg(sql_str, args...)
 		}
 

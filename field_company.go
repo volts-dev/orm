@@ -269,8 +269,8 @@ func tag_company_dependent(ctx *TTagContext) error {
 	case TYPE_O2M, TYPE_M2M, TYPE_O2O:
 		return fmt.Errorf("orm: %s.%s: company_dependent is not supported on %s fields", ctx.Model.String(), f.Name(), f.TypeName())
 	}
-	if ctx.Orm != nil && ctx.Orm.dialect != nil && ctx.Orm.dialect.DBType() != POSTGRES {
-		return fmt.Errorf("orm: %s.%s: company_dependent needs postgres (jsonb), current dialect is %s",
+	if ctx.Orm != nil && ctx.Orm.dialect != nil && !ctx.Orm.dialect.Features().JSONOps {
+		return fmt.Errorf("orm: %s.%s: company_dependent needs a dialect with JSON operators (Features.JSONOps; postgres jsonb), current dialect is %s",
 			ctx.Model.String(), f.Name(), ctx.Orm.dialect.DBType())
 	}
 	f.Base().companyDependent = true

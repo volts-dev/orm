@@ -76,6 +76,12 @@ func (db *sqlite) Version(ctx context.Context) (*core.Version, error) {
 	return &core.Version{Number: "sqlite"}, nil
 }
 
+// Features：SQLite 3.35+。不检查 VARCHAR 长度，DDL 在事务里。
+func (db *sqlite) Features() DialectFeatures {
+	return DialectFeatures{Returning: true, TransactionalDDL: true, PartialIndex: true, FunctionalIndex: true,
+		UnboundedVarchar: true}
+}
+
 func (db *sqlite) SupportReturning() bool {
 	return true
 }

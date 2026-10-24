@@ -109,10 +109,37 @@ type (
 		Fmter() []IFmter // TODO 考虑移除 由于无法满足query获得model对象
 		SetParams(params map[string]string)
 		SupportReturning() bool
+		// Features 是方言的能力表。方言层之外的代码**只问能力、不问是哪个库**（MySQL 兼容
+		// P1，2026-10-24；Django 的 DatabaseFeatures 同一个思路）。不依赖 Init——New 在连库之前就要用。
+		Features() DialectFeatures
+		// DropPrimaryKeySql 是删掉表主键约束的语句（只用在「请手动执行」的提示里）；表达不了的方言返回空串。
+		DropPrimaryKeySql(quotedTable, table string) string
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用
 		MapError(err error) error
+	}
+
+	// DialectFeatures：一个方言支持哪些超出「各家都有」的能力。零值＝都不支持（保守）。
+	//
+	// 不支持的能力有两种处理，都**不许静默**：配置期能看出来的在 New 里直接报错
+	// （checkDialectFeatures，例如 MySQL 上开 RowScopeEnforce）；用到才知道的在生成 SQL 那一刻
+	// 报错并点名能力（例如在不支持 DateTrunc 的方言上按月分组）。
+	DialectFeatures struct {
+		Returning        bool // INSERT … RETURNING
+		TransactionalDDL bool // 建表 / 改表能随事务回滚（MySQL 的 DDL 隐式提交）
+		Schemas          bool // 同一连接里按 schema 限定表（PG 的 schema；MySQL 上要等 P4 定成「库」）
+		RowSecurity      bool // 库侧行级安全：RowScopeEnforce 发出的 SET LOCAL 有人认
+		PartialIndex     bool // CREATE INDEX … WHERE
+		FunctionalIndex  bool // 表达式索引
+		JSONOps          bool // jsonb 运算（->> / @> / ?），公司相关字段与 properties 筛选靠它
+		JSONIndex        bool // JSON 列上的 GIN 之类索引
+		Vector           bool // 向量列与距离运算
+		UnboundedVarchar bool // 不带长度的 VARCHAR
+		Sequences        bool // 库里的序列对象
+		XactAdvisoryLock bool // 事务级咨询锁（pg_advisory_xact_lock）
+		DateTrunc        bool // 按日期粒度截断 / 取日期部分（read_group 的 :month、domain 里的 date part）
+		TableComment     bool // COMMENT ON TABLE
 	}
 
 	TDialect struct {
@@ -191,6 +218,10 @@ func (db *TDialect) DataSourceName() string {
 func (db *TDialect) SupportReturning() bool {
 	return false
 }
+
+func (db *TDialect) Features() DialectFeatures { return DialectFeatures{} }
+
+func (db *TDialect) DropPrimaryKeySql(quotedTable, table string) string { return "" }
 
 func (db *TDialect) AndStr() string {
 	return "AND"
@@ -582,4 +613,16 @@ func (db *TDialect) GetModels(ctx context.Context, session *TSession) ([]IModel,
 
 func (db *TDialect) GetIndexes(ctx context.Context, session *TSession, tableName string) (map[string]*TIndex, error) {
 	return db.dialect.GetIndexes(ctx, session, tableName)
+}
+
+// checkDialectFeatures 在连库之前拒掉方言做不到的配置——做不到的东西不许静默失效。
+//
+// RowScopeEnforce 的意思是「把行范围发给库，由库上的行级安全拦」；方言没有 RowSecurity 时
+// RowScopeSql 回空串，Enforce 就成了空转：配置上写着隔离、实际一行都拦不住（MySQL 正是如此）。
+func checkDialectFeatures(d IDialect, cfg *Config) error {
+	f := d.Features()
+	if cfg.RowScopeMode == RowScopeEnforce && !f.RowSecurity {
+		return fmt.Errorf("orm: RowScopeEnforce needs Features.RowSecurity (row-level security in the database); dialect %s has none — use RowScopeAudit, or rely on the query-level tenant filter", cfg.DataSource.DbType)
+	}
+	return nil
 }

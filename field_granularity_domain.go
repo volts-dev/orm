@@ -51,8 +51,8 @@ func isDateLikeField(field IField) bool {
 
 // granularityLeafToSql 生成单个粒度叶子的 SQL。只认比较与 in / not in；值必须是整数（或 false = 空）。
 func granularityLeafToSql(dialect IDialect, aliasTable string, field IField, gran, operator string, vals []any, tz string) (string, []any, error) {
-	if dialect.DBType() != POSTGRES {
-		return "", nil, fmt.Errorf("filtering on date parts is only implemented for postgres, got %s", dialect.DBType())
+	if !dialect.Features().DateTrunc {
+		return "", nil, fmt.Errorf("filtering on date parts needs Features.DateTrunc (postgres), current dialect is %s", dialect.String())
 	}
 	if tz != "" {
 		if _, err := time.LoadLocation(tz); err != nil || strings.ContainsAny(tz, `'"\;`) {

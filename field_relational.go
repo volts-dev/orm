@@ -1250,7 +1250,7 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 			return fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s ("%s")`, ix[0], qualifiedMiddle, ix[1])
 		}
 		stmts := []string{createTable, createIndex(indexes[0]), createIndex(indexes[1])}
-		if strings.EqualFold(orm.dialect.DBType(), "postgres") {
+		if orm.dialect.Features().TableComment {
 			stmts = append(stmts, fmt.Sprintf(`COMMENT ON TABLE %s IS '%s'`,
 				qualifiedMiddle, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model)))
 		}

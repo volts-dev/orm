@@ -884,22 +884,14 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 				quoter := orm.dialect.Quoter()
 				var dropSql string
 				var addSql string
-				dbType := strings.ToLower(orm.dialect.DBType())
-
+				// 能删主键约束的方言也能加（SQLite 两样都不行，要重建表）。
+				canAlterPK := orm.dialect.DropPrimaryKeySql(quoter.Quote(tableName), tableName) != ""
 				if len(oldKeys) > 0 {
-					if dbType == "postgres" || dbType == "postgresql" {
-						dropSql = fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s_pkey;",
-							quoter.Quote(tableName), tableName)
-					} else if dbType == "mysql" {
-						dropSql = fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quoter.Quote(tableName))
-					}
+					dropSql = orm.dialect.DropPrimaryKeySql(quoter.Quote(tableName), tableName)
 				}
-
-				if len(newKeys) > 0 {
-					if dbType == "postgres" || dbType == "postgresql" || dbType == "mysql" {
-						addSql = fmt.Sprintf("ALTER TABLE %s ADD PRIMARY KEY (%s);",
-							quoter.Quote(tableName), quoter.Join(newKeys, ","))
-					}
+				if len(newKeys) > 0 && canAlterPK {
+					addSql = fmt.Sprintf("ALTER TABLE %s ADD PRIMARY KEY (%s);",
+						quoter.Quote(tableName), quoter.Join(newKeys, ","))
 				}
 
 				log.Warnf("Table <%s> primary key constraint mismatch between struct (%v) and database (%v)!", tableName, newKeys, oldKeys)

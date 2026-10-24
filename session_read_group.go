@@ -307,9 +307,9 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 			}
 			// date_trunc 是 Postgres 的函数，sqlite/mysql 都没有。不拦的话这里会拼出
 			// 一条必然报「函数不存在」的 SQL——错在方言不支持，报出来的却像是语法问题。
-			if dbType := self.orm.dialect.DBType(); dbType != POSTGRES {
-				return nil, fmt.Errorf("ReadGroup: groupby granularity (%q) is only supported on postgres, current dialect is %s",
-					granularity, dbType)
+			if !self.orm.dialect.Features().DateTrunc {
+				return nil, fmt.Errorf("ReadGroup: groupby granularity (%q) needs Features.DateTrunc (postgres), current dialect is %s",
+					granularity, self.orm.dialect.DBType())
 			}
 			isDate := strings.EqualFold(field.SQLType().Name, "DATE")
 			tz := ""

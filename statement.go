@@ -591,9 +591,6 @@ func (self *TStatement) ___generate_query(vals map[string]any, includeVersion bo
 			continue
 		}
 
-		if self.session.orm.dialect.DBType() == MSSQL && col.SQLType().Name == Text {
-			continue
-		}
 		if col.SQLType().IsJson() {
 			continue
 		}
@@ -742,22 +739,7 @@ func (self *TStatement) ___generate_query(vals map[string]any, includeVersion bo
 			//val = lFieldVal.Interface()
 		}
 
-		var Clause string
-		if col.IsPrimaryKey() && self.session.orm.dialect.DBType() == "ql" {
-			//condi = "id() == ?"
-			Clause = "id() == ?"
-			//left = "id()"
-			//oprator = "="
-			//right = "?"
-
-		} else {
-			//condi = fmt.Sprintf("%v %s ?", colName, self.session.orm.dialect.EqStr())
-			Clause = fmt.Sprintf("%v %s ?", name, self.session.orm.dialect.EqStr())
-			//left = name
-			//oprator = "="
-			//right = "?"
-		}
-		lClauses = append(lClauses, Clause)
+		lClauses = append(lClauses, fmt.Sprintf("%v %s ?", name, self.session.orm.dialect.EqStr()))
 		//res_domain.AddSubList(right, oprator, left)
 		res_params = append(res_params, val)
 	}
