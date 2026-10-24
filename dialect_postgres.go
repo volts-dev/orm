@@ -899,6 +899,27 @@ func (db *postgres) SyncToSqlType(ctx *TTagContext) {
 
 }
 
+// companyJSON（field_company.go）：jsonb。生成的 SQL 与收进方言之前逐字节一致。
+func (db *postgres) companySlotText(ref, slot string) string { return ref + "->>'" + slot + "'" }
+func (db *postgres) companySlotExists(ref, slot string) string {
+	// 用 col->'k' IS NOT NULL（JSON null 的格子也为真），不用 jsonb 的 ? 运算符：它会被当成参数占位符。
+	return ref + "->'" + slot + "' IS NOT NULL"
+}
+func (db *postgres) companyCast(e string, field IField) string {
+	return "(" + e + ")::" + db.valueSqlType(field)
+}
+func (db *postgres) companyAsText(expr string) string { return "(" + expr + ")::text" }
+func (db *postgres) companySetSlot(col, slot string, null bool) string {
+	v := "?::jsonb"
+	if null {
+		v = "'null'::jsonb"
+	}
+	return fmt.Sprintf(`%s = jsonb_set(COALESCE(%s, '{}'::jsonb), '{%s}', %s)`, col, col, slot, v)
+}
+func (db *postgres) companyUnsetSlot(col, slot string) string {
+	return fmt.Sprintf(`%s = COALESCE(%s, '{}'::jsonb) - '%s'`, col, col, slot)
+}
+
 func (db *postgres) GetSqlType(field IField) string {
 	if field.Base().companyDependent {
 		return Jsonb // 按公司分开存：{"<公司 id>": 值}（见 field_company.go）

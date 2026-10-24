@@ -338,6 +338,47 @@ func (db *mysql) DropPrimaryKeySql(quotedTable, table string) string {
 	return fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quotedTable)
 }
 
+// companyJSON（field_company.go）：MySQL 8 的 JSON 列。
+//
+// 取一格：JSON_EXTRACT 对 JSON null 返回 JSON 的 null（JSON_UNQUOTE 之后是串 "null"），先 NULLIF 掉，
+// 与 jsonb ->> 的「JSON null 是 SQL NULL」一致。布尔格子的文本是 true / false，MySQL 没有 BOOLEAN 的 CAST，
+// 比成 = 'true'。
+func (db *mysql) companySlotText(ref, slot string) string {
+	return fmt.Sprintf(`JSON_UNQUOTE(NULLIF(JSON_EXTRACT(%s, '$."%s"'), CAST('null' AS JSON)))`, ref, slot)
+}
+func (db *mysql) companySlotExists(ref, slot string) string {
+	return fmt.Sprintf(`JSON_CONTAINS_PATH(%s, 'one', '$."%s"')`, ref, slot)
+}
+func (db *mysql) companyCast(e string, field IField) string {
+	switch field.SQLType().Name {
+	case Bool, Boolean:
+		return "((" + e + ") = 'true')"
+	case TinyInt, SmallInt, MediumInt, Int, Integer, BigInt, UnsignedTinyInt, UnsignedSmallInt,
+		UnsignedMediumInt, UnsignedInt, UnsignedBigInt, Serial, BigSerial:
+		return "CAST((" + e + ") AS SIGNED)"
+	case Float, Double, Real:
+		return "CAST((" + e + ") AS DOUBLE)"
+	case Decimal, Numeric, Money:
+		return "CAST((" + e + ") AS DECIMAL(65,30))"
+	case DateTime, TimeStamp, TimeStampz, SmallDateTime:
+		return "CAST((" + e + ") AS DATETIME(6))"
+	case Date:
+		return "CAST((" + e + ") AS DATE)"
+	}
+	return "(" + e + ")"
+}
+func (db *mysql) companyAsText(expr string) string { return "CAST((" + expr + ") AS CHAR)" }
+func (db *mysql) companySetSlot(col, slot string, null bool) string {
+	v := "CAST(? AS JSON)"
+	if null {
+		v = "CAST('null' AS JSON)"
+	}
+	return fmt.Sprintf(`%s = JSON_SET(COALESCE(%s, JSON_OBJECT()), '$."%s"', %s)`, col, col, slot, v)
+}
+func (db *mysql) companyUnsetSlot(col, slot string) string {
+	return fmt.Sprintf(`%s = JSON_REMOVE(COALESCE(%s, JSON_OBJECT()), '$."%s"')`, col, col, slot)
+}
+
 // FitIdentifier：MySQL 标识符上限 64 字符，超了直接 1059（PG 是静默截断，所以一直没暴露）。
 func (db *mysql) FitIdentifier(name string) string { return fitIdentifierHashed(name, 64) }
 
@@ -489,6 +530,9 @@ func (db *mysql) SyncToSqlType(ctx *TTagContext) {
 	}
 }
 func (db *mysql) GetSqlType(field IField) string {
+	if field.Base().companyDependent {
+		return Json // 按公司分开存：{"<公司 id>": 值}（见 field_company.go）
+	}
 	var res string
 	var isUnsigned bool
 	c := field.Base()

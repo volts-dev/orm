@@ -24,7 +24,8 @@ import (
 //   - 新建：{"<当前公司>": 值}。
 //
 // 字段的 SqlType 仍是值的逻辑类型（多对一是 BIGINT），值转换都照它走；只有建列时
-// 方言把存储类型换成 JSONB（postgres.GetSqlType）。只支持 postgres。
+// 方言把存储类型换成 JSON（postgres jsonb / mysql json，见各自的 GetSqlType）。SQL 片段由方言出
+// （companyJSON：postgres 与 mysql 实现；SQLite 不支持，建模型时报错）。
 //
 // 当前公司从会话的 context 里来（WithCompanyId，或惰性的 WithCompanyLookup）：宿主在每个
 // 请求建模型会话时放进去，Records() / Db() / Tx() 建出的会话都带着它。
@@ -269,31 +270,50 @@ func tag_company_dependent(ctx *TTagContext) error {
 	case TYPE_O2M, TYPE_M2M, TYPE_O2O:
 		return fmt.Errorf("orm: %s.%s: company_dependent is not supported on %s fields", ctx.Model.String(), f.Name(), f.TypeName())
 	}
-	if ctx.Orm != nil && ctx.Orm.dialect != nil && !ctx.Orm.dialect.Features().JSONOps {
-		return fmt.Errorf("orm: %s.%s: company_dependent needs a dialect with JSON operators (Features.JSONOps; postgres jsonb), current dialect is %s",
-			ctx.Model.String(), f.Name(), ctx.Orm.dialect.DBType())
+	if ctx.Orm != nil && ctx.Orm.dialect != nil {
+		if _, ok := ctx.Orm.dialect.(companyJSON); !ok {
+			return fmt.Errorf("orm: %s.%s: company_dependent needs a dialect with JSON column support (postgres jsonb / mysql json), current dialect is %s",
+				ctx.Model.String(), f.Name(), ctx.Orm.dialect.String())
+		}
 	}
 	f.Base().companyDependent = true
 	return nil
 }
 
-// companyValueType 是字段值的 SQL 类型（取出一格之后 cast 成它）。
-func companyValueType(d IDialect, field IField) (string, error) {
-	vt, ok := d.(interface{ valueSqlType(IField) string })
+// companyJSON 是按公司区分字段用到的 JSON 片段，由方言实现（postgres jsonb、mysql json）。
+// ref / col 是已经引用好的列，slot 是格子的键（公司 id 的十进制串，或 "0"）。
+type companyJSON interface {
+	// companySlotText：这一格的文本（与 jsonb ->> 一样：JSON null 与缺格都是 SQL NULL）。
+	companySlotText(ref, slot string) string
+	// companySlotExists：这一格在不在（存的是 JSON null 也算在）。
+	companySlotExists(ref, slot string) string
+	// companyCast：把一格的文本表达式转成字段值的类型。
+	companyCast(textExpr string, field IField) string
+	// companyAsText：值表达式转成文本（给 like 用）。
+	companyAsText(expr string) string
+	// companySetSlot：UPDATE 的 SET 片段，只改这一格；null 为真时写 JSON null，否则留一个 ? 收 JSON 文本。
+	companySetSlot(col, slot string, null bool) string
+	// companyUnsetSlot：UPDATE 的 SET 片段，删掉这一格。
+	companyUnsetSlot(col, slot string) string
+}
+
+func companyDialect(d IDialect, field IField) (companyJSON, error) {
+	cj, ok := d.(companyJSON)
 	if !ok {
-		return "", fmt.Errorf("orm: company_dependent field %s needs postgres", field.Name())
+		return nil, fmt.Errorf("orm: company_dependent field %s is not supported on %s", field.Name(), d.String())
 	}
-	return vt.valueSqlType(field), nil
+	return cj, nil
 }
 
 // companyValueExpr 渲染「ref 这一列在公司 cid 里的值」。ref 是已经引用好的列（"t"."col"）。
 // 依次取：公司 cid 那一格 → "0" 那一格 → dyn（宿主给的默认值，已渲染好的字面量，见
 // companyDynamicFallback）→ 字段的静态默认值。
 func companyValueExpr(d IDialect, ref string, field IField, cid int64, dyn string) (string, error) {
-	typ, err := companyValueType(d, field)
+	cj, err := companyDialect(d, field)
 	if err != nil {
 		return "", err
 	}
+	slot := strconv.FormatInt(cid, 10)
 	if dyn != "" {
 		// 有宿主默认值时按「格子在不在」判断，不按值是不是 NULL：显式清空存的是 JSON null
 		// （见 companyWriteValue），它是「这家公司明确没有」，不能再回落到默认值 —— Odoo 同样
@@ -304,24 +324,24 @@ func companyValueExpr(d IDialect, ref string, field IField, cid int64, dyn strin
 			tail = "COALESCE(" + dyn + ", " + lit + ")"
 		}
 		if cid > 0 {
-			// 判「格子在不在」用 col->'k' IS NOT NULL（JSON null 的格子也为真），不用 jsonb 的 ?
-			// 运算符：它会被当成参数占位符。
-			return fmt.Sprintf(`(CASE WHEN %[1]s->'%[2]d' IS NOT NULL THEN %[1]s->>'%[2]d' WHEN %[1]s->'0' IS NOT NULL THEN %[1]s->>'0' ELSE %[3]s END)::%[4]s`,
-				ref, cid, tail, typ), nil
+			return cj.companyCast(fmt.Sprintf(`CASE WHEN %s THEN %s WHEN %s THEN %s ELSE %s END`,
+				cj.companySlotExists(ref, slot), cj.companySlotText(ref, slot),
+				cj.companySlotExists(ref, "0"), cj.companySlotText(ref, "0"), tail), field), nil
 		}
-		return fmt.Sprintf(`(CASE WHEN %[1]s->'0' IS NOT NULL THEN %[1]s->>'0' ELSE %[2]s END)::%[3]s`, ref, tail, typ), nil
+		return cj.companyCast(fmt.Sprintf(`CASE WHEN %s THEN %s ELSE %s END`,
+			cj.companySlotExists(ref, "0"), cj.companySlotText(ref, "0"), tail), field), nil
 	}
 	fallback := ""
 	if lit, ok := companyFallbackLiteral(field); ok {
 		fallback = ", " + lit
 	}
 	if cid > 0 {
-		return fmt.Sprintf(`(COALESCE(%s->>'%d', %s->>'0'%s))::%s`, ref, cid, ref, fallback, typ), nil
+		return cj.companyCast(fmt.Sprintf(`COALESCE(%s, %s%s)`, cj.companySlotText(ref, slot), cj.companySlotText(ref, "0"), fallback), field), nil
 	}
 	if fallback != "" {
-		return fmt.Sprintf(`(COALESCE(%s->>'0'%s))::%s`, ref, fallback, typ), nil
+		return cj.companyCast(fmt.Sprintf(`COALESCE(%s%s)`, cj.companySlotText(ref, "0"), fallback), field), nil
 	}
-	return fmt.Sprintf(`(%s->>'0')::%s`, ref, typ), nil
+	return cj.companyCast(cj.companySlotText(ref, "0"), field), nil
 }
 
 // companyFallbackLiteral 是按公司区分字段的**静态默认值**，渲染成 SQL 文本字面量，给
@@ -417,19 +437,23 @@ func companyJSONValue(v any) (json.RawMessage, error) {
 
 // companySetClause 渲染 UPDATE 里这一列的 SET：只改当前公司那一格。
 // col 是已经引用好的列名。返回的片段里至多一个 ? 占位符。
-func companySetClause(col string, field IField, cid int64, v any, explicitNull bool) (string, []any, error) {
+func companySetClause(d IDialect, col string, field IField, cid int64, v any, explicitNull bool) (string, []any, error) {
+	cj, err := companyDialect(d, field)
+	if err != nil {
+		return "", nil, err
+	}
 	slot := companySlot(cid)
 	if explicitNull {
-		return fmt.Sprintf(`%s = jsonb_set(COALESCE(%s, '{}'::jsonb), '{%s}', 'null'::jsonb)`, col, col, slot), nil, nil
+		return cj.companySetSlot(col, slot, true), nil, nil
 	}
 	if companyValueUnset(field, v) {
-		return fmt.Sprintf(`%s = COALESCE(%s, '{}'::jsonb) - '%s'`, col, col, slot), nil, nil
+		return cj.companyUnsetSlot(col, slot), nil, nil
 	}
 	raw, err := companyJSONValue(v)
 	if err != nil {
 		return "", nil, err
 	}
-	return fmt.Sprintf(`%s = jsonb_set(COALESCE(%s, '{}'::jsonb), '{%s}', ?::jsonb)`, col, col, slot), []any{string(raw)}, nil
+	return cj.companySetSlot(col, slot, false), []any{string(raw)}, nil
 }
 
 // companyInsertValue 是新建时这一列的值：{"<当前公司>": 值}。值为空时返回 ok=false，
@@ -531,7 +555,11 @@ func companyLeafToSql(d IDialect, aliasTable string, field IField, cid int64, dy
 		if !strings.HasPrefix(operator, "=") {
 			v = "%" + v + "%"
 		}
-		return d.LikeClause("("+expr+")::text", sqlOp), []any{v}, nil
+		cj, err := companyDialect(d, field)
+		if err != nil {
+			return "", nil, err
+		}
+		return d.LikeClause(cj.companyAsText(expr), sqlOp), []any{v}, nil
 	}
 	return "", nil, fmt.Errorf("orm: operator %q is not supported on company_dependent field %s", operator, field.Name())
 }

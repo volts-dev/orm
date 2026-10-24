@@ -19,16 +19,7 @@ type cdFbProbe struct {
 }
 
 func TestCompanyDependent_Postgres_HostFallback(t *testing.T) {
-	ds := pgDataSource(t, "test_orm_addfield")
-	cleaner, err := New(WithDataSource(ds))
-	if err != nil {
-		t.Skipf("postgres unavailable: %v", err)
-	}
-	_, err = cleaner.Exec(`DROP TABLE IF EXISTS public.cd_fb_probe CASCADE`)
-	cleaner.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ds := companyTestSource(t, "cd_fb_probe", true)
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -133,7 +124,7 @@ func TestCompanyDependent_Postgres_HostFallback(t *testing.T) {
 	// 写入等于兜底值：那一格不存（Odoo 19 写 company_dependent 时剔掉等于兜底值的格子）
 	rawOf := func(name string) string {
 		t.Helper()
-		ds, err := o.Query(`SELECT COALESCE(carrier::text, '') AS c FROM cd_fb_probe WHERE name = ?`, name)
+		ds, err := o.Query(`SELECT COALESCE(`+jsonColText(o, "carrier")+`, '') AS c FROM cd_fb_probe WHERE name = ?`, name)
 		if err != nil || ds.Count() != 1 {
 			t.Fatalf("raw %s: %v", name, err)
 		}

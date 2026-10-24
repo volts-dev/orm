@@ -818,7 +818,7 @@ func (self *TSession) _write(src any) (int64, error) {
 
 				if IsCompanyDependent(field) {
 					wv, isNull := self.companyWriteValue(field, self.CompanyId(), v)
-					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), wv, isNull)
+					clause, ps, err := companySetClause(self.orm.dialect, quoter(k), field, self.CompanyId(), wv, isNull)
 					if err != nil {
 						return 0, err
 					}
@@ -856,7 +856,7 @@ func (self *TSession) _write(src any) (int64, error) {
 				}
 				if IsCompanyDependent(field) {
 					wv, isNull := self.companyWriteValue(field, self.CompanyId(), v)
-					clause, ps, err := companySetClause(quoter(k), field, self.CompanyId(), wv, isNull)
+					clause, ps, err := companySetClause(self.orm.dialect, quoter(k), field, self.CompanyId(), wv, isNull)
 					if err != nil {
 						return 0, err
 					}

@@ -3,6 +3,7 @@ package orm
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -19,16 +20,50 @@ type cdProbe struct {
 	Level    int64  `field:"int(64) company_dependent"`
 }
 
+// companyTestSource：按公司区分字段的用例在 PG 与 MySQL 上都跑（2026-10-24 起 MySQL 用 JSON 列实现）。
+// ORM_TEST_DB=mysql 用一个新建的 MySQL 库（同一用例里 reset=false 的再次打开复用它）；=sqlite 跳过
+// （SQLite 没有实现）；不设或 =postgres 照旧走 pgDataSource，reset 时先删掉上一轮的表。
+var companyTestDS = map[string]*TDataSource{}
+
+func companyTestSource(t *testing.T, table string, reset bool) *TDataSource {
+	t.Helper()
+	switch os.Getenv("ORM_TEST_DB") {
+	case "sqlite":
+		t.Skip("company_dependent 在 SQLite 上不支持")
+	case "mysql":
+		if ds, ok := companyTestDS[t.Name()]; ok && !reset {
+			return ds
+		}
+		ds := testDataSource(t, "")
+		companyTestDS[t.Name()] = ds
+		return ds
+	}
+	ds := pgDataSource(t, "test_orm_addfield")
+	if reset {
+		cleaner, err := New(WithDataSource(ds))
+		if err != nil {
+			t.Skipf("postgres unavailable: %v", err)
+		}
+		_, err = cleaner.Exec(`DROP TABLE IF EXISTS public.` + table + ` CASCADE`)
+		cleaner.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ds
+}
+
+// jsonColText：把 JSON 列的原始值取成文本（PG ::text，MySQL CAST AS CHAR）。
+func jsonColText(o *TOrm, col string) string {
+	if o.dialect.String() == "mysql" {
+		return "CAST(" + col + " AS CHAR)"
+	}
+	return col + "::text"
+}
+
 func setupCompanyOrm(t *testing.T) (*TOrm, string) {
 	t.Helper()
-	ds := pgDataSource(t, "test_orm_addfield")
-	cleaner, err := New(WithDataSource(ds))
-	if err != nil {
-		t.Skipf("postgres unavailable: %v", err)
-	}
-	if _, err := cleaner.Exec(`DROP TABLE IF EXISTS public.cd_probe CASCADE`); err != nil {
-		t.Fatal(err)
-	}
+	ds := companyTestSource(t, "cd_probe", true)
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -51,13 +86,13 @@ func TestCompanyDependent_Postgres_PerCompanyReadWrite(t *testing.T) {
 	}
 
 	// 列是 jsonb
-	ds, err := o.Query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name='cd_probe' AND column_name IN ('parent_id','note','level') ORDER BY 1`)
+	ds, err := o.Query(`SELECT column_name AS column_name, data_type AS data_type FROM information_schema.columns WHERE table_name='cd_probe' AND column_name IN ('parent_id','note','level') ORDER BY 1`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for ds.First(); !ds.Eof(); ds.Next() {
-		if dt := ds.FieldByName("data_type").AsString(); dt != "jsonb" {
-			t.Fatalf("列 %s 的类型是 %s，应为 jsonb", ds.FieldByName("column_name").AsString(), dt)
+		if dt := strings.ToLower(ds.FieldByName("data_type").AsString()); dt != "jsonb" && dt != "json" {
+			t.Fatalf("列 %s 的类型是 %s，应为 jsonb / json", ds.FieldByName("column_name").AsString(), dt)
 		}
 	}
 
@@ -122,7 +157,7 @@ func TestCompanyDependent_Postgres_PerCompanyReadWrite(t *testing.T) {
 	}
 
 	// 库里的原始值：各公司的格子都在
-	raw, err := o.Query(`SELECT note::text AS note FROM cd_probe WHERE id = ?`, rec[0])
+	raw, err := o.Query(`SELECT `+jsonColText(o, "note")+` AS note FROM cd_probe WHERE id = ?`, rec[0])
 	if err != nil {
 		t.Fatal(err)
 	}

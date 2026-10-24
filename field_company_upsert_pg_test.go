@@ -25,16 +25,7 @@ type cdUpsertProbe struct {
 // 没显式给的按公司区分列不参与冲突更新（它们本来就不该被一次导入改掉，更不能整列覆盖掉各公司的
 // 值）；显式给了的照旧报错。
 func TestCompanyDependent_Postgres_UpsertSkipsUnsetCompanyColumns(t *testing.T) {
-	ds := pgDataSource(t, "test_orm_addfield")
-	cleaner, err := New(WithDataSource(ds))
-	if err != nil {
-		t.Skipf("postgres unavailable: %v", err)
-	}
-	_, err = cleaner.Exec(`DROP TABLE IF EXISTS public.cd_upsert_probe CASCADE`)
-	cleaner.Close()
-	if err != nil {
-		t.Skipf("postgres unavailable: %v", err)
-	}
+	ds := companyTestSource(t, "cd_upsert_probe", true)
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)

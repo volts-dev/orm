@@ -20,18 +20,7 @@ type cdDefProbe struct {
 
 func cdDefOrm(t *testing.T, reset bool) (*TOrm, string) {
 	t.Helper()
-	ds := pgDataSource(t, "test_orm_addfield")
-	if reset {
-		cleaner, err := New(WithDataSource(ds))
-		if err != nil {
-			t.Skipf("postgres unavailable: %v", err)
-		}
-		_, err = cleaner.Exec(`DROP TABLE IF EXISTS public.cd_def_probe CASCADE`)
-		cleaner.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	ds := companyTestSource(t, "cd_def_probe", reset)
 	o, err := New(WithDataSource(ds))
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
@@ -49,8 +38,8 @@ func cdDefOrm(t *testing.T, reset bool) (*TOrm, string) {
 
 func cdColumnDefaults(t *testing.T, o *TOrm) string {
 	t.Helper()
-	ds, err := o.Query(`SELECT column_name, COALESCE(column_default, '') AS d FROM information_schema.columns
-		WHERE table_schema = 'public' AND table_name = 'cd_def_probe' AND column_name IN ('days','flag','kind','cap') ORDER BY 1`)
+	ds, err := o.Query(`SELECT column_name AS column_name, COALESCE(column_default, '') AS d FROM information_schema.columns
+		WHERE table_schema = `+cdSchemaExpr(o)+` AND table_name = 'cd_def_probe' AND column_name IN ('days','flag','kind','cap') ORDER BY 1`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,4 +159,11 @@ func TestCompanyDependent_Postgres_AddFieldWithDefault(t *testing.T) {
 	if got := ds.FieldByName("cap").AsInteger(); got != 7 {
 		t.Fatalf("建列前就有的行应读到默认值 7，实得 %d", got)
 	}
+}
+
+func cdSchemaExpr(o *TOrm) string {
+	if o.dialect.String() == "mysql" {
+		return "DATABASE()"
+	}
+	return "'public'"
 }
