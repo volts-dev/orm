@@ -163,6 +163,7 @@ func (self ResyncBuilt) OnBuildFields() error {
 	b.SelectionField("orientation", func() [][]string { return [][]string{{"Portrait", "P"}, {"Landscape", "L"}} }).Default("Portrait")
 	b.Field("header_line", "bool").Default(false)
 	b.Field("css_margins", "bool").Default(true)
+	b.Field("purchasable", "bool").Default("True") // 标签里常见 default(True)
 	b.Field("rounding", "double").Default(0.01)
 	return nil
 }

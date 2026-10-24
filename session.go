@@ -810,7 +810,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 				// 因转换代码被注释掉而一直是 string),直接用 any 的 != 比较对数值型
 				// 字段恒为 true。统一转成字符串再比较,和 DropColumnDefaultSql 生成
 				// SQL 时的 utils.ToString 口径保持一致。
-				if utils.ToString(columnDefault(field)) != utils.ToString(cur_field.Default()) {
+				if !sameColumnDefault(field, columnDefault(field), cur_field.Default()) {
 					if sql := orm.dialect.DropColumnDefaultSql(self.Schema, tableName, field); sql != "" {
 						if _, err := self.Exec(sql); err != nil {
 							return err
@@ -868,12 +868,12 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 			newKeys := newModel.GetPrimaryKeys()
 			oldKeys := oldModel.GetPrimaryKeys()
 
-			keysChanged := false
-			if len(newKeys) != len(oldKeys) {
-				keysChanged = true
-			} else {
-				for i, k := range newKeys {
-					if k != oldKeys[i] {
+			// 按集合比：MySQL 反查按列序给出复合主键的列，与声明顺序不同（pro_tmpl_attr_item）；
+			// 这里只告警不改表，顺序不同不是需要人去处理的不一致。
+			keysChanged := len(newKeys) != len(oldKeys)
+			if !keysChanged {
+				for _, k := range newKeys {
+					if utils.IndexOf(k, oldKeys...) == -1 {
 						keysChanged = true
 						break
 					}
@@ -1142,4 +1142,14 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 	sql := self.orm.dialect.CreateIndexUniqueSql(self.Schema, tableName, index)
 	_, err = self._exec(sql)
 	return err
+}
+
+// sameColumnDefault：模型声明的默认值与库里反查到的是否同一个。统一转成字符串比（两侧动态类型不一致：
+// 结构体侧数值是 int64、反查侧是 string，与 DropColumnDefaultSql 生成 SQL 时的 utils.ToString 口径一致）；
+// 布尔按真值比——标签里写 default(True)，库里读回 true（MySQL 规整前是 1），字面不同、值相同。
+func sameColumnDefault(field IField, declared, current any) bool {
+	if field.SQLType().IsBool() && declared != nil && current != nil {
+		return utils.ToBool(declared) == utils.ToBool(current)
+	}
+	return utils.ToString(declared) == utils.ToString(current)
 }
