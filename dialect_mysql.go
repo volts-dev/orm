@@ -912,15 +912,9 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 					}
 				}
 			}
-		} else {
-			switch colType {
-			case "MEDIUMTEXT", "LONGTEXT", "TEXT":
-				len1, err = strconv.ParseInt(*maxLength, 10, 64)
-				if err != nil {
-					return nil, nil, err
-				}
-			}
 		}
+		// TEXT / MEDIUMTEXT / LONGTEXT 不记长度（此前取 CHARACTER_MAXIMUM_LENGTH 的 65535…，模型里 text() 是 0，
+		// 同一进程里第二次同步就判成「加宽」发 MODIFY——kylin 首次启动 155 条之一；类型名已足以区分）。
 		if isUnsigned {
 			colType = "UNSIGNED " + colType
 		}
@@ -937,17 +931,35 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 		col.Base().EnumOptions = enumOptions
 		col.Base().SetOptions = setOptions
 
+		// 默认值规整成与 PG 反查同一个口径（parsePgColumn）：字符串不带引号、布尔是 true / false。
+		// 此前文本默认值被包成 'x'、tinyint(1) 是 1 / 0，与模型侧的 x / false 比不上，同一进程里第二次
+		// 同步每列都发 MODIFY（kylin 首次启动 155 条）。
 		if colDefault != nil && strings.Contains(extra, "DEFAULT_GENERATED") && mysqlLobType(colType) {
 			col.Base().SetDefault(mysqlGeneratedDefault(*colDefault))
 		} else if colDefault != nil && (!alreadyQuoted || *colDefault != "NULL") {
-			col.Base().SetDefault(*colDefault)
+			dv := *colDefault
+			if alreadyQuoted { // MariaDB 10.2.7+：COLUMN_DEFAULT 本身带引号
+				dv = strings.Trim(dv, "'")
+			}
+			if colType == TinyInt && len1 == 1 {
+				switch dv {
+				case "1":
+					dv = "true"
+				case "0":
+					dv = "false"
+				}
+			}
+			col.Base().SetDefault(dv)
 		}
 
 		col.Base().label = comment
 		col.Base().required = (nullableStr == "NO")
 
+		// 主键：此前 PRI 只被当成「自增」，主键标记从不设——雪花 id（pk、非自增）的表每次同步都报
+		// 「主键与库里不一致」并给出 ADD PRIMARY KEY。自增只看 EXTRA。
 		if colKey == "PRI" {
-			col.Base().isAutoIncrement = true
+			col.Base().isPrimaryKey = true
+			col.Base().isUnique = true
 		}
 		// if colKey == "UNI" {
 		// col.is
@@ -957,13 +969,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 			col.Base().isAutoIncrement = true
 		}
 
-		if !col.IsDefaultEmpty() {
-			if !alreadyQuoted && col.SQLType().IsText() {
-				col.Base().SetDefault("'" + utils.ToString(col.Default()) + "'")
-			} else if col.SQLType().IsTime() && !alreadyQuoted && col.Default() != "CURRENT_TIMESTAMP" {
-				col.Base().SetDefault("'" + utils.ToString(col.Default()) + "'")
-			}
-		}
+
 
 		cols[col.Name()] = col
 		colSeq = append(colSeq, col.Name())

@@ -75,7 +75,7 @@ func TestDefaultValueSql_EscapesAndWrapsMySQLLob(t *testing.T) {
 }
 
 // MySQL 反查：TEXT 列的表达式默认值（COLUMN_DEFAULT 是 _utf8mb4\'[]\'，EXTRA 带 DEFAULT_GENERATED）
-// 要还原成与 VARCHAR 列同形的字面量。反查出来的列会并进模型，不还原的话库里有、结构体里没有的列
+// 要还原成与 VARCHAR 列同形的值（不带引号）。反查出来的列会并进模型，不还原的话库里有、结构体里没有的列
 // 新建时就落那串原文。
 func TestMySQLGetFields_TextExpressionDefault(t *testing.T) {
 	skipUnlessDialect(t, "mysql")
@@ -97,16 +97,16 @@ func TestMySQLGetFields_TextExpressionDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFields: %v", err)
 	}
-	// 反查出来的文本默认值是 SQL 字面量（带引号）——与 VARCHAR 列同形。
+	// 反查出来的文本默认值不带引号——与 VARCHAR 列、与 PG 反查同一个口径。
 	f, st := cols["dom"], cols["state"]
 	if f == nil || st == nil {
 		t.Fatal("反查结果里没有 dom / state 列")
 	}
-	if got := utils.ToString(st.Base().Default()); got != "'draft'" {
-		t.Fatalf("VARCHAR 列 state 的反查默认值 = %q，想要 'draft'（对照组）", got)
+	if got := utils.ToString(st.Base().Default()); got != "draft" {
+		t.Fatalf("VARCHAR 列 state 的反查默认值 = %q，想要 draft（对照组）", got)
 	}
-	if got := utils.ToString(f.Base().Default()); got != "'[]'" {
-		t.Errorf("TEXT 列 dom 的反查默认值 = %q，想要 '[]'（与 VARCHAR 列同形）", got)
+	if got := utils.ToString(f.Base().Default()); got != "[]" {
+		t.Errorf("TEXT 列 dom 的反查默认值 = %q，想要 []（与 VARCHAR 列同形）", got)
 	}
 }
 

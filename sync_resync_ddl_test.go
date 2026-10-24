@@ -143,3 +143,61 @@ func TestSyncModel_ResyncRestoresMissingRelationIndex(t *testing.T) {
 		t.Fatalf("应只补回那一条索引，实际 DDL：%q", rec.ddl)
 	}
 }
+
+// 同一个 TOrm 里同一张表再同步一次（kylin 首次启动就是这样：先建表，扩展同一模型的模块再同步）。
+// 跨实例的「重启」用例看不出类型 / 默认值 / 主键的漂移：那条路径上反查模型与结构体模型共用一个
+// TModelObject，比来比去是结构体自己。这条路径上反查模型是独立的，比的是库里的真实结构——
+// 2026-10-24 MySQL 整栈探针首次启动 155 条 MODIFY + 一串「主键与库里不一致」就出在这里。
+type ResyncBuilt struct {
+	TModel `table:"name('resync_built')"`
+	Id     int64  `field:"pk"` // 雪花 id：主键、非自增
+	Name   string `field:"varchar() required"`
+	Body   string `field:"text()"`
+}
+
+func (self ResyncBuilt) OnBuildFields() error {
+	if err := self.TModel.OnBuildFields(); err != nil {
+		return err
+	}
+	b := self.Builder()
+	b.SelectionField("orientation", func() [][]string { return [][]string{{"Portrait", "P"}, {"Landscape", "L"}} }).Default("Portrait")
+	b.Field("header_line", "bool").Default(false)
+	b.Field("css_margins", "bool").Default(true)
+	b.Field("rounding", "double").Default(0.01)
+	return nil
+}
+
+func TestSyncModel_SameInstanceResyncIssuesNoDDL(t *testing.T) {
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "resync_same.db"))
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	models := func() []IModel { return []IModel{new(ResyncTag), new(ResyncPartner), new(ResyncBuilt)} }
+	if _, err := o.SyncModel("", models()...); err != nil {
+		t.Fatalf("第一次 SyncModel: %v", err)
+	}
+	rec := &ddlRecorder{}
+	o.AddHook(rec)
+	if _, err := o.SyncModel("", models()...); err != nil {
+		t.Fatalf("第二次 SyncModel: %v", err)
+	}
+	if len(rec.ddl) > 0 {
+		t.Errorf("同一实例再同步仍发了 %d 条 DDL（%s）：", len(rec.ddl), ds.DbType)
+		for _, s := range rec.ddl {
+			t.Errorf("  %s", s)
+		}
+	}
+	// 反查要认出主键（非自增的雪花 id 也是）。
+	m, _ := o.GetModel("resync.built")
+	s := o.NewSession()
+	defer s.Close()
+	_, cols, err := o.dialect.GetFields(s.context, s, m)
+	if err != nil {
+		t.Fatalf("GetFields: %v", err)
+	}
+	if id := cols["id"]; id == nil || !id.IsPrimaryKey() || id.IsAutoIncrement() {
+		t.Errorf("反查的 id：主键=%v 自增=%v，想要 主键、非自增", id != nil && id.IsPrimaryKey(), id != nil && id.IsAutoIncrement())
+	}
+}
