@@ -95,6 +95,12 @@ func newIndex(name string, tableName string, indexType int, fields ...string) *T
 	return &TIndex{IsRegular: true, Name: name, Type: indexType, Cols: fields}
 }
 
+// ormOwnedIndexName：这个索引名是不是 ORM 按命名规则起的（generate_index_name 的 IDX_ / UQE_ 前缀）。
+// 同步时只删这一类；别的名字是别人建的（关联表、行级安全、手工），不归模型管。
+func ormOwnedIndexName(name string) bool {
+	return strings.HasPrefix(name, DefaultIndexPrefix) || strings.HasPrefix(name, DefaultUniquePrefix)
+}
+
 // definitionHashSuffixRe 匹配定义性索引名末尾的 `_p<8 位 hex>`。
 var definitionHashSuffixRe = regexp.MustCompile(`_p[0-9a-f]{8}$`)
 

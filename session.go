@@ -978,9 +978,13 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 			}
 		}
 
-		// 清除已经作删除的索引
+		// 清除已经作删除的索引。只删 ORM 自己命名的（IDX_ / UQE_ 开头）：别人建的索引——多对多关联表的
+		// `<表>_<列>_idx`（真表兼作关联表时，如 mass_mailing 的 mailing_subscription）、行级安全的
+		// _rel_tenant_id_idx、运维手工加的——不归模型管。此前 PG / SQLite 上靠 DropIndexUniqueSql 把名字
+		// 加工错（IDX_<表>_<原名>，IF EXISTS 落空）碰巧没删；MySQL 用原名，每次重启删了又被建回来。
+		// 回归：TestSyncModel_KeepsIndexesItDidNotName。
 		for name, index := range curIndexs {
-			if !foundIndexNames[name] {
+			if !foundIndexNames[name] && ormOwnedIndexName(name) {
 				sql := orm.dialect.DropIndexUniqueSql(self.Schema, tableName, index)
 				if _, err = self.Exec(sql); err != nil {
 					return err
