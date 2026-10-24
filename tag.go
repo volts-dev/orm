@@ -69,6 +69,10 @@ const (
 	TAG_PRIORITY       = "priority"  // TODO
 	TAG_ON_DELETE      = "ondelete"  // TODO
 	TAG_TRANSLATE      = "translate" // TODO
+	// TAG_UNBOUNDED：不限长的 char（Odoo 不带 size 的 Char）。字段类型仍是 char（前端是单行输入框），
+	// 只改存储：PG / SQLite 是不带长度的 VARCHAR，MySQL 落 TEXT（不带长度的 varchar 在 MySQL 上默认 255）。
+	// 逐字段清单 docs/mysql/varchar_classification.md 里判成「长内容」的 char 字段写它。
+	TAG_UNBOUNDED = "unbounded"
 	// TAG_COPY 对应 Odoo 的 `copy=`：复制记录（Duplicate）时要不要带上这个字段。
 	// 只写 `copy(false)` 有意义——默认就是复制。单号/条码这类唯一列、以及不该跟着
 	// 副本走的历史数据（审批记录、发送日志）声明它，否则复制要么撞唯一约束、
@@ -141,6 +145,7 @@ func init() {
 		TAG_AUTO:            tag_auto,
 		TAG_TYPE:            tag_type,
 		TAG_SIZE:            tag_size,
+		TAG_UNBOUNDED:       tag_unbounded,
 		TAG_DIGITS:          tag_digits,
 		TAG_MIN_DIGITS:      tag_min_display_digits,
 		TAG_TITLE:           tag_title,
@@ -584,6 +589,19 @@ func tag_size(ctx *TTagContext) error {
 	if len(params) > 0 {
 		field.size = utils.ToInt(params[0])
 	}
+	return nil
+}
+
+// tag_unbounded 见 TAG_UNBOUNDED。只认 char 一族；写在别的类型上报错，而不是悄悄不起作用。
+func tag_unbounded(ctx *TTagContext) error {
+	field := ctx.Field.Base()
+	switch field.SQLType().Name {
+	case Varchar, NVarchar, Char:
+	default:
+		return fmt.Errorf("orm: %s.%s: unbounded 只用在 char 字段上，这里是 %s", ctx.Model.String(), field.Name(), field.SQLType().Name)
+	}
+	field.unbounded = true
+	field.size = 0
 	return nil
 }
 

@@ -36,6 +36,7 @@ type ResyncPartner struct {
 	Code     string    `field:"varchar() size(16)"`
 	Note     string    `field:"text()"`
 	Dom      string    `field:"text() default('[]')"` // MySQL 的 TEXT 只接受表达式默认值，反查回来带 DEFAULT_GENERATED
+	Url      string    `field:"varchar() unbounded"`   // 不限长 char：MySQL 上是 TEXT，模型里仍是 varchar
 	Body     string    `field:"html()"`
 	Qty      int64     `field:"int()"`
 	Big      int64     `field:"bigint()"`

@@ -278,6 +278,7 @@ type (
 		// 挂了它，SearchOnSelf() 即为真——这是本仓唯一让 searchOnSelf 变成 true 的途径。
 		searchFunc   FieldSearchFunc
 		translatable bool   // 字段值是否可翻译
+		unbounded    bool   // 不限长的 char（tag unbounded）：MySQL 上落 TEXT
 		outputAs     string // 读取时将值伪装为哪种类型（char/int/bool 等）
 
 		name  string // 字段在数据库中的列名

@@ -2,6 +2,7 @@ package orm
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/volts-dev/utils"
@@ -106,5 +107,73 @@ func TestMySQLGetFields_TextExpressionDefault(t *testing.T) {
 	}
 	if got := utils.ToString(f.Base().Default()); got != "'[]'" {
 		t.Errorf("TEXT 列 dom 的反查默认值 = %q，想要 '[]'（与 VARCHAR 列同形）", got)
+	}
+}
+
+// unbounded：不限长的 char。字段类型不变（前端照旧是单行输入框——改成 text() 会变成多行框），
+// 只有 MySQL 的存储换成 TEXT；PG / SQLite 本来就不限长。
+type UnboundedRec struct {
+	TModel `table:"name('unbounded_rec')"`
+	Id     int64  `field:"pk autoincr"`
+	Label  string `field:"recname() unbounded required"`
+	Url    string `field:"varchar() unbounded"`
+	Short  string `field:"varchar()"`
+}
+
+func TestUnbounded_KeepsCharTypeAndStoresLongValues(t *testing.T) {
+	o, err := New(WithDataSource(testDataSource(t, filepath.Join(t.TempDir(), "ub.db"))))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	rec := &ddlRecorder{}
+	o.AddHook(rec)
+	if _, err := o.SyncModel("", new(UnboundedRec)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	m, err := o.GetModel("unbounded.rec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GetBase().GetRecordName(); got != "label" {
+		t.Errorf("记录名 = %q，想要 label", got)
+	}
+	for _, name := range []string{"label", "url"} {
+		if f := m.GetFieldByName(name); f.TypeName() != Varchar || f.SQLType().Name != Varchar {
+			t.Errorf("%s: TypeName=%s SQLType=%s，都应仍是 VARCHAR（前端据此给单行输入框）", name, f.TypeName(), f.SQLType().Name)
+		}
+	}
+	if testDBKind() == "mysql" {
+		ddl := strings.Join(rec.ddl, "\n")
+		for _, want := range []string{"`label` TEXT", "`url` TEXT", "`short` VARCHAR(255)"} {
+			if !strings.Contains(ddl, want) {
+				t.Errorf("MySQL 建表语句里没有 %s：\n%s", want, ddl)
+			}
+		}
+	}
+	long := strings.Repeat("u", 300)
+	ids, err := o.Model("unbounded.rec").Create(map[string]any{"label": long, "url": long})
+	if err != nil {
+		t.Fatalf("300 字符写进 unbounded 字段: %v", err)
+	}
+	ds, _ := o.Model("unbounded.rec").Ids(ids...).Read()
+	if got := ds.FieldByName("url").AsString(); got != long {
+		t.Errorf("读回 %d 字符，想要 300", len(got))
+	}
+}
+
+func TestUnbounded_RejectsNonCharField(t *testing.T) {
+	type BadUnbounded struct {
+		TModel `table:"name('bad_unbounded')"`
+		Id     int64 `field:"pk autoincr"`
+		Qty    int64 `field:"int() unbounded"`
+	}
+	o, err := New(WithDataSource(testDataSource(t, filepath.Join(t.TempDir(), "bu.db"))))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	if _, err := o.SyncModel("", new(BadUnbounded)); err == nil || !strings.Contains(err.Error(), "unbounded") {
+		t.Fatalf("int 字段写 unbounded 应报错，得 %v", err)
 	}
 }

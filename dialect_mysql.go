@@ -595,7 +595,9 @@ func (db *mysql) GetSqlType(field IField) string {
 	default:
 		res = t
 	}
-	if res == Varchar && c.size == 0 {
+	if c.unbounded && (res == Varchar || res == Char) {
+		res = Text
+	} else if res == Varchar && c.size == 0 {
 		// 不带长度的 varchar：PG 上不限长，MySQL 必须给长度。2026-10-24 定为 255；要更长的字段在标签上
 		// 写 text() 或显式长度（逐字段清单见 docs/mysql/varchar_classification.md）。
 		c.size = 255
