@@ -944,7 +944,7 @@ func (self *TSession) _alterTable(newModel, oldModel *TModel, dbSchema *dbSchema
 			// 1. 按加工名(GetName)完全匹配数据库索引——curIndexs 的 key 本就是加工名,
 			// 直接拿原始 name 去查永远落空(见 issue-orm-index-idempotency-restart-fatal
 			// 的教训：两套名字体系不能直接比较),必须先转换成同一空间再比。
-			mangledName := index.GetName(tableName)
+			mangledName := orm.dialect.FitIdentifier(index.GetName(tableName))
 			var matchedName string
 			existIndex = curIndexs[mangledName]
 			if existIndex != nil {
@@ -1099,7 +1099,7 @@ func (self *TSession) _addIndex(tableName, idxName string) error {
 	// index('自定义名') 不一致；_alterTable 的对账匹配也因这两套名字体系匹配不上
 	// 而把已存在的索引再次送进本函数，不查直接 CREATE 会 42P07 FATAL 掉服务。
 	// 不用 IsIndexExist：它内部 defer _resetStatement/Close 会破坏本会话状态。
-	sqlStr, args := self.orm.dialect.IndexCheckSql(self.Schema, tableName, index.GetName(tableName))
+	sqlStr, args := self.orm.dialect.IndexCheckSql(self.Schema, tableName, self.orm.dialect.FitIdentifier(index.GetName(tableName)))
 	results, err := self._query(sqlStr, args...)
 	if err != nil {
 		return err
@@ -1127,7 +1127,7 @@ func (self *TSession) _addUnique(tableName, uqeName string) error {
 		return fmt.Errorf("_addUnique: unique index %q not declared on model %s", uqeName, tableName)
 	}
 	// 幂等检查同 _addIndex(名字须用 GetName 加工名，理由见彼处注释)。
-	sqlStr, args := self.orm.dialect.IndexCheckSql(self.Schema, tableName, index.GetName(tableName))
+	sqlStr, args := self.orm.dialect.IndexCheckSql(self.Schema, tableName, self.orm.dialect.FitIdentifier(index.GetName(tableName)))
 	results, err := self._query(sqlStr, args...)
 	if err != nil {
 		return err

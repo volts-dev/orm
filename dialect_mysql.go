@@ -268,7 +268,7 @@ func (db *mysql) CreateIndexUniqueSql(schema, tableName string, index *TIndex) s
 	if index.Type == UniqueType {
 		unique = " UNIQUE"
 	}
-	idxName := index.GetName(tableName)
+	idxName := db.FitIdentifier(index.GetName(tableName))
 
 	wrap := index.IsPartial() && index.Type == UniqueType
 	if index.IsPartial() && index.Type != UniqueType {
@@ -337,6 +337,9 @@ func (db *mysql) LikeClause(column, operator string) string {
 func (db *mysql) DropPrimaryKeySql(quotedTable, table string) string {
 	return fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quotedTable)
 }
+
+// FitIdentifier：MySQL 标识符上限 64 字符，超了直接 1059（PG 是静默截断，所以一直没暴露）。
+func (db *mysql) FitIdentifier(name string) string { return fitIdentifierHashed(name, 64) }
 
 // DefaultValueSql：TEXT / BLOB / JSON 列不接受字面量默认值（1101），要写成表达式 DEFAULT ('…')
 // （MySQL 8.0.13+）。反查时这种默认值带 DEFAULT_GENERATED，GetFields 里还原成字面量再比。

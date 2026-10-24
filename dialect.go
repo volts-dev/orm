@@ -2,6 +2,7 @@ package orm
 
 import (
 	"context"
+	"hash/fnv"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -121,6 +122,10 @@ type (
 		// DefaultValueSql 是列定义里 DEFAULT 后面那一段。quoted 为真时 s 是字符串值，由方言负责转义
 		// （此前原样拼进单引号，值里有撇号 DDL 就坏）；MySQL 的 TEXT / BLOB / JSON 列只接受表达式默认值。
 		DefaultValueSql(field IField, s string, quoted bool) string
+		// FitIdentifier 把 ORM 拼出来的索引名收进方言的标识符上限。PG 63 字节（超了服务端静默截断——
+		// 这里截得与服务端一字不差，现有库里的名字照样对得上）；MySQL 64 字符（超了 1059，截短后拼 8 位
+		// 哈希，保证不撞）；SQLite 不限。所有把索引名写进 SQL / 拿去问库的地方都要过它。
+		FitIdentifier(name string) string
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用
@@ -231,6 +236,19 @@ func (db *TDialect) Features() DialectFeatures { return DialectFeatures{} }
 func (db *TDialect) DropPrimaryKeySql(quotedTable, table string) string { return "" }
 
 func (db *TDialect) BindTime(t time.Time) any { return t }
+
+func (db *TDialect) FitIdentifier(name string) string { return name }
+
+// fitIdentifierHashed：超过 max 个字符时截短并拼 "_" + 8 位 fnv32a 哈希（对整名求，不同长名不撞）。
+func fitIdentifierHashed(name string, max int) string {
+	r := []rune(name)
+	if len(r) <= max {
+		return name
+	}
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return fmt.Sprintf("%s_%08x", string(r[:max-9]), h.Sum32())
+}
 
 func (db *TDialect) DefaultValueSql(field IField, s string, quoted bool) string {
 	if quoted {
@@ -343,7 +361,7 @@ func (db *TDialect) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 		unique = " UNIQUE"
 	}
 	// 索引名从裸表名派生（不带 schema）——索引与表同 schema，名字里不掺限定符。
-	idxName = index.GetName(tableName)
+	idxName = db.dialect.FitIdentifier(index.GetName(tableName))
 	return fmt.Sprintf("CREATE%s INDEX %v ON %v (%v)%s", unique,
 		quoter.Quote(idxName), quoter.QuoteTable(schema, tableName),
 		indexKeyParts(quoter, index), indexWhereClause(index))
@@ -359,7 +377,7 @@ func (db *TDialect) DropIndexUniqueSql(schema, tableName string, index *TIndex) 
 	quoter := db.dialect.Quoter()
 	var name string
 	if index.IsRegular {
-		name = index.GetName(tableName)
+		name = db.dialect.FitIdentifier(index.GetName(tableName))
 	} else {
 		name = index.Name
 	}

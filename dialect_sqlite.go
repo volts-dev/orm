@@ -368,7 +368,7 @@ func (db *sqlite) CreateIndexUniqueSql(_, tableName string, index *TIndex) strin
 	if index.Type == UniqueType {
 		unique = " UNIQUE"
 	}
-	idxName := index.GetName(tableName)
+	idxName := db.FitIdentifier(index.GetName(tableName))
 	return fmt.Sprintf("CREATE%s INDEX IF NOT EXISTS %v ON %v (%v)%s", unique,
 		quoter.Quote(idxName), quoter.Quote(tableName),
 		indexKeyParts(quoter, index), indexWhereClause(index))
@@ -382,7 +382,7 @@ func (db *sqlite) IsColumnExist(ctx context.Context, _, tableName string, colNam
 	return false, nil
 }
 func (db *sqlite) DropIndexUniqueSql(_, tableName string, index *TIndex) string {
-	idxName := index.GetName(tableName)
+	idxName := db.FitIdentifier(index.GetName(tableName))
 	return fmt.Sprintf("DROP INDEX IF EXISTS %v", db.quoter.Quote(idxName))
 }
 func (db *sqlite) ModifyColumnSql(_, tableName string, col IField) string { return "" }

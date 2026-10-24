@@ -1242,9 +1242,11 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 		// multi-statement Exec, unnamed CREATE INDEX, or PG's COMMENT ON TABLE.
 		createTable := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s ("%s" %s NOT NULL, "%s" %s NOT NULL, UNIQUE("%s","%s"))`,
 			qualifiedMiddle, id1, sqlType, id2, sqlType, id1, id2)
+		// 索引名过 FitIdentifier：长模型名拼出来的名字常超 MySQL 的 64 字符（1059，此前只记日志、
+		// 关联表从此没有索引）；PG 上截得与服务端一致（long_ident_test.go）。
 		indexes := [][2]string{
-			{fmt.Sprintf("%s_%s_idx", middle_model, id1), id1},
-			{fmt.Sprintf("%s_%s_idx", middle_model, id2), id2},
+			{orm.dialect.FitIdentifier(fmt.Sprintf("%s_%s_idx", middle_model, id1)), id1},
+			{orm.dialect.FitIdentifier(fmt.Sprintf("%s_%s_idx", middle_model, id2)), id2},
 		}
 		createIndex := func(ix [2]string) string {
 			return fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s ("%s")`, ix[0], qualifiedMiddle, ix[1])

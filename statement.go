@@ -528,7 +528,7 @@ func (self *TStatement) generate_index() ([]string, error) {
 			// CREATE 的名字同源。原来用 map key(原始自定义名，如 tag index('xxx') 的
 			// xxx)，而实际建出的是加工名(IDX_表缩写_xxx)，两者不一致导致自定义命名
 			// 索引永远查不到"已存在"，服务对既有库二次启动时 42P07 FATAL。
-			exist, err := self.session.IsIndexExist(tableName, index.GetName(tableName), false)
+			exist, err := self.session.IsIndexExist(tableName, self.session.orm.dialect.FitIdentifier(index.GetName(tableName)), false)
 			if err != nil {
 				return nil, err
 			}

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lib/pq"
 	"github.com/volts-dev/orm/core"
@@ -994,6 +995,19 @@ func (db *postgres) AutoIncrStr() string {
 	return ""
 }
 
+// FitIdentifier：PG 的 NAMEDATALEN-1 = 63 字节，超了服务端静默截断（不切断多字节字符）。这里截得
+// 与服务端一致——不哈希：现有库里 100 多个索引名就是这样截出来的，换个名字等于全部重建。
+func (db *postgres) FitIdentifier(name string) string {
+	if len(name) <= 63 {
+		return name
+	}
+	n := 63
+	for n > 0 && !utf8.RuneStart(name[n]) {
+		n--
+	}
+	return name[:n]
+}
+
 func (db *postgres) IndexCheckSql(schema, tableName, idxName string) (string, []any) {
 	// 按 schema 限定：同名表可存在于多个 schema（如 public 与 per-tenant schema），
 	// 不限定会误判「索引已存在」而跳过在目标 schema 建索引。
@@ -1294,7 +1308,7 @@ func (db *postgres) DropIndexUniqueSql(schema, tableName string, index *TIndex) 
 	// IF EXISTS：与 CreateIndexUniqueSql 的 IF NOT EXISTS 对称，防止并发
 	// _alterTable 对账(两个 session 都判定同一索引"需要重建")时后到者 DROP 一个
 	// 已被先到者删掉的索引报错。
-	idxName := index.GetName(tableName)
+	idxName := db.FitIdentifier(index.GetName(tableName))
 	return fmt.Sprintf("DROP INDEX IF EXISTS %v", db.dialect.Quoter().QuoteTable(db.schemaOr(schema), idxName))
 }
 
@@ -1312,7 +1326,7 @@ func (db *postgres) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 	if index.Type == UniqueType {
 		unique = " UNIQUE"
 	}
-	idxName := index.GetName(tableName)
+	idxName := db.FitIdentifier(index.GetName(tableName))
 	var using string
 	if index.Type == GinType {
 		using = " USING GIN"
