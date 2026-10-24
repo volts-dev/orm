@@ -125,3 +125,62 @@ func TestAdvisoryXactLock_OutsideTransactionIsRejected(t *testing.T) {
 		t.Fatalf("事务外拿锁应报 ErrLockOutsideTransaction，得 %v", err)
 	}
 }
+
+// 按名字加锁：同名互斥、异名不互斥；PG 上与原来的 pg_advisory_xact_lock(hashtext(name)) 是同一把锁。
+func TestAdvisoryXactLockName(t *testing.T) {
+	if testDBKind() == "sqlite" {
+		t.Skip("SQLite 恒成功")
+	}
+	o, err := New(WithDataSource(testDataSource(t, filepath.Join(t.TempDir(), "advn.db"))))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { o.Close() })
+	var open []*TSession
+	t.Cleanup(func() {
+		for _, s := range open {
+			s.Rollback(nil)
+			s.Close()
+		}
+	})
+	begin := func() *TSession {
+		s := o.NewSession()
+		if err := s.Begin(); err != nil {
+			t.Fatal(err)
+		}
+		open = append(open, s)
+		return s
+	}
+	a := begin()
+	if err := a.AdvisoryXactLockName("sys.sequence:sale.order"); err != nil {
+		t.Fatal(err)
+	}
+	b := begin()
+	if testDBKind() == "postgres" {
+		// 与原来的写法是同一把锁：别人用老语句试拿，拿不到。
+		ds, err := b.Query("SELECT pg_try_advisory_xact_lock(hashtext(?)) AS locked", "sys.sequence:sale.order")
+		if err != nil || ds.FieldByName("locked").AsBoolean() {
+			t.Fatalf("PG 上应与 hashtext 那把锁相同：%v %v", ds, err)
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- b.AdvisoryXactLockName("sys.sequence:sale.order") }()
+	select {
+	case err := <-done:
+		t.Fatalf("同名锁被持着时不该拿到：%v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	c := begin()
+	if err := c.AdvisoryXactLockName("sys.sequence:purchase.order"); err != nil {
+		t.Fatalf("异名锁不该等：%v", err)
+	}
+	a.Commit()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("持锁的事务提交后仍拿不到")
+	}
+}

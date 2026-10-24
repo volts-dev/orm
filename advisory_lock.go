@@ -3,6 +3,7 @@ package orm
 import (
 	stdErrors "errors"
 	"fmt"
+	"hash/fnv"
 	"sync"
 
 	ormerr "github.com/volts-dev/orm/errors"
@@ -40,6 +41,19 @@ func (self *TSession) AdvisoryXactLock(key int64) error {
 // TryAdvisoryXactLock 试着拿一把事务级咨询锁，别人正持着时立即返回 false（不等）。
 func (self *TSession) TryAdvisoryXactLock(key int64) (bool, error) {
 	return self.advisoryLock(key, false)
+}
+
+// AdvisoryXactLockName 是按名字加锁的 AdvisoryXactLock：PG 上原样发 pg_advisory_xact_lock(hashtext(name))——
+// 已有的按名字加锁的调用方（sys.sequence 取号）锁键因此不变，滚动部署时新旧进程仍然互斥；别的方言用
+// FNV-1a 把名字折成键。
+func (self *TSession) AdvisoryXactLockName(name string) error {
+	if _, ok := self.orm.dialect.(*postgres); ok && !self.IsAutoCommit && self.tx != nil {
+		_, err := self.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", name)
+		return err
+	}
+	h := fnv.New64a()
+	h.Write([]byte(name))
+	return self.AdvisoryXactLock(int64(h.Sum64()))
 }
 
 func (self *TSession) advisoryLock(key int64, wait bool) (bool, error) {
