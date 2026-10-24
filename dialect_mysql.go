@@ -338,6 +338,42 @@ func (db *mysql) DropPrimaryKeySql(quotedTable, table string) string {
 	return fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quotedTable)
 }
 
+// DefaultValueSql：TEXT / BLOB / JSON 列不接受字面量默认值（1101），要写成表达式 DEFAULT ('…')
+// （MySQL 8.0.13+）。反查时这种默认值带 DEFAULT_GENERATED，GetFields 里还原成字面量再比。
+func (db *mysql) DefaultValueSql(field IField, s string, quoted bool) string {
+	lit := s
+	if quoted {
+		lit = mysqlStringLiteral(s)
+	}
+	if mysqlLobType(db.GetSqlType(field)) {
+		return "(" + lit + ")"
+	}
+	return lit
+}
+
+func mysqlLobType(sqlType string) bool {
+	t := strings.ToUpper(sqlType)
+	return strings.HasSuffix(t, "TEXT") || strings.HasSuffix(t, "BLOB") || t == "JSON" || t == "GEOMETRY"
+}
+
+// mysqlGeneratedDefault 把 DEFAULT_GENERATED 列的 COLUMN_DEFAULT（表达式原文，如 _utf8mb4\'[]\'）
+// 还原成字面量；认不出的形状原样返回。
+func mysqlGeneratedDefault(expr string) string {
+	e := strings.TrimSpace(expr)
+	if strings.HasPrefix(e, "_") {
+		if i := strings.Index(e, `\'`); i > 0 {
+			e = e[i:]
+		}
+	}
+	if len(e) >= 4 && strings.HasPrefix(e, `\'`) && strings.HasSuffix(e, `\'`) {
+		e = e[2 : len(e)-2]
+		e = strings.ReplaceAll(e, `\'`, "'")
+		e = strings.ReplaceAll(e, `''`, "'")
+		return strings.ReplaceAll(e, `\\`, `\`)
+	}
+	return expr
+}
+
 // BindTime：把墙上字段原样贴上 UTC 标签。连接串是 loc=UTC（datasource.go mysqlQuery），
 // go-sql-driver 会先 t.In(loc) 再格式化——本地标签的 time.Now() 不重贴就落成 UTC 的墙上时间，
 // 与 PG 差一个时区（2026-10-24 探针的「差 8 小时」）。
@@ -852,7 +888,9 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 		col.Base().EnumOptions = enumOptions
 		col.Base().SetOptions = setOptions
 
-		if colDefault != nil && (!alreadyQuoted || *colDefault != "NULL") {
+		if colDefault != nil && strings.Contains(extra, "DEFAULT_GENERATED") && mysqlLobType(colType) {
+			col.Base().SetDefault(mysqlGeneratedDefault(*colDefault))
+		} else if colDefault != nil && (!alreadyQuoted || *colDefault != "NULL") {
 			col.Base().SetDefault(*colDefault)
 		}
 

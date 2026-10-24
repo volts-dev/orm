@@ -35,6 +35,7 @@ type ResyncPartner struct {
 	Name     string    `field:"varchar() required index"`
 	Code     string    `field:"varchar() size(16)"`
 	Note     string    `field:"text()"`
+	Dom      string    `field:"text() default('[]')"` // MySQL 的 TEXT 只接受表达式默认值，反查回来带 DEFAULT_GENERATED
 	Body     string    `field:"html()"`
 	Qty      int64     `field:"int()"`
 	Big      int64     `field:"bigint()"`

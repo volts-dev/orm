@@ -118,6 +118,9 @@ type (
 		// BindTime 把一个 time.Time 参数变成发给驱动的值，使库里落下的是它的**墙上字段**（不看
 		// 时区标签，见 TSession.bindTimeArgs）。默认原样交给驱动——lib/pq 就是这个行为。
 		BindTime(t time.Time) any
+		// DefaultValueSql 是列定义里 DEFAULT 后面那一段。quoted 为真时 s 是字符串值，由方言负责转义
+		// （此前原样拼进单引号，值里有撇号 DDL 就坏）；MySQL 的 TEXT / BLOB / JSON 列只接受表达式默认值。
+		DefaultValueSql(field IField, s string, quoted bool) string
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用
@@ -228,6 +231,13 @@ func (db *TDialect) Features() DialectFeatures { return DialectFeatures{} }
 func (db *TDialect) DropPrimaryKeySql(quotedTable, table string) string { return "" }
 
 func (db *TDialect) BindTime(t time.Time) any { return t }
+
+func (db *TDialect) DefaultValueSql(field IField, s string, quoted bool) string {
+	if quoted {
+		return sqlStringLiteral(s)
+	}
+	return s
+}
 
 func (db *TDialect) AndStr() string {
 	return "AND"
@@ -571,28 +581,14 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 		}
 
 		dvStr := utils.ToString(dv)
-		if dvStr == "" {
-			if field.SQLType().IsNumeric() {
-				if _, err := bd.WriteString("0"); err != nil {
-					return "", err
-				}
-			} else {
-				if _, err := bd.WriteString("''"); err != nil {
-					return "", err
-				}
-			}
-
-		} else {
-			if field.SQLType().IsText() {
-				bd.WriteByte('\'')
-				bd.WriteString(dvStr)
-				bd.WriteByte('\'')
-				//dvStr = quoter.Quote(dvStr)
-			} else {
-				if _, err := bd.WriteString(dvStr); err != nil {
-					return "", err
-				}
-			}
+		quoted := field.SQLType().IsText()
+		if dvStr == "" && !quoted && field.SQLType().IsNumeric() {
+			dvStr = "0"
+		} else if dvStr == "" {
+			quoted = true
+		}
+		if _, err := bd.WriteString(dialect.DefaultValueSql(field, dvStr, quoted)); err != nil {
+			return "", err
 		}
 	}
 
