@@ -213,7 +213,7 @@ func TestRelaxTimeouts_DialectAndTransactionRules(t *testing.T) {
 	}
 }
 
-// MySQL 连接串：Host 不带端口时补上 Port（此前被忽略，恒连 3306）；utf8mb4、loc=Local、固定 sql_mode；
+// MySQL 连接串：Host 不带端口时补上 Port（此前被忽略，恒连 3306）；utf8mb4、loc=UTC、固定 sql_mode；
 // Params 盖过默认值。
 func TestDataSource_MySQLConnString(t *testing.T) {
 	cases := []struct {
@@ -223,7 +223,7 @@ func TestDataSource_MySQLConnString(t *testing.T) {
 	}{
 		{"host 不带端口时用 Port", "root:x@tcp(127.0.0.1:33306)/t",
 			TDataSource{DbType: "mysql", DbName: "t", Host: "127.0.0.1", Port: "33306", UserName: "root", Password: "x"},
-			map[string]string{"charset": "utf8mb4", "parseTime": "true", "loc": "Local", "sql_mode": "'" + MySQLSqlMode + "'"}},
+			map[string]string{"charset": "utf8mb4", "parseTime": "true", "loc": "UTC", "sql_mode": "'" + MySQLSqlMode + "'"}},
 		{"host 自带端口原样用", "root:@tcp(db:3307)/t",
 			TDataSource{DbType: "mysql", DbName: "t", Host: "db:3307", Port: "33306", UserName: "root"}, nil},
 		{"Port 没给：补默认的 3306", "root:@tcp(db:3306)/t",

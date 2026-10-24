@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/volts-dev/dataset"
 	"github.com/volts-dev/orm/core"
@@ -283,6 +284,7 @@ func (self *TSession) _query(sql string, paramStr ...any) (*dataset.TDataSet, er
 	// LastSQL() 的取值来源。此前 lastSQL/lastSQLArgs **全仓没有一处赋值**，
 	// LastSQL() 恒返回空串——又一个"看着能用其实是空壳"的 API（同 ForUpdate()）。
 	// 记录的是 Fmter 处理后、真正发给驱动的那条语句。
+	paramStr = self.bindTimeArgs(paramStr)
 	self.lastSQL, self.lastSQLArgs = sql, paramStr
 
 	self.syncBorrowedTx()
@@ -351,6 +353,7 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 		sql_str = filter.Do(sql_str, self.orm.dialect, self.Statement.Model)
 	}
 
+	args = self.bindTimeArgs(args)
 	self.lastSQL, self.lastSQLArgs = sql_str, args
 
 	self.syncBorrowedTx()
@@ -594,4 +597,39 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 
 	res_dataset.First()
 	return res_dataset, nil
+}
+
+// bindTimeArgs 把参数里的 time.Time 交给方言（IDialect.BindTime），让三个方言都按 PG 的口径落：
+// **存的是这个 time.Time 的墙上字段，不看它的时区标签**。lib/pq 往不带时区的 timestamp 列写时
+// 天然如此（偏移量丢掉），全栈也建立在这上面——写入用 time.Now()（本地标签）、读回来是贴 UTC 标签的
+// 墙上时间（vectors core/wall），读出来再写回去也不能变。go-sql-driver 会先按 loc 换算时刻、
+// modernc sqlite 会把偏移量一起写进文本，两者都会让同一个值在不同方言上落成不同的墙上时间。
+// 没有时间参数时不复制切片。
+func (self *TSession) bindTimeArgs(args []any) []any {
+	var out []any
+	for i, a := range args {
+		var t time.Time
+		switch v := a.(type) {
+		case time.Time:
+			t = v
+		case *time.Time:
+			if v == nil {
+				continue
+			}
+			t = *v
+		default:
+			continue
+		}
+		if t.IsZero() {
+			continue
+		}
+		if out == nil {
+			out = append([]any(nil), args...)
+		}
+		out[i] = self.orm.dialect.BindTime(t)
+	}
+	if out == nil {
+		return args
+	}
+	return out
 }

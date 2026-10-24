@@ -6,6 +6,7 @@ package orm
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	stdErrors "errors"
 	"fmt"
 	"reflect"
@@ -1843,6 +1844,11 @@ func (db *postgres) RowScopeSql(setting string, value int64) string {
 // 以前设过、事务结束后留下空值，于是空串转 bigint 失败（22P02 …: ""）。后一种单看原文
 // 分不出是不是别的空串转换，调用方只在确知会话没设范围时才问这里。
 func (db *postgres) rowScopeMissing(err error, setting string) bool {
+	// MapError 已把 22P02 包成 ErrValidation，ORMError.Unwrap 只解出 Kind，要先剥出驱动原错。
+	var oe *ormerr.ORMError
+	if stdErrors.As(err, &oe) && oe.Cause != nil {
+		err = oe.Cause
+	}
 	var pe *pq.Error
 	if !stdErrors.As(err, &pe) {
 		return false
@@ -1893,6 +1899,15 @@ func (db *postgres) MapError(err error) error {
 			return e
 		case "23503": // foreign_key_violation
 			return ormerr.New(ormerr.ErrValidation, err)
+		case "22001", "22003", "22P02", "22007", "22008":
+			// string_data_right_truncation / numeric_value_out_of_range / invalid_text_representation /
+			// invalid_datetime_format / datetime_field_overflow：值放不进这一列。与 MySQL 1406 等同一类，
+			// 此前没映射，驱动原文一路走到出口被脱敏。
+			e := ormerr.New(ormerr.ErrValidation, err)
+			if pe.Column != "" {
+				e = e.WithField(pe.Column)
+			}
+			return e
 		case "40001", "40P01", "55P03": // serialization_failure / deadlock_detected / lock_not_available
 			// 55P03：SELECT ... FOR UPDATE NOWAIT 抢锁失败。与死锁同属
 			// "并发没抢到"，归 ErrConflict 让调用方走同一条重试分支。
@@ -1911,6 +1926,9 @@ func (db *postgres) MapError(err error) error {
 			// 与 ctx 到期归同一类，调用方不必分辨超时是哪一侧给的。
 			return ormerr.New(ormerr.ErrTimeout, err)
 		}
+	}
+	if stdErrors.Is(err, driver.ErrBadConn) {
+		return ormerr.New(ormerr.ErrConnection, err)
 	}
 
 	if stdErrors.Is(err, context.DeadlineExceeded) {

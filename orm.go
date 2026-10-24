@@ -1098,13 +1098,9 @@ func (self *TOrm) _formatTime(tz *time.Location, sqlTypeName string, t time.Time
 	case Date:
 		v = t.Format("2006-01-02")
 	case DateTime, TimeStamp:
-		// "sqlite3" 是 sqlite 的注册别名，DBType() 回的是配置原文：写 sqlite3 时这里按 UTC 落、写 sqlite 时按本地时间。
-		// 时区语义整体在 MySQL 兼容 P2（差 8 小时那条）里重定，这里暂不动。
-		if self.dialect.DBType() == "sqlite3" {
-			v = t.UTC().Format("2006-01-02 15:04:05")
-		} else {
-			v = t.Format("2006-01-02 15:04:05")
-		}
+		// 库里存 config.TimeZone 下的墙上时间，所有方言一样（此前 DbType 写成 "sqlite3" 时按 UTC 落、
+		// 写 "sqlite" 时按本地——同一个库换个别名就差一个时区）。
+		v = t.Format("2006-01-02 15:04:05")
 	case TimeStampz:
 		v = t.Format(time.RFC3339Nano)
 	case BigInt, Int:
@@ -1131,12 +1127,7 @@ func (self *TOrm) _nowTime(sqlTypeName string) (res_val any, res_time time.Time)
 	case Date:
 		res_val = res_time.Format("2006-01-02")
 	case DateTime, TimeStamp:
-		// 同 _formatTime 里 sqlite3 那条的说明。
-		if self.dialect.DBType() == "sqlite3" {
-			res_val = res_time.UTC().Format("2006-01-02 15:04:05")
-		} else {
-			res_val = res_time.Format("2006-01-02 15:04:05")
-		}
+		res_val = res_time.Format("2006-01-02 15:04:05")
 	case TimeStampz:
 		res_val = res_time.Format(time.RFC3339Nano)
 	case BigInt, Int:

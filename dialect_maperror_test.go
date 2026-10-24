@@ -1,8 +1,11 @@
 package orm
 
 import (
+	"database/sql/driver"
 	stdErrors "errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -242,4 +245,78 @@ func TestMapError_Postgres_Live(t *testing.T) {
 		t.Skip("POSTGRES_TEST_HOST not set; skip")
 	}
 	t.Log("PostgreSQL live MapError 测试: PR-2 实施时按真实 driver 行为补齐")
+}
+
+// --- MySQL 兼容 P2（2026-10-24）：缺默认值 / 值放不进列 / 语句超时 / 连接断开 ---
+
+func TestMySQLMapError_P2Codes(t *testing.T) {
+	d := &mysql{}
+	cases := []struct {
+		num        uint16
+		msg        string
+		kind       error
+		field      string
+		isRequired bool
+	}{
+		{1364, "Field 'partner_id' doesn't have a default value", ormerr.ErrRequired, "partner_id", true},
+		{1406, "Data too long for column 'code' at row 1", ormerr.ErrValidation, "code", false},
+		{1264, "Out of range value for column 'qty' at row 1", ormerr.ErrValidation, "qty", false},
+		{1265, "Data truncated for column 'state' at row 1", ormerr.ErrValidation, "state", false},
+		{1366, "Incorrect integer value: 'abc' for column 'qty' at row 1", ormerr.ErrValidation, "qty", false},
+		{1292, "Incorrect datetime value: 'x' for column 'seen' at row 1", ormerr.ErrValidation, "seen", false},
+		{3024, "Query execution was interrupted, maximum statement execution time exceeded", ormerr.ErrTimeout, "", false},
+		{1317, "Query execution was interrupted", ormerr.ErrTimeout, "", false},
+		{4031, "The client was disconnected by the server because of inactivity.", ormerr.ErrConnection, "", false},
+	}
+	for _, c := range cases {
+		got := d.MapError(&mysqldriver.MySQLError{Number: c.num, Message: c.msg})
+		if !stdErrors.Is(got, c.kind) {
+			t.Errorf("%d: 想要 %v，得 %v", c.num, c.kind, got)
+			continue
+		}
+		var oe *ormerr.ORMError
+		stdErrors.As(got, &oe)
+		if c.isRequired {
+			if f := ormerr.RequiredFields(got); len(f) != 1 || f[0] != c.field {
+				t.Errorf("%d: 必填字段 %v，想要 %s", c.num, f, c.field)
+			}
+		} else if oe.Field != c.field {
+			t.Errorf("%d: 列 %q，想要 %q", c.num, oe.Field, c.field)
+		}
+	}
+	for _, e := range []error{mysqldriver.ErrInvalidConn, driver.ErrBadConn, fmt.Errorf("query: %w", mysqldriver.ErrInvalidConn)} {
+		if got := d.MapError(e); !stdErrors.Is(got, ormerr.ErrConnection) {
+			t.Errorf("%v: 想要 ErrConnection，得 %v", e, got)
+		}
+	}
+}
+
+func TestPostgresMapError_ValueDoesNotFit(t *testing.T) {
+	d := &postgres{}
+	for _, code := range []pq.ErrorCode{"22001", "22003", "22P02", "22007", "22008"} {
+		if got := d.MapError(&pq.Error{Code: code}); !stdErrors.Is(got, ormerr.ErrValidation) {
+			t.Errorf("%s: 想要 ErrValidation，得 %v", code, got)
+		}
+	}
+	if got := d.MapError(driver.ErrBadConn); !stdErrors.Is(got, ormerr.ErrConnection) {
+		t.Errorf("ErrBadConn: 想要 ErrConnection，得 %v", got)
+	}
+}
+
+// 真库：超长字符串写进 size(16) 的列。MySQL 严格模式与 PG 都拒，且都归 ErrValidation；
+// SQLite 不检查 VARCHAR 长度（Features().UnboundedVarchar），跳过。
+func TestMapError_ValueTooLong_Integration(t *testing.T) {
+	skipUnlessDialect(t, "postgres", "mysql")
+	o, err := New(WithDataSource(testDataSource(t, "")))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	if _, err := o.SyncModel("", new(ResyncTag), new(ResyncPartner)); err != nil {
+		t.Fatalf("SyncModel: %v", err)
+	}
+	_, err = o.Model("resync.partner").Create(map[string]any{"name": "x", "code": strings.Repeat("y", 17)})
+	if !stdErrors.Is(err, ormerr.ErrValidation) {
+		t.Fatalf("超长值应报 ErrValidation，得 %v", err)
+	}
 }

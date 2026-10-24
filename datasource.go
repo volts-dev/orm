@@ -128,8 +128,9 @@ const MySQLSqlMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_
 // mysqlQuery 拼 MySQL 连接串的查询部分（键按字典序，同一份配置逐字节稳定）。
 //
 //   - charset=utf8mb4：MySQL 的 utf8 是 utf8mb3，存不了 emoji 与部分生僻字。
-//   - parseTime + loc=Local：ORM 写入日期时间用的是本地时间串（orm.go _formatTime），驱动若按默认的
-//     UTC 解读 time.Time 参数，查询条件与写进去的值就差一个时区（2026-10-24 探针：东八区差 8 小时）。
+//   - parseTime + loc=UTC：读回来的 DATETIME 贴 UTC 标签，与 lib/pq 读 timestamp 同形（vectors core/wall
+//     的口径：墙上时间贴 UTC 标签）。写入方向由 mysql.BindTime 保证落的是墙上字段。不能用 loc=Local：
+//     读回来变成本地标签，与 wall.Now() 比较就差一个时区。
 //   - sql_mode：见 MySQLSqlMode。
 //
 // Params 原样追加 / 覆盖（go-sql-driver 把不认识的键当会话变量，值要带引号，这里负责 URL 编码）。
@@ -137,7 +138,7 @@ func (self *TDataSource) mysqlQuery() string {
 	q := url.Values{}
 	q.Set("charset", "utf8mb4")
 	q.Set("parseTime", "true")
-	q.Set("loc", "Local")
+	q.Set("loc", "UTC")
 	q.Set("sql_mode", "'"+MySQLSqlMode+"'")
 	for k, v := range self.Params {
 		q.Set(k, v)

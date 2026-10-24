@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
@@ -114,6 +115,9 @@ type (
 		Features() DialectFeatures
 		// DropPrimaryKeySql 是删掉表主键约束的语句（只用在「请手动执行」的提示里）；表达不了的方言返回空串。
 		DropPrimaryKeySql(quotedTable, table string) string
+		// BindTime 把一个 time.Time 参数变成发给驱动的值，使库里落下的是它的**墙上字段**（不看
+		// 时区标签，见 TSession.bindTimeArgs）。默认原样交给驱动——lib/pq 就是这个行为。
+		BindTime(t time.Time) any
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用
@@ -222,6 +226,8 @@ func (db *TDialect) SupportReturning() bool {
 func (db *TDialect) Features() DialectFeatures { return DialectFeatures{} }
 
 func (db *TDialect) DropPrimaryKeySql(quotedTable, table string) string { return "" }
+
+func (db *TDialect) BindTime(t time.Time) any { return t }
 
 func (db *TDialect) AndStr() string {
 	return "AND"

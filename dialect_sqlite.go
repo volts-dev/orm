@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/volts-dev/orm/core"
 	"github.com/volts-dev/orm/dialect"
@@ -81,6 +82,10 @@ func (db *sqlite) Features() DialectFeatures {
 	return DialectFeatures{Returning: true, TransactionalDDL: true, PartialIndex: true, FunctionalIndex: true,
 		UnboundedVarchar: true}
 }
+
+// BindTime：SQLite 按文本存、按文本比较。只写墙上字段，格式与 TOrm._formatTime 一致（整秒时
+// 一字不差；小数秒才带小数）。驱动自己格式化会把偏移量写进去，按同一个值就查不到行。
+func (db *sqlite) BindTime(t time.Time) any { return t.Format("2006-01-02 15:04:05.999999") }
 
 func (db *sqlite) SupportReturning() bool {
 	return true

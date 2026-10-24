@@ -6,12 +6,14 @@ package orm
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	stdErrors "errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/volts-dev/orm/core"
@@ -334,6 +336,13 @@ func (db *mysql) LikeClause(column, operator string) string {
 
 func (db *mysql) DropPrimaryKeySql(quotedTable, table string) string {
 	return fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quotedTable)
+}
+
+// BindTime：把墙上字段原样贴上 UTC 标签。连接串是 loc=UTC（datasource.go mysqlQuery），
+// go-sql-driver 会先 t.In(loc) 再格式化——本地标签的 time.Now() 不重贴就落成 UTC 的墙上时间，
+// 与 PG 差一个时区（2026-10-24 探针的「差 8 小时」）。
+func (db *mysql) BindTime(t time.Time) any {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC)
 }
 
 func (db *mysql) Features() DialectFeatures {
@@ -1106,6 +1115,17 @@ func badNullColumn(msg string) string {
 	return msg[i+1 : i+1+j]
 }
 
+// mysqlErrColumn 从 MySQL 错误原文里取列名。消息形状不一："Column 'x' cannot be null" /
+// "Field 'x' doesn't have a default value" / "Data too long for column 'x' at row 1" /
+// "Incorrect integer value: 'abc' for column 'x' at row 1"——最后一种第一个引号里是值不是列，
+// 所以先认 "column '"，再退回第一个引号。
+func mysqlErrColumn(msg string) string {
+	if i := strings.Index(strings.ToLower(msg), "column '"); i >= 0 {
+		return badNullColumn(msg[i:])
+	}
+	return badNullColumn(msg)
+}
+
 func (db *mysql) MapError(err error) error {
 	if err == nil {
 		return nil
@@ -1132,7 +1152,33 @@ func (db *mysql) MapError(err error) error {
 			return e
 		case 1452, 1451: // ER_NO_REFERENCED_ROW_2 / ER_ROW_IS_REFERENCED_2
 			return ormerr.New(ormerr.ErrValidation, err)
+		case 1364: // ER_NO_DEFAULT_FOR_FIELD: Field 'x' doesn't have a default value
+			// 严格模式下 INSERT 漏了一个 NOT NULL 且无默认值的列。PG 上同一件事是 23502，归必填。
+			e := ormerr.New(ormerr.ErrRequired, err)
+			if col := mysqlErrColumn(me.Message); col != "" {
+				e = e.WithFields(col)
+			}
+			return e
+		case 1406, 1264, 1265, 1366, 1292:
+			// ER_DATA_TOO_LONG / ER_WARN_DATA_OUT_OF_RANGE / WARN_DATA_TRUNCATED /
+			// ER_TRUNCATED_WRONG_VALUE_FOR_FIELD / ER_TRUNCATED_WRONG_VALUE：值放不进这一列。
+			// 严格 sql_mode（datasource.go MySQLSqlMode）下这些是错误而不是警告——非严格时 MySQL
+			// 会静默截断后照写。PG 上对应 22001 / 22003 / 22P02 / 22007。
+			e := ormerr.New(ormerr.ErrValidation, err)
+			if col := mysqlErrColumn(me.Message); col != "" {
+				e = e.WithField(col)
+			}
+			return e
+		case 3024, 1317: // ER_QUERY_TIMEOUT（max_execution_time）/ ER_QUERY_INTERRUPTED（KILL QUERY）
+			// 与 PG 的 57014 同一类：库这边把语句收掉了。
+			return ormerr.New(ormerr.ErrTimeout, err)
+		case 4031: // ER_CLIENT_INTERACTION_TIMEOUT：wait_timeout 到点，服务端断了这条空闲连接
+			return ormerr.New(ormerr.ErrConnection, err)
 		}
+	}
+	// 驱动自己发现连接坏了（服务端已断、包序错乱）：不是 MySQLError。
+	if stdErrors.Is(err, mysqldriver.ErrInvalidConn) || stdErrors.Is(err, driver.ErrBadConn) {
+		return ormerr.New(ormerr.ErrConnection, err)
 	}
 
 	if stdErrors.Is(err, context.DeadlineExceeded) {
