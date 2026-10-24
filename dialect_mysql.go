@@ -258,21 +258,54 @@ func (db *mysql) ValidateIndex(index *TIndex) error {
 // indexOnColumns：JSON 列不能直接建索引（3152，只能对某个 JSON 路径建生成列索引）；TEXT / BLOB 列要前缀长度
 // （1170）。PG 上这类索引是 GIN（properties 的 @>）或普通 btree——MySQL 上非唯一的跳过，唯一的报错
 // （按前缀判唯一会改变语义）。
+//
+// 键的总宽超过 InnoDB 的 3072 字节（1071）同样处理：utf8mb4 按每字符 4 字节算，VARCHAR(768) 就到顶了；
+// 只存 ASCII 的列标 ascii（TAG_ASCII）按 1 字节算。
 func (db *mysql) indexOnColumns(model IModel, index *TIndex) (bool, string, error) {
+	keyBytes := 0
 	for _, col := range index.Cols {
 		f := model.GetFieldByName(col)
 		if f == nil {
 			continue
 		}
-		if t := db.GetSqlType(f); mysqlLobType(t) {
+		t := db.GetSqlType(f)
+		if mysqlLobType(t) {
 			if index.Type == UniqueType {
 				return false, "", ormerr.New(ormerr.ErrIndexUnsupported, fmt.Errorf(
 					"unique index %s on %s column %s: MySQL cannot index it without a prefix, and a prefix changes uniqueness", index.Name, t, col))
 			}
 			return true, fmt.Sprintf("列 %s 是 %s，MySQL 不能直接建索引", col, t), nil
 		}
+		if n := f.Base().size; n > 0 && (strings.HasPrefix(t, Varchar) || strings.HasPrefix(t, Char)) {
+			if f.Base().ascii {
+				keyBytes += n
+			} else {
+				keyBytes += 4 * n
+			}
+		}
+	}
+	if keyBytes > mysqlMaxKeyBytes {
+		if index.Type == UniqueType {
+			return false, "", ormerr.New(ormerr.ErrIndexUnsupported, fmt.Errorf(
+				"unique index %s on %v: key is %d bytes in utf8mb4, MySQL allows %d; shorten the columns or mark ASCII-only ones `ascii`",
+				index.Name, index.Cols, keyBytes, mysqlMaxKeyBytes))
+		}
+		return true, fmt.Sprintf("索引键 %d 字节超过 MySQL 的 %d", keyBytes, mysqlMaxKeyBytes), nil
 	}
 	return false, "", nil
+}
+
+// mysqlMaxKeyBytes：InnoDB（DYNAMIC 行格式）一条索引键的上限。
+const mysqlMaxKeyBytes = 3072
+
+// columnCharset：ascii 列（TAG_ASCII）带上字符集；排序规则用 ascii_bin，与库默认的 utf8mb4_0900_as_cs 一样区分大小写。
+func (db *mysql) columnCharset(field IField) string {
+	if f := field.Base(); f.ascii && !f.companyDependent {
+		if t := db.GetSqlType(field); strings.HasPrefix(t, Varchar) || strings.HasPrefix(t, Char) || t == Text {
+			return " CHARACTER SET ascii COLLATE ascii_bin"
+		}
+	}
+	return ""
 }
 
 // CreateIndexUniqueSql（MySQL）：
@@ -872,7 +905,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 		"(SUBSTRING_INDEX(SUBSTRING(VERSION(), 4), '.', 1) = 2 && " +
 		"SUBSTRING_INDEX(SUBSTRING(VERSION(), 6), '-', 1) >= 7)))))"
 	s := "SELECT `COLUMN_NAME`, `IS_NULLABLE`, `COLUMN_DEFAULT`, `COLUMN_TYPE`," +
-		" `COLUMN_KEY`, `EXTRA`, `COLUMN_COMMENT`, `CHARACTER_MAXIMUM_LENGTH`, " +
+		" `COLUMN_KEY`, `EXTRA`, `COLUMN_COMMENT`, `CHARACTER_MAXIMUM_LENGTH`, COALESCE(`CHARACTER_SET_NAME`, '') AS CS, " +
 		alreadyQuoted + " AS NEEDS_QUOTE " +
 		"FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ?" +
 		" ORDER BY `COLUMNS`.ORDINAL_POSITION ASC"
@@ -885,10 +918,10 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 	cols := make(map[string]IField)
 	colSeq := make([]string, 0)
 	for rows.Next() {
-		var columnName, nullableStr, colType, colKey, extra, comment string
+		var columnName, nullableStr, colType, colKey, extra, comment, charset string
 		var alreadyQuoted, isUnsigned bool
 		var colDefault, maxLength *string
-		err = rows.Scan(&columnName, &nullableStr, &colDefault, &colType, &colKey, &extra, &comment, &maxLength, &alreadyQuoted)
+		err = rows.Scan(&columnName, &nullableStr, &colDefault, &colType, &colKey, &extra, &comment, &maxLength, &charset, &alreadyQuoted)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -952,6 +985,7 @@ func (db *mysql) GetFields(ctx context.Context, session *TSession, model IModel)
 			return nil, nil, err
 		}
 		col.Base().size = int(len1)
+		col.Base().ascii = charset == "ascii"
 		col.Base().EnumOptions = enumOptions
 		col.Base().SetOptions = setOptions
 
@@ -1286,6 +1320,8 @@ func (db *mysql) MapError(err error) error {
 				e = e.WithField(col)
 			}
 			return e
+		case 3988: // ER_CANNOT_CONVERT_STRING：参数换不进列的字符集（非 ASCII 写进 ascii 列，见 TAG_ASCII）
+			return ormerr.New(ormerr.ErrValidation, err)
 		case 3024, 1317: // ER_QUERY_TIMEOUT（max_execution_time）/ ER_QUERY_INTERRUPTED（KILL QUERY）
 			// 与 PG 的 57014 同一类：库这边把语句收掉了。
 			return ormerr.New(ormerr.ErrTimeout, err)

@@ -131,12 +131,16 @@ const MySQLSqlMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_
 //   - parseTime + loc=UTC：读回来的 DATETIME 贴 UTC 标签，与 lib/pq 读 timestamp 同形（vectors core/wall
 //     的口径：墙上时间贴 UTC 标签）。写入方向由 mysql.BindTime 保证落的是墙上字段。不能用 loc=Local：
 //     读回来变成本地标签，与 wall.Now() 比较就差一个时区。
+//   - collation_connection='utf8mb4_0900_as_cs'：连接的排序规则，与库 / 列一样区分大小写与重音（2026-10-24
+//     定的口径）。不设是驱动默认的 utf8mb4_0900_ai_ci，两个参数之间的比较按它来。走会话变量而不是驱动的
+//     collation 参数：go-sql-driver 1.9 的排序规则表里没有 0900_as_cs，直接拒连；会话变量在 SET NAMES 之后设。
 //   - sql_mode：见 MySQLSqlMode。
 //
 // Params 原样追加 / 覆盖（go-sql-driver 把不认识的键当会话变量，值要带引号，这里负责 URL 编码）。
 func (self *TDataSource) mysqlQuery() string {
 	q := url.Values{}
 	q.Set("charset", "utf8mb4")
+	q.Set("collation_connection", "'utf8mb4_0900_as_cs'")
 	q.Set("parseTime", "true")
 	q.Set("loc", "UTC")
 	q.Set("sql_mode", "'"+MySQLSqlMode+"'")

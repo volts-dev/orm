@@ -453,6 +453,17 @@ func (self *fieldStatment) Unbounded() *fieldStatment {
 	return self
 }
 
+// Ascii 同标签 ascii：只存 ASCII 的 char，MySQL 上列字符集 ascii。只认 char 一族的字段。
+func (self *fieldStatment) Ascii() *fieldStatment {
+	switch f := self.field.Base(); f.SQLType().Name {
+	case Varchar, NVarchar, Char:
+		f.ascii = true
+	default:
+		log.Errf("orm: %s: Ascii() 只用在 char 字段上，这里是 %s", f.Name(), f.SQLType().Name)
+	}
+	return self
+}
+
 // 字段的帮助描述
 func (self *fieldStatment) Help(v string) *fieldStatment {
 	self.field.Base().description = v

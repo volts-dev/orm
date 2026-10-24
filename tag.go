@@ -73,6 +73,11 @@ const (
 	// 只改存储：PG / SQLite 是不带长度的 VARCHAR，MySQL 落 TEXT（不带长度的 varchar 在 MySQL 上默认 255）。
 	// 逐字段清单 docs/mysql/varchar_classification.md 里判成「长内容」的 char 字段写它。
 	TAG_UNBOUNDED = "unbounded"
+	// TAG_ASCII：只存 ASCII 的 char（地址、编码、令牌）。PG / SQLite 上不起作用；MySQL 上列落
+	// `CHARACTER SET ascii COLLATE ascii_bin`——每字符 1 字节而不是 utf8mb4 的 4 字节，索引键上限
+	// 3072 字节才放得下 VARCHAR(2048) 的唯一索引（catalog.media.name）。区分大小写，与 PG 一致。
+	// 写进非 ASCII 字符在 MySQL 上报 3988 / 1366（ErrValidation）；PG 不拦，调用方先转码（如百分号编码）。
+	TAG_ASCII = "ascii"
 	// TAG_COPY 对应 Odoo 的 `copy=`：复制记录（Duplicate）时要不要带上这个字段。
 	// 只写 `copy(false)` 有意义——默认就是复制。单号/条码这类唯一列、以及不该跟着
 	// 副本走的历史数据（审批记录、发送日志）声明它，否则复制要么撞唯一约束、
@@ -146,6 +151,7 @@ func init() {
 		TAG_TYPE:            tag_type,
 		TAG_SIZE:            tag_size,
 		TAG_UNBOUNDED:       tag_unbounded,
+		TAG_ASCII:           tag_ascii,
 		TAG_DIGITS:          tag_digits,
 		TAG_MIN_DIGITS:      tag_min_display_digits,
 		TAG_TITLE:           tag_title,
@@ -602,6 +608,18 @@ func tag_unbounded(ctx *TTagContext) error {
 	}
 	field.unbounded = true
 	field.size = 0
+	return nil
+}
+
+// tag_ascii 见 TAG_ASCII。只认 char 一族，理由同 tag_unbounded。
+func tag_ascii(ctx *TTagContext) error {
+	field := ctx.Field.Base()
+	switch field.SQLType().Name {
+	case Varchar, NVarchar, Char:
+	default:
+		return fmt.Errorf("orm: %s.%s: ascii 只用在 char 字段上，这里是 %s", ctx.Model.String(), field.Name(), field.SQLType().Name)
+	}
+	field.ascii = true
 	return nil
 }
 

@@ -370,6 +370,11 @@ func (db *TDialect) CreateIndexUniqueSql(schema, tableName string, index *TIndex
 
 // indexColumnChecker：要看列类型才判得了的索引限制（MySQL：JSON / TEXT / BLOB 列不能直接建索引）。
 // skip 为真＝这条非唯一索引在本方言上不建（只影响速度、不影响结果），由 planIndex 告警一次。
+// columnCharsetter：建列时类型后面要跟的字符集子句（MySQL 的 ascii 列，见 TAG_ASCII）。
+type columnCharsetter interface {
+	columnCharset(field IField) string
+}
+
 type indexColumnChecker interface {
 	indexOnColumns(model IModel, index *TIndex) (skip bool, why string, err error)
 }
@@ -599,6 +604,12 @@ func ColumnString(dialect IDialect, field IField, includePrimaryKey bool) (strin
 
 	if _, err := bd.WriteString(dialect.GetSqlType(field)); err != nil {
 		return "", err
+	}
+	// 列字符集不进 GetSqlType：同步时拿它跟反查出来的类型比，类型名里多一截字符集就每次都判成不一致。
+	if cs, ok := dialect.(columnCharsetter); ok {
+		if _, err := bd.WriteString(cs.columnCharset(field)); err != nil {
+			return "", err
+		}
 	}
 
 	if includePrimaryKey && field.IsPrimaryKey() {

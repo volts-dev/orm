@@ -279,6 +279,7 @@ type (
 		searchFunc   FieldSearchFunc
 		translatable bool   // 字段值是否可翻译
 		unbounded    bool   // 不限长的 char（tag unbounded）：MySQL 上落 TEXT
+		ascii        bool   // 只存 ASCII 的 char（tag ascii）：MySQL 上列字符集 ascii，见 TAG_ASCII
 		outputAs     string // 读取时将值伪装为哪种类型（char/int/bool 等）
 
 		name  string // 字段在数据库中的列名
