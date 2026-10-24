@@ -157,7 +157,7 @@ type (
 		Vector           bool // 向量列与距离运算
 		UnboundedVarchar bool // 不带长度的 VARCHAR
 		Sequences        bool // 库里的序列对象
-		XactAdvisoryLock bool // 事务级咨询锁（pg_advisory_xact_lock）
+		XactAdvisoryLock bool // 事务级咨询锁（TSession.AdvisoryXactLock；PG 原生，MySQL 用锁表行锁模拟）
 		DateTrunc        bool // 按日期粒度截断 / 取日期部分（read_group 的 :month、domain 里的 date part）
 		TableComment     bool // COMMENT ON TABLE
 	}

@@ -487,7 +487,8 @@ func (db *mysql) BindTime(t time.Time) any {
 }
 
 func (db *mysql) Features() DialectFeatures {
-	return DialectFeatures{FunctionalIndex: true}
+	// XactAdvisoryLock：用锁表的行锁模拟（advisory_lock.go），语义与 PG 的 pg_advisory_xact_lock 一致。
+	return DialectFeatures{FunctionalIndex: true, XactAdvisoryLock: true}
 }
 
 func (db *mysql) SupportReturning() bool {
