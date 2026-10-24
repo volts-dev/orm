@@ -1040,7 +1040,7 @@ func (db *postgres) CreateTableSql(session *TSession, model IModel, storeEngine,
 		b.WriteString(s)
 
 		if len(field.Label()) > 0 {
-			comments.WriteString(fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'; ", quoter.Quote(tableName), quoter.Quote(field.Name()), field.Label()))
+			comments.WriteString(fmt.Sprintf("COMMENT ON COLUMN %s.%s IS %s; ", quoter.Quote(tableName), quoter.Quote(field.Name()), sqlStringLiteral(field.Label())))
 		}
 		fieldCnt++
 	}
@@ -1082,7 +1082,7 @@ func (db *postgres) GenAddColumnSQL(schema, tableName string, field IField) stri
 		}
 	}
 	addColumnSQL := fmt.Sprintf("ALTER TABLE %s ADD %s", tbl, s)
-	commentSQL := fmt.Sprintf("; COMMENT ON COLUMN %s.%s IS '%s'", tbl, quoter.Quote(field.Name()), field.Base().Label())
+	commentSQL := fmt.Sprintf("; COMMENT ON COLUMN %s.%s IS %s", tbl, quoter.Quote(field.Name()), sqlStringLiteral(field.Base().Label()))
 	return addColumnSQL + commentSQL
 }
 
@@ -1118,6 +1118,8 @@ func (db *postgres) GenInsertSql(tableName string, fields []string, uniqueFields
 			sql.WriteString("ON CONSTRAINT ")
 			sql.WriteString(onConflict.OnConstraint)
 			sql.WriteByte(' ')
+		} else if onConflict.DoNothing && len(onConflict.Fields) == 0 && len(uniqueFields) == 0 && idField == "" {
+			// 不点名冲突目标：任一唯一约束冲突都跳过（m2m 关联表写入就是这样，它只有一条联合唯一）。
 		} else {
 			sql.WriteByte('(')
 			if len(onConflict.Fields) > 0 {

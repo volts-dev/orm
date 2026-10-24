@@ -2,6 +2,7 @@ package orm
 
 import (
 	stdErrors "errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -212,27 +213,42 @@ func TestRelaxTimeouts_DialectAndTransactionRules(t *testing.T) {
 	}
 }
 
-// MySQL 连接串：Host 不带端口时补上 Port（此前被忽略，恒连 3306），字符集 utf8mb4。
+// MySQL 连接串：Host 不带端口时补上 Port（此前被忽略，恒连 3306）；utf8mb4、loc=Local、固定 sql_mode；
+// Params 盖过默认值。
 func TestDataSource_MySQLConnString(t *testing.T) {
 	cases := []struct {
-		name string
-		ds   TDataSource
-		want string
+		name, addr string
+		ds         TDataSource
+		want       map[string]string
 	}{
-		{"host 不带端口时用 Port", TDataSource{DbType: "mysql", DbName: "t", Host: "127.0.0.1", Port: "33306", UserName: "root", Password: "x"},
-			"root:x@tcp(127.0.0.1:33306)/t?charset=utf8mb4&parseTime=true"},
-		{"host 自带端口原样用", TDataSource{DbType: "mysql", DbName: "t", Host: "db:3307", Port: "33306", UserName: "root"},
-			"root:@tcp(db:3307)/t?charset=utf8mb4&parseTime=true"},
-		{"Port 没给：补默认的 3306", TDataSource{DbType: "mysql", DbName: "t", Host: "db", UserName: "root"},
-			"root:@tcp(db:3306)/t?charset=utf8mb4&parseTime=true"},
+		{"host 不带端口时用 Port", "root:x@tcp(127.0.0.1:33306)/t",
+			TDataSource{DbType: "mysql", DbName: "t", Host: "127.0.0.1", Port: "33306", UserName: "root", Password: "x"},
+			map[string]string{"charset": "utf8mb4", "parseTime": "true", "loc": "Local", "sql_mode": "'" + MySQLSqlMode + "'"}},
+		{"host 自带端口原样用", "root:@tcp(db:3307)/t",
+			TDataSource{DbType: "mysql", DbName: "t", Host: "db:3307", Port: "33306", UserName: "root"}, nil},
+		{"Port 没给：补默认的 3306", "root:@tcp(db:3306)/t",
+			TDataSource{DbType: "mysql", DbName: "t", Host: "db", UserName: "root"}, nil},
+		{"Params 盖过默认值", "root:@tcp(db:3306)/t",
+			TDataSource{DbType: "mysql", DbName: "t", Host: "db", UserName: "root", Params: map[string]string{"sql_mode": "'ANSI_QUOTES'", "time_zone": "'+08:00'"}},
+			map[string]string{"sql_mode": "'ANSI_QUOTES'", "time_zone": "'+08:00'", "charset": "utf8mb4"}},
 	}
 	for _, c := range cases {
 		got, err := c.ds.toString()
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if got != c.want {
-			t.Errorf("%s:\n got %s\nwant %s", c.name, got, c.want)
+		addr, query, _ := strings.Cut(got, "?")
+		if addr != c.addr {
+			t.Errorf("%s: 地址 %s，想要 %s", c.name, addr, c.addr)
+		}
+		vals, err := url.ParseQuery(query)
+		if err != nil {
+			t.Fatalf("%s: 查询串 %q: %v", c.name, query, err)
+		}
+		for k, v := range c.want {
+			if vals.Get(k) != v {
+				t.Errorf("%s: %s = %q，想要 %q", c.name, k, vals.Get(k), v)
+			}
 		}
 	}
 }

@@ -31,7 +31,8 @@ type (
 		// 时开不开都能跑，但参数的编码方式会变，开之前要回归 []byte / 时间 / jsonb /
 		// 数组。只对 postgres 生效。
 		BinaryParameters bool
-		// Params 是原样追加到连接串上的其它参数，键是 lib/pq 认识的连接参数名。
+		// Params 是原样追加到连接串上的其它参数：postgres 下键是 lib/pq 认识的连接参数名；mysql 下是
+		// go-sql-driver 的参数或会话变量（值要自己带引号，如 sql_mode: "'…'"），盖过 ORM 的默认值。
 		// 不要把 statement_timeout 这类**运行时参数**放进来：它们会变成启动包里的
 		// 参数，连接池代理不认；超时设在库或角色上（ALTER DATABASE / ALTER ROLE … SET）。
 		Params map[string]string
@@ -102,12 +103,9 @@ func (self *TDataSource) toString() (string, error) {
 	switch strings.ToLower(self.DbType) {
 	case "mysql":
 		if self.Host[0] == '/' { // looks like a unix socket
-			s = fmt.Sprintf("%s:%s@unix(%s)/%s?charset=utf8mb4&parseTime=true",
-				self.UserName, self.Password, self.Host, self.DbName)
+			s = fmt.Sprintf("%s:%s@unix(%s)/%s?%s", self.UserName, self.Password, self.Host, self.DbName, self.mysqlQuery())
 		} else {
-			// utf8mb4：MySQL 的 utf8 是 utf8mb3，存不了 emoji 与部分生僻字（写入报 1366 或被截断）。
-			s = fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=true",
-				self.UserName, self.Password, self.hostWithPort(), self.DbName)
+			s = fmt.Sprintf("%s:%s@tcp(%s)/%s?%s", self.UserName, self.Password, self.hostWithPort(), self.DbName, self.mysqlQuery())
 		}
 
 	case "postgres":
@@ -120,6 +118,31 @@ func (self *TDataSource) toString() (string, error) {
 	}
 
 	return s, nil
+}
+
+// MySQLSqlMode 是 ORM 连 MySQL 时固定发的 sql_mode（MySQL 8.0 社区版的默认值）。显式写上是因为
+// 实例上的默认值靠不住——阿里云 RDS 的默认 sql_mode 与社区版不同，宽松模式下超长值被**截断**、
+// 非法日期落成 0000-00-00，都只是一条警告。Params["sql_mode"] 可以整个换掉它。
+const MySQLSqlMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+
+// mysqlQuery 拼 MySQL 连接串的查询部分（键按字典序，同一份配置逐字节稳定）。
+//
+//   - charset=utf8mb4：MySQL 的 utf8 是 utf8mb3，存不了 emoji 与部分生僻字。
+//   - parseTime + loc=Local：ORM 写入日期时间用的是本地时间串（orm.go _formatTime），驱动若按默认的
+//     UTC 解读 time.Time 参数，查询条件与写进去的值就差一个时区（2026-10-24 探针：东八区差 8 小时）。
+//   - sql_mode：见 MySQLSqlMode。
+//
+// Params 原样追加 / 覆盖（go-sql-driver 把不认识的键当会话变量，值要带引号，这里负责 URL 编码）。
+func (self *TDataSource) mysqlQuery() string {
+	q := url.Values{}
+	q.Set("charset", "utf8mb4")
+	q.Set("parseTime", "true")
+	q.Set("loc", "Local")
+	q.Set("sql_mode", "'"+MySQLSqlMode+"'")
+	for k, v := range self.Params {
+		q.Set(k, v)
+	}
+	return q.Encode()
 }
 
 // hostWithPort 返回连接串里的 host[:port]（postgres 与 mysql 共用）。

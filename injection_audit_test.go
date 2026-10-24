@@ -47,7 +47,9 @@ func TestGroupBy_InjectionFieldIgnored(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	_, err := o.Model("bench.model").Limit(-1).GroupBy("name", "x); DROP TABLE bench_model;--").Read()
+	// 只取被分组的列：`SELECT 全部列 … GROUP BY name` 只有 SQLite 放行，PG / MySQL（ONLY_FULL_GROUP_BY）
+	// 都拒——那是另一回事，这里测的是恶意分组字段被丢掉。
+	_, err := o.Model("bench.model").Select("name").Limit(-1).GroupBy("name", "x); DROP TABLE bench_model;--").Read()
 	if err != nil {
 		t.Fatalf("malicious GroupBy field should be ignored, got: %v", err)
 	}

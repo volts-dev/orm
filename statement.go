@@ -551,7 +551,8 @@ func (self *TStatement) generate_index() ([]string, error) {
 
 func (self *TStatement) generate_insert(fields, uniqueFields []string) (string, bool) {
 	dialect := self.session.orm.dialect
-	sql := dialect.GenInsertSql(self.qualifiedTable(self.Model.Table()), fields, uniqueFields, self.Model.IdField(), self.OnConflict)
+	// 表名要过引号器：表名是保留字（order、group…）时裸写就是语法错（PG 42601 / MySQL 1064）。
+	sql := dialect.GenInsertSql(dialect.Quoter().Quote(self.qualifiedTable(self.Model.Table())), fields, uniqueFields, self.Model.IdField(), self.OnConflict)
 	return sql, dialect.SupportReturning()
 }
 

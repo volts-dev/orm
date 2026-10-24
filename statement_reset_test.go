@@ -67,7 +67,8 @@ func TestStatementReset_GroupByAndSortDoNotLeak(t *testing.T) {
 	sess := o.NewSession()
 	defer sess.Close()
 
-	if _, err := sess.Model("sr.item").GroupBy("name").Sort("age desc").Limit(-1).Read(); err != nil {
+	// 只取 / 只按被分组的列排：理由同 injection_audit_test.go（这里测的是语句复位，不是分组语义）。
+	if _, err := sess.Model("sr.item").Select("name").GroupBy("name").Sort("name desc").Limit(-1).Read(); err != nil {
 		t.Fatal(err)
 	}
 	if len(sess.Statement.GroupByClause) != 0 || len(sess.Statement.SortClauses) != 0 {

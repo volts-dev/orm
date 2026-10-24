@@ -321,6 +321,17 @@ func (db *mysql) String() string {
 
 // Features：MySQL 8.0 社区版。部分唯一索引由 ORM 模拟（见 index 相关），不算原生 PartialIndex；
 // 表达式索引 8.0.13 起有。JSONOps / DateTrunc / Vector 要等 P3 / P6 给出 MySQL 写法才打开。
+// LikeClause：库定为区分大小写的 utf8mb4_0900_as_cs（与 PG 一致，2026-10-24），于是 LIKE 本身就和 PG 的
+// LIKE 一样区分大小写；ILIKE 要显式换成 as_ci——不区分大小写、仍区分重音，这才是 PG ILIKE 的语义
+// （ai_ci 连重音也不分，会比 PG 宽）。此前落成裸 LIKE：在 _ci 库上碰巧对，在 _cs 库上 ilike 变成精确大小写。
+func (db *mysql) LikeClause(column, operator string) string {
+	op := strings.ToUpper(strings.TrimSpace(operator))
+	if strings.Contains(op, "ILIKE") {
+		return fmt.Sprintf("(%s %s ? COLLATE utf8mb4_0900_as_ci)", column, strings.ReplaceAll(op, "ILIKE", "LIKE"))
+	}
+	return fmt.Sprintf("(%s %s ?)", column, op)
+}
+
 func (db *mysql) DropPrimaryKeySql(quotedTable, table string) string {
 	return fmt.Sprintf("ALTER TABLE %s DROP PRIMARY KEY;", quotedTable)
 }
@@ -456,6 +467,11 @@ func (db *mysql) GetSqlType(field IField) string {
 		case 64:
 			res = BigInt
 			c.size = 8
+		default:
+			// int() 不写位数：与 PG 的 INTEGER 对齐。此前这里不赋值，建表语句里出现空类型
+			// （`qty` NULL COMMENT …，1064），2026-10-24 方言矩阵上 101 个用例卡在这里。
+			res = Int
+			c.size = 0
 		}
 	case Serial:
 		c.isAutoIncrement = true
@@ -467,11 +483,16 @@ func (db *mysql) GetSqlType(field IField) string {
 		c.isPrimaryKey = true
 		c.isPrimaryKey = true
 		res = BigInt
-	case Bytea:
-		res = Blob
-	case TimeStampz:
-		res = Char
-		c.size = 64
+	case Bytea, Binary, VarBinary, Blob:
+		// PG 的 bytea 不限大小；MySQL 的 BLOB 上限 64KB（附件 / 图片会超），BINARY 不写长度是 BINARY(1)。
+		res = LongBlob
+		c.size = 0
+	case DateTime, TimeStamp, TimeStampz:
+		// 微秒精度与 PG 的 timestamp 对齐：DATETIME 默认只到秒，写进去的值读回来与原值不等。
+		// timestamptz 以前落成 CHAR(64)（xorm 遗留），按字符串比较排序都不对。MySQL 没有带时区的
+		// 日期时间类型，值按连接的 loc（见 mysqlQuery）解读。
+		res = DateTime
+		c.size = 6
 	case Enum: // mysql enum
 		res = Enum
 		res += "("
@@ -528,6 +549,11 @@ func (db *mysql) GetSqlType(field IField) string {
 		res = LongBlob
 	default:
 		res = t
+	}
+	if res == Varchar && c.size == 0 {
+		// 不带长度的 varchar：PG 上不限长，MySQL 必须给长度。2026-10-24 定为 255；要更长的字段在标签上
+		// 写 text() 或显式长度（逐字段清单见 docs/mysql/varchar_classification.md）。
+		c.size = 255
 	}
 	c.SQLType().DefaultLength = c.size
 	hasLen1 := (c.SQLType().DefaultLength > 0)
@@ -653,7 +679,7 @@ func (db *mysql) GenAddColumnSQL(schema, tableName string, field IField) string 
 	s, _ := ColumnString(db.dialect, field, true)
 	sql := fmt.Sprintf("ALTER TABLE %v ADD %v", quoter.QuoteTable(schema, tableName), s)
 	if len(field.Label()) > 0 {
-		sql += " COMMENT '" + field.Label() + "'"
+		sql += " COMMENT " + mysqlStringLiteral(field.Label())
 	}
 	return sql
 }
@@ -665,10 +691,9 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 	field_list := ""
 	quoter := db.quoter.Quote
 
+	// 「冲突时什么都不做」不用 INSERT IGNORE：IGNORE 把截断、NOT NULL 违例、外键错也一并降成警告，
+	// 数据导入经不起。照 GORM 写成 ON DUPLICATE KEY UPDATE 某列 = 某列——只吞重复键（下面）。
 	insertVerb := "INSERT"
-	if onConflict != nil && onConflict.DoNothing {
-		insertVerb = "INSERT IGNORE"
-	}
 
 	for i, name := range fields {
 		if i < cnt-1 {
@@ -688,7 +713,19 @@ func (db *mysql) GenInsertSql(tableName string, fields []string, uniqueFields []
 	sql.WriteString(field_places)
 	sql.WriteString(") ")
 
-	if onConflict != nil && !onConflict.DoNothing {
+	if onConflict != nil && onConflict.DoNothing {
+		noop := idField
+		if noop == "" && len(uniqueFields) > 0 {
+			noop = uniqueFields[0]
+		}
+		if noop == "" && len(fields) > 0 {
+			noop = fields[0]
+		}
+		sql.WriteString("ON DUPLICATE KEY UPDATE ")
+		sql.WriteString(quoter(noop))
+		sql.WriteString(" = ")
+		sql.WriteString(quoter(noop))
+	} else if onConflict != nil {
 		sql.WriteString("ON DUPLICATE KEY UPDATE ")
 		if len(onConflict.DoUpdates) > 0 {
 			for idx, field := range onConflict.DoUpdates {
@@ -977,9 +1014,8 @@ func (db *mysql) CreateTableSql(_ *TSession, model IModel, storeEngine, charset 
 		b.WriteString(s)
 
 		if len(field.Label()) > 0 {
-			b.WriteString(" COMMENT '")
-			b.WriteString(field.Label())
-			b.WriteString("'")
+			b.WriteString(" COMMENT ")
+			b.WriteString(mysqlStringLiteral(field.Label()))
 		}
 		fieldCnt++
 	}
@@ -1010,9 +1046,8 @@ func (db *mysql) CreateTableSql(_ *TSession, model IModel, storeEngine, charset 
 	}
 
 	if model.GetTableDescription() != "" {
-		b.WriteString(" COMMENT='")
-		b.WriteString(model.GetTableDescription())
-		b.WriteString("'")
+		b.WriteString(" COMMENT=")
+		b.WriteString(mysqlStringLiteral(model.GetTableDescription()))
 	}
 
 	return b.String()

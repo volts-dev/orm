@@ -566,17 +566,27 @@ func (self *TSession) _create(src ...any) ([]any, error) {
 
 				id = ds.Record().GetByIndex(0)
 			} else {
+				// 不支持 RETURNING 的方言（MySQL）走这里。
+				//
+				// _exec 而不是 Exec：Exec 在自动关闭的会话上执行完就关会话，多行插入从第二行起报
+				// "session is closed"（2026-10-24 方言矩阵上 9 个用例）。
 				var res sql.Result
-				res, err = self.Exec(sqlExpr, params...)
+				res, err = self._exec(sqlExpr, params...)
 				if err != nil {
 					return ids, err
 				}
 
-				// 支持递增字段返回ID
-				if len(self.Statement.Model.IdField()) > 0 {
-					id, err = res.LastInsertId()
-					if err != nil {
-						return ids, err
+				// id 已由应用生成（雪花号，见上面 idCreator）就用写进去的那个；只有库自增的才问
+				// LastInsertId——非自增表上它恒为 0，此前 MySQL 上每条 Create 都回 0。xorm 同样只在有
+				// 自增列时读它。
+				if idf := self.Statement.Model.IdField(); len(idf) > 0 {
+					if v := newValues[idf]; v != nil && utils.ToInt64(v) != 0 {
+						id = v
+					} else {
+						id, err = res.LastInsertId()
+						if err != nil {
+							return ids, err
+						}
 					}
 				}
 			}

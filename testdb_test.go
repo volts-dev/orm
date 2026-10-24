@@ -95,7 +95,13 @@ func freshDatabase(t testing.TB, dbType, hostPort, user, pass string) *TDataSour
 			t.Logf("删测试库 %s: %v", name, err)
 		}
 	})
-	return &TDataSource{DbType: dbType, Host: host, Port: port, UserName: user, Password: pass, DbName: name, SSLMode: "disable"}
+	ds := &TDataSource{DbType: dbType, Host: host, Port: port, UserName: user, Password: pass, DbName: name, SSLMode: "disable"}
+	if dbType == "mysql" {
+		// ★ 过渡（P2，2026-10-24）：方言层外还有大量写死的双引号标识符（P3「标识符一律经引号器」在修），
+		// 不开 ANSI_QUOTES 的话它们挡在前面，P2 的修复在矩阵里看不出来。P3 收口后删掉这一行。
+		ds.Params = map[string]string{"sql_mode": "'" + MySQLSqlMode + ",ANSI_QUOTES'"}
+	}
+	return ds
 }
 
 func envOr(k, def string) string {

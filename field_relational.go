@@ -1250,22 +1250,30 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 			return fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s ("%s")`, ix[0], qualifiedMiddle, ix[1])
 		}
 		stmts := []string{createTable, createIndex(indexes[0]), createIndex(indexes[1])}
+		tableComment := ""
 		if orm.dialect.Features().TableComment {
-			stmts = append(stmts, fmt.Sprintf(`COMMENT ON TABLE %s IS '%s'`,
-				qualifiedMiddle, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model)))
+			tableComment = fmt.Sprintf(`COMMENT ON TABLE %s IS '%s'`,
+				qualifiedMiddle, fmt.Sprintf("RELATION BETWEEN %s AND %s", self.modelName, middle_model))
+			stmts = append(stmts, tableComment)
 		}
-		// 表已在（进程重启后的每一次同步）就只补缺的索引，不再发整套 DDL：
-		// 「连续同步两次，第二次一条 DDL 都不发」（sync_resync_ddl_test.go）。IF NOT EXISTS
-		// 虽然幂等，MySQL 却根本没有 CREATE INDEX IF NOT EXISTS，每次启动都报一遍语法错。
-		// 缺索引照补，是为老库上当年没建索引的关联表（此前每次启动的 IF NOT EXISTS 顺手补上了）。
+		// 有同步会话时先问库：表不在才建表（附注释），索引缺哪条建哪条，用不带 IF NOT EXISTS 的
+		// CREATE INDEX——三个方言都认（MySQL 根本没有 CREATE INDEX IF NOT EXISTS，此前每条都是
+		// 1064，关联表从来没有索引）。表已在、索引也全在＝一条 DDL 都不发（sync_resync_ddl_test.go）；
+		// 缺的照补，是为老库上当年没建索引的关联表。
 		if ctx.Session != nil {
 			if q, args := orm.dialect.TableCheckSql(schema, middle_model); q != "" {
-				if ds, err := ctx.Session._query(q, args...); err == nil && ds.Count() > 0 {
+				if ds, err := ctx.Session._query(q, args...); err == nil {
 					stmts = stmts[:0]
+					if ds.Count() == 0 {
+						stmts = append(stmts, createTable)
+						if tableComment != "" {
+							stmts = append(stmts, tableComment)
+						}
+					}
 					for _, ix := range indexes {
 						iq, iargs := orm.dialect.IndexCheckSql(schema, middle_model, ix[0])
 						if ids, err := ctx.Session._query(iq, iargs...); err != nil || ids.Count() == 0 {
-							stmts = append(stmts, createIndex(ix))
+							stmts = append(stmts, fmt.Sprintf(`CREATE INDEX "%s" ON %s ("%s")`, ix[0], qualifiedMiddle, ix[1]))
 						}
 					}
 				}
@@ -1886,10 +1894,10 @@ func (self *TMany2ManyField) link(ctx *TFieldContext, ids []any) error {
 	middle_table_name := quoter.QuoteTable(ctx.Session.Schema, strings.Replace(field.JoinModelName(), ".", "_", -1))
 	for _, rec_id := range ctx.Ids {
 		for _, relate_id := range ids {
-			query := fmt.Sprintf(
-				`INSERT INTO %v (%s, %s) VALUES (?,?) ON CONFLICT DO NOTHING`,
-				middle_table_name, quoter.Quote(field.JoinSourceKey()), quoter.Quote(field.RelatedKeyName()),
-			)
+			// 已关联的跳过：PG 出 ON CONFLICT DO NOTHING，MySQL 出 ON DUPLICATE KEY UPDATE x = x
+			//（此前写死 PG 语法，MySQL 上每次写 m2m 都是 1064）。
+			query := ctx.Session.orm.dialect.GenInsertSql(middle_table_name,
+				[]string{field.JoinSourceKey(), field.RelatedKeyName()}, nil, "", &OnConflict{DoNothing: true})
 
 			/*
 			   	query := fmt.Sprintf(`INSERT INTO %s (%s, %s)

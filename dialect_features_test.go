@@ -47,3 +47,13 @@ func TestFeatureGatedPathsNameTheCapability(t *testing.T) {
 		t.Errorf("日期部分筛选：%v", err)
 	}
 }
+
+// 注释里的撇号 / 反斜杠：DDL 拼不了占位符，字面量要自己转义。
+func TestSqlStringLiteral(t *testing.T) {
+	if got := sqlStringLiteral(`Sales 'Order'`); got != `'Sales ''Order'''` {
+		t.Errorf("sqlStringLiteral = %s", got)
+	}
+	if got := mysqlStringLiteral(`a\b 'c'`); got != `'a\\b ''c'''` {
+		t.Errorf("mysqlStringLiteral = %s", got)
+	}
+}

@@ -3,6 +3,7 @@ package orm
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/volts-dev/dataset"
@@ -525,6 +526,23 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 			}
 		}
 
+		// 没有模型字段对应的列（SUM / AVG 之类的函数列）若是 DECIMAL / NUMERIC，驱动交回 []byte
+		// （go-sql-driver 与 lib/pq 都这样：PG 上 sum(bigint) 就是 numeric），utils.ToFloat64 转不了，
+		// 读出来**静默是 0**——read_group 的合计、Sum() 全中（2026-10-24 方言矩阵，PG 与 MySQL 都有）。
+		// 按列类型定一次，转成 float64（read_group 的结果原样进 JSON，给数字不给字符串）。
+		numericCols := make([]bool, len(cols))
+		if cts, err := rows.ColumnTypes(); err == nil {
+			for i, ct := range cts {
+				if i < len(fields) && fields[i] != nil {
+					continue
+				}
+				switch strings.ToUpper(ct.DatabaseTypeName()) {
+				case "DECIMAL", "NUMERIC", "NEWDECIMAL":
+					numericCols[i] = true
+				}
+			}
+		}
+
 		for rows.Next() {
 			// 采集数据
 			if err = rows.Scan(vals...); err != nil {
@@ -541,6 +559,13 @@ func (self *TSession) _scanRows(rows *core.Rows) (*TDataset, error) {
 					value = field.onConvertToRead(self, cols, vals, idx)
 				} else {
 					value = holders[idx]
+					if numericCols[idx] {
+						if b, ok := value.([]byte); ok {
+							if f, err := strconv.ParseFloat(string(b), 64); err == nil {
+								value = f
+							}
+						}
+					}
 					if bigNumPending[idx] {
 						if _, ok := value.(int64); ok {
 							// 函数列(Count 等)的 0 是合法值，不归空串。

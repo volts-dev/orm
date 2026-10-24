@@ -239,7 +239,7 @@ func (db *TDialect) RollBackStr() string {
 	return "ROLL BACK"
 }
 
-// LikeClause 的通用实现（mysql / sqlite）：
+// LikeClause 的通用实现（sqlite；mysql 另有，见 dialect_mysql.go）：
 //   - 不加 `::text`——那是 postgres 专有语法，别的库上直接
 //     `unrecognized token: ":"` / `syntax error`。曾经 expr.go 对**所有**方言硬拼
 //     `::text`，于是非 postgres 上任何 like/ilike 的 domain 查询都是直接报错。
@@ -625,4 +625,15 @@ func checkDialectFeatures(d IDialect, cfg *Config) error {
 		return fmt.Errorf("orm: RowScopeEnforce needs Features.RowSecurity (row-level security in the database); dialect %s has none — use RowScopeAudit, or rely on the query-level tenant filter", cfg.DataSource.DbType)
 	}
 	return nil
+}
+
+// sqlStringLiteral 把 s 写成标准 SQL 的字符串字面量（单引号翻倍）。用在拼不了占位符的 DDL 里
+// （COMMENT ON COLUMN … IS '…'）：标题 / 帮助文字里有撇号时此前直接是语法错（PG 42601 / MySQL 1064）。
+func sqlStringLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// mysqlStringLiteral 同上，另外把反斜杠翻倍：MySQL 默认（没有 NO_BACKSLASH_ESCAPES）把字符串里的 \ 当转义。
+func mysqlStringLiteral(s string) string {
+	return sqlStringLiteral(strings.ReplaceAll(s, `\`, `\\`))
 }
