@@ -147,7 +147,7 @@ func TestUnbounded_KeepsCharTypeAndStoresLongValues(t *testing.T) {
 	}
 	if testDBKind() == "mysql" {
 		ddl := strings.Join(rec.ddl, "\n")
-		for _, want := range []string{"`label` TEXT", "`url` TEXT", "`short` VARCHAR(255)"} {
+		for _, want := range []string{"`label` LONGTEXT", "`url` LONGTEXT", "`short` VARCHAR(255)"} {
 			if !strings.Contains(ddl, want) {
 				t.Errorf("MySQL 建表语句里没有 %s：\n%s", want, ddl)
 			}

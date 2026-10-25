@@ -301,7 +301,7 @@ const mysqlMaxKeyBytes = 3072
 // columnCharset：ascii 列（TAG_ASCII）带上字符集；排序规则用 ascii_bin，与库默认的 utf8mb4_0900_as_cs 一样区分大小写。
 func (db *mysql) columnCharset(field IField) string {
 	if f := field.Base(); f.ascii && !f.companyDependent {
-		if t := db.GetSqlType(field); strings.HasPrefix(t, Varchar) || strings.HasPrefix(t, Char) || t == Text {
+		if t := db.GetSqlType(field); strings.HasPrefix(t, Varchar) || strings.HasPrefix(t, Char) || strings.HasSuffix(t, "TEXT") {
 			return " CHARACTER SET ascii COLLATE ascii_bin"
 		}
 	}
@@ -693,6 +693,13 @@ func (db *mysql) GetSqlType(field IField) string {
 	case UnsignedTinyInt:
 		res = TinyInt
 		isUnsigned = true
+	case Text:
+		// PG 的 text 不限长；MySQL 的 TEXT 上限 64KB——大视图的 arch（account 的 view_move_form）、长描述、
+		// 邮件正文都会超，写入 1406 Data too long（MySQL 探针 10-25）。与 bytea → LONGBLOB 同理落 LONGTEXT：
+		// 两者都存在行外，长度前缀多 2 字节，别无代价。要更短的上限在标签上显式写 tinytext / mediumtext。
+		// 改之前建的 TEXT 列同步时不自动放宽（同步比不出来：反查出的 TEXT 过这里也成了 LONGTEXT），当时只有
+		// 探针库，每轮都是空库重建。
+		res = LongText
 	case MediumText:
 		res = MediumText
 	case LongText:
@@ -709,7 +716,7 @@ func (db *mysql) GetSqlType(field IField) string {
 		res = t
 	}
 	if c.unbounded && (res == Varchar || res == Char) {
-		res = Text
+		res = LongText
 	} else if res == Varchar && c.size == 0 {
 		// 不带长度的 varchar：PG 上不限长，MySQL 必须给长度。2026-10-24 定为 255；要更长的字段在标签上
 		// 写 text() 或显式长度（逐字段清单见 docs/mysql/varchar_classification.md）。
