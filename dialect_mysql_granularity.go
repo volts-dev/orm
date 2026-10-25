@@ -56,6 +56,8 @@ func (db *mysql) granularitySql(qualified, granularity string, isDate bool, tz s
 	switch granularity {
 	case "hour":
 		expr = fmt.Sprintf("CAST(DATE_FORMAT(%s, '%%Y-%%m-%%d %%H:00:00') AS DATETIME)", local)
+	case "minute": // 只给 GranularitySql 用（read_group 不按分钟分组）
+		expr = fmt.Sprintf("CAST(DATE_FORMAT(%s, '%%Y-%%m-%%d %%H:%%i:00') AS DATETIME)", local)
 	case "week":
 		expr = fmt.Sprintf("CAST(DATE_SUB(DATE(%[1]s), INTERVAL WEEKDAY(%[1]s) DAY) AS DATETIME)", local)
 	case "month":
