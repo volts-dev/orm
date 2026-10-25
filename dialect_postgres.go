@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/lib/pq"
@@ -782,6 +783,8 @@ var (
 type (
 	postgres struct {
 		TDialect
+		// iterativeScan：本库的 pgvector 有没有 hnsw.iterative_scan（0 还没查到，1 有，2 没有，见 vector_search.go）。
+		iterativeScan atomic.Int32
 	}
 )
 

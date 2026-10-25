@@ -375,7 +375,8 @@ func (db *mysql) String() string {
 }
 
 // Features：MySQL 8.0 社区版。部分唯一索引由 ORM 模拟（见 index 相关），不算原生 PartialIndex；
-// 表达式索引 8.0.13 起有。JSONOps / DateTrunc / Vector 要等 P3 / P6 给出 MySQL 写法才打开。
+// 表达式索引 8.0.13 起有。JSONOps / DateTrunc 要等给出 MySQL 写法才打开；Vector 不开——8.0 没有向量运算，
+// 向量检索走 NearestByCosine 的精确扫描（vector_search.go）。
 // LikeClause：库定为区分大小写的 utf8mb4_0900_as_cs（与 PG 一致，2026-10-24），于是 LIKE 本身就和 PG 的
 // LIKE 一样区分大小写；ILIKE 要显式换成 as_ci——不区分大小写、仍区分重音，这才是 PG ILIKE 的语义
 // （ai_ci 连重音也不分，会比 PG 宽）。此前落成裸 LIKE：在 _ci 库上碰巧对，在 _cs 库上 ilike 变成精确大小写。
@@ -677,7 +678,8 @@ func (db *mysql) GetSqlType(field IField) string {
 		c.size = 40
 	case Vector:
 		// MySQL 8.0 没有向量类型（9.0 才有 VECTOR）。先落 JSON：pgvector 的文本字面量 [a,b,c] 本身就是合法的
-		// JSON 数组，读写原样往返；向量检索（<=>、HNSW）在 MySQL 上不可用，归 MySQL 兼容 P6。
+		// JSON 数组，读写原样往返。没有向量运算与向量索引：TSession.NearestByCosine 在这里按 Key 分批精确扫描
+		// （vector_search.go），Features().Vector 因此是 false。
 		res = Json
 	case Json, Jsonb:
 		// MySQL 没有 jsonb，JSON 列本身已是解析后的二进制存储；

@@ -10,7 +10,7 @@ import (
 // TVectorField 存放定长浮点向量的字段（对标 Odoo 企业版 ai 模块的 `fields.Vector`）。
 //
 // 列类型是 pgvector 扩展的 `vector(N)`，N 由 tag 的 size 给：`vector(1536)`。
-// 用途是语义检索——`ORDER BY col <=> $1`（余弦距离）配 ivfflat / hnsw 索引。
+// 用途是语义检索——余弦距离最近的 K 行，见 TSession.NearestByCosine。
 //
 // # 三件必须知道的事
 //
@@ -23,8 +23,9 @@ import (
 //   - **值的线上形态是文本** `[0.1,0.2,...]`。lib/pq 读回来是 []byte，写入给字符串
 //     字面量即可（pgvector 的 input 函数会解析）。内存里统一用 []float32。
 //
-// MySQL / SQLite 没有向量类型：GetSqlType 走默认分支拼出 `VECTOR(N)`，SQLite 接受任何
-// 类型名（按文本存），MySQL 会拒绝——本仓的向量只在 Postgres 上用。
+// MySQL 8.0 / SQLite 没有向量类型：MySQL 落 JSON 列、SQLite 按文本存，值都是同一个 `[a,b,c]`。
+// 检索用 TSession.NearestByCosine（vector_search.go）：PG 上是 `<=>` + HNSW，别处是精确扫描，
+// 结果一样。别在方言层外手写 `<=>`。
 type TVectorField struct {
 	TField
 }
