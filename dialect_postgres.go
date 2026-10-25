@@ -912,6 +912,11 @@ func (db *postgres) companyAsText(expr string) string { return "(" + expr + ")::
 
 // TextOf：PG 的 ::text 本身就是口径（布尔 'true' / 'false'）。
 func (db *postgres) TextOf(expr string, _ IField) string { return "(" + expr + ")::text" }
+
+// NowPlusSeconds：CAST 不是装饰——CASE 的 THEN 位置上占位符推不出类型，按 text 处理会报 purge_at 类型不符。
+func (db *postgres) NowPlusSeconds(seconds int64) (string, any) {
+	return "now() + CAST(? AS interval)", strconv.FormatInt(seconds, 10) + " seconds"
+}
 func (db *postgres) companySetSlot(col, slot string, null bool) string {
 	v := "?::jsonb"
 	if null {

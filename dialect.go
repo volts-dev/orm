@@ -132,6 +132,9 @@ type (
 		// MySQL / SQLite 的布尔列是整数，直接 CAST 出来是 '1' / '0'。日期时间、小数的文本格式各库不同，
 		// 别拿它们的文本去比。
 		TextOf(expr string, field IField) string
+		// NowPlusSeconds 是「数据库当前时刻加 seconds 秒」的表达式与它的那一个占位符参数（可为负）。时刻由库算：
+		// 拿它写的列与 `now()` 比（PG / MySQL 都认 now()），两边是同一个钟。vectors 附件账本的墓碑时刻用它。
+		NowPlusSeconds(seconds int64) (expr string, arg any)
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用
@@ -246,6 +249,10 @@ func (db *TDialect) DropPrimaryKeySql(quotedTable, table string) string { return
 func (db *TDialect) BindTime(t time.Time) any { return t }
 
 func (db *TDialect) FitIdentifier(name string) string { return name }
+
+func (db *TDialect) NowPlusSeconds(seconds int64) (string, any) {
+	return "datetime('now', ?)", fmt.Sprintf("%+d seconds", seconds)
+}
 
 func (db *TDialect) TextOf(expr string, field IField) string {
 	if isBoolField(field) {

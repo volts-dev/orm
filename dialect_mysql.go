@@ -422,6 +422,11 @@ func (db *mysql) companyCast(e string, field IField) string {
 }
 func (db *mysql) companyAsText(expr string) string { return "CAST((" + expr + ") AS CHAR)" }
 
+// NowPlusSeconds：NOW(6) 与 DATETIME(6) 列同精度。
+func (db *mysql) NowPlusSeconds(seconds int64) (string, any) {
+	return "(NOW(6) + INTERVAL ? SECOND)", seconds
+}
+
 // TextOf：布尔列是 tinyint(1)，CAST 出来是 '1' / '0'，改写成 PG 的 'true' / 'false'。
 func (db *mysql) TextOf(expr string, field IField) string {
 	if isBoolField(field) {
