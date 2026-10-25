@@ -48,6 +48,9 @@ func TestTxTempTable_LivesOnlyInItsTransaction(t *testing.T) {
 			if n := count(s, ref); n != 2 {
 				t.Fatalf("插了 2 行，数出 %d", n)
 			}
+			if err := s.AnalyzeTxTempTable(ref); err != nil {
+				t.Fatalf("AnalyzeTxTempTable: %v", err)
+			}
 			// 同名再建一次：清空复用。
 			if ref2, err := s.TxTempTable("tt_ids", "(id bigint PRIMARY KEY)"); err != nil || ref2 != ref {
 				t.Fatalf("再建一次: %q, %v", ref2, err)

@@ -29,7 +29,13 @@ import (
 // 登记在事务结束之前执行。
 type txTempTabler interface {
 	txTempTable(name, columns string) (ref string, create []string, drop string)
+	// txTempAnalyze 是给灌好数据的临时表收集统计的语句，不需要时为空。
+	txTempAnalyze(ref string) string
 }
+
+func (db *postgres) txTempAnalyze(ref string) string { return "ANALYZE " + ref }
+func (db *mysql) txTempAnalyze(string) string        { return "" }
+func (db *sqlite) txTempAnalyze(string) string       { return "" }
 
 func (db *postgres) txTempTable(name, columns string) (string, []string, string) {
 	q := db.quoter.Quote(name)
@@ -78,6 +84,22 @@ func (self *TSession) TxTempTable(name, columns string) (string, error) {
 		self.tx.BeforeEnd(drop)
 	}
 	return ref, nil
+}
+
+// AnalyzeTxTempTable 让库为刚灌好数据的临时表 ref（TxTempTable 的返回值）收集统计：PG 的 autovacuum 不碰临时表，
+// 不 ANALYZE 的话规划器按默认行数估，`x IN (SELECT id FROM 临时表)` 在大表上会挑成嵌套循环。MySQL / SQLite 不做
+// （MySQL 的 ANALYZE TABLE 会隐式提交；它对临时表的子查询走物化，不靠统计）。
+func (self *TSession) AnalyzeTxTempTable(ref string) error {
+	d, ok := self.orm.dialect.(txTempTabler)
+	if !ok {
+		return nil
+	}
+	q := d.txTempAnalyze(ref)
+	if q == "" {
+		return nil
+	}
+	_, err := self.Exec(q)
+	return err
 }
 
 // implicitCommitDDL：这条语句在没有事务性 DDL 的库（MySQL）上会不会隐式提交事务。临时表的建 / 删不会。
