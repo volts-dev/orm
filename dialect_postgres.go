@@ -1937,6 +1937,8 @@ func (db *postgres) MapError(err error) error {
 			return e
 		case "23503": // foreign_key_violation
 			return ormerr.New(ormerr.ErrValidation, err)
+		case "42P01": // undefined_table
+			return ormerr.New(ormerr.ErrUndefinedTable, err)
 		case "22001", "22003", "22P02", "22007", "22008":
 			// string_data_right_truncation / numeric_value_out_of_range / invalid_text_representation /
 			// invalid_datetime_format / datetime_field_overflow：值放不进这一列。与 MySQL 1406 等同一类，

@@ -165,8 +165,8 @@ func TestSqliteMapError_NoSuchTable(t *testing.T) {
 	d := &sqlite{}
 	src := stdErrors.New("no such table: missing_table")
 	got := d.MapError(src)
-	if !stdErrors.Is(got, ormerr.ErrValidation) {
-		t.Fatalf("expected ErrValidation, got %v", got)
+	if !stdErrors.Is(got, ormerr.ErrUndefinedTable) { // 2026-10-25 起三个库同一种（此前 SQLite 归 ErrValidation）
+		t.Fatalf("expected ErrUndefinedTable, got %v", got)
 	}
 }
 

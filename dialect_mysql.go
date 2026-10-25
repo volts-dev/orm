@@ -1338,6 +1338,8 @@ func (db *mysql) MapError(err error) error {
 		switch me.Number {
 		case 1062: // ER_DUP_ENTRY
 			return ormerr.New(ormerr.ErrDuplicate, err)
+		case 1146: // ER_NO_SUCH_TABLE
+			return ormerr.New(ormerr.ErrUndefinedTable, err)
 		case 1061: // ER_DUP_KEYNAME：索引名已在（见 ErrIndexExists）
 			return ormerr.New(ormerr.ErrIndexExists, err)
 		case 1213, 1205, 3572: // ER_LOCK_DEADLOCK / ER_LOCK_WAIT_TIMEOUT / ER_LOCK_NOWAIT

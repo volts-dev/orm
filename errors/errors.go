@@ -68,6 +68,10 @@ var (
 	// ErrIndexExists：要建的索引名已经在了。MySQL 建索引没有 IF NOT EXISTS：两路同时同步同一个模型时都先
 	// 查「不在」再各自 CREATE INDEX，后到的报 1061——建索引的地方遇到它当成功（PG 的 IF NOT EXISTS 同理）。
 	ErrIndexExists = errors.New("orm: index already exists")
+	// ErrUndefinedTable：语句里的表不存在（PG 42P01 / MySQL 1146 / SQLite no such table）。上层「表还没建就当
+	// 没有」的判断用 errors.Is，不再各自匹配驱动原文——PG 说 does not exist，MySQL 说 doesn't exist（MySQL 探针
+	// 10-25：存储实例表的「首次启动、表还没建」判断因此没认出来，整个进程判成没配 blob 存储）。
+	ErrUndefinedTable = errors.New("orm: table does not exist")
 	// ErrNotTransient：对没有声明 transient 的模型调用 VacuumTransient。
 	ErrNotTransient = errors.New("orm: model is not transient")
 	// ErrRequired：写入缺了必填字段。

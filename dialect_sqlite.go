@@ -491,8 +491,9 @@ func (db *sqlite) MapError(err error) error {
 			e = e.WithFields(col)
 		}
 		return e
-	case strings.Contains(msg, "no such table"),
-		strings.Contains(msg, "FOREIGN KEY constraint failed"):
+	case strings.Contains(msg, "no such table"):
+		return ormerr.New(ormerr.ErrUndefinedTable, err)
+	case strings.Contains(msg, "FOREIGN KEY constraint failed"):
 		return ormerr.New(ormerr.ErrValidation, err)
 	}
 
