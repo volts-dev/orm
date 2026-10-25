@@ -43,7 +43,8 @@ func TestFeatureGatedPathsNameTheCapability(t *testing.T) {
 	if _, _, err := propertyLeafToSql(d, "t", "props", "color", "=", []any{"red"}); err == nil || !strings.Contains(err.Error(), "JSONOps") {
 		t.Errorf("properties 筛选：%v", err)
 	}
-	if _, _, err := granularityLeafToSql(d, "t", nil, "month", "=", []any{1}, ""); err == nil || !strings.Contains(err.Error(), "DateTrunc") {
+	// MySQL 2026-10-26 起有日期粒度（dialect_mysql_granularity.go）；SQLite 仍没有。
+	if _, _, err := granularityLeafToSql(QueryDialect("sqlite"), "t", nil, "month", "=", []any{1}, ""); err == nil || !strings.Contains(err.Error(), "DateTrunc") {
 		t.Errorf("日期部分筛选：%v", err)
 	}
 }

@@ -61,7 +61,7 @@ func granularityLeafToSql(dialect IDialect, aliasTable string, field IField, gra
 	}
 	col := fmt.Sprintf("%s.%s", aliasTable, dialect.Quoter().Quote(field.Name()))
 	isDate := strings.EqualFold(field.SQLType().Name, "DATE")
-	expr := granularityExpr(col, gran, isDate, tz)
+	expr := granularitySql(dialect, col, gran, isDate, tz)
 
 	isFalse := func(v any) bool { b, ok := v.(bool); return ok && !b }
 	toInt := func(v any) (int64, error) {

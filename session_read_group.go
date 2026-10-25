@@ -323,7 +323,7 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 			// 带冒号的别名既查不到字段、也不是合法标识符。
 			if _, ok := numberGranularities[granularity]; ok {
 				// 「取一部分」：结果是整数，别名另起（`<字段>__<粒度>`），不套字段的时间转换器。
-				expr = granularityExpr(qualified, granularity, isDate, tz)
+				expr = granularitySql(self.orm.dialect, qualified, granularity, isDate, tz)
 				alias, err := quoter.QuoteIdent(GranularityAlias(name, granularity))
 				if err != nil {
 					return nil, err
@@ -333,7 +333,7 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 				grouped[name] = true
 				continue
 			}
-			expr = granularityExpr(qualified, granularity, isDate, tz)
+			expr = granularitySql(self.orm.dialect, qualified, granularity, isDate, tz)
 			alias, err := quoter.QuoteIdent(name)
 			if err != nil {
 				return nil, err
@@ -680,6 +680,19 @@ func (self *TSession) aggregateColumn(model IModel, field IField, name, op, alia
 		expr = fmt.Sprintf("%s(%s)", fn, qualified)
 	}
 	return expr + " AS " + alias, true, nil
+}
+
+// granularitySqler：方言自己的粒度写法（MySQL，dialect_mysql_granularity.go）。没实现的用 granularityExpr（PG）。
+type granularitySqler interface {
+	granularitySql(qualified, granularity string, isDate bool, tz string) string
+}
+
+// granularitySql 是按粒度分组 / 按日期部分筛选的那一列的 SQL，交给方言。
+func granularitySql(d IDialect, qualified, granularity string, isDate bool, tz string) string {
+	if g, ok := d.(granularitySqler); ok {
+		return g.granularitySql(qualified, granularity, isDate, tz)
+	}
+	return granularityExpr(qualified, granularity, isDate, tz)
 }
 
 // granularityExpr 是按粒度分组的那一列的 SQL（Postgres）。
