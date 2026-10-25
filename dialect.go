@@ -135,6 +135,13 @@ type (
 		// NowPlusSeconds 是「数据库当前时刻加 seconds 秒」的表达式与它的那一个占位符参数（可为负）。时刻由库算：
 		// 拿它写的列与 `now()` 比（PG / MySQL 都认 now()），两边是同一个钟。vectors 附件账本的墓碑时刻用它。
 		NowPlusSeconds(seconds int64) (expr string, arg any)
+		// 下面几个是 PG 写法在 MySQL 上没有的那几种语句形状（dialect_portable_sql.go）：调用方给零件，方言拼。
+		UpdateFromSql(u UpdateFrom) string
+		DeleteUsingSql(d DeleteUsing) string
+		IsDistinctSql(a, b string) string
+		IsNotDistinctSql(a, b string) string
+		OnConflictDoNothingSql(table, column string) string
+		StringAggSql(expr, sep string, distinct bool) string
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用

@@ -148,6 +148,8 @@ const MySQLSqlMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_
 //     定的口径）。不设是驱动默认的 utf8mb4_0900_ai_ci，两个参数之间的比较按它来。走会话变量而不是驱动的
 //     collation 参数：go-sql-driver 1.9 的排序规则表里没有 0900_as_cs，直接拒连；会话变量在 SET NAMES 之后设。
 //   - sql_mode：见 MySQLSqlMode。
+//   - group_concat_max_len=16MB：默认 1024 字节，GROUP_CONCAT（Dialect().StringAggSql）超了静默截断——19 位的
+//     雪花 id 拼 50 个就到头。
 //
 // Params 原样追加 / 覆盖（go-sql-driver 把不认识的键当会话变量，值要带引号，这里负责 URL 编码）。
 func (self *TDataSource) mysqlQuery() string {
@@ -157,6 +159,7 @@ func (self *TDataSource) mysqlQuery() string {
 	q.Set("parseTime", "true")
 	q.Set("loc", "UTC")
 	q.Set("sql_mode", "'"+MySQLSqlMode+"'")
+	q.Set("group_concat_max_len", "16777216")
 	for k, v := range self.Params {
 		q.Set(k, v)
 	}
