@@ -234,6 +234,11 @@ func (self *TOrm) materializeField(schema string, model *TModel, field IField, o
 			if err := self.addColumn(ctx, schema, table, field, o); err != nil {
 				return err
 			}
+		} else if o != nil && o.backfill != nil {
+			// 没有事务性 DDL 的库：列在了、回填可能还欠着（上一次回填失败，见 field_backfill_marker.go）。
+			if err := self.resumeBackfill(schema, backfillKey(schema, table, field.Name()), o.backfill); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -274,6 +279,24 @@ func (self *TOrm) addColumn(ctx context.Context, schema, table string, field IFi
 		return nil
 	}
 
+	m, err := self.backfillMarker()
+	if err != nil {
+		return err
+	}
+	if m != nil {
+		// 没有事务性 DDL（MySQL）：先记标记、再建列、再在事务里回填（见 field_backfill_marker.go）。
+		key := backfillKey(schema, table, field.Name())
+		if err := self.markBackfillPending(m, key); err != nil {
+			return err
+		}
+		if _, err := self.privilegedExec(ddl); err != nil {
+			if again, _ := self.dialect.IsColumnExist(ctx, schema, table, field.Name()); !again {
+				return err
+			}
+		}
+		return self.runPendingBackfill(m, schema, key, o.backfill)
+	}
+
 	s := self.NewPrivilegedSession()
 	defer s.Close()
 	s.Schema = normalizeSchema(self.dialect, schema)
@@ -295,8 +318,48 @@ func (self *TOrm) addColumn(ctx context.Context, schema, table string, field IFi
 	return s.Commit()
 }
 
+// resumeBackfill：没有事务性 DDL 的库上，key 的标记还在就补做那次回填；有事务性 DDL 的库什么都不做。
+func (self *TOrm) resumeBackfill(schema, key string, fn func(s *TSession) error) error {
+	m, err := self.backfillMarker()
+	if err != nil || m == nil {
+		return err
+	}
+	pending, err := self.hasBackfillPending(m, key)
+	if err != nil || !pending {
+		return err
+	}
+	return self.runPendingBackfill(m, schema, key, fn)
+}
+
+// addRelationTableMarked 是 addRelationTable 在没有事务性 DDL 的库上的做法：建表自动提交，回填靠标记。
+func (self *TOrm) addRelationTableMarked(m fieldBackfillMarker, schema string, model *TModel, field IField, o *addFieldOptions) error {
+	rel := strings.Replace(field.JoinModelName(), ".", "_", -1)
+	key := backfillKey(schema, rel, "")
+	s := self.NewPrivilegedSession()
+	defer s.Close()
+	s.Schema = normalizeSchema(self.dialect, schema)
+	sql, args := self.dialect.TableCheckSql(schema, rel)
+	ds, err := s._query(sql, args...)
+	if err != nil {
+		return err
+	}
+	if ds.Count() == 0 {
+		if err := self.markBackfillPending(m, key); err != nil {
+			return err
+		}
+	}
+	s.Model(model.String())
+	field.UpdateDb(&TTagContext{Orm: self, Field: field, Model: model, Session: s})
+	return self.resumeBackfill(schema, key, o.backfill)
+}
+
 // addRelationTable 建 many2many 关联表；关联表是这一次才建出来的，就在同一个事务里回填。
 func (self *TOrm) addRelationTable(schema string, model *TModel, field IField, o *addFieldOptions) error {
+	if m, err := self.backfillMarker(); err != nil {
+		return err
+	} else if m != nil {
+		return self.addRelationTableMarked(m, schema, model, field, o)
+	}
 	rel := strings.Replace(field.JoinModelName(), ".", "_", -1)
 	s := self.NewPrivilegedSession()
 	defer s.Close()

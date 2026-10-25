@@ -378,8 +378,18 @@ func (db *sqlite) IsDatabaseExist(ctx context.Context, name string) bool        
 func (db *sqlite) CreateDatabase(dbx *sql.DB, ctx context.Context, name string) error { return nil }
 func (db *sqlite) DropDatabase(dbx *sql.DB, ctx context.Context, name string) error   { return nil }
 func (db *sqlite) IsReserved(name string) bool                                        { return false }
+// IsColumnExist 问 pragma_table_info。此前恒回 false：运行期补字段（AddField）在列已存在的库上（重启后）照样发
+// ADD COLUMN，报 duplicate column name（P5 的三库回填用例 2026-10-25 撞到）。
 func (db *sqlite) IsColumnExist(ctx context.Context, _, tableName string, colName string) (bool, error) {
-	return false, nil
+	query := "SELECT name FROM pragma_table_info(?) WHERE name = ?"
+	args := []any{tableName, colName}
+	db.LogSQL(query, args)
+	rows, err := db.queryer.QueryContext(ctx, query, args...)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), nil
 }
 func (db *sqlite) DropIndexUniqueSql(_, tableName string, index *TIndex) string {
 	idxName := db.FitIdentifier(index.GetName(tableName))
