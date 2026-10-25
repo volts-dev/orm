@@ -375,8 +375,8 @@ func (db *mysql) String() string {
 }
 
 // Features：MySQL 8.0 社区版。部分唯一索引由 ORM 模拟（见 index 相关），不算原生 PartialIndex；
-// 表达式索引 8.0.13 起有。DateTrunc 有 MySQL 写法（dialect_mysql_granularity.go，2026-10-26）。JSONOps 要等给出
-// MySQL 写法才打开；Vector 不开——8.0 没有向量运算，
+// 表达式索引 8.0.13 起有。DateTrunc、JSONOps 有 MySQL 写法（dialect_mysql_granularity.go、
+// dialect_mysql_properties.go，2026-10-26）；Vector 不开——8.0 没有向量运算，
 // 向量检索走 NearestByCosine 的精确扫描（vector_search.go）。
 // LikeClause：库定为区分大小写的 utf8mb4_0900_as_cs（与 PG 一致，2026-10-24），于是 LIKE 本身就和 PG 的
 // LIKE 一样区分大小写；ILIKE 要显式换成 as_ci——不区分大小写、仍区分重音，这才是 PG ILIKE 的语义
@@ -504,7 +504,7 @@ func (db *mysql) BindTime(t time.Time) any {
 
 func (db *mysql) Features() DialectFeatures {
 	// XactAdvisoryLock：用锁表的行锁模拟（advisory_lock.go），语义与 PG 的 pg_advisory_xact_lock 一致。
-	return DialectFeatures{FunctionalIndex: true, XactAdvisoryLock: true, DateTrunc: true}
+	return DialectFeatures{FunctionalIndex: true, XactAdvisoryLock: true, DateTrunc: true, JSONOps: true}
 }
 
 func (db *mysql) SupportReturning() bool {

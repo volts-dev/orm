@@ -44,9 +44,11 @@ func resolvePropertyPath(model IModel, left string) (IField, string) {
 // propertyLeafToSql 生成单个规格项的 SQL 条件。
 func propertyLeafToSql(dialect IDialect, aliasTable, colName, propName, operator string, vals []any) (string, []any, error) {
 	if !dialect.Features().JSONOps {
-		// MySQL 的 `->>`、SQLite 的 json_extract 语法各不相同，且都没有 GIN。
-		// 与其发一条在别的库上语义漂移的 SQL，不如明确报错；P3 给出别家写法后再打开能力位。
+		// SQLite 的 json_extract 语义与 jsonb 不同，与其发一条语义漂移的 SQL，不如明确报错。
 		return "", nil, fmt.Errorf("filtering on properties needs Features.JSONOps (postgres jsonb), current dialect is %s", dialect.String())
+	}
+	if p, ok := dialect.(propertyFilterer); ok {
+		return p.propertyLeafSql(fmt.Sprintf("%s.%s", aliasTable, dialect.Quoter().Quote(colName)), propName, operator, vals)
 	}
 
 	quoter := dialect.Quoter()
@@ -127,6 +129,11 @@ func propertyLeafToSql(dialect IDialect, aliasTable, colName, propName, operator
 	}
 
 	return "", nil, fmt.Errorf("operator %q is not supported on properties", operator)
+}
+
+// propertyFilterer：方言自己的规格筛选写法（MySQL，dialect_mysql_properties.go）。没实现的走上面的 jsonb 写法。
+type propertyFilterer interface {
+	propertyLeafSql(col, propName, operator string, vals []any) (string, []any, error)
 }
 
 // propertyContainmentLiteral 生成 `{"key": value}` 这个用于 @> 的 jsonb 文本。

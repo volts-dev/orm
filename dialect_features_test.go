@@ -16,10 +16,14 @@ func TestDialectFeatures_ConsistentWithSupportReturning(t *testing.T) {
 			t.Errorf("%s: Features().Returning=%v，SupportReturning()=%v", name, d.Features().Returning, d.SupportReturning())
 		}
 	}
-	// MySQL 2026-10-24 的能力面：没有原生 RETURNING / 事务内 DDL / 行级安全 / jsonb 运算。
+	// MySQL 的能力面：没有原生 RETURNING / 事务内 DDL / 行级安全 / 无长度 VARCHAR / 向量运算。JSONOps（规格筛选，
+	// dialect_mysql_properties.go）与 DateTrunc（日期粒度）2026-10-26 起有 MySQL 写法。
 	f := QueryDialect("mysql").Features()
-	if f.Returning || f.TransactionalDDL || f.RowSecurity || f.JSONOps || f.UnboundedVarchar {
+	if f.Returning || f.TransactionalDDL || f.RowSecurity || f.UnboundedVarchar || f.Vector {
 		t.Errorf("mysql 的能力位打开得太早：%+v", f)
+	}
+	if !f.JSONOps || !f.DateTrunc {
+		t.Errorf("mysql 应有 JSONOps / DateTrunc：%+v", f)
 	}
 }
 
@@ -40,7 +44,9 @@ func TestNew_RowScopeEnforceNeedsRowSecurity(t *testing.T) {
 // 公司相关字段、properties 筛选、日期粒度：不支持的方言上报错要点名能力，而不是拼出一条坏 SQL。
 func TestFeatureGatedPathsNameTheCapability(t *testing.T) {
 	d := QueryDialect("mysql")
-	if _, _, err := propertyLeafToSql(d, "t", "props", "color", "=", []any{"red"}); err == nil || !strings.Contains(err.Error(), "JSONOps") {
+	// MySQL 2026-10-26 起有规格筛选（dialect_mysql_properties.go）；SQLite 仍没有。
+	_ = d
+	if _, _, err := propertyLeafToSql(QueryDialect("sqlite"), "t", "props", "color", "=", []any{"red"}); err == nil || !strings.Contains(err.Error(), "JSONOps") {
 		t.Errorf("properties 筛选：%v", err)
 	}
 	// MySQL 2026-10-26 起有日期粒度（dialect_mysql_granularity.go）；SQLite 仍没有。
