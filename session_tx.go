@@ -13,6 +13,14 @@ import (
 //			Rollback()
 //	}
 func (self *TSession) Begin() error {
+	return self.BeginTx(nil)
+}
+
+// BeginTx 是带选项的 Begin（隔离级别、只读）。会话已在事务里时什么都不做——选项只在开事务那一刻有用。
+//
+// 要快照读就用它，别在事务里发 SET TRANSACTION ISOLATION LEVEL：PG 要求那是事务的第一条语句（Begin 之后
+// orm 可能已经发过 SET LOCAL），MySQL 在事务里直接拒绝（1568）——驱动在 START TRANSACTION 之前设好才对。
+func (self *TSession) BeginTx(opts *sql.TxOptions) error {
 	self.syncBorrowedTx()
 	// 当第一次调用时才修改Tx
 	if self.IsAutoCommit {
@@ -20,7 +28,7 @@ func (self *TSession) Begin() error {
 		if err != nil {
 			return err
 		}
-		tx, err := pool.BeginTx(self.context, nil)
+		tx, err := pool.BeginTx(self.context, opts)
 		if err != nil {
 			return err
 		}
