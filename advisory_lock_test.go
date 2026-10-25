@@ -184,3 +184,38 @@ func TestAdvisoryXactLockName(t *testing.T) {
 		t.Fatal("持锁的事务提交后仍拿不到")
 	}
 }
+
+// 设了 schema 的会话上拿锁（MySQL：那个会话走另一个库的连接池），与默认会话上同一个键互斥。
+func TestAdvisoryXactLock_InOtherSchema(t *testing.T) {
+	skipUnlessDialect(t, "mysql")
+	ds := testDataSource(t, "")
+	o, err := New(WithDataSource(ds))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	other := ds.DbName + "_advsys"
+	if _, err := o.Exec("CREATE DATABASE `" + other + "`"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { o.Exec("DROP DATABASE IF EXISTS `" + other + "`"); o.Close() })
+	const key = int64(0x5c7e3a)
+
+	a := o.NewSession()
+	a.SetSchema(other)
+	if err := a.Begin(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.Rollback(nil); a.Close() })
+	if err := a.AdvisoryXactLock(key); err != nil {
+		t.Fatalf("schema=%s 的会话上拿锁: %v", other, err)
+	}
+
+	b := o.NewSession()
+	if err := b.Begin(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.Rollback(nil); b.Close() })
+	if got, err := b.TryAdvisoryXactLock(key); err != nil || got {
+		t.Errorf("别的 schema 的会话持着锁时，默认会话试着拿 = %v, %v，应拿不到", got, err)
+	}
+}

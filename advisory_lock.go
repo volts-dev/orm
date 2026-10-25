@@ -92,6 +92,12 @@ func (db *sqlite) advisoryXactLock(_ *TSession, _ int64, _ bool) (bool, error) {
 // MySQLAdvisoryLockTable 是 MySQL 上模拟咨询锁的锁表（默认库里，每个锁键一行，只增不删）。
 const MySQLAdvisoryLockTable = "orm_advisory_lock"
 
+// lockTable：锁表的全名，**总带主库名**——设了 schema 的会话走那个库的连接池（schema_pool.go），未限定的表名
+// 会落到那个库里（探针 10-25：system 会话上拿锁报 system.orm_advisory_lock 不存在，开户整个失败）。
+func (db *mysql) lockTable() string {
+	return db.dialect.Quoter().QuoteTable(db.DbName, MySQLAdvisoryLockTable)
+}
+
 // mysqlLockTableReady：每个 TOrm 只建一次锁表。
 var mysqlLockTableReady sync.Map // *TOrm → *sync.Once 的结果（error）
 
@@ -104,7 +110,7 @@ func (db *mysql) ensureAdvisoryLockTable(o *TOrm) error {
 	on := v.(*once)
 	on.Do(func() {
 		// 另一条连接、事务之外：MySQL 的 DDL 会隐式提交当前事务，在调用方的事务里建表等于替它提交。
-		_, on.err = o.privilegedExec("CREATE TABLE IF NOT EXISTS " + db.tableRef("", MySQLAdvisoryLockTable) +
+		_, on.err = o.privilegedExec("CREATE TABLE IF NOT EXISTS " + db.lockTable() +
 			" (" + db.dialect.Quoter().Quote("k") + " BIGINT NOT NULL PRIMARY KEY) ENGINE=InnoDB")
 	})
 	return on.err
@@ -119,7 +125,7 @@ func (db *mysql) advisoryXactLock(s *TSession, key int64, wait bool) (bool, erro
 	}
 	q := db.dialect.Quoter()
 	k := q.Quote("k")
-	sel := "SELECT " + k + " FROM " + db.tableRef("", MySQLAdvisoryLockTable) + " WHERE " + k + " = ? FOR UPDATE"
+	sel := "SELECT " + k + " FROM " + db.lockTable() + " WHERE " + k + " = ? FOR UPDATE"
 	if !wait {
 		ds, err := s.Query(sel+" NOWAIT", key)
 		if err != nil {
@@ -157,7 +163,7 @@ func (db *mysql) ensureAdvisoryKeyRow(o *TOrm, key int64) error {
 	}
 	q := db.dialect.Quoter()
 	k := q.Quote("k")
-	table := db.tableRef("", MySQLAdvisoryLockTable)
+	table := db.lockTable()
 	s := o.NewPrivilegedSession()
 	defer s.Close()
 	// 先不加锁地看一眼：行在就不插（INSERT IGNORE 碰上已有的行要拿共享锁，别人持着时会等）。
