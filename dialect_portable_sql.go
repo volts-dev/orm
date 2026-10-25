@@ -43,7 +43,7 @@ type DeleteUsing struct {
 }
 
 func (db *TDialect) UpdateFromSql(u UpdateFrom) string {
-	q := db.dialect.Quoter()
+	q := db.Quoter() // 不经 db.dialect：没 Init 的方言（单测里 QueryDialect 拿到的）也能拼
 	var b strings.Builder
 	b.WriteString("UPDATE " + u.Table + " " + u.Alias + " SET ")
 	for i, s := range u.Set {
