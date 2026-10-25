@@ -33,6 +33,43 @@ type Tx struct {
 
 	// 这个事务占着的池槽位，Commit / Rollback 真正发出之后归还（见 pool.go）。
 	slot poolSlot
+
+	// beforeEnd 是提交 / 回滚**之前**要在这条连接上执行的语句（MySQL / SQLite 的事务级临时表：临时表挂在
+	// 连接上，不在归还连接之前 DROP 就留给下一个借用者，见 orm 的 TSession.TxTempTable）。temps 是本事务
+	// 里已经建过的临时表名。
+	beforeEnd []string
+	temps     map[string]bool
+}
+
+// BeforeEnd 登记一条在本事务提交或回滚**之前**、在同一条连接上执行的语句（出错不拦提交）。
+func (tx *Tx) BeforeEnd(stmt string) {
+	tx.hookMu.Lock()
+	tx.beforeEnd = append(tx.beforeEnd, stmt)
+	tx.hookMu.Unlock()
+}
+
+// MarkTempTable 记下本事务建了临时表 name，返回此前是否已经建过。
+func (tx *Tx) MarkTempTable(name string) (seen bool) {
+	tx.hookMu.Lock()
+	defer tx.hookMu.Unlock()
+	if tx.temps == nil {
+		tx.temps = map[string]bool{}
+	}
+	seen = tx.temps[name]
+	tx.temps[name] = true
+	return seen
+}
+
+// runBeforeEnd 执行 BeforeEnd 登记的语句。错误不往上报：提交 / 回滚照常进行——没删掉的临时表最多留在连接上，
+// 下一次建同名表之前会先 DROP。
+func (tx *Tx) runBeforeEnd() {
+	tx.hookMu.Lock()
+	stmts := tx.beforeEnd
+	tx.beforeEnd = nil
+	tx.hookMu.Unlock()
+	for _, q := range stmts {
+		tx.Tx.ExecContext(tx.ctx, q)
+	}
 }
 
 type txState int
@@ -83,6 +120,7 @@ func (tx *Tx) Commit() error {
 	if err != nil {
 		return err
 	}
+	tx.runBeforeEnd()
 	err = tx.Tx.Commit()
 	tx.slot.release() // 提交无论成败，database/sql 都已把连接还回池
 	hookCtx.End(ctx, nil, err)
@@ -157,6 +195,7 @@ func (tx *Tx) Rollback() error {
 	if err != nil {
 		return err
 	}
+	tx.runBeforeEnd()
 	err = tx.Tx.Rollback()
 	tx.slot.release()
 	hookCtx.End(ctx, nil, err)

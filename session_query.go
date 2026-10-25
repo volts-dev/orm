@@ -367,6 +367,9 @@ func (self *TSession) _exec(sql_str string, args ...any) (sql.Result, error) {
 	// 在执行前就判定关键字,执行成功后再递增 epoch;失败/回滚也递增属过度失效,
 	// 安全无害。DML(insert/update/...)不触发,不影响缓存命中。
 	ddl := isDDL(sql_str)
+	if ddl {
+		self.warnDDLInTx(sql_str)
+	}
 
 	res, err := self.orm._logExecSql(sql_str, args, func() (sql.Result, error) {
 		if self.IsAutoCommit {

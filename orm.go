@@ -301,6 +301,11 @@ func (self *TOrm) SyncModel(region string, models ...IModel) (modelNames []strin
 	// 结构同步连同它顺带的回填是特权活：改表要表的属主，回填跨全部租户（见 privileged.go）。
 	session := self.NewPrivilegedSession()
 	defer session.Close()
+	// 库的 DDL 不随事务回滚（MySQL：每条 DDL 隐式提交）时，包一层事务什么也换不来——中途出错照样留下半截
+	// 结构，顺带的回填反倒被下一条 DDL 悄悄提交。直接自动提交，结构同步本来就该幂等、重跑补齐（P5，2026-10-25）。
+	if !self.dialect.Features().TransactionalDDL {
+		return session.SyncModel(region, models...)
+	}
 	// Begin 失败后会话仍是自动提交：往下走的话每条 DDL 各自提交，中途出错留下半截结构。
 	if err = session.Begin(); err != nil {
 		return nil, err
