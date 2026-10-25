@@ -346,6 +346,18 @@ func (self *TSession) readGroup(groupBy []string, measures []string, opts *readG
 				return nil, err
 			}
 			selectCols = append(selectCols, expr+" AS "+alias)
+		} else if field.TypeName() == TYPE_M2O {
+			// ★ 未设置的 m2o 在库里有三种形态（NULL / 0 / -1，见 isEmptyRelation），按原值
+			// 分组就是两三个"空"组 —— 而它们的 __domain 都是 `('x','=',False)`、前端按同一个
+			// 空键记格子：透视表上两行空标签，第二行总计 0、各格却重复画第一行的数
+			// （2026-10-26 文档「存储」透视表）。归成 NULL 一组，与 domain 的判据同一口径。
+			// 主键是雪花 id / 自增，恒为正，`> 0` 不会误伤真实记录。标准 SQL，三个方言都认。
+			expr = "CASE WHEN " + qualified + " > 0 THEN " + qualified + " END"
+			alias, err := quoter.QuoteIdent(name)
+			if err != nil {
+				return nil, err
+			}
+			selectCols = append(selectCols, expr+" AS "+alias)
 		} else {
 			selectCols = append(selectCols, expr)
 		}
