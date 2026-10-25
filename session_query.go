@@ -322,7 +322,11 @@ func (self *TSession) _queryWithOrg(sql_str string, args ...any) (*dataset.TData
 			return nil, self.orm.dialect.MapError(err)
 		}
 	} else {
-		rows, err = self.db.QueryContext(self.context, sql_str, args...)
+		pool, perr := self.pool()
+		if perr != nil {
+			return nil, perr
+		}
+		rows, err = pool.QueryContext(self.context, sql_str, args...)
 		if err != nil {
 			return nil, self.orm.dialect.MapError(err)
 		}
@@ -426,7 +430,11 @@ func (self *TSession) _execWithOrg(query string, args ...any) (sql.Result, error
 		return res, nil
 	}
 
-	res, err := self.db.ExecContext(self.context, query, args...)
+	pool, err := self.pool()
+	if err != nil {
+		return nil, err
+	}
+	res, err := pool.ExecContext(self.context, query, args...)
 	if err != nil {
 		return nil, self.orm.dialect.MapError(err)
 	}
@@ -445,7 +453,11 @@ func (self *TSession) _execWithTx(sql string, args ...any) (sql.Result, error) {
 }
 
 func (self *TSession) _doPrepare(sql string) (*core.Stmt, error) {
-	return self.db.PrepareContext(self.context, sql)
+	pool, err := self.pool()
+	if err != nil {
+		return nil, err
+	}
+	return pool.PrepareContext(self.context, sql)
 }
 
 // scan data to a slice's pointer, slice's length should equal to columns' number

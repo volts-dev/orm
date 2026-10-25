@@ -16,7 +16,11 @@ func (self *TSession) Begin() error {
 	self.syncBorrowedTx()
 	// 当第一次调用时才修改Tx
 	if self.IsAutoCommit {
-		tx, err := self.db.BeginTx(self.context, nil)
+		pool, err := self.pool()
+		if err != nil {
+			return err
+		}
+		tx, err := pool.BeginTx(self.context, nil)
 		if err != nil {
 			return err
 		}

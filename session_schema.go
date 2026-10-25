@@ -75,7 +75,11 @@ func (self *TSession) applyTxSettings() error {
 // COMMIT），只发生在设了非默认 schema、或者 Enforce 下带行范围的会话上。正确性优先：一条打错 schema 的 DELETE 不报错，比多
 // 几次往返贵得多。
 func (self *TSession) execInSchemaScope(stmt string, query string, args ...any) (sql.Result, error) {
-	c, err := self.db.BeginScoped(self.context, stmt)
+	pool, err := self.pool()
+	if err != nil {
+		return nil, err
+	}
+	c, err := pool.BeginScoped(self.context, stmt)
 	if err != nil {
 		return nil, self.orm.dialect.MapError(err)
 	}
@@ -95,7 +99,11 @@ func (self *TSession) execInSchemaScope(stmt string, query string, args ...any) 
 // 结果必须在 Commit **之前**读完：_scanRows 会把整个结果集物化成 dataset，
 // 所以提交后再返回是安全的；换成流式游标就不成立了。
 func (self *TSession) queryInSchemaScope(stmt string, query string, args ...any) (*dataset.TDataSet, error) {
-	c, err := self.db.BeginScoped(self.context, stmt)
+	pool, err := self.pool()
+	if err != nil {
+		return nil, err
+	}
+	c, err := pool.BeginScoped(self.context, stmt)
 	if err != nil {
 		return nil, self.orm.dialect.MapError(err)
 	}

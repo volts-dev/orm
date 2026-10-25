@@ -50,11 +50,16 @@ type (
 	}
 
 	TOrm struct {
-		config    *Config
-		dialect   IDialect
-		db        *core.DB
-		privDB    *core.DB // 特权连接池，没配时为 nil（见 privileged.go）
-		osv       *TOsv    // 对象管理
+		config  *Config
+		dialect IDialect
+		db      *core.DB
+		privDB  *core.DB // 特权连接池，没配时为 nil（见 privileged.go）
+		// schemaPools：MySQL 上每个 schema（库）一个池，键 schemaPoolKey（见 schema_pool.go）。
+		schemaPools sync.Map
+		// hooks：AddHook 登记过的钩子，按需建的 schema 池建好时补上。
+		hookMu    sync.Mutex
+		hooks     []core.Hook
+		osv       *TOsv // 对象管理
 		nameIndex map[string]*TModel
 		connected bool
 		Schema    string // Schema namespace
@@ -215,6 +220,7 @@ func (self *TOrm) Close() error {
 	if self.privDB != nil {
 		self.privDB.Close()
 	}
+	self.eachSchemaPool(func(_ schemaPoolKey, db *core.DB) { db.Close() })
 	return self.db.Close()
 }
 
@@ -223,10 +229,14 @@ func (self *TOrm) Close() error {
 // NewSession 里 db: orm.db），所以这里注册是全局生效，不区分调用方；按需（比如按会话
 // 开关）取舍要在 Hook 自己的 BeforeProcess/AfterProcess 里读 ContextHook.Ctx 的值来做。
 func (self *TOrm) AddHook(h ...core.Hook) {
+	self.hookMu.Lock()
+	defer self.hookMu.Unlock()
+	self.hooks = append(self.hooks, h...)
 	self.db.AddHook(h...)
 	if self.privDB != nil {
 		self.privDB.AddHook(h...)
 	}
+	self.eachSchemaPool(func(_ schemaPoolKey, db *core.DB) { db.AddHook(h...) })
 }
 
 // TZTime change one time to time location

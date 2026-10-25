@@ -446,6 +446,13 @@ func (self *TSession) SetMustFieldValue(name string, value any, queryable bool) 
 func (self *TSession) SetSchema(schema string) *TSession {
 	if self.orm != nil {
 		schema = normalizeSchema(self.orm.dialect, schema)
+		// MySQL：事务开着时连接已经在原来那个库里（每个 schema 一个池，见 schema_pool.go），改 schema 只改得到
+		// ORM 自己拼的 SQL，这个事务里的裸 SQL 仍落原来的库。PG 上 search_path 也是进事务时设的，同理。
+		if schema != self.Schema && self.tx != nil && !self.IsAutoCommit && !self.IsCommitedOrRollbacked {
+			if d, ok := self.orm.dialect.(schemaDatabases); ok && d.schemaIsDatabase() {
+				log.Warnf("orm: SetSchema(%q) on a session with an open transaction (schema %q): raw SQL in this transaction still resolves against %q", schema, self.Schema, self.Schema)
+			}
+		}
 	}
 	self.Schema = schema
 	return self
