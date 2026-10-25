@@ -904,6 +904,12 @@ func (db *postgres) SyncToSqlType(ctx *TTagContext) {
 
 // companyJSON（field_company.go）：jsonb。生成的 SQL 与收进方言之前逐字节一致。
 func (db *postgres) companySlotText(ref, slot string) string { return ref + "->>'" + slot + "'" }
+func (db *postgres) companyIdAt(ref, companyExpr string) string {
+	k := "CAST((" + companyExpr + ") AS TEXT)"
+	return "COALESCE(CASE WHEN " + ref + " -> " + k + " IS NOT NULL THEN " +
+		"(CASE WHEN jsonb_typeof(" + ref + " -> " + k + ") = 'number' THEN (" + ref + " ->> " + k + ")::bigint END) " +
+		"ELSE (CASE WHEN jsonb_typeof(" + ref + " -> '0') = 'number' THEN (" + ref + " ->> '0')::bigint END) END, 0)"
+}
 func (db *postgres) companySlotExists(ref, slot string) string {
 	// 用 col->'k' IS NOT NULL（JSON null 的格子也为真），不用 jsonb 的 ? 运算符：它会被当成参数占位符。
 	return ref + "->'" + slot + "' IS NOT NULL"

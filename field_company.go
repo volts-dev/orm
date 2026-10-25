@@ -295,6 +295,20 @@ type companyJSON interface {
 	companySetSlot(col, slot string, null bool) string
 	// companyUnsetSlot：UPDATE 的 SET 片段，删掉这一格。
 	companyUnsetSlot(col, slot string) string
+	// companyIdAt：见 CompanyIdValueSql。
+	companyIdAt(ref, companyExpr string) string
+}
+
+// CompanyIdValueSql 是「按公司区分的 many2one 列 ref 在公司 companyExpr 里的记录 id」：companyExpr 是 SQL 表达式，
+// 可以是每行不同的列（o.company_id），不像 companyValueExpr 只认一个常量公司。这家公司有格子就用它（格子存的是 JSON
+// null 也算有：得 0，不回落——「这家公司明确没有」），否则用 "0" 那一格；都没有、或不是数字，得 0。
+// 给模块手写 SQL 用（此前 sale_project 自己写 jsonb 的 -> / ->> / jsonb_typeof，MySQL 不认，MySQL 兼容 2026-10-26）。
+func CompanyIdValueSql(d IDialect, ref, companyExpr string) (string, error) {
+	cj, ok := d.(companyJSON)
+	if !ok {
+		return "", fmt.Errorf("orm: company_dependent values are not supported on %s", d.String())
+	}
+	return cj.companyIdAt(ref, companyExpr), nil
 }
 
 func companyDialect(d IDialect, field IField) (companyJSON, error) {

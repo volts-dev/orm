@@ -400,6 +400,15 @@ func (db *mysql) DropPrimaryKeySql(quotedTable, table string) string {
 func (db *mysql) companySlotText(ref, slot string) string {
 	return fmt.Sprintf(`JSON_UNQUOTE(NULLIF(JSON_EXTRACT(%s, '$."%s"'), CAST('null' AS JSON)))`, ref, slot)
 }
+func (db *mysql) companyIdAt(ref, companyExpr string) string {
+	path := "CONCAT('$.\"', " + companyExpr + ", '\"')"
+	num := func(p string) string {
+		return "(CASE WHEN JSON_TYPE(JSON_EXTRACT(" + ref + ", " + p + ")) IN ('INTEGER', 'UNSIGNED INTEGER') THEN CAST(JSON_EXTRACT(" +
+			ref + ", " + p + ") AS SIGNED) END)"
+	}
+	return "COALESCE(CASE WHEN JSON_CONTAINS_PATH(" + ref + ", 'one', " + path + ") THEN " + num(path) +
+		" ELSE " + num("'$.\"0\"'") + " END, 0)"
+}
 func (db *mysql) companySlotExists(ref, slot string) string {
 	return fmt.Sprintf(`JSON_CONTAINS_PATH(%s, 'one', '$."%s"')`, ref, slot)
 }
