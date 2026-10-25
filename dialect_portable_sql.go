@@ -87,6 +87,28 @@ func (db *TDialect) StringAggSql(expr, sep string, distinct bool) string {
 	return "string_agg(" + d + "CAST((" + expr + ") AS TEXT), " + sqlStringLiteral(sep) + ")"
 }
 
+// ValuesTableSql 是 rows 行、每行 len(cols) 个 ? 的派生表 `(VALUES …) AS alias(cols…)`，给「一条 UPDATE … FROM 一批」用。
+// casts 是每列的 PG 类型名（PG 推不出 ? 与 NULL 的类型，要显式转）；MySQL 不转（它也不认 bigint / varchar / bytea 这些
+// CAST 名），写成 8.0.19 起的 VALUES ROW(…)。参数按行、按列依次给。
+func (db *TDialect) ValuesTableSql(rows int, casts []string, alias string, cols []string) string {
+	cells := make([]string, len(casts))
+	for i, c := range casts {
+		cells[i] = "CAST(? AS " + c + ")"
+	}
+	tuple := "(" + strings.Join(cells, ",") + ")"
+	return "(VALUES " + strings.TrimSuffix(strings.Repeat(tuple+",", rows), ",") + ") AS " + alias + "(" + strings.Join(cols, ", ") + ")"
+}
+
+// UpsertSql 跟在 INSERT INTO t (…) VALUES (…),(…) 后面：撞 conflict 那个唯一键就把 update 这几列改成这次给的值。
+// MySQL 的 ON DUPLICATE KEY UPDATE 对任何唯一键的冲突都生效、不能点名——表上别的唯一键（主键是新 id）不会撞时两者等价。
+func (db *TDialect) UpsertSql(conflict, update []string) string {
+	sets := make([]string, len(update))
+	for i, c := range update {
+		sets[i] = c + " = EXCLUDED." + c
+	}
+	return " ON CONFLICT (" + strings.Join(conflict, ", ") + ") DO UPDATE SET " + strings.Join(sets, ", ")
+}
+
 // —— SQLite ——————————————————————————————————————————————————————————————————————————
 
 // SQLite 的 UPDATE 别名要写 AS；UPDATE … FROM 从 3.33 起有。
@@ -160,4 +182,26 @@ func (db *mysql) StringAggSql(expr, sep string, distinct bool) string {
 		d = "DISTINCT "
 	}
 	return "GROUP_CONCAT(" + d + "(" + expr + ") SEPARATOR " + mysqlStringLiteral(sep) + ")"
+}
+
+// 不转类型，只有 bytea 转 BINARY：不转的话派生表把 []byte 参数当连接字符集的文本，非 UTF-8 的字节 1366。
+func (db *mysql) ValuesTableSql(rows int, casts []string, alias string, cols []string) string {
+	cells := make([]string, len(casts))
+	for i, c := range casts {
+		cells[i] = "?"
+		if strings.EqualFold(strings.TrimSpace(c), "bytea") {
+			cells[i] = "CAST(? AS BINARY)"
+		}
+	}
+	tuple := "ROW(" + strings.Join(cells, ",") + ")"
+	return "(VALUES " + strings.TrimSuffix(strings.Repeat(tuple+",", rows), ",") + ") AS " + alias + "(" + strings.Join(cols, ", ") + ")"
+}
+
+// 行别名（8.0.19 起；VALUES(col) 的写法 8.0.20 起弃用）。别名要紧跟在 VALUES 列表后面——UpsertSql 正好拼在那里。
+func (db *mysql) UpsertSql(conflict, update []string) string {
+	sets := make([]string, len(update))
+	for i, c := range update {
+		sets[i] = c + " = orm_new." + c
+	}
+	return " AS orm_new ON DUPLICATE KEY UPDATE " + strings.Join(sets, ", ")
 }

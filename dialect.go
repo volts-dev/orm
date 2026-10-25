@@ -142,6 +142,8 @@ type (
 		IsNotDistinctSql(a, b string) string
 		OnConflictDoNothingSql(table, column string) string
 		StringAggSql(expr, sep string, distinct bool) string
+		ValuesTableSql(rows int, casts []string, alias string, cols []string) string
+		UpsertSql(conflict, update []string) string
 
 		// MapError 把 driver 原生错误翻译为 errors 包定义的 sentinel
 		// 各 dialect 必须实现；session 层统一调用

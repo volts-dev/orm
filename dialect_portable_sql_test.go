@@ -155,3 +155,55 @@ func TestPortableSql_SameRowsOnEveryDialect(t *testing.T) {
 		}
 	})
 }
+
+// ValuesTableSql / UpsertSql：一条 UPDATE … FROM (VALUES …) 一批、多行 upsert，PG 与 MySQL 改出同样的行。
+func TestValuesTableAndUpsert_SameRowsOnPGAndMySQL(t *testing.T) {
+	skipUnlessDialect(t, "postgres", "mysql")
+	o, err := New(WithDataSource(testDataSource(t, filepath.Join(t.TempDir(), "vt.db"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer o.Close()
+	d := o.Dialect()
+	bin := "bytea"
+	if d.DBType() == "mysql" {
+		bin = "longblob"
+	}
+	for _, q := range []string{
+		`CREATE TABLE vt_part (id bigint PRIMARY KEY, name varchar(64), series_id bigint, params ` + bin + `)`,
+		`CREATE TABLE vt_text (id bigint PRIMARY KEY, part_id bigint UNIQUE, description varchar(255))`,
+		`INSERT INTO vt_part VALUES (1, 'a', 10, NULL), (2, 'b', 20, NULL), (3, 'c', 30, NULL)`,
+		`INSERT INTO vt_text VALUES (100, 1, 'old')`,
+	} {
+		if _, err := o.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	from := d.ValuesTableSql(2, []string{"bigint", "varchar", "bigint", "bytea"}, "v", []string{"id", "name", "series_id", "params"})
+	q := d.UpdateFromSql(UpdateFrom{Table: "vt_part", Alias: "p", From: from,
+		Set:   []SetExpr{{"name", "v.name"}, {"series_id", "v.series_id"}, {"params", "v.params"}},
+		Where: "p.id = v.id"})
+	if _, err := o.Exec(q, 1, "A", nil, []byte{0, 1, 255}, 3, "C", 33, nil); err != nil {
+		t.Fatalf("%s: %v", q, err)
+	}
+	ins := "INSERT INTO vt_text (id, part_id, description) VALUES (?, ?, ?), (?, ?, ?)" + d.UpsertSql([]string{"part_id"}, []string{"description"})
+	if _, err := o.Exec(ins, 101, 1, "new", 102, 2, "fresh"); err != nil {
+		t.Fatalf("%s: %v", ins, err)
+	}
+	ds, err := o.Query(`SELECT p.id AS id, p.name AS name, COALESCE(p.series_id, -1) AS s, p.params AS params, COALESCE(t.id, 0) AS tid,
+		COALESCE(t.description, '') AS dsc FROM vt_part p LEFT JOIN vt_text t ON t.part_id = p.id ORDER BY p.id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for ds.First(); !ds.Eof(); ds.Next() {
+		f := ds.FieldByName
+		got = append(got, fmt.Sprintf("%s/%s/%s/%x/%s/%s", f("id").AsString(), f("name").AsString(), f("s").AsString(),
+			f("params").AsInterface(), f("tid").AsString(), f("dsc").AsString()))
+	}
+	// 1 改名、series 改成 NULL、二进制写进去；2 不在这批里；3 改名改 series。描述：1 的那行（id 100）被改成 new、id 不变；2 新插。
+	want := "1/A/-1/0001ff/100/new 2/b/20/%!x(<nil>)/102/fresh 3/C/33/%!x(<nil>)/0/"
+	if strings.Join(got, " ") != want {
+		t.Errorf("得 %s\nwant %s", strings.Join(got, " "), want)
+	}
+}
