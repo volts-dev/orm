@@ -94,6 +94,13 @@ func (self *TDataSource) validate() error {
 	return nil
 }
 
+// DSN 返回 database/sql 的连接串（驱动名就是 DbType：postgres / mysql）。给绕开 ORM、直接用 database/sql 的
+// 小连接（vectors 的平台钥匙保管处）用：连接约定（MySQL 的 sql_mode、loc=UTC、排序规则，PG 的 sslmode 等）
+// 与 ORM 自己的池逐字节一样，不必各抄一份。串里有口令，别打进日志。
+func (self *TDataSource) DSN() (string, error) {
+	return self.toString()
+}
+
 func (self *TDataSource) toString() (string, error) {
 	if err := self.validate(); err != nil {
 		return "", err
