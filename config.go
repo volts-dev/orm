@@ -41,6 +41,12 @@ type (
 		// 或用专门的迁移入口。
 		DisableSchemaSync bool
 
+		// ExtraSchemas 是本 ORM 除默认 schema 之外还拥有的 schema——MySQL 上是同一实例里的别的库（vectors 的 system 库：
+		// 系统租户的表物化在那里）。运行时补字段（AddField：列、索引、many2many 关联表）要补到每一个有这张表的地方：
+		// PG 上按当前库里所有 schema 查；MySQL 的 information_schema 跨整个实例，不限定就会去改别的应用的同名表，所以只看
+		// 默认库与这里列的库。不设时 MySQL 上只补默认库——系统租户读那些字段就报缺列 / 缺表（2026-10-26 整库搬家演练撞出）。
+		ExtraSchemas []string
+
 		// 连接池。全部是"0 = 不设"，New() 在打开连接后、第一次查库之前套上。
 		//
 		// MaxOpenConns 是本进程同时占用的连接数上限。不设的话 database/sql 永不排队，
@@ -156,6 +162,13 @@ func WithBigNumberToString(on bool) Option {
 func WithDisableSchemaSync(on bool) Option {
 	return func(cfg *Config) {
 		cfg.DisableSchemaSync = on
+	}
+}
+
+// WithExtraSchemas 声明本 ORM 还拥有的 schema（MySQL 上是同实例的别的库）。见 Config.ExtraSchemas。
+func WithExtraSchemas(names ...string) Option {
+	return func(cfg *Config) {
+		cfg.ExtraSchemas = append(cfg.ExtraSchemas, names...)
 	}
 }
 

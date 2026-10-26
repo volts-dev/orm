@@ -203,6 +203,9 @@ func (self *TOrm) buildField(model *TModel, fieldName, typeName string, tagMaps 
 // schemasWithTable 返回库里有这张表的所有 schema。查不了（非 postgres、或查询失败）
 // 时退回 [""]，即会话默认 schema —— 与此前"只补默认那一份"的行为一致。
 func (self *TOrm) schemasWithTable(table string) []string {
+	if self.dialect.DBType() == MYSQL && len(self.config.ExtraSchemas) > 0 {
+		return self.mysqlSchemasWithTable(table)
+	}
 	if !strings.Contains(strings.ToLower(self.dialect.String()), "postgres") {
 		return []string{""}
 	}
@@ -213,6 +216,27 @@ func (self *TOrm) schemasWithTable(table string) []string {
 	out := make([]string, 0, ds.Count())
 	for ds.First(); !ds.Eof(); ds.Next() {
 		out = append(out, ds.FieldByName("table_schema").AsString())
+	}
+	return out
+}
+
+// mysqlSchemasWithTable：默认库（""）总在；Config.ExtraSchemas 里有这张表的库也算（information_schema 跨整个实例，
+// 只看声明过的库）。查不了就只补默认库，与没声明时一样。
+func (self *TOrm) mysqlSchemasWithTable(table string) []string {
+	out := []string{""}
+	ph := strings.TrimSuffix(strings.Repeat("?, ", len(self.config.ExtraSchemas)), ", ")
+	args := []any{table}
+	for _, s := range self.config.ExtraSchemas {
+		args = append(args, s)
+	}
+	ds, err := self.Query(`SELECT TABLE_SCHEMA AS s FROM information_schema.TABLES WHERE TABLE_NAME = ? AND TABLE_SCHEMA IN (`+ph+`) ORDER BY TABLE_SCHEMA`, args...)
+	if err != nil || ds == nil {
+		return out
+	}
+	for ds.First(); !ds.Eof(); ds.Next() {
+		if s := ds.FieldByName("s").AsString(); s != "" && s != self.config.DataSource.DbName {
+			out = append(out, s)
+		}
 	}
 	return out
 }
