@@ -1250,6 +1250,12 @@ func (self *TMany2ManyField) UpdateDb(ctx *TTagContext) {
 			{orm.dialect.FitIdentifier(fmt.Sprintf("%s_%s_idx", middle_model, id1)), id1},
 			{orm.dialect.FitIdentifier(fmt.Sprintf("%s_%s_idx", middle_model, id2)), id2},
 		}
+		// 表名本身就长时，两条名字截到上限后会撞在一起（PG 按服务端的规矩截、不哈希）：第二条 CREATE INDEX 报「已存在」，
+		// 在 PG 上还会让整个同步事务中止、进程起不来（2026-10-26 全新 PG 库装 im_livechat）。只在撞上时给第二条换成带
+		// 哈希的名字——没撞的名字不变，老库上已有的索引照旧认得。
+		if indexes[0][0] == indexes[1][0] {
+			indexes[1][0] = fitIdentifierHashed(fmt.Sprintf("%s_%s_idx", middle_model, id2), 63)
+		}
 		createIndex := func(ix [2]string) string {
 			return fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s ("%s")`, ix[0], qualifiedMiddle, ix[1])
 		}

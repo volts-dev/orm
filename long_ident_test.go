@@ -108,3 +108,51 @@ func TestFitIdentifier(t *testing.T) {
 		t.Error("SQLite 不限长")
 	}
 }
+
+// 关联表名本身就长到两条关联索引名截到 63 之后撞在一起（PG）：第二条 CREATE INDEX 报「已存在」，同步事务整个中止、
+// 进程起不来——2026-10-26 在全新的 PG 库上装 im_livechat 撞出（真表名 im_livechat_channel_member_history_im_livechat_expertise_rel）。
+type LongCollExpertise struct {
+	TModel `table:"name('long_coll_expertise')"`
+	Id     int64  `field:"pk autoincr"`
+	Name   string `field:"varchar()"`
+}
+
+type LongCollMemberHistory struct {
+	TModel       `table:"name('long_coll_member_history')"`
+	Id           int64 `field:"pk autoincr"`
+	ExpertiseIds []any `field:"many2many(long_coll_expertise,im_livechat_channel_member_history_im_livechat_expertise_rel,im_livechat_channel_member_history_id,im_livechat_expertise_id)"`
+}
+
+func TestSyncModel_RelationIndexNamesCollideAfterTruncation(t *testing.T) {
+	ds := testDataSource(t, filepath.Join(t.TempDir(), "coll.db"))
+	for round := 0; round < 2; round++ {
+		o, err := New(WithDataSource(ds))
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		rec := &ddlRecorder{}
+		o.AddHook(rec)
+		if _, err := o.SyncModel("", new(LongCollExpertise), new(LongCollMemberHistory)); err != nil {
+			t.Fatalf("第 %d 次 SyncModel: %v", round+1, err)
+		}
+		s := o.NewSession()
+		idx, err := o.dialect.GetIndexes(s.context, s, "im_livechat_channel_member_history_im_livechat_expertise_rel")
+		s.Close()
+		if err != nil {
+			t.Fatalf("GetIndexes: %v", err)
+		}
+		plain := 0
+		for _, ix := range idx {
+			if ix.Type == IndexType {
+				plain++
+			}
+		}
+		if plain != 2 && ds.DbType != "sqlite" {
+			t.Errorf("第 %d 次同步后关联表上的普通索引有 %d 条，想要 2：%v", round+1, plain, idx)
+		}
+		if round == 1 && len(rec.ddl) > 0 {
+			t.Errorf("重启后仍发了 %d 条 DDL：%v", len(rec.ddl), rec.ddl)
+		}
+		o.Close()
+	}
+}
