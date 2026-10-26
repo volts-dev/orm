@@ -3,6 +3,7 @@ package orm
 import (
 	"database/sql"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -108,5 +109,42 @@ func TestBeginTx_RepeatableReadIsASnapshot(t *testing.T) {
 	}
 	if n := count(); n != 1 {
 		t.Fatalf("快照事务里看见了之后别的连接插的行：%d 行", n)
+	}
+}
+
+// float4 的文本必须解得回同一个 float32：MySQL 的 CAST(FLOAT AS CHAR) 只给 6 位有效数字（27.142857 → 27.1429），
+// 整库搬家演练里 MySQL 导出的 timesheets_analysis_report.margin 就这样丢了精度（2026-10-26）。
+func TestColumnTextSql_Float4KeepsPrecision(t *testing.T) {
+	skipUnlessDialect(t, "postgres", "mysql")
+	o, err := New(WithDataSource(testDataSource(t, ":memory:")))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer o.Close()
+	typ := "real"
+	if o.Dialect().DBType() == "mysql" {
+		typ = "FLOAT"
+	}
+	if _, err := o.Exec(`CREATE TABLE f4_rec (id bigint PRIMARY KEY, v ` + typ + `)`); err != nil {
+		t.Fatal(err)
+	}
+	vals := []float32{27.142857, 57.142857, 0.1, 1.0e-7, 3.4028235e38}
+	for i, v := range vals {
+		if _, err := o.Exec(`INSERT INTO f4_rec (id, v) VALUES (?, ?)`, i+1, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := o.NewSession()
+	defer s.Close()
+	for i, want := range vals {
+		ds, err := s.Query(`SELECT `+o.ColumnTextSql(o.dialect.Quoter().Quote("v"), "float4")+` AS v FROM f4_rec WHERE id = ?`, i+1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		txt := ds.FieldByName("v").AsString()
+		got, err := strconv.ParseFloat(txt, 32)
+		if err != nil || float32(got) != want {
+			t.Errorf("%v 的文本 %q 解回来是 %v（%v）", want, txt, float32(got), err)
+		}
 	}
 }

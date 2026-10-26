@@ -117,6 +117,9 @@ func (db *mysql) columnTextSql(expr, typ string) string {
 		return boolText(expr)
 	case "bytea":
 		return "LOWER(HEX(" + expr + "))"
+	case "float4":
+		// CAST(FLOAT AS CHAR) 只给 6 位有效数字（27.142857 → 27.1429）：先放宽成 DOUBLE，文本才解得回同一个 float32。
+		return "CAST(CAST((" + expr + ") AS DOUBLE) AS CHAR)"
 	}
 	return "CAST((" + expr + ") AS CHAR)"
 }
