@@ -673,12 +673,12 @@ func (self *TModel) _relations_reload_visited(visited map[string]bool) {
 
 		for _, field := range fielss {
 			name := field.Name()
-			self.obj.SetRelatedFieldByName(name, NewRelatedField(name, tbl, fld, field, tbl))
+			self.obj.refreshRelatedField(name, tbl, fld, field, tbl)
 
 		}
 
 		for name, source := range relate_fields {
-			self.obj.SetRelatedFieldByName(name, NewRelatedField(name, tbl, fld, source.RelatedField, source.RelatedRootModel))
+			self.obj.refreshRelatedField(name, tbl, fld, source.RelatedField, source.RelatedRootModel)
 		}
 
 		/*

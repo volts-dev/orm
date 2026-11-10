@@ -34,14 +34,15 @@ type (
 		columnsSeq []string //TODO 存储COl名称考虑Remove
 
 		// object 属性
-		pkgName       string // 所在源码包名
-		isCustomModel bool
-		uidFieldName  string
-		nameField     string
-		orderFields   []string
-		fields        sync.Map // map[string]IField                  // map[field]
-		relations     sync.Map //map[string]string                  // inherits 继承关联表，仅记录 one2one/extends/relate 三种"嵌入式"关系；不包含 many2one/one2many/many2many 普通外键关联
-		indexes       map[string]*TIndex
+		pkgName        string // 所在源码包名
+		isCustomModel  bool
+		uidFieldName   string
+		nameField      string
+		orderFields    []string
+		fields         sync.Map     // map[string]IField                  // map[field]
+		fieldCountHint atomic.Int64 // allocation hint only; GetFields still reads current fields
+		relations      sync.Map     //map[string]string                  // inherits 继承关联表，仅记录 one2one/extends/relate 三种"嵌入式"关系；不包含 many2one/one2many/many2many 普通外键关联
+		indexes        map[string]*TIndex
 		// transient / transientMaxHours：临时模型声明。放在共享对象上是因为 GetModel
 		// 每次都从 obj 重建 TModel（见 _initObject），只写在 TModel 上会随即丢失。
 		transient         bool
@@ -164,11 +165,12 @@ func (self *TModelObject) SetRelationByName(modelName string, fieldName string) 
 }
 
 func (self *TModelObject) GetFields() []IField {
-	fields := make([]IField, 0)
+	fields := make([]IField, 0, int(self.fieldCountHint.Load()))
 	self.fields.Range(func(key, value any) bool {
 		fields = append(fields, value.(IField))
 		return true
 	})
+	self.fieldCountHint.Store(int64(len(fields)))
 	return fields
 }
 

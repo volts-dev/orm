@@ -1320,7 +1320,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 	// 加锁读之后紧接着就是修改，缓存这一份马上会过期。
 	locking := self.Statement.Lock.IsLocking()
 
-	if !locking {
+	if !locking && !self.directRead {
 		// 从缓存里获得数据
 		res_ds = self.orm.Cacher.GetBySql(self.Statement.Model.Table(), res_sql, self.cacheArg(where_clause_params))
 		if res_ds != nil {
@@ -1337,7 +1337,7 @@ func (self *TSession) _readFromDatabase(storeFields, relateFields []string) (res
 
 	self.warnIfTruncated(res_ds, limit, implicitLimit)
 
-	if !locking {
+	if !locking && !self.directRead {
 		//# 添加进入缓存
 		self.orm.Cacher.PutBySql(self.Statement.Model.Table(), res_sql, self.cacheArg(where_clause_params), res_ds)
 	}

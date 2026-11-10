@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"time"
 )
 
 // ScopedConn 是为一条语句临时开的事务，开事务和设事务级参数合成**一次往返**。
@@ -90,7 +91,9 @@ func (c *ScopedConn) Commit() error {
 		return nil
 	}
 	c.done = true
-	_, err := c.conn.ExecContext(context.Background(), "COMMIT")
+	cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := c.conn.ExecContext(cleanup, "COMMIT")
 	if err != nil {
 		c.discard()
 		return err
@@ -111,7 +114,10 @@ func (c *ScopedConn) Rollback() {
 
 // abort：ROLLBACK，失败就扔掉连接。
 func (c *ScopedConn) abort() {
-	if _, err := c.conn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+	// 业务 context 可能已取消；清理不能跳过，也不能无上限占着池槽。
+	cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := c.conn.ExecContext(cleanup, "ROLLBACK"); err != nil {
 		c.discard()
 		return
 	}

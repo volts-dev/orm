@@ -215,7 +215,10 @@ func (self *TSession) _search(access_rights_uid string, context map[string]any) 
 		// Ignore order, limit and offset when just counting, they don't make sense and could
 		// hurt performance
 		query_str = `SELECT count(1) AS count FROM ` + from_clause + where_clause
-		res_ds := self.orm.Cacher.GetBySql(table_name, query_str, self.cacheArg(where_clause_params))
+		var res_ds *dataset.TDataSet
+		if !self.directRead {
+			res_ds = self.orm.Cacher.GetBySql(table_name, query_str, self.cacheArg(where_clause_params))
+		}
 		if res_ds == nil {
 			lRes, err := self._query(query_str, where_clause_params...)
 			if err != nil {
@@ -224,7 +227,9 @@ func (self *TSession) _search(access_rights_uid string, context map[string]any) 
 			//res_ids = []interface{}{lRes.FieldByName("count").AsInterface()}
 			count = lRes.FieldByName("count").AsInteger()
 			// #存入缓存
-			self.orm.Cacher.PutBySql(table_name, query_str, self.cacheArg(where_clause_params), lRes)
+			if !self.directRead {
+				self.orm.Cacher.PutBySql(table_name, query_str, self.cacheArg(where_clause_params), lRes)
+			}
 		} else {
 			//res_ids = res_ds.Keys(self.Statement.IdKey)
 			count = res_ds.FieldByName("count").AsInteger()
@@ -252,7 +257,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]any) 
 
 	// 加锁查询绕开结果缓存：命中缓存就等于这条 SELECT 没发出去，锁也就没加上。
 	var res_ds *dataset.TDataSet
-	if !locking {
+	if !locking && !self.directRead {
 		// #调用缓存
 		res_ds = self.orm.Cacher.GetBySql(table_name, query_str, self.cacheArg(where_clause_params))
 	}
@@ -262,7 +267,7 @@ func (self *TSession) _search(access_rights_uid string, context map[string]any) 
 			return nil, 0, err
 		}
 		res_ids = res.Keys(self.Statement.IdKey)
-		if !locking {
+		if !locking && !self.directRead {
 			self.orm.Cacher.PutBySql(table_name, query_str, self.cacheArg(where_clause_params), res)
 		}
 	} else {

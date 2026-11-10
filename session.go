@@ -27,6 +27,7 @@ type (
 		Op                     SessionOp // 当前操作类型，见 OpCreate 等
 		Statement              TStatement
 		context                context.Context
+		directRead             bool   // bypass SQL result cache, inherited by relation reads
 		Schema                 string // Schema namespace
 		IsDeprecated           bool   // sometime the session did not reach the request it shoud be deprecated
 		IsAutoCommit           bool   // dflt is true
@@ -116,6 +117,7 @@ func (self *TSession) New() *TSession {
 // 漏了哪一样，派生出来的读写就换了身份：特权会话派生出普通会话，开了 RLS 后读空；
 // 普通会话丢了范围，要么被库拒、要么（Audit 下）被报成没设范围。
 func (self *TSession) inheritIdentity(from *TSession) {
+	self.directRead = self.directRead || from.directRead
 	if from.db != nil {
 		self.db = from.db
 	}
@@ -633,10 +635,10 @@ func (self *TSession) Cache() *TSession {
 	return self
 }
 
-// TODO 缓存
-// NoCache ask this session do not retrieve data from cache system and
-// get data from database directly.
+// Direct bypasses SQL result cache reads and writes for this session and its
+// derived relation sessions. It does not change authorization or transaction scope.
 func (self *TSession) Direct() *TSession {
+	self.directRead = true
 	return self
 }
 

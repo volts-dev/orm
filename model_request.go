@@ -1129,7 +1129,10 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 	// # 获取字段关联表的字符
 	// the table name in cacher
 	cacher_table_name := midTableName + "_" + relTableName
-	group := orm.Cacher.GetBySql(cacher_table_name, query, sess.cacheArg(params))
+	var group *dataset.TDataSet
+	if !sess.directRead {
+		group = orm.Cacher.GetBySql(cacher_table_name, query, sess.cacheArg(params))
+	}
 	if group == nil {
 		// TODO 只查询缺的记录不查询所有
 		// # 如果缺省缓存记录重新查询
@@ -1140,7 +1143,9 @@ func (self *TModel) ManyToMany(ctx *TFieldContext) (*dataset.TDataSet, error) {
 		}
 
 		// # store result in cache
-		orm.Cacher.PutBySql(cacher_table_name, query, sess.cacheArg(params), group) // # 添加Sql查询结果
+		if !sess.directRead {
+			orm.Cacher.PutBySql(cacher_table_name, query, sess.cacheArg(params), group)
+		}
 	}
 
 	return group, nil

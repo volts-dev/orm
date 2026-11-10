@@ -123,7 +123,11 @@ func parseSelectionJSON(s string) ([][]string, error) {
 }
 
 func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]any {
-	model := ctx.Model
+	var model IModel
+	if ctx != nil {
+		model = ctx.Model
+	}
+	selection := self.selection
 
 	// 没给 Model 时退回静态选项表，而不是对零值 reflect.Value 调 MethodByName 然后
 	// panic —— 那会把整个请求打成 500，且日志里只剩一行 reflect 报错，指不到调用方。
@@ -134,14 +138,14 @@ func (self *TSelectionField) Attributes(ctx *TTagContext) map[string]any {
 			results := m.Call(nil) //
 			if len(results) == 1 {
 				if res, ok := results[0].Interface().([][]string); ok {
-					self.selection = res
+					selection = res
 				}
 			}
 		}
 	}
 
 	attrs := self.Base().Attributes(ctx)
-	attrs["selection"] = self.selection
+	attrs["selection"] = selection
 	return attrs
 }
 
@@ -177,11 +181,9 @@ func (self *TSelectionField) OnRead(ctx *TFieldContext) error {
 
 			}
 
-			if len(results) == 1 {
-				if res, ok := results[0].Interface().([][]string); ok {
-					field.selection = res
-				}
-			}
+			// Keep legacy method invocation, but never publish request-derived choices
+			// into the process-shared field. Attributes evaluates its own local choices.
+			_ = results
 		}
 	}
 
